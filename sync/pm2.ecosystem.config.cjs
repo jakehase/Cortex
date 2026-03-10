@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'cortex-git-autosync',
       script: '/opt/clawdbot/sync/cortex_git_sync_loop.sh',
-      interpreter: '/usr/bin/env bash',
+      interpreter: '/bin/bash',
       autorestart: true,
       max_restarts: 20,
       restart_delay: 5000,
