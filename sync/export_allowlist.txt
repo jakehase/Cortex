@@ -1,0 +1,19 @@
+# Public-safe export allowlist (relative to /opt/clawdbot)
+# Keep this strict. If in doubt, do NOT add it.
+
+Dockerfile
+docker-compose.yml
+requirements.txt
+cortex_server/requirements.txt
+cortex_server/README.md
+docs/**/*.md
+
+# Core Cortex source
+cortex_server/cortex_server/**/*.py
+cortex_server/routers/**/*.py
+cortex_server/modules/**/*.py
+cortex_server/middleware/**/*.py
+cortex_server/tests/**/*.py
+cortex_server/run.py
+cortex_server/scheduler.py
+cortex_server/worker.py

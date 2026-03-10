@@ -1,0 +1,42 @@
+# Level 17 + 6: The Exoskeleton + The Bard - Docker Compose for The Cortex
+
+services:
+  cortex-brain:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cortex-brain
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./config:/app/config:rw
+      - ./logs:/app/logs:rw
+      - ./knowledge:/app/cortex_server/knowledge:rw
+      - ./extensions:/app/cortex_server/modules/extensions:rw
+      - ./outputs:/app/outputs:rw
+      - ./openclaw_state:/root/.openclaw:rw
+      - ./geneticist_applied:/opt/clawdbot/geneticist_applied:rw
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - cortex-network
+    depends_on:
+      - piper-tts
+
+  # Level 6: The Bard - Piper TTS (Open Source, No Auth Required)
+  piper-tts:
+    image: rhasspy/wyoming-piper:latest
+    container_name: piper-tts
+    ports:
+      - "10200:10200"
+    volumes:
+      - ./piper-data:/data:rw
+    restart: unless-stopped
+    networks:
+      - cortex-network
+    command: --voice en_US-lessac-medium --uri tcp://0.0.0.0:10200 --download-dir /data
+
+networks:
+  cortex-network:
+    driver: bridge

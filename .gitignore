@@ -1,0 +1,34 @@
+# Fail-closed: ignore everything by default.
+*
+
+# Allow only the public export + sync scaffolding.
+!.gitignore
+!README_PUBLIC_SYNC.md
+!sync/
+!sync/**
+!public/
+!public/**
+
+# Defense-in-depth: never allow common secret/materialized-runtime files.
+public/**/.env
+public/**/.env.*
+public/**/*.pem
+public/**/*.key
+public/**/*.p12
+public/**/*.pfx
+public/**/*.crt
+public/**/*.der
+public/**/id_rsa
+public/**/id_dsa
+public/**/id_ed25519
+public/**/*.sqlite
+public/**/*.sqlite3
+public/**/*.db
+public/**/*.log
+public/**/*.pid
+public/**/*.tar
+public/**/*.tar.gz
+public/**/*.zip
+public/**/*.jsonl
+public/**/secrets.*
+public/**/credentials.*
