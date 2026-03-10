@@ -6,11 +6,9 @@ import filecmp
 import glob
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import sys
-from datetime import datetime, timezone
 
 EXCLUDED_DIRS = {
     ".git",
@@ -128,16 +126,6 @@ def sync_export(repo_root: Path, export_root: Path, rel_files: list[Path], dry_r
             if d.is_dir() and not any(d.iterdir()):
                 d.rmdir()
 
-    manifest = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "file_count": len(rel_files),
-        "files": [str(p) for p in rel_files],
-    }
-    manifest_path = export_root / ".export-manifest.json"
-    if not dry_run:
-        export_root.mkdir(parents=True, exist_ok=True)
-        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-
     max_mtime = 0.0
     tree_hash = hashlib.sha256()
     for rel in rel_files:
@@ -148,6 +136,19 @@ def sync_export(repo_root: Path, export_root: Path, rel_files: list[Path], dry_r
         tree_hash.update(b"\0")
         tree_hash.update(sha256(src).encode("utf-8"))
         tree_hash.update(b"\n")
+
+    manifest = {
+        "file_count": len(rel_files),
+        "export_tree_sha256": tree_hash.hexdigest(),
+        "files": [str(p) for p in rel_files],
+    }
+    manifest_path = export_root / ".export-manifest.json"
+    if not dry_run:
+        export_root.mkdir(parents=True, exist_ok=True)
+        manifest_text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+        previous = manifest_path.read_text(encoding="utf-8") if manifest_path.exists() else ""
+        if previous != manifest_text:
+            manifest_path.write_text(manifest_text, encoding="utf-8")
 
     return {
         "selected_count": len(rel_files),
