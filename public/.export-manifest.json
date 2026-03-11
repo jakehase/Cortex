@@ -1,6 +1,6 @@
 {
-  "export_tree_sha256": "ad9caa8a39be907e6ff53369ed8e12474d6e44cfb7d74da9f3d337a66536d65f",
-  "file_count": 98,
+  "export_tree_sha256": "61f7870f91a25d06bf014458d768e17fa110130d46637473de485d928a973eca",
+  "file_count": 99,
   "files": [
     "Dockerfile",
     "cortex_server/README.md",
@@ -97,6 +97,7 @@
     "cortex_server/tests/test_outcome_tuner.py",
     "cortex_server/tests/test_qa_fastlane.py",
     "docker-compose.yml",
+    "docs/DEPLOY.md",
     "docs/L9_L15_AUDIT_2026-02-12.md",
     "docs/TRANSPORT_ONLY_OPENCLAW_HARDENING_2026-02-12.md",
     "requirements.txt"
