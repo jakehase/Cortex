@@ -10,6 +10,7 @@ DISABLE_FILE="${DISABLE_FILE:-$REPO_ROOT/.autosync-disabled}"
 DEBOUNCE_SECONDS="${DEBOUNCE_SECONDS:-300}"
 PUSH_MAX_RETRIES="${PUSH_MAX_RETRIES:-4}"
 SYNC_BRANCH="${SYNC_BRANCH:-main}"
+GITHUB_TOKEN_FILE="${GITHUB_TOKEN_FILE:-$REPO_ROOT/.sync-runtime/github_token}"
 DRY_RUN=0
 
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -40,6 +41,15 @@ if [[ ! -d "$REPO_ROOT/.git" ]]; then
 fi
 
 cd "$REPO_ROOT"
+
+if [[ -x "$REPO_ROOT/sync/pull_from_cortex_vm.sh" ]]; then
+  if "$REPO_ROOT/sync/pull_from_cortex_vm.sh" >> "$LOG_FILE" 2>&1; then
+    log "canonical_pull_done"
+  else
+    log "canonical_pull_failed"
+    exit 5
+  fi
+fi
 
 EXPORT_JSON="$RUNTIME_DIR/export_result.json"
 python3 "$REPO_ROOT/sync/build_public_export.py" > "$EXPORT_JSON"
@@ -84,6 +94,15 @@ printf '%s' "$now_epoch" > "$LAST_COMMIT_TS_FILE"
 log "commit_created msg='$commit_msg'"
 
 if git remote get-url origin >/dev/null 2>&1; then
+  if [[ -z "${GITHUB_TOKEN:-}${GH_TOKEN:-}" && -f "$GITHUB_TOKEN_FILE" ]]; then
+    export GITHUB_TOKEN="$(tr -d '\r\n' < "$GITHUB_TOKEN_FILE")"
+    export GH_TOKEN="$GITHUB_TOKEN"
+    log "github_token_loaded file=$GITHUB_TOKEN_FILE"
+    if command -v gh >/dev/null 2>&1; then
+      gh auth status >/dev/null 2>&1 || true
+    fi
+  fi
+
   attempt=1
   delay=2
   while true; do
