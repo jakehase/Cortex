@@ -3,6 +3,7 @@ Queue Router - API endpoints for task queue management.
 Uses non-blocking threadpool for Celery inspection to keep API responsive.
 """
 from typing import Any, List
+import asyncio
 
 from celery.result import AsyncResult
 from fastapi import APIRouter, HTTPException
@@ -34,8 +35,8 @@ class TaskStatus(BaseModel):
 def _count_active_jobs_sync() -> int:
     """Synchronously count active Celery tasks - runs in threadpool."""
     try:
-        # Get the inspector
-        inspect = celery_app.control.inspect()
+        # Get the inspector with short timeout
+        inspect = celery_app.control.inspect(timeout=1.0)
         
         # Get active tasks from all workers
         active_tasks = inspect.active()
@@ -95,19 +96,26 @@ async def get_status(task_id: str) -> TaskStatus:
 
 @router.get("/status")
 async def get_queue_status():
-    """Get queue status with active job count (non-blocking)."""
+    """Get queue status with strict timeout so this route never hangs."""
     try:
-        # Run the slow Celery inspection in a threadpool
-        # This keeps the API responsive even if inspect() times out
-        active_jobs = await run_in_threadpool(_count_active_jobs_sync)
-        
+        active_jobs = await asyncio.wait_for(run_in_threadpool(_count_active_jobs_sync), timeout=1.5)
         return {
+            "success": True,
             "status": "online",
-            "active_jobs": active_jobs
+            "active_jobs": int(active_jobs or 0),
+            "source": "celery.inspect",
+        }
+    except asyncio.TimeoutError:
+        return {
+            "success": True,
+            "status": "degraded",
+            "active_jobs": 0,
+            "source": "timeout_fallback",
         }
     except Exception:
-        # Fallback on any error
         return {
-            "status": "online",
-            "active_jobs": 0
+            "success": True,
+            "status": "degraded",
+            "active_jobs": 0,
+            "source": "error_fallback",
         }

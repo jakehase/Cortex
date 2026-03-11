@@ -31,6 +31,17 @@ def _run_checks(get_json):
         "routing_markers": markers,
     }
 
+    natural_brainstorm_q = quote("Give me creative ideas for launch strategy", safe=":")
+    status, natural_brainstorm = get_json(f"/nexus/orchestrate?query={natural_brainstorm_q}")
+    nrm = (natural_brainstorm or {}).get("routing_method")
+    nmarkers = (natural_brainstorm or {}).get("routing_markers", {}) if isinstance(natural_brainstorm, dict) else {}
+    checks["brainstorm_trigger_natural_language"] = {
+        "pass": status == 200 and nrm == "brainstorm_chain_forced" and nmarkers.get("brainstorm_triggered") is True,
+        "status": status,
+        "routing_method": nrm,
+        "routing_markers": nmarkers,
+    }
+
     status, orches = get_json("/nexus/orchestrate?query=What%20is%202%2B2%3F")
     rm2 = (orches or {}).get("routing_method") if isinstance(orches, dict) else None
     checks["routing_method_present_truthful"] = {

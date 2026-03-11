@@ -1,181 +1,315 @@
+"""L29 Muse — creative inspiration + brainstorming.
+
+This router is intentionally conservative under low-risk tolerance:
+- Calls Oracle with x-augmenter-bypass=1 and response_mode=final_only for predictable behavior.
+- Enforces a strict wall-clock deadline (18s) for the entire Oracle call.
+- Fails closed on empty/invalid Oracle output (never success:true with empty content).
+- Strict input bounds.
+- Strict schema validation for /brainstorm (exact counts 5/3/1).
+- Test hooks (forced-empty) are gated behind env + token and use a header allowlist.
 """
-Muse Router - Inspiration and artistic guidance.
-Level 29: The Muse provides creative direction.
-"""
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import Dict, List, Any, Optional
-from datetime import datetime
-import random
 
-router = APIRouter()
+from __future__ import annotations
 
-inspirations: List[Dict[str, Any]] = []
+import json
+import os
+import time
+from typing import Dict, List, Optional, Literal
+
+import anyio
+import httpx
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field, ValidationError
+
+router = APIRouter(tags=["muse"])
+
+# ---------------------------------------------------------------------------
+# Limits + state
+# ---------------------------------------------------------------------------
+
+MAX_TOPIC_CHARS = 500
+MAX_PROBLEM_CHARS = 1200
+
+# Hard wall-clock budget for Oracle call (must be < request-timeout middleware ~25s)
+ORACLE_DEADLINE_S = 18
+
+MUSE_TEST_HEADERS_ENABLED = os.getenv("MUSE_TEST_HEADERS_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+MUSE_TEST_TOKEN = os.getenv("MUSE_TEST_TOKEN", "").strip()
+MUSE_DEBUG_RAW_RESPONSE = os.getenv("MUSE_DEBUG_RAW_RESPONSE", "false").strip().lower() in ("1", "true", "yes")
+
+_creations_count: int = 0
+_errors_count: int = 0
+_last_error: Optional[str] = None
+_last_oracle_ms: Optional[int] = None
 
 
-class InspirationRequest(BaseModel):
-    domain: str = "general"  # writing, visual, music, design, code
-    mood: Optional[str] = None
-    constraints: Optional[Dict[str, Any]] = {}
+def _set_error(msg: str) -> None:
+    global _errors_count, _last_error
+    _errors_count += 1
+    _last_error = (msg or "unknown")[:500]
 
 
-class AestheticRequest(BaseModel):
-    project_type: str
-    style_preferences: List[str] = []
+def _test_hook_allowed(http_request: Request) -> bool:
+    if not MUSE_TEST_HEADERS_ENABLED:
+        return False
+    if not MUSE_TEST_TOKEN:
+        return False
+    return (http_request.headers.get("x-muse-test-token", "") or "") == MUSE_TEST_TOKEN
+
+
+# ---------------------------------------------------------------------------
+# Models
+# ---------------------------------------------------------------------------
+
+Style = Literal["brainstorm", "poem", "story", "essay"]
+
+
+class InspireRequest(BaseModel):
+    topic: str = Field(..., min_length=1, max_length=MAX_TOPIC_CHARS)
+    style: Optional[Style] = "brainstorm"
+
+
+class InspireResponse(BaseModel):
+    success: bool
+    topic: str
+    style: str
+    content: str
+    error: Optional[str] = None
+
+
+class BrainstormRequest(BaseModel):
+    problem: str = Field(..., min_length=1, max_length=MAX_PROBLEM_CHARS)
+
+
+class _BrainstormItem(BaseModel):
+    idea: str = Field(..., min_length=1, max_length=500)
+    why_it_works: str = Field(..., min_length=1, max_length=1200)
+
+
+class _BrainstormEnvelope(BaseModel):
+    conventional: list[_BrainstormItem] = Field(..., min_length=5, max_length=5)
+    unconventional: list[_BrainstormItem] = Field(..., min_length=3, max_length=3)
+    moonshot: _BrainstormItem
+
+
+class BrainstormResponse(BaseModel):
+    success: bool
+    problem: str
+    conventional: List[Dict[str, str]]
+    unconventional: List[Dict[str, str]]
+    moonshot: Dict[str, str]
+    raw_response: Optional[str] = None
+    error: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Oracle helper
+# ---------------------------------------------------------------------------
+
+ORACLE_URL = "http://127.0.0.1:8888/oracle/chat"
+_ORACLE_TIMEOUT = httpx.Timeout(ORACLE_DEADLINE_S, connect=3.0)
+
+
+async def _call_oracle(prompt: str, system: str, *, extra_headers: dict | None = None, allow_test_headers: bool = False) -> str:
+    """Call Oracle with strict deadline + strict header allowlist."""
+
+    global _last_oracle_ms
+    t0 = time.monotonic()
+
+    allowed_test = {"x-oracle-force-empty-response"}
+
+    # Base headers (always)
+    headers = {
+        "x-augmenter-bypass": "1",
+    }
+
+    # Allowlisted test headers only when explicitly enabled + authorized
+    if allow_test_headers and isinstance(extra_headers, dict):
+        for k, v in extra_headers.items():
+            k = str(k).lower().strip()
+            if k in allowed_test:
+                headers[k] = str(v)
+
+    try:
+        with anyio.fail_after(ORACLE_DEADLINE_S):
+            async with httpx.AsyncClient(timeout=_ORACLE_TIMEOUT) as client:
+                resp = await client.post(
+                    ORACLE_URL,
+                    headers=headers,
+                    json={
+                        "prompt": prompt,
+                        "system": system,
+                        "priority": "normal",
+                        "response_mode": "final_only",
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json() if resp.content else {}
+
+        out = data.get("response") or data.get("text") or ""
+        if not isinstance(out, str):
+            out = str(out)
+        out = out.strip()
+        if not out:
+            raise ValueError("oracle_empty_response")
+        return out
+
+    finally:
+        try:
+            _last_oracle_ms = int((time.monotonic() - t0) * 1000)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 
 @router.get("/status")
 async def muse_status():
-    """Get Muse status - Level 29 artistic guidance."""
     return {
         "success": True,
-        "data": {
-            "level": 29,
-            "name": "The Muse",
-            "role": "Inspiration & Artistic Guidance",
-            "status": "active",
-            "domains": ["writing", "visual", "music", "design", "code", "general"],
-            "inspirations_generated": len(inspirations),
-            "timestamp": datetime.now().isoformat()
-        }
-    }
-
-
-@router.post("/inspire")
-async def get_inspiration(request: InspirationRequest):
-    """Get creative inspiration for domain."""
-    inspiration_id = f"insp_{len(inspirations)}"
-    
-    inspiration_templates = {
-        "writing": [
-            "Write from the perspective of an inanimate object",
-            "Tell a story using only dialogue",
-            "Begin with the ending and work backwards",
-            "Combine two unrelated genres"
-        ],
-        "visual": [
-            "Use only complementary colors",
-            "Create something using only geometric shapes",
-            "Work with extreme contrast",
-            "Focus on negative space"
-        ],
-        "music": [
-            "Use only three notes",
-            "Create a rhythm without percussion",
-            "Write a melody that tells a story",
-            "Experiment with unusual time signatures"
-        ],
-        "design": [
-            "Design for accessibility first",
-            "Use the golden ratio throughout",
-            "Create with mobile constraints",
-            "Design without any text"
-        ],
-        "code": [
-            "Solve it recursively",
-            "Use a functional approach",
-            "Optimize for readability over performance",
-            "Write it as a state machine"
-        ],
-        "general": [
-            "Combine two seemingly unrelated ideas",
-            "Remove the most obvious solution",
-            "Add an unexpected constraint",
-            "Approach from the opposite direction"
-        ]
-    }
-    
-    prompts = inspiration_templates.get(request.domain, inspiration_templates["general"])
-    prompt = random.choice(prompts)
-    
-    result = {
-        "inspiration_id": inspiration_id,
-        "domain": request.domain,
-        "mood": request.mood or "creative",
-        "prompt": prompt,
-        "suggestions": [
-            "Set a timer for 25 minutes and create without editing",
-            "Gather 5 reference examples before starting",
-            "Write down 10 bad ideas first to clear your mind",
-            "Change your environment before beginning"
-        ],
-        "constraints": request.constraints,
-        "timestamp": datetime.now().isoformat()
-    }
-    
-    inspirations.append(result)
-    
-    return {
-        "success": True,
-        "inspiration": result
-    }
-
-
-@router.post("/aesthetic")
-async def aesthetic_guidance(request: AestheticRequest):
-    """Provide aesthetic guidance for project."""
-    style_guide = {
-        "minimalist": {
-            "principles": ["Less is more", "Whitespace is active", "Form follows function"],
-            "colors": ["Monochrome", "Muted tones", "High contrast"],
-            "typography": ["Sans-serif", "Ample line height", "Hierarchy through size"]
+        "level": 29,
+        "name": "Muse",
+        "status": "active",
+        "creations_count": _creations_count,
+        "errors_count": _errors_count,
+        "last_error": _last_error,
+        "last_oracle_ms": _last_oracle_ms,
+        "limits": {
+            "max_topic_chars": MAX_TOPIC_CHARS,
+            "max_problem_chars": MAX_PROBLEM_CHARS,
+            "oracle_deadline_s": ORACLE_DEADLINE_S,
         },
-        "vibrant": {
-            "principles": ["Bold statements", "Energy and movement", "Emotional impact"],
-            "colors": ["Saturated primaries", "Neon accents", "Gradient transitions"],
-            "typography": ["Display fonts", "Varied weights", "Experimental layouts"]
-        },
-        "elegant": {
-            "principles": ["Refined details", "Timeless appeal", "Sophisticated restraint"],
-            "colors": ["Deep jewel tones", "Metallic accents", "Soft neutrals"],
-            "typography": ["Serif fonts", "Classic proportions", "Delicate details"]
-        },
-        "modern": {
-            "principles": ["Clean lines", "Functional beauty", "Contemporary relevance"],
-            "colors": ["Pure whites", "Bold blacks", "Strategic color pops"],
-            "typography": ["Geometric sans", "Consistent spacing", "Clear hierarchy"]
-        }
-    }
-    
-    # Select style based on preferences or default
-    selected_style = "modern"
-    if request.style_preferences:
-        for style in request.style_preferences:
-            if style.lower() in style_guide:
-                selected_style = style.lower()
-                break
-    
-    return {
-        "success": True,
-        "project_type": request.project_type,
-        "style": selected_style,
-        "guidance": style_guide[selected_style],
-        "recommendations": [
-            "Create a mood board before starting",
-            "Define 3-5 core elements and stick to them",
-            "Get feedback at 25%, 50%, and 75% completion",
-            "Document your design decisions"
-        ]
+        "capabilities": ["creative_writing", "ideation", "brainstorming"],
     }
 
 
-@router.get("/prompts")
-async def get_creative_prompts(domain: Optional[str] = None):
-    """Get creative prompts."""
-    all_prompts = {
-        "writing": ["Write about a world where color doesn't exist", "Describe a sound using only visual metaphors"],
-        "visual": ["Create using only circles and lines", "Depict time without clocks or calendars"],
-        "music": ["Compose a piece that gets progressively quieter", "Create a rhythm from nature sounds"],
-        "design": ["Design for someone with opposite preferences", "Create using only one shape"]
-    }
-    
-    if domain and domain in all_prompts:
-        prompts = all_prompts[domain]
+@router.post("/inspire", response_model=InspireResponse)
+async def inspire(request: InspireRequest, http_request: Request):
+    global _creations_count, _last_error
+
+    style = (request.style or "brainstorm").strip().lower()
+
+    system_prompt = (
+        "Reply exact. "
+        "You are a creative muse — an endlessly inventive source of original ideas, "
+        "vivid imagery, and surprising perspectives. Your work is evocative, bold, and "
+        "never generic. You surprise people with the depth and originality of your output."
+    )
+
+    if style == "brainstorm":
+        user_prompt = (
+            f"Generate a brainstorm about: {request.topic}\n\n"
+            "Give 6 unique angles nobody has considered. "
+            "Each should be genuinely surprising and thought-provoking. "
+            "Number them 1-6."
+        )
     else:
-        prompts = [p for sublist in all_prompts.values() for p in sublist]
-    
-    return {
-        "success": True,
-        "domain": domain or "all",
-        "prompts": prompts
-    }
+        user_prompt = (
+            f"Generate a {style} about: {request.topic}\n\n"
+            "Be original, evocative, and surprising. "
+            "Make it memorable and craft it with care."
+        )
+    allow_test = _test_hook_allowed(http_request)
+    extra: dict = {}
+    if allow_test and http_request.headers.get("x-muse-test-oracle-empty", "") == "1":
+        extra["x-oracle-force-empty-response"] = "1"
+
+    try:
+        content = await _call_oracle(user_prompt, system_prompt, extra_headers=(extra if allow_test else None), allow_test_headers=allow_test)
+        _creations_count += 1
+        _last_error = None
+        return InspireResponse(success=True, topic=request.topic, style=style, content=content)
+
+    except (TimeoutError, httpx.TimeoutException):
+        _set_error("oracle_timeout")
+        return InspireResponse(success=False, topic=request.topic, style=style, content="", error="oracle_timeout")
+    except httpx.HTTPStatusError:
+        _set_error("oracle_http_status")
+        return InspireResponse(success=False, topic=request.topic, style=style, content="", error="oracle_http_status")
+    except httpx.RequestError:
+        _set_error("oracle_request_error")
+        return InspireResponse(success=False, topic=request.topic, style=style, content="", error="oracle_request_error")
+    except ValueError as e:
+        _set_error(str(e) or "oracle_value_error")
+        return InspireResponse(success=False, topic=request.topic, style=style, content="", error=str(e) or "oracle_value_error")
+    except Exception as e:
+        _set_error(f"inspire_error:{type(e).__name__}")
+        return InspireResponse(success=False, topic=request.topic, style=style, content="", error="oracle_unknown_error")
+
+
+@router.post("/brainstorm", response_model=BrainstormResponse)
+async def brainstorm(request: BrainstormRequest, http_request: Request):
+    global _creations_count, _last_error
+
+    system_prompt = (
+        "Return JSON only. You are an innovation consultant. "
+        "Return valid JSON in this exact format: "
+        '{"conventional": [{"idea": "...", "why_it_works": "..."}], '
+        '"unconventional": [{"idea": "...", "why_it_works": "..."}], '
+        '"moonshot": {"idea": "...", "why_it_works": "..."}}. '
+        "conventional must have exactly 5 items; unconventional exactly 3; moonshot exactly 1 object." 
+    )
+
+    user_prompt = (
+        f"For this problem: {request.problem}\n\n"
+        "Generate: (1) 5 conventional solutions (2) 3 unconventional/lateral solutions (3) 1 moonshot idea. "
+        "Return JSON only."
+    )
+    allow_test = _test_hook_allowed(http_request)
+    extra: dict = {}
+    if allow_test and http_request.headers.get("x-muse-test-oracle-empty", "") == "1":
+        extra["x-oracle-force-empty-response"] = "1"
+
+    raw: str = ""
+    try:
+        raw = await _call_oracle(user_prompt, system_prompt, extra_headers=(extra if allow_test else None), allow_test_headers=allow_test)
+
+        json_str = raw.strip()
+        if "```json" in json_str:
+            json_str = json_str.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in json_str:
+            json_str = json_str.split("```", 1)[1].split("```", 1)[0].strip()
+
+        parsed = json.loads(json_str)
+        env = _BrainstormEnvelope.model_validate(parsed)
+
+        _creations_count += 1
+        _last_error = None
+        return BrainstormResponse(
+            success=True,
+            problem=request.problem,
+            conventional=[i.model_dump() for i in env.conventional],
+            unconventional=[i.model_dump() for i in env.unconventional],
+            moonshot=env.moonshot.model_dump(),
+        )
+
+    except (TimeoutError, httpx.TimeoutException):
+        _set_error("oracle_timeout")
+        return BrainstormResponse(success=False, problem=request.problem, conventional=[], unconventional=[], moonshot={"idea": "", "why_it_works": ""}, error="oracle_timeout")
+    except httpx.HTTPStatusError:
+        _set_error("oracle_http_status")
+        return BrainstormResponse(success=False, problem=request.problem, conventional=[], unconventional=[], moonshot={"idea": "", "why_it_works": ""}, error="oracle_http_status")
+    except httpx.RequestError:
+        _set_error("oracle_request_error")
+        return BrainstormResponse(success=False, problem=request.problem, conventional=[], unconventional=[], moonshot={"idea": "", "why_it_works": ""}, error="oracle_request_error")
+    except json.JSONDecodeError:
+        _set_error("oracle_invalid_json")
+        raw_out = raw if MUSE_DEBUG_RAW_RESPONSE else None
+        if isinstance(raw_out, str) and raw_out and len(raw_out) > 1200:
+            raw_out = raw_out[:1200] + "…"
+        return BrainstormResponse(success=False, problem=request.problem, conventional=[], unconventional=[], moonshot={"idea": "", "why_it_works": ""}, raw_response=raw_out, error="oracle_invalid_json")
+    except ValidationError:
+        _set_error("oracle_invalid_json_schema")
+        raw_out = raw if MUSE_DEBUG_RAW_RESPONSE else None
+        if isinstance(raw_out, str) and raw_out and len(raw_out) > 1200:
+            raw_out = raw_out[:1200] + "…"
+        return BrainstormResponse(success=False, problem=request.problem, conventional=[], unconventional=[], moonshot={"idea": "", "why_it_works": ""}, raw_response=raw_out, error="oracle_invalid_json_schema")
+    except ValueError as e:
+        _set_error(str(e) or "oracle_value_error")
+        return BrainstormResponse(success=False, problem=request.problem, conventional=[], unconventional=[], moonshot={"idea": "", "why_it_works": ""}, error=str(e) or "oracle_value_error")
+    except Exception as e:
+        _set_error(f"brainstorm_error:{type(e).__name__}")
+        return BrainstormResponse(success=False, problem=request.problem, conventional=[], unconventional=[], moonshot={"idea": "", "why_it_works": ""}, error="oracle_unknown_error")

@@ -4,11 +4,14 @@ Error handling middleware and request ID tracking.
 
 import uuid
 import traceback
+import logging
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from cortex_server.models.requests import APIResponse
+
+logger = logging.getLogger(__name__)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
@@ -49,7 +52,7 @@ def register_exception_handlers(app: FastAPI):
         # Log the full traceback for debugging
         traceback_str = traceback.format_exc()
         # In production, you might want to log this instead of printing
-        print(f"[ERROR] Request {request_id}: {traceback_str}")
+        logger.exception("Request %s failed: %s", request_id, traceback_str)
         
         return JSONResponse(
             status_code=500,

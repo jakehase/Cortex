@@ -6,6 +6,7 @@ import json
 import sqlite3
 from enum import Enum
 from typing import Dict, List, Optional, Any, Iterator
+from pathlib import Path
 from datetime import datetime
 from pydantic import BaseModel, Field
 import threading
@@ -56,10 +57,32 @@ class Edge(BaseModel):
 
 
 class SQLiteStorage:
-    """SQLite-backed storage for the knowledge graph."""
-    
-    def __init__(self, db_path: str = "cortex_graph.db"):
-        self.db_path = db_path
+    """SQLite-backed storage for the knowledge graph.
+
+    IMPORTANT: Use a stable absolute DB path so API requests and offline tools
+    read/write the same graph.
+    """
+
+    DEFAULT_DB_CANDIDATES = [
+        "/opt/clawdbot/cortex_server/cortex_graph.db",
+        "/opt/clawdbot/cortex_graph.db",
+        "cortex_graph.db",
+    ]
+
+    def __init__(self, db_path: Optional[str] = None):
+        if db_path:
+            self.db_path = db_path
+        else:
+            chosen = None
+            for c in self.DEFAULT_DB_CANDIDATES:
+                try:
+                    if Path(c).exists():
+                        chosen = c
+                        break
+                except Exception:
+                    continue
+            self.db_path = chosen or self.DEFAULT_DB_CANDIDATES[-1]
+
         self._local = threading.local()
         self._init_db()
     

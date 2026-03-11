@@ -1,35 +1,10 @@
-"""Command Center Router - Premium sci-fi connectome HUD.
-
-Mass Effect-grade visual command center (Option B):
-- Connectome mesh with stable kNN links driven by real co-activation traces
-  from /hud_display/traces (fallback: /command_center/state synthetic)
-- Faint aesthetic wiring layer (low-opacity long-range links)
-- Traveling pulses + persistent afterglow on edges
-- Premium UI polish: restrained palette + angular glass panels
-- Safe controls panel (POST /command_center/action):
-    - status_sweep (GET /health, /conductor/status, /oracle/status)
-    - orchestrator_list (GET /conductor/workflows)
-    - ping_oracle (GET /oracle/status)
-
-Endpoints:
-- GET  /command_center/              -> HTML HUD (alias: /command_center/ui)
-- GET  /command_center/ui           -> HTML HUD
-- GET  /command_center/three.min.js  -> local Three.js build
-- GET  /command_center/state         -> lightweight synthetic activity feed (fallback)
-- POST /command_center/action        -> safe non-destructive actions
-
-Notes:
-- No external CDN. Three.js is served from routers/_assets/three.min.js
-- Avoid heavy postprocessing; visuals rely on palette + additive blending.
-"""
-
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 import random
 import time
 
@@ -41,344 +16,6 @@ _ASSETS_DIR = Path(__file__).parent / "_assets"
 _THREE_PATH = _ASSETS_DIR / "three.min.js"
 
 
-# 37-level naming map (1..37). Used by /command_center/ui.
-LEVEL_NAMES = {
-  "1": {
-    "name": "kernel",
-    "layer": "Foundation",
-    "purpose": "System core"
-  },
-  "2": {
-    "name": "ghost",
-    "layer": "Foundation",
-    "purpose": "External intelligence (web search/browse)"
-  },
-  "3": {
-    "name": "hive",
-    "layer": "Foundation",
-    "purpose": "Parallelism / distributed execution"
-  },
-  "4": {
-    "name": "lab",
-    "layer": "Foundation",
-    "purpose": "Code execution"
-  },
-  "5": {
-    "name": "oracle",
-    "layer": "Foundation",
-    "purpose": "Reasoning / analysis"
-  },
-  "6": {
-    "name": "bard",
-    "layer": "Foundation",
-    "purpose": "Writing / TTS"
-  },
-  "7": {
-    "name": "librarian",
-    "layer": "Foundation",
-    "purpose": "Memory / recall"
-  },
-  "8": {
-    "name": "sentinel",
-    "layer": "Foundation",
-    "purpose": "Security"
-  },
-  "9": {
-    "name": "architect",
-    "layer": "Foundation",
-    "purpose": "System design"
-  },
-  "10": {
-    "name": "listener",
-    "layer": "Foundation",
-    "purpose": "Intent recognition"
-  },
-  "11": {
-    "name": "catalyst",
-    "layer": "Intelligence",
-    "purpose": "Optimization"
-  },
-  "12": {
-    "name": "darwin",
-    "layer": "Intelligence",
-    "purpose": "Evolution / adaptation"
-  },
-  "13": {
-    "name": "dreamer",
-    "layer": "Intelligence",
-    "purpose": "Creativity / scenarios"
-  },
-  "14": {
-    "name": "chronos",
-    "layer": "Intelligence",
-    "purpose": "Scheduling"
-  },
-  "15": {
-    "name": "council",
-    "layer": "Intelligence",
-    "purpose": "Multi-perspective critique"
-  },
-  "16": {
-    "name": "academy",
-    "layer": "Intelligence",
-    "purpose": "Training / patterns"
-  },
-  "17": {
-    "name": "exoskeleton",
-    "layer": "Intelligence",
-    "purpose": "Tool integration"
-  },
-  "18": {
-    "name": "diplomat",
-    "layer": "Intelligence",
-    "purpose": "Messaging / comms"
-  },
-  "19": {
-    "name": "geneticist",
-    "layer": "Intelligence",
-    "purpose": "Solution optimization"
-  },
-  "20": {
-    "name": "simulator",
-    "layer": "Intelligence",
-    "purpose": "What-if simulation"
-  },
-  "21": {
-    "name": "ouroboros",
-    "layer": "Meta",
-    "purpose": "Self-monitoring"
-  },
-  "22": {
-    "name": "mnemosyne",
-    "layer": "Meta",
-    "purpose": "Long-term memory"
-  },
-  "23": {
-    "name": "cartographer",
-    "layer": "Meta",
-    "purpose": "Self-mapping"
-  },
-  "24": {
-    "name": "nexus",
-    "layer": "Meta",
-    "purpose": "Orchestration"
-  },
-  "25": {
-    "name": "bridge",
-    "layer": "Meta",
-    "purpose": "External AI federation"
-  },
-  "26": {
-    "name": "conductor",
-    "layer": "Meta",
-    "purpose": "Workflow orchestration"
-  },
-  "27": {
-    "name": "forge",
-    "layer": "Meta",
-    "purpose": "Module generation"
-  },
-  "28": {
-    "name": "polyglot",
-    "layer": "Meta",
-    "purpose": "Translation"
-  },
-  "29": {
-    "name": "muse",
-    "layer": "Meta",
-    "purpose": "Inspiration"
-  },
-  "30": {
-    "name": "seer",
-    "layer": "Meta",
-    "purpose": "Forecasting"
-  },
-  "31": {
-    "name": "mediator",
-    "layer": "Apex",
-    "purpose": "Conflict resolution"
-  },
-  "32": {
-    "name": "synthesist",
-    "layer": "Apex",
-    "purpose": "Cross-level synthesis"
-  },
-  "33": {
-    "name": "ethicist",
-    "layer": "Apex",
-    "purpose": "Governance"
-  },
-  "34": {
-    "name": "validator",
-    "layer": "Apex",
-    "purpose": "Testing / verification"
-  },
-  "35": {
-    "name": "singularity",
-    "layer": "Apex",
-    "purpose": "Self-improvement"
-  },
-  "36": {
-    "name": "conductor_prime",
-    "layer": "Apex",
-    "purpose": "Meta-orchestration"
-  },
-  "37": {
-    "name": "command",
-    "layer": "Apex",
-    "purpose": "Command center / UI"
-  }
-}
-
-# Purpose map: easy to tweak (edges are level numbers, 1-based).
-PURPOSE_MAP = {
-  "Research": {
-    "description": "External intelligence, synthesis, and knowledge capture.",
-    "edges": [
-      [
-        2,
-        5
-      ],
-      [
-        2,
-        7
-      ],
-      [
-        5,
-        7
-      ],
-      [
-        5,
-        23
-      ],
-      [
-        23,
-        7
-      ],
-      [
-        30,
-        5
-      ],
-      [
-        13,
-        5
-      ],
-      [
-        29,
-        13
-      ]
-    ]
-  },
-  "Coding": {
-    "description": "Build, test, validate, and ship code.",
-    "edges": [
-      [
-        4,
-        11
-      ],
-      [
-        4,
-        27
-      ],
-      [
-        27,
-        34
-      ],
-      [
-        34,
-        5
-      ],
-      [
-        11,
-        5
-      ],
-      [
-        28,
-        4
-      ],
-      [
-        9,
-        4
-      ],
-      [
-        26,
-        27
-      ]
-    ]
-  },
-  "Ops": {
-    "description": "Reliability, automation, monitoring, security.",
-    "edges": [
-      [
-        21,
-        26
-      ],
-      [
-        21,
-        8
-      ],
-      [
-        8,
-        26
-      ],
-      [
-        14,
-        26
-      ],
-      [
-        14,
-        21
-      ],
-      [
-        26,
-        24
-      ],
-      [
-        24,
-        17
-      ],
-      [
-        17,
-        18
-      ]
-    ]
-  },
-  "Governance": {
-    "description": "Safety, policy, arbitration, and oversight.",
-    "edges": [
-      [
-        33,
-        8
-      ],
-      [
-        33,
-        31
-      ],
-      [
-        31,
-        24
-      ],
-      [
-        33,
-        24
-      ],
-      [
-        34,
-        33
-      ],
-      [
-        15,
-        33
-      ],
-      [
-        22,
-        33
-      ]
-    ]
-  }
-}
-
-
 class ActionRequest(BaseModel):
     action: str
     params: Dict[str, Any] = {}
@@ -386,48 +23,36 @@ class ActionRequest(BaseModel):
 
 @router.get("/three.min.js")
 async def three_min_js():
-    """Serve vendored Three.js (no external CDN)."""
     return FileResponse(str(_THREE_PATH), media_type="application/javascript")
+
+
+@router.get("/node_core.svg")
+async def node_core_svg():
+    return FileResponse(str(_ASSETS_DIR / "node_core.svg"), media_type="image/svg+xml")
+
+
+@router.get("/node_ring.svg")
+async def node_ring_svg():
+    return FileResponse(str(_ASSETS_DIR / "node_ring.svg"), media_type="image/svg+xml")
+
+
+@router.get("/node_arc.svg")
+async def node_arc_svg():
+    return FileResponse(str(_ASSETS_DIR / "node_arc.svg"), media_type="image/svg+xml")
 
 
 @router.get("/state")
 async def command_center_state(seed: int | None = None):
-    """Lightweight synthetic activity feed (fallback).
-
-    Real co-activation traces are expected at /hud_display/traces.
-    Client uses this endpoint only if that isn't present.
-
-    Returns a few node-pairs and a timestamp. Client can map indices → nodes.
-    """
     now = time.time()
     rng = random.Random(seed if seed is not None else int(now))
-    bursts = []
-    for _ in range(rng.randint(1, 3)):
-        a = rng.randint(0, 36)
-        b = rng.randint(0, 36)
-        if a == b:
-            b = (b + 1) % 64
-        strength = rng.random() * 0.75 + 0.25
-        bursts.append({"a": a, "b": b, "strength": strength})
-
-    return JSONResponse({"ok": True, "t": now, "bursts": bursts})
+    return JSONResponse({"ok": True, "t": now, "strength": rng.random() * 0.7 + 0.3})
 
 
 @router.post("/action")
 async def command_center_action(payload: ActionRequest, request: Request):
-    """Safe, non-destructive command center actions.
-
-    All actions are read-only sweeps/pings.
-    """
-
     action = (payload.action or "").strip().lower()
-
-    # Build base URL for *this* server (works behind reverse proxies too)
     scheme = request.url.scheme
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-    if not host:
-        # Fallback (shouldn't happen in normal FastAPI deployment)
-        host = request.url.netloc
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
     base = f"{scheme}://{host}".rstrip("/")
 
     async def _get(path: str):
@@ -438,25 +63,13 @@ async def command_center_action(payload: ActionRequest, request: Request):
 
     try:
         if action in {"status_sweep", "status", "sweep"}:
-            health, conductor, oracle = await _get("/health"), await _get("/conductor/status"), await _get("/oracle/status")
-            return {
-                "ok": True,
-                "action": "status_sweep",
-                "results": {"health": health, "conductor": conductor, "oracle": oracle},
-            }
-
-        if action in {"orchestrator_list", "orchestrators", "workflow_list", "workflows"}:
-            workflows = await _get("/conductor/workflows")
-            return {"ok": True, "action": "orchestrator_list", "results": workflows}
-
+            health = await _get("/health")
+            return {"ok": True, "action": "status_sweep", "results": {"health": health}}
         if action in {"ping_oracle", "oracle"}:
             oracle = await _get("/oracle/status")
             return {"ok": True, "action": "ping_oracle", "results": oracle}
-
         raise HTTPException(status_code=400, detail=f"Unknown action: {payload.action}")
-
     except httpx.HTTPError as e:
-        # Keep errors visible to UI without crashing.
         raise HTTPException(status_code=502, detail=f"Upstream request failed: {str(e)}") from e
 
 
@@ -467,1019 +80,415 @@ async def command_center_ui():
 
 @router.get("/", response_class=HTMLResponse)
 async def command_center_page():
-    if not _THREE_PATH.exists():
-        # Soft failure: return a helpful message rather than 500.
-        return HTMLResponse(
-            "<pre>command_center: missing _assets/three.min.js. "
-            "Download a Three.js build to cortex_server/routers/_assets/three.min.js</pre>",
-            status_code=200,
-        )
+    for req in [_THREE_PATH, _ASSETS_DIR / "node_core.svg", _ASSETS_DIR / "node_ring.svg", _ASSETS_DIR / "node_arc.svg"]:
+        if not req.exists():
+            return HTMLResponse(f"<pre>command_center missing asset: {req.name}</pre>", status_code=200)
 
-    html = r"""<!doctype html>
-<html lang=\"en\">
+    html = r'''<!doctype html>
+<html lang="en">
 <head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, height=device-height, initial-scale=1\" />
-  <title>Cortex • Command Center</title>
-  <style>
-    :root{
-      --bg0:#05070b;
-      --panel: rgba(10,18,26,.62);
-      --line: rgba(140, 210, 255, .14);
-      --lineHi: rgba(140, 210, 255, .55);
-      --pulse: rgba(120, 255, 236, .90);
-      --pulse2: rgba(110, 170, 255, .85);
-      --text: rgba(233, 246, 255, .88);
-      --muted: rgba(233, 246, 255, .55);
-      --warn: rgba(255, 196, 99, .85);
-      --border: rgba(120, 190, 255, .18);
-      --border2: rgba(120, 190, 255, .08);
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace;
-      --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-    }
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; margin:0; background: radial-gradient(1400px 900px at 70% 10%, #0a1624 0%, var(--bg0) 50%, #020307 100%); overflow:hidden; }
-    #stage{ position:fixed; inset:0; }
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Command Center • Core + Levels</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:radial-gradient(1200px 700px at 50% 30%, #0a1e36 0%, #020913 58%, #01050c 100%)}
+#stage{position:fixed;inset:0}
+#badge{position:fixed;left:12px;top:10px;font:12px ui-monospace,monospace;color:#b8f6ff;opacity:.72;letter-spacing:.04em}
+#tooltip{position:fixed;display:none;pointer-events:none;padding:6px 8px;border:1px solid rgba(127,243,255,.35);background:rgba(2,12,20,.82);color:#bdf6ff;font:12px ui-monospace,monospace;border-radius:6px;white-space:nowrap;z-index:20}
 
-    #fx{
-      pointer-events:none;
-      position:fixed; inset:0;
-      background:
-        radial-gradient(1200px 700px at 55% 35%, rgba(80,160,255,.07) 0%, rgba(0,0,0,0) 55%),
-        radial-gradient(1400px 900px at 50% 70%, rgba(0,0,0,.65) 0%, rgba(0,0,0,.82) 60%, rgba(0,0,0,.93) 100%),
-        repeating-linear-gradient( to bottom, rgba(255,255,255,.02), rgba(255,255,255,.02) 1px, rgba(0,0,0,0) 3px, rgba(0,0,0,0) 6px);
-      mix-blend-mode: overlay;
-      opacity:.55;
-    }
-
-    #hud{ position:fixed; inset:0; pointer-events:none; font-family:var(--sans); color:var(--text); }
-
-    .panel{
-      pointer-events:auto;
-      position:absolute;
-      background: linear-gradient(135deg, rgba(18,30,44,.66), rgba(8,12,18,.72));
-      border: 1px solid var(--border);
-      box-shadow: 0 0 0 1px rgba(0,0,0,.25) inset, 0 18px 65px rgba(0,0,0,.45);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      clip-path: polygon(0 10px, 10px 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
-    }
-    .panel .inner{ position:relative; padding:14px 14px 12px 14px; }
-
-    .title{ font-weight:650; letter-spacing:.14em; font-size:12px; text-transform:uppercase; color:rgba(210,245,255,.92); }
-    .sub{ margin-top:6px; font-family:var(--mono); font-size:12px; color:var(--muted); line-height:1.35; white-space:pre-line; }
-    .rule{ margin:12px 0 10px; height:1px; background: linear-gradient(90deg, rgba(120,190,255,.0), rgba(120,190,255,.35), rgba(120,190,255,.0)); }
-
-    /* Left sidebar */
-    #side{ left:18px; top:18px; bottom:18px; width:380px; }
-    #side .inner{ height:100%; display:flex; flex-direction:column; gap:10px; }
-
-    .tabs{ display:flex; gap:8px; }
-    .tab{
-      font-family:var(--mono);
-      font-size:12px;
-      letter-spacing:.06em;
-      text-transform:uppercase;
-      background: rgba(0,0,0,.18);
-      color: rgba(210,245,255,.76);
-      border: 1px solid rgba(120,190,255,.20);
-      padding:8px 10px;
-      cursor:pointer;
-      clip-path: polygon(0 8px, 8px 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-      user-select:none;
-      flex:1;
-      text-align:center;
-    }
-    .tab.active{ border-color: rgba(135,255,244,.34); color: rgba(210,255,250,.92); background: rgba(0,0,0,.26); }
-
-    .filters{ display:flex; flex-wrap:wrap; gap:8px; }
-    .chip{
-      font-family:var(--mono);
-      font-size:11px;
-      letter-spacing:.06em;
-      text-transform:uppercase;
-      padding:6px 9px;
-      border:1px solid rgba(120,190,255,.18);
-      background: rgba(0,0,0,.14);
-      color: rgba(210,245,255,.72);
-      cursor:pointer;
-      clip-path: polygon(0 8px, 8px 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-      user-select:none;
-    }
-    .chip.active{ border-color: rgba(135,255,244,.34); color: rgba(210,255,250,.92); background: rgba(0,0,0,.24); }
-
-    .list{ flex:1; min-height:0; overflow:auto; padding-right:6px; }
-    .list::-webkit-scrollbar{ width:10px; }
-    .list::-webkit-scrollbar-thumb{ background: rgba(120,190,255,.12); border-radius: 999px; }
-
-    .row{ display:flex; gap:10px; align-items:center; padding:8px 8px; border:1px solid rgba(120,190,255,.10); background: rgba(0,0,0,.14);
-      clip-path: polygon(0 10px, 10px 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px));
-      margin-bottom:8px;
-      cursor:pointer;
-      user-select:none;
-    }
-    .row:hover{ border-color: rgba(135,255,244,.22); }
-    .row.active{ border-color: rgba(135,255,244,.34); background: rgba(0,0,0,.22); }
-    .row .id{ width:52px; color: rgba(210,245,255,.64); font-family:var(--mono); font-size:12px; }
-    .row .nm{ flex:1; color: rgba(233,246,255,.86); font-family:var(--mono); font-size:12px; }
-    .row .meta{ color: rgba(233,246,255,.45); font-family:var(--mono); font-size:11px; }
-
-    /* Right panels */
-    #tr{ right:18px; top:18px; width:420px; }
-    #br{ right:18px; bottom:18px; width:520px; }
-
-    .kpiRow{ display:flex; gap:12px; margin-top:10px; }
-    .kpi{ flex:1; padding:10px 10px 9px; background: rgba(0,0,0,.18); border: 1px solid var(--border2);
-      clip-path: polygon(0 8px, 8px 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
-    }
-    .kpi .label{ font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:rgba(210,245,255,.62); }
-    .kpi .value{ margin-top:4px; font-family:var(--mono); font-size:16px; color:rgba(210,245,255,.92); }
-
-    /* Safe controls */
-    .btnRow{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-    button.btn{
-      font-family:var(--mono);
-      font-size:12px;
-      letter-spacing:.06em;
-      text-transform:uppercase;
-      background: rgba(0,0,0,.22);
-      color: rgba(210,245,255,.86);
-      border: 1px solid rgba(120,190,255,.20);
-      padding:8px 10px;
-      cursor:pointer;
-      clip-path: polygon(0 8px, 8px 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-    }
-    button.btn:hover{ border-color: rgba(135,255,244,.30); color: rgba(210,255,250,.92); }
-    button.btn:active{ transform: translateY(1px); }
-    button.btn[disabled]{ opacity:.5; cursor:not-allowed; }
-
-    #tooltip{
-      position:fixed; transform:translate(-50%, -120%);
-      padding:8px 10px;
-      background: rgba(0,0,0,.45);
-      border:1px solid rgba(120,190,255,.22);
-      clip-path: polygon(0 8px, 8px 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
-      font-family:var(--mono);
-      font-size:12px;
-      color: rgba(233,246,255,.86);
-      pointer-events:none;
-      display:none;
-      white-space:nowrap;
-    }
-
-    /* Mobile bottom sheet for sidebar */
-    #sheet_grip{ display:none; }
-
-    @media (max-width: 700px){
-      html,body{ overflow:hidden; }
-
-      /* Hide right panels on mobile; use bottom sheet instead */
-      #tr, #br{ display:none; }
-
-      /* Sidebar becomes a bottom sheet */
-      #side{
-        left:10px; right:10px;
-        width:auto;
-        top:auto;
-        bottom:10px;
-        height:min(78vh, 620px);
-        transform: translateY(calc(100% - 64px));
-        transition: transform 180ms ease;
-        will-change: transform;
-      }
-      #side.expanded{ transform: translateY(0); }
-
-      #sheet_grip{
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:10px;
-        padding:10px 12px 8px 12px;
-        margin:-14px -14px 10px -14px; /* counter inner padding */
-        border-bottom: 1px solid rgba(120,190,255,.10);
-        background: linear-gradient(180deg, rgba(0,0,0,.10), rgba(0,0,0,.0));
-        touch-action:none;
-        user-select:none;
-      }
-      #sheet_grip .bar{
-        height:4px;
-        width:56px;
-        border-radius:999px;
-        background: rgba(210,245,255,.35);
-        box-shadow: 0 0 0 1px rgba(0,0,0,.25) inset;
-      }
-      #sheet_toggle{
-        padding:7px 10px;
-        font-size:11px;
-      }
-
-      /* No hover tooltips on mobile */
-      #tooltip{ display:none !important; }
-    }
-
-  </style>
+/* REALTIME_OVERLAY_V1 */
+.panel{position:fixed;z-index:18;border:1px solid rgba(127,243,255,.25);background:rgba(4,14,24,.74);backdrop-filter:blur(6px);border-radius:10px;box-shadow:0 0 22px rgba(58,213,255,.14), inset 0 0 20px rgba(76,216,255,.08);color:#c7f7ff;font:11px ui-monospace,monospace;letter-spacing:.02em}
+#telemetry{top:10px;right:10px;min-width:250px;padding:8px 10px}
+#telemetry .h{font-size:10px;opacity:.78;text-transform:uppercase;letter-spacing:.12em;margin-bottom:5px}
+#telemetry .r{display:flex;justify-content:space-between;gap:10px;margin:2px 0}
+#telemetry .k{opacity:.72}
+#telemetry .v{color:#e3fbff}
+#kpi{left:12px;top:34px;display:flex;gap:8px;padding:6px 8px}
+#kpi .chip{padding:4px 8px;border-radius:999px;border:1px solid rgba(130,241,255,.22);background:rgba(0,0,0,.22)}
+#activity{left:12px;bottom:12px;max-width:460px;padding:8px 10px}
+#activity .h{font-size:10px;opacity:.8;text-transform:uppercase;letter-spacing:.12em;margin-bottom:5px}
+#activityLog{margin:0;padding-left:16px;max-height:190px;overflow-y:auto;overflow-x:hidden}
+#activityLog li{line-height:1.35;margin:2px 0;color:#bceeff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#activityLog::-webkit-scrollbar{width:8px}
+#activityLog::-webkit-scrollbar-thumb{background:rgba(124,236,255,.28);border-radius:8px}
+.status-real{color:#7dffc2}.status-sim{color:#ffd58c}.status-unavail{color:#ff9ea9}
+</style>
 </head>
 <body>
-  <div id=\"stage\"></div>
-  <div id=\"fx\"></div>
+<div id="stage"></div>
+<div id="badge">CORE_PLUS_LEVELS_V2 • 38 LEVELS</div>
+<div id="tooltip"></div>
 
-  <div id=\"hud\">
-    <div class=\"panel\" id=\"side\"><div class=\"inner\">
-      <div id=\"sheet_grip\" aria-hidden=\"true\">
-        <div class=\"bar\"></div>
-        <button class=\"btn\" id=\"sheet_toggle\" type=\"button\">Expand</button>
-      </div>
-      <div>
-        <div class=\"title\">CORTEX COMMAND CENTER <span style=\"opacity:.7\">• 37 LEVELS</span></div>
-        <div class=\"sub\">Telemetry: /hud_display/traces (NEW request_ids only)\nBaseline: purpose map (Research/Coding/Ops/Governance/All)</div>
-        <div class=\"kpiRow\">
-          <div class=\"kpi\"><div class=\"label\">Nodes</div><div class=\"value\" id=\"k_nodes\">—</div></div>
-          <div class=\"kpi\"><div class=\"label\">Links</div><div class=\"value\" id=\"k_links\">—</div></div>
-          <div class=\"kpi\"><div class=\"label\">Pulses</div><div class=\"value\" id=\"k_pulses\">—</div></div>
-        </div>
-      </div>
+<div id="kpi" class="panel">
+  <div class="chip">nodes <span id="kpiNodes">0</span></div>
+  <div class="chip">links <span id="kpiLinks">0</span></div>
+  <div class="chip">active pulses <span id="kpiPulses">0</span></div>
+</div>
+<div id="telemetry" class="panel">
+  <div class="h">telemetry</div>
+  <div class="r"><span class="k">trace source</span><span id="traceSource" class="v status-unavail">UNAVAILABLE</span></div>
+  <div class="r"><span class="k">mode</span><span id="traceMode" class="v">both</span></div>
+  <div class="r"><span class="k">last request</span><span id="lastReq" class="v">-</span></div>
+  <div class="r"><span class="k">last time</span><span id="lastTime" class="v">-</span></div>
+</div>
+<div id="activity" class="panel">
+  <div class="h">recent activations</div>
+  <ol id="activityLog"></ol>
+</div>
 
-      <div class=\"rule\"></div>
+<script src="./three.min.js"></script>
+<script>
+(()=>{
+  // REALTIME_OVERLAY_V1
+  // ACTIVATION_ROUTE_LOOP_V1
+  const stage=document.getElementById('stage');
+  const tooltip=document.getElementById('tooltip');
+  const LEVEL_DEFS=[
+    {lvl:1,name:'Kernel',group:'Foundation',hot:true},{lvl:2,name:'Ghost',group:'Reasoning Mesh',hot:true},
+    {lvl:3,name:'Parser',group:'Foundation',hot:false},{lvl:4,name:'Lab',group:'Build Chain',hot:true},
+    {lvl:5,name:'Oracle',group:'Reasoning Mesh',hot:true},{lvl:6,name:'Bard',group:'Creative',hot:false},
+    {lvl:7,name:'Librarian',group:'Memory',hot:true},{lvl:8,name:'Cron',group:'Ops Mesh',hot:true},
+    {lvl:9,name:'Architect',group:'Build Chain',hot:false},{lvl:10,name:'Listener',group:'Reasoning Mesh',hot:false},
+    {lvl:11,name:'Catalyst',group:'Build Chain',hot:false},{lvl:12,name:'Hive/Darwin',group:'Ops Mesh',hot:false},
+    {lvl:13,name:'Dreamer',group:'Creative',hot:false},{lvl:14,name:'Chronos',group:'Ops Mesh',hot:false},
+    {lvl:15,name:'Council',group:'Governance',hot:false},{lvl:16,name:'Academy',group:'Governance',hot:false},
+    {lvl:17,name:'Exoskeleton/Tools',group:'Ops Mesh',hot:true},{lvl:18,name:'Diplomat',group:'Governance',hot:false},
+    {lvl:19,name:'Geneticist',group:'Creative',hot:false},{lvl:20,name:'Simulator',group:'Reasoning Mesh',hot:false},
+    {lvl:21,name:'Ouroboros/Sentinel',group:'Governance',hot:true},{lvl:22,name:'Mnemosyne/Knowledge',group:'Memory',hot:true},
+    {lvl:23,name:'Cartographer/Mirror',group:'Memory',hot:false},{lvl:24,name:'Nexus',group:'Ops Mesh',hot:true},
+    {lvl:25,name:'Bridge',group:'Ops Mesh',hot:true},{lvl:26,name:'Orchestrator/Conductor',group:'Ops Mesh',hot:true},
+    {lvl:27,name:'Forge',group:'Build Chain',hot:true},{lvl:28,name:'Polyglot',group:'Creative',hot:false},
+    {lvl:29,name:'Muse',group:'Creative',hot:false},{lvl:30,name:'Seer',group:'Reasoning Mesh',hot:false},
+    {lvl:31,name:'Mediator',group:'Governance',hot:false},{lvl:32,name:'Synthesist',group:'Reasoning Mesh',hot:true},
+    {lvl:33,name:'Ethicist',group:'Governance',hot:true},{lvl:34,name:'Validator',group:'Governance',hot:true},
+    {lvl:35,name:'Singularity',group:'Reasoning Mesh',hot:false},{lvl:36,name:'Conductor (Meta)',group:'Ops Mesh',hot:true},
+    {lvl:37,name:'Awareness',group:'Foundation',hot:true},{lvl:38,name:'Core',group:'Foundation',hot:true}
+  ];
+  const GROUP_ANCHORS={'Reasoning Mesh':{x:0.0,y:2.6},'Ops Mesh':{x:3.5,y:0.6},'Memory':{x:-3.2,y:1.0},'Governance':{x:2.2,y:-2.0},'Build Chain':{x:-2.2,y:-2.0},'Creative':{x:0.0,y:-2.7},'Foundation':{x:0.0,y:0.4}};
+  const LAY_PURPOSE={1:'Keeps the whole system running.',2:'Finds outside info fast.',3:'Breaks messy input into structure.',4:'Runs code and calculations safely.',5:'Reasoning and decision support.',6:'Turns ideas into human-friendly output.',7:'Remembers useful context.',8:'Schedules and recurring tasks.',9:'Designs system structure.',10:'Listens for intent and signals.',11:'Improves speed and efficiency.',12:'Adapts behavior over time.',13:'Explores creative possibilities.',14:'Time coordination and timing logic.',15:'Brings multiple viewpoints together.',16:'Learns patterns and training loops.',17:'Uses tools and integrations.',18:'Handles communication and diplomacy.',19:'Searches for better variants.',20:'Simulates what-if outcomes.',21:'Watches health and safety.',22:'Long-term memory and knowledge.',23:'Maps capabilities and context.',24:'Orchestrates which levels should run.',25:'Bridges external systems/models.',26:'Coordinates workflows.',27:'Builds and assembles new pieces.',28:'Language translation/normalization.',29:'Creative guidance and ideas.',30:'Forecasting and foresight.',31:'Resolves conflicts and tradeoffs.',32:'Combines signals into one answer.',33:'Ethics and policy checks.',34:'Validates and tests outputs.',35:'Self-improvement planning.',36:'Meta-orchestration oversight.',37:'Self-awareness and internal state.',38:'Augmenter/control surface.'};
 
-      <div class=\"tabs\">
-        <div class=\"tab active\" id=\"tab_nodes\">Nodes</div>
-        <div class=\"tab\" id=\"tab_links\">Links</div>
-      </div>
-
-      <div class=\"filters\" id=\"purpose_filters\"></div>
-
-      <div class=\"list\" id=\"list_nodes\"></div>
-      <div class=\"list\" id=\"list_links\" style=\"display:none\"></div>
-
-      <div class=\"rule\"></div>
-      <div class=\"sub\" id=\"details\">Select a purpose, node, or link.</div>
-    </div></div>
-
-    <div class=\"panel\" id=\"tr\"><div class=\"inner\">
-      <div class=\"title\">FOCUS</div>
-      <div class=\"sub\" id=\"focus\">Hover a node to inspect. Click a node in the sidebar to focus/highlight.</div>
-      <div class=\"rule\"></div>
-      <div class=\"sub\" id=\"net\">Idle rotation + camera bias toward recent activity. Live pulses render only for NEW request_ids.</div>
-    </div></div>
-
-    <div class=\"panel\" id=\"br\"><div class=\"inner\">
-      <div class=\"title\">TELEMETRY + CONTROLS</div>
-      <div class=\"sub\">Safe actions (non-destructive): status sweep, list orchestrators, ping oracle.</div>
-      <div class=\"btnRow\">
-        <button class=\"btn\" id=\"btn_sweep\">Status Sweep</button>
-        <button class=\"btn\" id=\"btn_orch\">Orchestrator List</button>
-        <button class=\"btn\" id=\"btn_oracle\">Ping Oracle</button>
-      </div>
-      <div class=\"rule\"></div>
-      <div class=\"sub\" style=\"margin-top:6px\">Vibrance</div>
-      <input id=\"vib\" type=\"range\" min=\"0.6\" max=\"3.0\" step=\"0.1\" value=\"1.8\" style=\"width:100%\"/>
-      <div class=\"sub\" style=\"margin-top:10px\">Baseline</div>
-      <div class=\"btnRow\">
-        <button class=\"btn\" id=\"base_rich\">Rich</button>
-        <button class=\"btn\" id=\"base_clean\">Clean</button>
-      </div>
-      <div class=\"sub\" id=\"log\"></div>
-    </div></div>
-
-    <div id=\"tooltip\"></div>
-  </div>
-
-  <script src=\"./three.min.js\"></script>
-  <script>
-  (() => {
-    const LEVELS = {"1": {"name": "kernel", "layer": "Foundation", "purpose": "System core"}, "2": {"name": "ghost", "layer": "Foundation", "purpose": "External intelligence (web search/browse)"}, "3": {"name": "hive", "layer": "Foundation", "purpose": "Parallelism / distributed execution"}, "4": {"name": "lab", "layer": "Foundation", "purpose": "Code execution"}, "5": {"name": "oracle", "layer": "Foundation", "purpose": "Reasoning / analysis"}, "6": {"name": "bard", "layer": "Foundation", "purpose": "Writing / TTS"}, "7": {"name": "librarian", "layer": "Foundation", "purpose": "Memory / recall"}, "8": {"name": "sentinel", "layer": "Foundation", "purpose": "Security"}, "9": {"name": "architect", "layer": "Foundation", "purpose": "System design"}, "10": {"name": "listener", "layer": "Foundation", "purpose": "Intent recognition"}, "11": {"name": "catalyst", "layer": "Intelligence", "purpose": "Optimization"}, "12": {"name": "darwin", "layer": "Intelligence", "purpose": "Evolution / adaptation"}, "13": {"name": "dreamer", "layer": "Intelligence", "purpose": "Creativity / scenarios"}, "14": {"name": "chronos", "layer": "Intelligence", "purpose": "Scheduling"}, "15": {"name": "council", "layer": "Intelligence", "purpose": "Multi-perspective critique"}, "16": {"name": "academy", "layer": "Intelligence", "purpose": "Training / patterns"}, "17": {"name": "exoskeleton", "layer": "Intelligence", "purpose": "Tool integration"}, "18": {"name": "diplomat", "layer": "Intelligence", "purpose": "Messaging / comms"}, "19": {"name": "geneticist", "layer": "Intelligence", "purpose": "Solution optimization"}, "20": {"name": "simulator", "layer": "Intelligence", "purpose": "What-if simulation"}, "21": {"name": "ouroboros", "layer": "Meta", "purpose": "Self-monitoring"}, "22": {"name": "mnemosyne", "layer": "Meta", "purpose": "Long-term memory"}, "23": {"name": "cartographer", "layer": "Meta", "purpose": "Self-mapping"}, "24": {"name": "nexus", "layer": "Meta", "purpose": "Orchestration"}, "25": {"name": "bridge", "layer": "Meta", "purpose": "External AI federation"}, "26": {"name": "conductor", "layer": "Meta", "purpose": "Workflow orchestration"}, "27": {"name": "forge", "layer": "Meta", "purpose": "Module generation"}, "28": {"name": "polyglot", "layer": "Meta", "purpose": "Translation"}, "29": {"name": "muse", "layer": "Meta", "purpose": "Inspiration"}, "30": {"name": "seer", "layer": "Meta", "purpose": "Forecasting"}, "31": {"name": "mediator", "layer": "Apex", "purpose": "Conflict resolution"}, "32": {"name": "synthesist", "layer": "Apex", "purpose": "Cross-level synthesis"}, "33": {"name": "ethicist", "layer": "Apex", "purpose": "Governance"}, "34": {"name": "validator", "layer": "Apex", "purpose": "Testing / verification"}, "35": {"name": "singularity", "layer": "Apex", "purpose": "Self-improvement"}, "36": {"name": "conductor_prime", "layer": "Apex", "purpose": "Meta-orchestration"}, "37": {"name": "command", "layer": "Apex", "purpose": "Command center / UI"}};
-    const PURPOSE_MAP = {"Research": {"description": "External intelligence, synthesis, and knowledge capture.", "edges": [[2, 5], [2, 7], [5, 7], [5, 23], [23, 7], [30, 5], [13, 5], [29, 13]]}, "Coding": {"description": "Build, test, validate, and ship code.", "edges": [[4, 11], [4, 27], [27, 34], [34, 5], [11, 5], [28, 4], [9, 4], [26, 27]]}, "Ops": {"description": "Reliability, automation, monitoring, security.", "edges": [[21, 26], [21, 8], [8, 26], [14, 26], [14, 21], [26, 24], [24, 17], [17, 18]]}, "Governance": {"description": "Safety, policy, arbitration, and oversight.", "edges": [[33, 8], [33, 31], [31, 24], [33, 24], [34, 33], [15, 33], [22, 33]]}};
-
-    const stage = document.getElementById('stage');
-    const tooltip = document.getElementById('tooltip');
-
-    const kNodesEl = document.getElementById('k_nodes');
-    const kLinksEl = document.getElementById('k_links');
-    const kPulsesEl = document.getElementById('k_pulses');
-    const focusEl = document.getElementById('focus');
-    const logEl = document.getElementById('log');
-    const detailsEl = document.getElementById('details');
-
-    const tabNodes = document.getElementById('tab_nodes');
-    const tabLinks = document.getElementById('tab_links');
-    const listNodes = document.getElementById('list_nodes');
-    const listLinks = document.getElementById('list_links');
-
-    const purposeFilters = document.getElementById('purpose_filters');
-
-    const btnSweep = document.getElementById('btn_sweep');
-    const btnOrch = document.getElementById('btn_orch');
-    const btnOracle = document.getElementById('btn_oracle');
-
-    const clamp=(v,a,b)=>Math.max(a, Math.min(b,v));
-
-    const mqlMobile = window.matchMedia('(max-width: 700px)');
-    const isCoarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-    let IS_MOBILE = !!(mqlMobile && mqlMobile.matches) || isCoarsePointer;
-
-    const sidePanel = document.getElementById('side');
-    const sheetGrip = document.getElementById('sheet_grip');
-    const sheetToggle = document.getElementById('sheet_toggle');
-
-    function setSheetExpanded(expanded){
-      if(!sidePanel) return;
-      if(expanded) sidePanel.classList.add('expanded');
-      else sidePanel.classList.remove('expanded');
-      if(sheetToggle) sheetToggle.textContent = expanded ? 'Collapse' : 'Expand';
+  const els={
+    src:document.getElementById('traceSource'), mode:document.getElementById('traceMode'), req:document.getElementById('lastReq'), time:document.getElementById('lastTime'),
+    n:document.getElementById('kpiNodes'), l:document.getElementById('kpiLinks'), p:document.getElementById('kpiPulses'), log:document.getElementById('activityLog')
+  };
+  const queryMode='real';
+  const seenReq=new Set();
+  const lvlToNode=new Map();
+  function seededRng(seed='cortex'){ 
+    let a = 0x9e3779b9;
+    for(const ch of String(seed)) a = (a ^ ch.charCodeAt(0)) * 2654435761 >>> 0;
+    return function(){
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     }
+  }
+  const rand = seededRng('cortex-layout-v1');
+  const nodeBloom=new Map();
+  const routeAnims=[];
+  let activePulseCount=0;
+  let cortexOnline=true;
 
-    // Default collapsed on mobile.
-    if(IS_MOBILE) setSheetExpanded(false);
-
-    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, powerPreference:'high-performance' });
-    function applyRendererPerfTuning(){
-      const dpr = window.devicePixelRatio || 1;
-      const cap = IS_MOBILE ? 1.5 : 2.0;
-      renderer.setPixelRatio(Math.min(cap, dpr));
+  function addLog(text){
+    const li=document.createElement('li'); li.textContent=text; els.log.prepend(li);
+    while(els.log.children.length>8) els.log.removeChild(els.log.lastChild);
+  }
+  function setSource(kind){
+    els.src.textContent=kind;
+    els.src.className='v ' + (kind==='REAL'?'status-real':(kind==='SIMULATED'?'status-sim':'status-unavail'));
+    cortexOnline = (kind==='REAL');
+  }
+  function levelNumbersFrom(any){
+    if(any==null) return [];
+    if(Array.isArray(any)) return any.flatMap(levelNumbersFrom).map(Number).filter(n=>n>=1&&n<=38);
+    if(typeof any==='number') return (any>=1&&any<=38)?[any]:[];
+    if(typeof any==='string'){
+      const m=[...any.matchAll(/(?:\bL(?:evel)?\s*|\blvl\s*|\blevel\s*|\b)(\d{1,2})\b/gi)].map(x=>Number(x[1])).filter(n=>n>=1&&n<=38);
+      return m;
     }
-    applyRendererPerfTuning();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearColor(0x000000, 0);
-    stage.appendChild(renderer.domElement);
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(55, window.innerWidth/window.innerHeight, 0.1, 160);
-    camera.position.set(0.0, 0.2, 10.2);
-
-    const key = new THREE.DirectionalLight(0x9fdcff, 0.45);
-    key.position.set(2.8, 4.2, 5.6);
-    scene.add(key);
-    const fill = new THREE.DirectionalLight(0x55d7cf, 0.18);
-    fill.position.set(-3.5, -2.0, 4.0);
-    scene.add(fill);
-
-    scene.fog = new THREE.FogExp2(0x04070c, 0.092);
-
-    // Starfield / background particles (lighter on mobile)
-    const starCount = IS_MOBILE ? 650 : 1800;
-    const starPos = new Float32Array(starCount*3);
-    for(let i=0;i<starCount;i++){
-      const a = Math.random()*Math.PI*2;
-      const b = Math.acos(2*Math.random()-1);
-      const r = 22 + Math.random()*38;
-      starPos[i*3+0] = r*Math.sin(b)*Math.cos(a);
-      starPos[i*3+1] = (r*Math.cos(b))*0.85;
-      starPos[i*3+2] = r*Math.sin(b)*Math.sin(a);
+    if(typeof any==='object'){
+      return [
+        ...levelNumbersFrom(any.level), ...levelNumbersFrom(any.activated), ...levelNumbersFrom(any.level), ...levelNumbersFrom(any.activated), ...levelNumbersFrom(any.activated_levels), ...levelNumbersFrom(any.levels), ...levelNumbersFrom(any.path),
+        ...levelNumbersFrom(any.trace_path), ...levelNumbersFrom(any.route), ...levelNumbersFrom(any.sequence)
+      ].filter(Boolean);
     }
-    const starGeom = new THREE.BufferGeometry();
-    starGeom.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-    const starMat = new THREE.PointsMaterial({ color:0x8bdcff, transparent:true, opacity: IS_MOBILE?0.16:0.20, size: IS_MOBILE?0.035:0.030, sizeAttenuation:true, depthWrite:false, blending: THREE.AdditiveBlending });
-    const stars = new THREE.Points(starGeom, starMat);
-    stars.renderOrder = -10;
-    scene.add(stars);
+    return [];
+  }
 
-    let isDown=false, lx=0, ly=0;
-    let yaw=0.5, pitch=0.2, dist=10.2;
-    let lastInteract=performance.now();
+  function queueRoute(levelPath, reqId, ts){
+    const uniq=[];
+    for(const lv of levelPath){ if(!uniq.length || uniq[uniq.length-1]!==lv) uniq.push(lv); }
+    if(uniq.length<1) return;
+    const nodes=uniq.map(lv=>lvlToNode.get(lv)).filter(Boolean);
+    if(!nodes.length) return;
 
-    function onDown(e){ isDown=true; lx=e.clientX; ly=e.clientY; lastInteract=performance.now(); }
-    function onUp(){ isDown=false; lastInteract=performance.now(); }
-    function onMove(e){
-      if(isDown){
-        const dx=(e.clientX-lx), dy=(e.clientY-ly);
-        lx=e.clientX; ly=e.clientY;
-        yaw += dx*0.005;
-        pitch += dy*0.004;
-        pitch = clamp(pitch, -1.15, 1.15);
-        lastInteract=performance.now();
-      }
-      pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
-      pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
-      pointer.px = e.clientX; pointer.py = e.clientY;
-    }
-    function onWheel(e){ dist = clamp(dist + e.deltaY*0.004, 5.2, 18.0); lastInteract=performance.now(); }
-    window.addEventListener('pointerdown', onDown, {passive:true});
-    window.addEventListener('pointerup', onUp, {passive:true});
-    window.addEventListener('pointermove', onMove, {passive:true});
-    window.addEventListener('wheel', onWheel, {passive:true});
+    const now=performance.now()/1000;
+    const seq=[];
+    for(let i=0;i<nodes.length-1;i++) seq.push([nodes[i], nodes[i+1], uniq[i+1]]);
+    seq.push([nodes[nodes.length-1], core.position, null]);
+    seq.push([core.position, nodes[0], uniq[0]]);
 
-    // Bottom-sheet (mobile): tap to expand/collapse + drag handle.
-    if(sheetToggle){
-      sheetToggle.addEventListener('click', ()=>{
-        const expanded = sidePanel && sidePanel.classList.contains('expanded');
-        setSheetExpanded(!expanded);
-      });
-    }
-
-    if(sheetGrip && sidePanel){
-      let dragActive=false;
-      let startY=0;
-      let startTranslate=0;
-      const expandedTranslate = 0;
-      const collapsedTranslate = () => {
-        // Mirror CSS: translateY(calc(100% - 64px))
-        const h = sidePanel.getBoundingClientRect().height;
-        return Math.max(0, h - 64);
-      };
-
-      function getCurrentTranslate(){
-        const m = new DOMMatrixReadOnly(getComputedStyle(sidePanel).transform);
-        return m.m42 || 0;
-      }
-
-      function setTranslate(px){
-        sidePanel.style.transition = 'none';
-        sidePanel.style.transform = `translateY(${px}px)`;
-      }
-
-      function clearTranslate(){
-        sidePanel.style.transition = '';
-        sidePanel.style.transform = '';
-      }
-
-      sheetGrip.addEventListener('pointerdown', (e)=>{
-        if(!IS_MOBILE) return;
-        dragActive=true;
-        startY = e.clientY;
-        startTranslate = getCurrentTranslate();
-        sheetGrip.setPointerCapture(e.pointerId);
-      });
-      sheetGrip.addEventListener('pointermove', (e)=>{
-        if(!dragActive) return;
-        const dy = e.clientY - startY;
-        const t = clamp(startTranslate + dy, expandedTranslate, collapsedTranslate());
-        setTranslate(t);
-      });
-      sheetGrip.addEventListener('pointerup', ()=>{
-        if(!dragActive) return;
-        dragActive=false;
-        const t = getCurrentTranslate();
-        clearTranslate();
-        const shouldExpand = t < collapsedTranslate()*0.55;
-        setSheetExpanded(shouldExpand);
-      });
-      sheetGrip.addEventListener('pointercancel', ()=>{ dragActive=false; clearTranslate(); });
-    }
-
-    // Pinch zoom for touch devices (two-finger pinch => camera distance).
-    let pinchStart=null;
-    let pinchStartDist=0;
-    let pinchStartZoom=0;
-
-    function touchDist(t0, t1){
-      const dx = t0.clientX - t1.clientX;
-      const dy = t0.clientY - t1.clientY;
-      return Math.sqrt(dx*dx + dy*dy);
-    }
-
-    renderer.domElement.addEventListener('touchstart', (e)=>{
-      if(e.touches && e.touches.length===2){
-        pinchStart=true;
-        pinchStartDist = touchDist(e.touches[0], e.touches[1]);
-        pinchStartZoom = dist;
-      }
-    }, {passive:true});
-
-    renderer.domElement.addEventListener('touchmove', (e)=>{
-      if(!(e.touches && e.touches.length===2 && pinchStart)) return;
-      e.preventDefault();
-      const d = touchDist(e.touches[0], e.touches[1]);
-      if(d > 5){
-        const ratio = pinchStartDist / d;
-        dist = clamp(pinchStartZoom * ratio, 5.2, 18.0);
-        lastInteract=performance.now();
-      }
-    }, {passive:false});
-
-    renderer.domElement.addEventListener('touchend', (e)=>{
-      if(!(e.touches && e.touches.length>=2)) pinchStart=null;
-    }, {passive:true});
-
-    const N = 37;
-    const rng = mulberry32(0xC0FFEE);
-
-    const nodes = [];
-    const nodePos = new Float32Array(N*3);
-    for(let i=0;i<N;i++){
-      const u=rng(), v=rng();
-      const theta = 2*Math.PI*u;
-      const phi = Math.acos(2*v-1);
-      const r = 2.9 + (rng()-0.5)*0.30;
-      const x = r*Math.sin(phi)*Math.cos(theta);
-      const y = r*Math.cos(phi)*0.80 + (rng()-0.5)*0.18;
-      const z = r*Math.sin(phi)*Math.sin(theta);
-      nodePos[i*3+0]=x; nodePos[i*3+1]=y; nodePos[i*3+2]=z;
-      const lvl = i+1;
-      const info = LEVELS[String(lvl)] || LEVELS[lvl] || {name:`L${lvl}`, layer:'', purpose:''};
-      nodes.push({
-        id:i,
-        level:lvl,
-        name: `L${String(lvl).padStart(2,'0')} • ${info.name}`,
-        layer: info.layer||'',
-        purpose: info.purpose||'',
-        pos: new THREE.Vector3(x,y,z),
-      });
-    }
-
-    function edgesForPurpose(p){
-      if(p==='All'){
-        const all=[];
-        for(const k of Object.keys(PURPOSE_MAP)) for(const e of (PURPOSE_MAP[k].edges||[])) all.push(e);
-        return all;
-      }
-      return (PURPOSE_MAP[p] && PURPOSE_MAP[p].edges) ? PURPOSE_MAP[p].edges : [];
-    }
-
-    let selectedPurpose = 'All';
-    let selectedNode = -1;
-    let selectedLink = null;
-
-    const PURPOSES = ['All','Research','Coding','Ops','Governance'];
-    function renderPurposeFilters(){
-      purposeFilters.innerHTML='';
-      for(const p of PURPOSES){
-        const el=document.createElement('div');
-        el.className='chip'+(p===selectedPurpose?' active':'');
-        el.textContent=p;
-        el.addEventListener('click', ()=>{
-          selectedPurpose=p;
-          selectedLink=null;
-          renderPurposeFilters();
-          rebuildBaseline();
-          renderLinksList();
-          setDetailsFromPurpose();
-        });
-        purposeFilters.appendChild(el);
-      }
-    }
-
-    let lastPathText = '';
-    function setDetailsFromPurpose(){
-      if(selectedPurpose==='All'){
-        detailsEl.textContent = 'Purpose: All\nDescription: Combined baseline map\nLast path: ' + (lastPathText||'—');
-        return;
-      }
-      const d = PURPOSE_MAP[selectedPurpose]?.description || '—';
-      detailsEl.textContent = `Purpose: ${selectedPurpose}\nDescription: ${d}\nLast path: ${lastPathText||'—'}`;
-    }
-
-    let baseGeom=null, baseLines=null;
-    const baseMat = new THREE.LineBasicMaterial({ color: 0x86d9ff, transparent:true, opacity: (IS_MOBILE?0.08:0.12), depthWrite:false, depthTest:true, blending: THREE.AdditiveBlending });
-
-    const edgeIndex = new Map();
-    let baselineEdges = [];
-
-    let glowLines=null, glowGeom=null, glowCol=null, glow=null;
-    const glowMat = new THREE.LineBasicMaterial({ vertexColors:true, transparent:true, opacity: (IS_MOBILE?0.75:0.85), depthWrite:false, blending: THREE.AdditiveBlending });
-
-    function rebuildBaseline(){
-      if(baseLines){ scene.remove(baseLines); baseGeom.dispose(); }
-      if(glowLines){ scene.remove(glowLines); glowGeom.dispose(); }
-      edgeIndex.clear();
-
-      const raw = edgesForPurpose(selectedPurpose);
-      baselineEdges = raw.map(([la,lb])=>({a:clamp((la|0)-1,0,N-1), b:clamp((lb|0)-1,0,N-1)})).filter(e=>e.a!==e.b);
-      const seen=new Set();
-      baselineEdges = baselineEdges.filter(e=>{
-        const k=`${Math.min(e.a,e.b)}-${Math.max(e.a,e.b)}`;
-        if(seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-
-      const basePos = new Float32Array(baselineEdges.length*2*3);
-      for(let i=0;i<baselineEdges.length;i++){
-        const {a,b}=baselineEdges[i];
-        basePos[i*6+0]=nodePos[a*3+0];
-        basePos[i*6+1]=nodePos[a*3+1];
-        basePos[i*6+2]=nodePos[a*3+2];
-        basePos[i*6+3]=nodePos[b*3+0];
-        basePos[i*6+4]=nodePos[b*3+1];
-        basePos[i*6+5]=nodePos[b*3+2];
-        edgeIndex.set(`${Math.min(a,b)}-${Math.max(a,b)}`, i);
-      }
-      baseGeom = new THREE.BufferGeometry();
-      baseGeom.setAttribute('position', new THREE.BufferAttribute(basePos, 3));
-      baseLines = new THREE.LineSegments(baseGeom, baseMat);
-      baseLines.renderOrder=0;
-      scene.add(baseLines);
-
-      glow = new Float32Array(baselineEdges.length);
-      glowGeom = new THREE.BufferGeometry();
-      glowGeom.setAttribute('position', new THREE.BufferAttribute(basePos.slice(), 3));
-      glowCol = new Float32Array(baselineEdges.length*2*3);
-      glowGeom.setAttribute('color', new THREE.BufferAttribute(glowCol, 3));
-      glowLines = new THREE.LineSegments(glowGeom, glowMat);
-      glowLines.renderOrder=1;
-      scene.add(glowLines);
-
-      kNodesEl.textContent = String(N);
-      kLinksEl.textContent = String(baselineEdges.length);
-    }
-
-    function bumpGlow(edgeIdx, strength){
-      if(!glow || edgeIdx==null || edgeIdx<0 || edgeIdx>=glow.length) return;
-      glow[edgeIdx] = Math.min(1.85, glow[edgeIdx] + strength);
-    }
-
-    const nodeGeom = new THREE.BufferGeometry();
-    nodeGeom.setAttribute('position', new THREE.BufferAttribute(nodePos, 3));
-    const nodeMat = new THREE.PointsMaterial({ color: 0xcdf2ff, size: 0.065, sizeAttenuation:true, transparent:true, opacity: 0.92, depthWrite:false, blending: THREE.AdditiveBlending });
-    const nodePoints = new THREE.Points(nodeGeom, nodeMat);
-    scene.add(nodePoints);
-
-    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.095, 16, 16), new THREE.MeshBasicMaterial({ color: 0x7cffef, transparent:true, opacity: 0.88 }));
-    marker.visible=false;
-    marker.renderOrder=5;
-    scene.add(marker);
-
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(1.55, 2), new THREE.MeshStandardMaterial({ color: 0x0a1b2c, emissive: 0x061522, emissiveIntensity: 0.85, metalness: 0.35, roughness: 0.35, transparent:true, opacity: 0.24 }));
-    scene.add(core);
-
-    const pulses = [];
-    const pulseMatA = new THREE.LineBasicMaterial({ color: 0x7cffef, transparent:true, opacity: 0.85, depthWrite:false, blending: THREE.AdditiveBlending });
-    const pulseMatB = new THREE.LineBasicMaterial({ color: 0x77a8ff, transparent:true, opacity: 0.72, depthWrite:false, blending: THREE.AdditiveBlending });
-
-    function spawnPulseByEdge(edgeIdx, strength=0.65){
-      if(edgeIdx==null || edgeIdx<0 || edgeIdx>=baselineEdges.length) return;
-      const speed = 0.55 + strength*0.75;
-      const useAlt = (rng() > 0.62);
-      const geom = new THREE.BufferGeometry();
-      const pos = new Float32Array(2*3);
-      geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      const line = new THREE.Line(geom, useAlt? pulseMatB : pulseMatA);
-      line.renderOrder=3;
-      scene.add(line);
-      pulses.push({ edgeIndex: edgeIdx, t:0, speed, strength, line, geom, pos, useAlt });
-      bumpGlow(edgeIdx, 0.70*strength + 0.15);
-      while(pulses.length>(IS_MOBILE?40:64)){
-        const p=pulses.shift();
-        scene.remove(p.line);
-        p.geom.dispose();
-      }
-    }
-
-    function spawnPulseBetween(a,b,strength=0.65){
-      const idx = edgeIndex.get(`${Math.min(a,b)}-${Math.max(a,b)}`);
-      if(idx!=null) spawnPulseByEdge(idx, strength);
-    }
-
-    const raycaster = new THREE.Raycaster();
-    raycaster.params.Points.threshold = IS_MOBILE ? 0.18 : 0.11;
-    const pointer = {x:0,y:0,px:0,py:0};
-    let hovered=-1;
-
-    function pickNodeAt(clientX, clientY){
-      pointer.x = (clientX / window.innerWidth) * 2 - 1;
-      pointer.y = -(clientY / window.innerHeight) * 2 + 1;
-      pointer.px = clientX; pointer.py = clientY;
-      raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObject(nodePoints, false);
-      return (hits && hits.length) ? hits[0].index : -1;
-    }
-
-    // Tap/click selection (better on mobile where hover is not available).
-    renderer.domElement.addEventListener('pointerup', (e)=>{
-      if(e.pointerType === 'mouse' && !IS_MOBILE) return; // desktop uses hover + sidebar clicks
-      const idx = pickNodeAt(e.clientX, e.clientY);
-      if(idx < 0) return;
-      selectedNode = idx;
-      selectedLink = null;
-      marker.visible = true;
-      marker.position.copy(nodes[idx].pos);
-      renderNodesList();
-      setDetailsFromNode(idx);
-      biasToNode(idx);
-      // quick glow to confirm selection
-      for(let i=0;i<baselineEdges.length;i++){
-        const be = baselineEdges[i];
-        if(be.a===idx || be.b===idx) bumpGlow(i, 0.55);
-      }
-      // Expand bottom sheet briefly if collapsed (mobile discoverability)
-      if(IS_MOBILE && sidePanel && !sidePanel.classList.contains('expanded')) setSheetExpanded(true);
-      lastInteract=performance.now();
-    }, {passive:true});
-
-    function updateHover(){
-      if(IS_MOBILE){
-        hovered=-1;
-        if(tooltip) tooltip.style.display='none';
-        return;
-      }
-      raycaster.setFromCamera(pointer, camera);
-      const hits = raycaster.intersectObject(nodePoints, false);
-      if(hits && hits.length){
-        const idx = hits[0].index;
-        if(idx !== hovered){
-          hovered = idx;
-          focusEl.textContent = `Focus: ${nodes[idx].name} — ${nodes[idx].purpose}`;
-        }
-        tooltip.style.display='block';
-        tooltip.textContent = nodes[idx].name;
-        tooltip.style.left = `${pointer.px}px`;
-        tooltip.style.top = `${pointer.py}px`;
-      } else {
-        hovered=-1;
-        tooltip.style.display='none';
-      }
-    }
-
-    function renderNodesList(){
-      listNodes.innerHTML='';
-      for(const n of nodes){
-        const row=document.createElement('div');
-        row.className='row'+(n.id===selectedNode?' active':'');
-        row.innerHTML = `<div class='id'>L${String(n.level).padStart(2,'0')}</div><div class='nm'>${n.name.split(' • ')[1]}</div><div class='meta'>${n.layer}</div>`;
-        row.addEventListener('click', ()=>{
-          selectedNode=n.id;
-          selectedLink=null;
-          marker.visible=true;
-          marker.position.copy(n.pos);
-          renderNodesList();
-          setDetailsFromNode(n.id);
-          biasToNode(n.id);
-          for(let i=0;i<baselineEdges.length;i++){
-            const e=baselineEdges[i];
-            if(e.a===n.id || e.b===n.id) bumpGlow(i, 0.55);
-          }
-        });
-        listNodes.appendChild(row);
-      }
-    }
-
-    function renderLinksList(){
-      listLinks.innerHTML='';
-      const desc = (selectedPurpose==='All') ? 'Combined' : (PURPOSE_MAP[selectedPurpose]?.description||'—');
-      const head=document.createElement('div');
-      head.className='sub';
-      head.textContent = `Purpose: ${selectedPurpose}\n${desc}`;
-      listLinks.appendChild(head);
-
-      for(let i=0;i<baselineEdges.length;i++){
-        const e=baselineEdges[i];
-        const a=nodes[e.a], b=nodes[e.b];
-        const row=document.createElement('div');
-        const active = selectedLink && selectedLink.idx===i;
-        row.className='row'+(active?' active':'');
-        row.innerHTML = `<div class='id'>${String(i+1).padStart(2,'0')}</div><div class='nm'>${a.name.split(' • ')[1]} ↔ ${b.name.split(' • ')[1]}</div><div class='meta'>${selectedPurpose}</div>`;
-        row.addEventListener('click', ()=>{
-          selectedLink={idx:i, a:e.a, b:e.b, purpose:selectedPurpose};
-          bumpGlow(i, 1.15);
-          renderLinksList();
-          setDetailsFromLink(i);
-          biasToEdge(e.a,e.b);
-        });
-        listLinks.appendChild(row);
-      }
-    }
-
-    function setDetailsFromNode(idx){
-      const n=nodes[idx];
-      detailsEl.textContent = `Node: ${n.name}\nLayer: ${n.layer||'—'}\nPurpose: ${n.purpose||'—'}\nSelected baseline: ${selectedPurpose}\nLast path: ${lastPathText||'—'}`;
-    }
-    function setDetailsFromLink(i){
-      const e=baselineEdges[i];
-      const a=nodes[e.a], b=nodes[e.b];
-      const d=(selectedPurpose==='All') ? 'Combined baseline map' : (PURPOSE_MAP[selectedPurpose]?.description||'—');
-      detailsEl.textContent = `Purpose: ${selectedPurpose}\nDescription: ${d}\nLink: ${a.name} ↔ ${b.name}\nLast path: ${lastPathText||'—'}`;
-    }
-
-    tabNodes.addEventListener('click', ()=>{
-      tabNodes.classList.add('active'); tabLinks.classList.remove('active');
-      listNodes.style.display='block'; listLinks.style.display='none';
-    });
-    tabLinks.addEventListener('click', ()=>{
-      tabLinks.classList.add('active'); tabNodes.classList.remove('active');
-      listLinks.style.display='block'; listNodes.style.display='none';
+    // slower, longer-lasting activation routes (>=5s total visual persistence)
+    seq.forEach((s,idx)=>{
+      const [a,b,targetLv]=s;
+      const g=new THREE.BufferGeometry().setFromPoints([a.clone(), b.clone()]);
+      const m=new THREE.LineBasicMaterial({color:0x9ef9ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+      const line=new THREE.Line(g,m); scene.add(line);
+      const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:txCore,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false}));
+      spr.scale.set(0.34,0.34,1); scene.add(spr);
+      routeAnims.push({line,spr,a:a.clone(),b:b.clone(),t0:now+idx*0.60,dur:1.55,end:now+idx*0.60+5.2,targetLv});
     });
 
-    const lookAt = new THREE.Vector3(0,0,0);
-    let biasTarget = new THREE.Vector3(0,0,0);
-    function biasToNode(idx){ biasTarget = nodes[idx].pos.clone().multiplyScalar(0.18); }
-    function biasToEdge(a,b){
-      const mid = nodes[a].pos.clone().add(nodes[b].pos).multiplyScalar(0.5);
-      biasTarget = mid.multiplyScalar(0.14);
-    }
+    els.req.textContent=reqId||'-';
+    els.time.textContent=ts?new Date(ts*1000).toLocaleTimeString():new Date().toLocaleTimeString();
+    addLog(`${reqId||'trace'}: ${uniq.map(n=>{ const nm=(LEVEL_DEFS.find(x=>x.lvl===n)?.name||'').split(' • ').pop()||'unknown'; return `L${n}(${nm})`; }).join('→')}`);
+  }
 
-    const seenRequests = new Set();
-
-    function normalizeHudTraces(j){
-      const arr = j?.traces || j?.events || [];
-      if(!Array.isArray(arr)) return [];
-      const out=[];
-      for(const x of arr){
-        const rid = x.request_id || x.requestId || x.id || null;
-        const acts = x.activated || x.path || x.levels || [];
-        if(!rid || !Array.isArray(acts) || !acts.length) continue;
-        const lvls = acts.map(a => (a.level ?? a.lvl ?? a.id ?? a)).map(v => (v|0)).filter(v => v>=1 && v<=37);
-        if(!lvls.length) continue;
-        out.push({request_id:String(rid), levels:lvls});
-      }
-      return out;
-    }
-
-    async function pollTraces(){
-      let j=null;
+  async function pullTraces(){
+    let payload=null, source='UNAVAILABLE';
+    els.mode.textContent=queryMode;
+    try{
+      const r=await fetch('/hud_display/traces',{cache:'no-store'});
+      if(r.ok){ payload=await r.json(); source='REAL'; }
+    }catch(e){}
+    if(!payload){
       try{
-        const r = await fetch('/hud_display/traces', {cache:'no-store'});
-        if(r.ok) j = await r.json();
+        const r2=await fetch('/hud_display/history?seconds=120',{cache:'no-store'});
+        if(r2.ok){ const h=await r2.json(); const acts=Array.isArray(h?.activations)?h.activations:[]; const grouped={}; for(const a of acts){ const rid=String(a?.request_id||a?.requestId||('history:'+Date.now())); const lvl=Number(a?.level); if(!(lvl>=1&&lvl<=37)) continue; if(!grouped[rid]) grouped[rid]=[]; grouped[rid].push({level:lvl}); } const traces=Object.entries(grouped).map(([request_id,activated])=>({request_id,activated})); if(traces.length){ payload={traces}; source='REAL'; } }
       }catch(e){}
-
-      if(!j){
-        try{
-          const r2 = await fetch('./state', {cache:'no-store'});
-          if(r2.ok){
-            const f = await r2.json();
-            const bursts = Array.isArray(f?.bursts) ? f.bursts : [];
-            const rid = 'fallback:' + String(f?.t||Date.now());
-            const levels=[];
-            for(const b of bursts){
-              levels.push(clamp((b.a|0),0,N-1)+1, clamp((b.b|0),0,N-1)+1);
-            }
-            j = {traces:[{request_id:rid, activated: levels.map(l=>({level:l}))}]};
-          }
-        }catch(e){}
-      }
-      if(!j) return;
-
-      const evs = normalizeHudTraces(j);
-      let newCount=0;
-      for(const ev of evs){
-        if(seenRequests.has(ev.request_id)) continue;
-        seenRequests.add(ev.request_id);
-        newCount++;
-
-        const idxs = ev.levels.map(l=>l-1);
-        for(let i=1;i<idxs.length;i++){
-          const a=idxs[i-1], b=idxs[i];
-          if(a===b) continue;
-          spawnPulseBetween(a,b,0.75);
-        }
-        const lastIdx = idxs[idxs.length-1];
-        if(lastIdx!=null){
-          biasToNode(lastIdx);
-          for(let i=0;i<baselineEdges.length;i++){
-            const e=baselineEdges[i];
-            if(e.a===lastIdx || e.b===lastIdx) bumpGlow(i, 0.45);
-          }
-        }
-        lastPathText = ev.levels.map(l=>`L${String(l).padStart(2,'0')}`).join(' → ');
-        setDetailsFromPurpose();
-      }
-      if(newCount) log(`hud_display: +${newCount} new request_id(s)`);
     }
+    setSource(source);
+    if(!payload) return;
 
-    setInterval(pollTraces, 1200);
-    pollTraces();
-
-    async function doAction(action){
-      const btns=[btnSweep, btnOrch, btnOracle];
-      btns.forEach(b=>b.disabled=true);
-      try{
-        const res = await fetch('./action', { method:'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action}) });
-        const j = await res.json().catch(()=>({}));
-        if(!res.ok){ log(`action ${action}: ERROR ${res.status} ${(j && (j.detail||j.error)) || ''}`.trim()); return; }
-        log(`action ${action}: OK`);
-        if(action==='orchestrator_list'){
-          const total = j?.results?.total ?? j?.results?.workflows?.length;
-          if(total!=null) log(`workflows: ${total}`);
-        }
-        if(action==='status_sweep'){
-          const ok = j?.results?.health?.status || j?.results?.health?.ok;
-          if(ok!=null) log(`health: ${String(ok)}`);
-        }
-      }catch(e){
-        log(`action ${action}: FAILED`);
-      } finally {
-        btns.forEach(b=>b.disabled=false);
+    const events=[];
+    const traces = payload.traces || payload.requests || payload.items || [];
+    if(Array.isArray(traces)){
+      for(const t of traces){
+        const reqId=t.request_id||t.id||t.trace_id||`trace-${t.ts||Date.now()}-${(rand()*1e6|0).toString(36)}`;
+        const lv=levelNumbersFrom(t);
+        if(lv.length) events.push({reqId,ts:t.ts||Date.now()/1000,lv});
       }
     }
-    btnSweep.addEventListener('click', ()=>doAction('status_sweep'));
-    btnOrch.addEventListener('click', ()=>doAction('orchestrator_list'));
-    btnOracle.addEventListener('click', ()=>doAction('ping_oracle'));
-
-    let last = performance.now();
-    function animate(now){
-      requestAnimationFrame(animate);
-      const dt = Math.min(0.05, (now-last)/1000); last=now;
-
-      const idle = (now - lastInteract) > 2800;
-      if(!isDown && idle){ yaw += dt*0.10; pitch += Math.sin(now*0.00035)*dt*0.02; }
-      lookAt.lerp(biasTarget, 1 - Math.pow(0.02, dt));
-
-      const cx = Math.sin(yaw)*Math.cos(pitch)*dist;
-      const cz = Math.cos(yaw)*Math.cos(pitch)*dist;
-      const cy = Math.sin(pitch)*dist*0.62;
-      camera.position.set(cx, cy, cz);
-      camera.lookAt(lookAt);
-
-      core.rotation.y += dt*0.22;
-      core.rotation.x += dt*0.10;
-      core.material.opacity = 0.19 + 0.06*Math.sin(now*0.0012);
-
-      baseMat.opacity = (hovered>=0) ? 0.14 : 0.12;
-
-      if(glow){
-        const decay = Math.pow(0.075, dt);
-        for(let i=0;i<glow.length;i++){
-          glow[i] *= decay;
-          const g = clamp(glow[i], 0, 1.0);
-          const r = 0.25*g, gg = 0.75*g, b = 1.00*g;
-          const off = i*6;
-          glowCol[off+0]=r; glowCol[off+1]=gg; glowCol[off+2]=b;
-          glowCol[off+3]=r; glowCol[off+4]=gg; glowCol[off+5]=b;
-        }
-        glowGeom.attributes.color.needsUpdate = true;
+    const acts = payload.activations || payload.history || [];
+    if(Array.isArray(acts)){
+      for(const a of acts){
+        const reqId=a.request_id||a.id||`hist-${a.ts||Date.now()}-${a.level||'x'}`;
+        const lv=levelNumbersFrom(a);
+        if(lv.length) events.push({reqId,ts:a.ts||Date.now()/1000,lv});
       }
-
-      for(let i=pulses.length-1;i>=0;i--){
-        const p = pulses[i];
-        p.t += dt * p.speed;
-        const e = baselineEdges[p.edgeIndex];
-        const ax=nodePos[e.a*3+0], ay=nodePos[e.a*3+1], az=nodePos[e.a*3+2];
-        const bx=nodePos[e.b*3+0], by=nodePos[e.b*3+1], bz=nodePos[e.b*3+2];
-
-        const len = 0.18 + 0.22*p.strength;
-        const t0 = clamp(p.t - len, 0, 1);
-        const t1 = clamp(p.t, 0, 1);
-        const u0 = smoothstep(0,1,t0);
-        const u1 = smoothstep(0,1,t1);
-
-        p.pos[0] = ax + (bx-ax)*u0;
-        p.pos[1] = ay + (by-ay)*u0;
-        p.pos[2] = az + (bz-az)*u0;
-        p.pos[3] = ax + (bx-ax)*u1;
-        p.pos[4] = ay + (by-ay)*u1;
-        p.pos[5] = az + (bz-az)*u1;
-        p.geom.attributes.position.needsUpdate = true;
-
-        const fade = 1 - clamp((p.t-0.75)/0.25, 0, 1);
-        p.line.material.opacity = (p.useAlt?0.66:0.78) * fade;
-
-        if(p.t >= 1.05){
-          scene.remove(p.line);
-          p.geom.dispose();
-          pulses.splice(i,1);
-        }
-      }
-
-      kPulsesEl.textContent = String(pulses.length);
-
-      // subtle background motion
-      if(typeof stars !== 'undefined' && stars){
-        stars.rotation.y += IS_MOBILE ? 0.0004 : 0.0007;
-        stars.rotation.x += IS_MOBILE ? 0.00015 : 0.00025;
-      }
-
-      updateHover();
-      renderer.render(scene, camera);
-    }
-    requestAnimationFrame(animate);
-
-    function log(msg){
-      const t = new Date().toLocaleTimeString();
-      const line = `[${t}] ${msg}`;
-      const prev = logEl.textContent.split('\n').filter(Boolean);
-      prev.unshift(line);
-      logEl.textContent = prev.slice(0,9).join('\n');
     }
 
-    function onResize(){
-      IS_MOBILE = !!(mqlMobile && mqlMobile.matches) || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-      applyRendererPerfTuning();
-      raycaster.params.Points.threshold = IS_MOBILE ? 0.18 : 0.11;
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      camera.aspect = window.innerWidth/window.innerHeight;
-      camera.updateProjectionMatrix();
+    events.sort((a,b)=>a.ts-b.ts);
+    const latest = events.length ? events[events.length-1] : null;
+    if(latest){
+      els.req.textContent = latest.reqId || '-';
+      els.time.textContent = latest.ts ? new Date(latest.ts*1000).toLocaleTimeString() : new Date().toLocaleTimeString();
+    }
+    for(const ev of events.slice(-12)){
+      if(seenReq.has(ev.reqId)) continue;
+      seenReq.add(ev.reqId);
+      queueRoute(ev.lv, ev.reqId, ev.ts);
+      if(seenReq.size>220){ const first=seenReq.values().next().value; seenReq.delete(first); }
+    }
+  }
 
-      // keep sheet state coherent across rotations
-      if(IS_MOBILE){
-        if(sidePanel && !sidePanel.classList.contains('expanded')) setSheetExpanded(false);
+  const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
+  renderer.setSize(innerWidth,innerHeight);
+  stage.appendChild(renderer.domElement);
+
+  const scene=new THREE.Scene();
+  const camera=new THREE.PerspectiveCamera(38,innerWidth/innerHeight,0.1,100);
+  camera.position.set(0,0,11.5);
+
+  const loader=new THREE.TextureLoader();
+  const txCore=loader.load('./node_core.svg');
+  const txRing=loader.load('./node_ring.svg');
+  const txArc=loader.load('./node_arc.svg');
+  [txCore,txRing,txArc].forEach(t=>{ t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4; });
+
+  const core=new THREE.Group();
+  core.position.set(0,1.15,0);
+  scene.add(core);
+  const c0=new THREE.Sprite(new THREE.SpriteMaterial({map:txCore,transparent:true,opacity:0.95,depthWrite:false,blending:THREE.AdditiveBlending})); c0.scale.set(2.8,2.8,1); core.add(c0);
+  const c1=new THREE.Sprite(new THREE.SpriteMaterial({map:txRing,transparent:true,opacity:0.75,depthWrite:false,blending:THREE.AdditiveBlending})); c1.scale.set(3.8,3.8,1); core.add(c1);
+  const c2=new THREE.Sprite(new THREE.SpriteMaterial({map:txRing,transparent:true,opacity:0.48,depthWrite:false,blending:THREE.AdditiveBlending})); c2.scale.set(4.8,4.8,1); core.add(c2);
+  const c3=new THREE.Sprite(new THREE.SpriteMaterial({map:txArc,transparent:true,opacity:0.55,depthWrite:false,blending:THREE.AdditiveBlending})); c3.scale.set(4.5,4.5,1); core.add(c3);
+
+  const squiggles=[];
+  function makeSquiggle(radius, amp, turns, phase, opacity){
+    const pts=[], n=220;
+    for(let i=0;i<=n;i++){ const t=i/n,a=t*Math.PI*2*turns+phase,r=radius+Math.sin(t*Math.PI*8+phase)*amp; pts.push(new THREE.Vector3(Math.cos(a)*r,Math.sin(a)*r*0.55,0)); }
+    const g=new THREE.BufferGeometry().setFromPoints(pts);
+    const m=new THREE.LineBasicMaterial({color:0x7ef0ff,transparent:true,opacity,blending:THREE.AdditiveBlending,depthWrite:false});
+    const l=new THREE.Line(g,m); core.add(l); squiggles.push(l);
+  }
+  makeSquiggle(2.4,0.18,1.15,0.0,0.28); makeSquiggle(2.85,0.22,1.00,1.6,0.24); makeSquiggle(3.15,0.20,1.25,3.1,0.18);
+
+  const levels=[], L=38;
+  for(let i=0;i<L;i++){
+    const x=(rand()-0.5)*10.8, y=(rand()-0.5)*6.2 + 0.2, z=(rand()-0.5)*0.9;
+    if(Math.hypot(x,y-1.15)<2.15){ i--; continue; }
+    const g=new THREE.Group(); g.position.set(x,y,z);
+    const nCore=new THREE.Sprite(new THREE.SpriteMaterial({map:txCore,transparent:true,opacity:0.82,depthWrite:false,blending:THREE.AdditiveBlending})); nCore.scale.set(0.44,0.44,1); g.add(nCore);
+    const nRing=new THREE.Sprite(new THREE.SpriteMaterial({map:txRing,transparent:true,opacity:0.42,depthWrite:false,blending:THREE.AdditiveBlending})); nRing.scale.set(0.66,0.66,1); g.add(nRing);
+    scene.add(g);
+    levels.push({g,nCore,nRing,baseY:y,phase:i*0.47,lvl:i+1,name:`Level ${i+1}`,group:'Unassigned',hot:false});
+  }
+
+  const groupedDefs={}; for(const d of LEVEL_DEFS){ if(!groupedDefs[d.group]) groupedDefs[d.group]=[]; groupedDefs[d.group].push(d); }
+  for(const gk of Object.keys(groupedDefs)) groupedDefs[gk].sort((a,b)=>Number(b.hot)-Number(a.hot));
+  const unassigned = new Set(levels.map((_,i)=>i));
+  for(const group of Object.keys(groupedDefs)){
+    const defs = groupedDefs[group], anchor = GROUP_ANCHORS[group] || {x:0,y:0};
+    const candidates = [...unassigned].sort((ia,ib)=>{ const a=levels[ia].g.position,b=levels[ib].g.position; const da=(a.x-anchor.x)**2+(a.y-anchor.y)**2, db=(b.x-anchor.x)**2+(b.y-anchor.y)**2; return da-db; });
+    for(let k=0;k<defs.length;k++){
+      const idx=candidates[k]; if(idx==null) continue; unassigned.delete(idx); const d=defs[k];
+      levels[idx].lvl=d.lvl; levels[idx].name=d.name; levels[idx].group=d.group; levels[idx].hot=d.hot;
+      lvlToNode.set(d.lvl, levels[idx].g.position);
+    }
+  }
+
+  const linkPos = new Float32Array(L*6);
+  for(let i=0;i<L;i++){ const o=i*6; linkPos[o]=core.position.x; linkPos[o+1]=core.position.y; linkPos[o+2]=0; linkPos[o+3]=levels[i].g.position.x; linkPos[o+4]=levels[i].g.position.y; linkPos[o+5]=levels[i].g.position.z; }
+  const lg=new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(linkPos,3));
+  const lm=new THREE.LineBasicMaterial({color:0x78dfff,transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false});
+  const links=new THREE.LineSegments(lg,lm); scene.add(links);
+
+  const nnPairs=[], pairSeen=new Set();
+  for(let i=0;i<L;i++){
+    const a=levels[i].g.position; let b1=-1,b2=-1,d1=1e9,d2=1e9;
+    for(let j=0;j<L;j++){ if(i===j) continue; const b=levels[j].g.position; const d=(a.x-b.x)**2+(a.y-b.y)**2+(a.z-b.z)**2; if(d<d1){d2=d1;b2=b1;d1=d;b1=j;} else if(d<d2){d2=d;b2=j;} }
+    for(const j of [b1,b2]){ if(j<0) continue; const k=i<j?`${i}-${j}`:`${j}-${i}`; if(pairSeen.has(k)) continue; pairSeen.add(k); nnPairs.push([Math.min(i,j),Math.max(i,j)]); }
+  }
+  const netPos = new Float32Array(nnPairs.length*6);
+  for(let i=0;i<nnPairs.length;i++){ const [a,b]=nnPairs[i], o=i*6, pa=levels[a].g.position, pb=levels[b].g.position; netPos[o]=pa.x; netPos[o+1]=pa.y; netPos[o+2]=pa.z; netPos[o+3]=pb.x; netPos[o+4]=pb.y; netPos[o+5]=pb.z; }
+  const ng=new THREE.BufferGeometry(); ng.setAttribute('position', new THREE.BufferAttribute(netPos,3));
+  const nm=new THREE.LineBasicMaterial({color:0x7de7ff,transparent:true,opacity:0.14,blending:THREE.AdditiveBlending,depthWrite:false});
+  const netLines=new THREE.LineSegments(ng,nm); scene.add(netLines);
+
+  const tandemPairs=[];
+  const groupNodeIds={};
+  levels.forEach((lv,idx)=>{ if(!groupNodeIds[lv.group]) groupNodeIds[lv.group]=[]; groupNodeIds[lv.group].push(idx); });
+  for(const group of Object.keys(groupNodeIds)){
+    const ids=(groupNodeIds[group]||[]).filter(i=>levels[i].hot); if(ids.length<2) continue;
+    for(let i=0;i<ids.length-1;i++) tandemPairs.push([ids[i],ids[i+1]]);
+  }
+  const tandemPos = new Float32Array(tandemPairs.length*6);
+  for(let i=0;i<tandemPairs.length;i++){ const [a,b]=tandemPairs[i], o=i*6, pa=levels[a].g.position, pb=levels[b].g.position; tandemPos[o]=pa.x; tandemPos[o+1]=pa.y; tandemPos[o+2]=pa.z; tandemPos[o+3]=pb.x; tandemPos[o+4]=pb.y; tandemPos[o+5]=pb.z; }
+  const tg=new THREE.BufferGeometry(); tg.setAttribute('position', new THREE.BufferAttribute(tandemPos,3));
+  const tm=new THREE.LineBasicMaterial({color:0x9fffff,transparent:true,opacity:0.28,blending:THREE.AdditiveBlending,depthWrite:false});
+  const tandemLines=new THREE.LineSegments(tg,tm); scene.add(tandemLines);
+
+  els.n.textContent=String(L);
+  els.l.textContent=String(L + nnPairs.length + tandemPairs.length);
+
+  const hoverTargets = levels.map(l=>l.nCore), coreHoverTarget=c0, allHoverTargets=[coreHoverTarget, ...hoverTargets];
+  const raycaster = new THREE.Raycaster(), pointer=new THREE.Vector2(2,2);
+  let hovered=-1, hoveredCore=false, boost=0.0;
+  addEventListener('pointermove',(e)=>{ pointer.x=(e.clientX/innerWidth)*2-1; pointer.y=-(e.clientY/innerHeight)*2+1; },{passive:true});
+  addEventListener('click',()=>{
+    if(hovered>=0){
+      const lv=levels[hovered]?.lvl;
+      const nm=levels[hovered]?.name||`L${lv}`;
+      const why=LAY_PURPOSE[lv]||'General system support.';
+      addLog(`L${lv}(${nm}): ${why}`);
+    }
+  },{passive:true});
+
+  async function poll(){ try{ await pullTraces(); boost=Math.min(1.0, boost+0.10);}catch(e){} }
+  setInterval(poll, 1300); poll();
+
+  let last=performance.now();
+  function anim(nowMs){
+    requestAnimationFrame(anim);
+    const now=nowMs/1000, dt=Math.min(0.05,(nowMs-last)/1000); last=nowMs;
+    boost=Math.max(0, boost-dt*0.2);
+
+    const beat=0.5+0.5*Math.sin(nowMs*0.00108), life=beat*(0.7+0.3*boost);
+    const coreHoverBoost = hoveredCore ? 0.35 : 0.0;
+    const dim = cortexOnline ? 1.0 : 0.28;
+    c0.material.color.setHex(cortexOnline ? 0xffffff : 0xb7b7b7);
+    c1.material.color.setHex(cortexOnline ? 0xffffff : 0xa9a9a9);
+    c2.material.color.setHex(cortexOnline ? 0xffffff : 0x9a9a9a);
+    c3.material.color.setHex(cortexOnline ? 0xffffff : 0x9a9a9a);
+    c0.material.opacity = (0.76 + 0.20*life + 0.10*coreHoverBoost) * dim;
+    c0.scale.setScalar(2.72 + 0.22*life + 0.38*coreHoverBoost);
+    c1.material.rotation += dt*0.24; c2.material.rotation -= dt*0.16; c3.material.rotation += dt*0.10;
+    c1.material.opacity=(0.3+0.42*life + 0.08*coreHoverBoost) * dim; c2.material.opacity=(0.18+0.3*life + 0.06*coreHoverBoost) * dim; c3.material.opacity=(0.2+0.28*(0.5+0.5*Math.sin(nowMs*0.0017)) + 0.06*coreHoverBoost) * dim;
+    core.scale.setScalar(1.0 + 0.08*coreHoverBoost);
+
+    for(let i=0;i<squiggles.length;i++){ squiggles[i].material.color.setHex(cortexOnline ? 0x7ef0ff : 0x8f8f8f); squiggles[i].material.opacity = (0.12 + 0.20*(0.5+0.5*Math.sin(nowMs*0.0012 + i*1.3))) * dim; squiggles[i].rotation.z += dt*(0.03 + i*0.015); }
+
+    for(let i=0;i<levels.length;i++){
+      const n=levels[i], t=nowMs*0.00095 + n.phase;
+      n.g.position.y = n.baseY + Math.sin(t)*0.05;
+      const hoverB=(hovered===i)?0.45:0.0;
+      const bloom=nodeBloom.get(i)||0.0;
+      n.nCore.material.color.setHex(cortexOnline ? 0xffffff : 0xbdbdbd);
+      n.nRing.material.color.setHex(cortexOnline ? 0xffffff : 0xababab);
+      n.nCore.material.opacity = (0.62 + 0.26*(0.5+0.5*Math.sin(t*2.1)) + 0.14*hoverB + bloom*0.35) * dim;
+      n.nRing.material.opacity = (0.24 + 0.25*(0.5+0.5*Math.sin(t*1.7+1.3)) + 0.12*hoverB + bloom*0.28) * dim;
+      n.nCore.scale.setScalar(0.44 + 0.11*hoverB + bloom*0.25);
+      n.nRing.scale.setScalar(0.66 + 0.15*hoverB + bloom*0.32);
+      n.nRing.material.rotation += dt*0.18;
+      if(bloom>0.001) nodeBloom.set(i, bloom*0.93); else nodeBloom.delete(i);
+    }
+
+    for(let i=0;i<L;i++){ const o=i*6; linkPos[o+3]=levels[i].g.position.x; linkPos[o+4]=levels[i].g.position.y; linkPos[o+5]=levels[i].g.position.z; }
+    lg.attributes.position.needsUpdate=true;
+    for(let i=0;i<nnPairs.length;i++){ const [a,b]=nnPairs[i], o=i*6, pa=levels[a].g.position, pb=levels[b].g.position; netPos[o]=pa.x; netPos[o+1]=pa.y; netPos[o+2]=pa.z; netPos[o+3]=pb.x; netPos[o+4]=pb.y; netPos[o+5]=pb.z; }
+    ng.attributes.position.needsUpdate=true;
+    for(let i=0;i<tandemPairs.length;i++){ const [a,b]=tandemPairs[i], o=i*6, pa=levels[a].g.position, pb=levels[b].g.position; tandemPos[o]=pa.x; tandemPos[o+1]=pa.y; tandemPos[o+2]=pa.z; tandemPos[o+3]=pb.x; tandemPos[o+4]=pb.y; tandemPos[o+5]=pb.z; }
+    tg.attributes.position.needsUpdate=true;
+    lm.opacity = 0.12 * dim;
+    nm.opacity = 0.14 * dim;
+    tm.opacity = 0.28 * dim;
+
+    activePulseCount=0;
+    for(let i=routeAnims.length-1;i>=0;i--){
+      const r=routeAnims[i];
+      if(now<r.t0){ r.line.material.opacity=0; r.spr.material.opacity=0; continue; }
+      const p=Math.min(1,(now-r.t0)/r.dur);
+      if(p>=0&&p<=1){
+        const pulse=Math.sin(p*Math.PI);
+        r.line.material.opacity=Math.max(r.line.material.opacity*0.92, (0.18 + pulse*0.72)*dim);
+        r.spr.material.opacity=(0.25 + pulse*0.85)*dim;
+        r.spr.position.copy(r.a.clone().lerp(r.b,p));
+        activePulseCount++;
+        if(p>0.84 && r.targetLv){
+          const idx=levels.findIndex(x=>x.lvl===r.targetLv);
+          if(idx>=0) nodeBloom.set(idx, Math.max(nodeBloom.get(idx)||0, 0.85));
+        }
       } else {
-        // desktop: ensure sidebar is not transformed
-        if(sidePanel){ sidePanel.classList.remove('expanded'); sidePanel.style.transform=''; }
+        r.spr.material.opacity=0;
+        r.line.material.opacity*=0.94;
       }
+      if(now>r.end){ scene.remove(r.line); scene.remove(r.spr); routeAnims.splice(i,1); }
     }
-    window.addEventListener('resize', onResize, {passive:true});
+    els.p.textContent=String(activePulseCount);
 
-    function mulberry32(a){
-      return function(){
-        let t = a += 0x6D2B79F5;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-      };
-    }
+    hoveredCore=false;
+    raycaster.setFromCamera(pointer, camera);
+    const hits=raycaster.intersectObjects(allHoverTargets, false);
+    if(hits.length){
+      const obj=hits[0].object;
+      if(obj===coreHoverTarget){ hovered=-1; hoveredCore=true; tooltip.style.display='block'; tooltip.textContent='Cortex'; }
+      else {
+        const idx=hoverTargets.indexOf(obj);
+        if(idx>=0){ hovered=idx; const lv=levels[idx]; tooltip.style.display='block'; tooltip.textContent=`L${String(lv.lvl).padStart(2,'0')} — ${lv.name}  [${lv.group}]`; }
+      }
+    } else { hovered=-1; hoveredCore=false; tooltip.style.display='none'; }
 
-    function smoothstep(a,b,x){
-      x = clamp((x-a)/(b-a), 0, 1);
-      return x*x*(3 - 2*x);
-    }
+    if(hovered>=0 || hoveredCore){ const wp=hoveredCore?core.position:levels[hovered].g.position; const p=wp.clone().project(camera); tooltip.style.left=`${(p.x*0.5+0.5)*innerWidth+10}px`; tooltip.style.top=`${(-p.y*0.5+0.5)*innerHeight-10}px`; }
+    renderer.render(scene,camera);
+  }
+  requestAnimationFrame(anim);
 
-    renderPurposeFilters();
-    rebuildBaseline();
-    renderNodesList();
-    renderLinksList();
-    setDetailsFromPurpose();
-
-  })();
-  </script>
+  addEventListener('resize',()=>{renderer.setSize(innerWidth,innerHeight); camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();});
+})();
+</script>
 </body>
-</html>"""
-
+</html>'''
     return HTMLResponse(html)

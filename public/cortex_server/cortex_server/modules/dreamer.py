@@ -4,6 +4,7 @@ Scans logs, identifies gaps, and proposes new skills via the Oracle.
 Level 13: The Proactive Dreamer
 """
 import json
+import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -21,9 +22,20 @@ class Dreamer:
     GAP_KEYWORDS = ["failed", "error", "unable", "cannot", "not found", "missing", "timeout"]
     
     def __init__(self, 
-                 log_path: str = "/var/log/cortex.log",
+                 log_path: str = "/app/logs/cortex_event_ledger.jsonl",
                  registry_path: str = "cortex_server/knowledge/evolution/skill_registry.json"):
         self.log_path = Path(log_path)
+        if not self.log_path.exists():
+            candidates = [
+                os.getenv("EVOLUTION_LOG_PATH", "").strip(),
+                "/app/logs/cortex_event_ledger.jsonl",
+                "/app/logs/oracle_ledger.jsonl",
+                "/var/log/cortex.log",
+            ]
+            for c in candidates:
+                if c and Path(c).exists():
+                    self.log_path = Path(c)
+                    break
         self.registry_path = Path(registry_path)
         self.gaps_found: List[Dict] = []
         self._last_proposal: Optional[Dict] = None

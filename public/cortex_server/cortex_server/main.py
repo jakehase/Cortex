@@ -15,6 +15,7 @@ from pathlib import Path
 from cortex_server.middleware.error_handler import register_exception_handlers, RequestIDMiddleware
 from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
 from cortex_server.middleware.hud_middleware import HUDMiddleware
+from cortex_server.middleware.event_ledger_middleware import EventLedgerMiddleware
 from cortex_server.routers import websockets
 from cortex_server.scheduler import start_scheduler
 from cortex_server.modules.chronos import get_chronos
@@ -85,7 +86,8 @@ def create_app() -> FastAPI:
 
     # Custom middleware
     app.add_middleware(RequestIDMiddleware)
-    app.add_middleware(RequestTimeoutMiddleware, timeout_seconds=25, exclude_paths=["/health", "/", "/oracle/chat", "/oracle/status", "/oracle/ledger"])
+    app.add_middleware(RequestTimeoutMiddleware, timeout_seconds=30, exclude_paths=["/health", "/", "/oracle/chat", "/oracle/status", "/oracle/ledger", "/augmenter/chat", "/bard/speak", "/homeassistant/voice/assist_tts"])
+    app.add_middleware(EventLedgerMiddleware)
     app.add_middleware(HUDMiddleware)
     register_exception_handlers(app)
 
@@ -120,7 +122,19 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health_check():
-        return {"status": "healthy", "service": "cortex", "contract": {"identity_phrase": "Cortex-first orchestration active", "activation_metadata_available": True, "activation_metadata_source": "derived"}}
+        return {
+            "status": "healthy",
+            "service": "cortex",
+            "contract": {
+                "identity_phrase": "Cortex-first orchestration active",
+                "activation_metadata_available": True,
+                "activation_metadata_source": "derived",
+            },
+            "one_brain": {
+                "autonomy_control_plane": True,
+                "event_ledger": True,
+            },
+        }
 
     @app.get("/")
     async def root():

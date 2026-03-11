@@ -208,7 +208,7 @@ The class should be ready to use in modules/extensions/{skill_name}.py"""
         generated_code = generated_code.strip()
         
         # 4. Build (Level 9) - Write to modules/extensions/
-        extensions_dir = Path("/root/cortex_server/cortex_server/modules/extensions")
+        extensions_dir = Path("/app/cortex_server/modules/extensions")
         extensions_dir.mkdir(parents=True, exist_ok=True)
         
         file_path = extensions_dir / f"{skill_name}.py"
@@ -305,7 +305,7 @@ async def geneticist_status() -> Dict:
         
         return {
             "status": "active",
-            "level": 20,
+            "level": 19,
             "name": "The Geneticist",
             "persona_externalized": persona_exists,
             "persona_path": str(geneticist.persona_path),
@@ -482,7 +482,7 @@ async def evolution_status() -> Dict:
         
         return {
             "status": "active",
-            "level": 16,
+            "level": 13,
             "name": "The Self-Optimizing Dreamer",
             "log_file_accessible": log_exists,
             "registry_accessible": registry_exists,
@@ -493,8 +493,6 @@ async def evolution_status() -> Dict:
             "diplomat_active": True,
             "geneticist_active": True,
             "simulator_active": True,
-            "level": 20,
-            "name": "The Simulated Self-Evolving System"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Status check failed: {str(e)}")
