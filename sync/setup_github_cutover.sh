@@ -13,11 +13,13 @@ fi
 
 cd "$REPO_ROOT"
 
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  echo "$GITHUB_TOKEN" | gh auth login --with-token >/dev/null
+if [[ -n "${GITHUB_TOKEN:-}${GH_TOKEN:-}" ]]; then
+  # gh will use token from environment directly; avoid `gh auth login` because it
+  # errors when GITHUB_TOKEN/GH_TOKEN is already set.
+  gh auth status >/dev/null 2>&1 || true
+else
+  gh auth status >/dev/null
 fi
-
-gh auth status >/dev/null
 
 # Create repo if missing
 if ! gh repo view "$GITHUB_REPO" >/dev/null 2>&1; then
