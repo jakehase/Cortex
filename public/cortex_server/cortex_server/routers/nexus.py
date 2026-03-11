@@ -689,7 +689,12 @@ def _fetch_kernel_online_levels() -> Optional[set]:
 
 
 def _architect_healthy() -> bool:
-    for path in ["/architect_expanded/status", "/architect/status"]:
+    # In SAFE_MODE, L9 is intentionally proxied by meta-conductor.
+    # Avoid blocking self-HTTP calls back into the same 8888 worker.
+    if str(os.getenv("CORTEX_SAFE_MODE", "")).lower() in {"1", "true", "yes", "on"}:
+        return True
+
+    for path in ["/meta_conductor/status", "/architect_expanded/status", "/architect/status"]:
         try:
             resp = requests.get(f"http://localhost:8888{path}", timeout=1.2)
             if resp.status_code != 200:
@@ -697,6 +702,8 @@ def _architect_healthy() -> bool:
             data = resp.json()
             if not isinstance(data, dict):
                 continue
+            if data.get("success") is True:
+                return True
             status = str(((data.get("data") or {}).get("status") if isinstance(data.get("data"), dict) else data.get("status", ""))).lower()
             if status in {"active", "healthy", "online", "ok", ""}:
                 return True
