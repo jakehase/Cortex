@@ -14,6 +14,28 @@ from cortex_server.models.requests import (
 
 
 class ToolService:
+    
+    def _git_identity_configured(self, repo_path: str) -> tuple[bool, str]:
+        import subprocess
+        try:
+            n = subprocess.run(["git", "-C", repo_path, "config", "user.name"], capture_output=True, text=True)
+            e = subprocess.run(["git", "-C", repo_path, "config", "user.email"], capture_output=True, text=True)
+            name = n.stdout.strip()
+            email = e.stdout.strip()
+            if name and email:
+                return True, ""
+
+            # fallback global
+            ng = subprocess.run(["git", "config", "--global", "user.name"], capture_output=True, text=True)
+            eg = subprocess.run(["git", "config", "--global", "user.email"], capture_output=True, text=True)
+            gname = ng.stdout.strip()
+            gemail = eg.stdout.strip()
+            if gname and gemail:
+                return True, ""
+            return False, "Git identity missing. Set user.name and user.email (repo or global)."
+        except Exception as e:
+            return False, f"Git identity check failed: {str(e)}"
+
     """Service for tool operations."""
     
     def __init__(self):
@@ -162,6 +184,10 @@ class ToolService:
     async def git_commit(self, repo_path: str, message: str) -> Dict[str, Any]:
         """Create a commit."""
         try:
+            ok, err = self._git_identity_configured(repo_path)
+            if not ok:
+                return {"success": False, "error": err, "error_code": "git_identity_missing"}
+
             repo = GitRepo(repo_path)
             result = repo.commit(message)
             return {

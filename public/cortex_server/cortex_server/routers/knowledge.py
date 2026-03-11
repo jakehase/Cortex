@@ -21,6 +21,39 @@ class KnowledgeSearchRequest(BaseModel):
     n_results: int = 5
 
 
+@router.get("/status")
+async def knowledge_status():
+    """L22 Mnemosyne status endpoint (canonical)."""
+    try:
+        memory_count = None
+        try:
+            memory_count = int(collection.count())
+        except Exception:
+            memory_count = None
+
+        return {
+            "success": True,
+            "level": 22,
+            "name": "Mnemosyne",
+            "status": "active",
+            "capabilities": [
+                "knowledge_graph",
+                "semantic_search",
+                "memory_persistence",
+            ],
+            "memory_count": memory_count,
+            "canonical_endpoint": "/knowledge/status",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "level": 22,
+            "name": "Mnemosyne",
+            "status": "degraded",
+            "error": str(e),
+        }
+
+
 @router.post("/search")
 async def search_knowledge(request: KnowledgeSearchRequest):
     """Compatibility semantic search endpoint used by OpenClaw config."""

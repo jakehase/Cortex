@@ -1,6 +1,6 @@
 """Chronos - The Night Shift Scheduler for The Cortex.
 
-Level 19: Self-Evolving System
+Level 14: Self-Evolving System
 Runs the Dreamer → Council → Materializer → Diplomat → Geneticist pipeline every night at 03:00.
 """
 import asyncio
@@ -17,7 +17,7 @@ from cortex_server.modules.geneticist import get_geneticist
 class Chronos:
     """Automated scheduler for nightly evolution cycles.
     
-    The Night Shift (Level 19):
+    The Night Shift (Level 14):
     1. 03:00 - Dream: Scan logs, detect gaps, propose skills
     2. 03:05 - Council: Adversarial safety review (The Critic + The Judge)
     3. 03:10 - Build: Materialize approved skills into code
@@ -59,7 +59,7 @@ class Chronos:
             # Step 1: Dream - Detect gaps and propose skills
             self._log("\n🔮 Step 1: Dreaming...")
             dreamer = Dreamer()
-            dream_result = dreamer.dream()
+            dream_result = await asyncio.to_thread(dreamer.dream)
             
             proposal = getattr(dreamer, '_last_proposal', None)
             
@@ -72,7 +72,7 @@ class Chronos:
                 # Step 2: The Council Review (Level 15)
                 self._log("\n⚖️ Step 2: Council Review...")
                 council = get_council()
-                approved = council.review_proposal(proposal)
+                approved = await asyncio.to_thread(council.review_proposal, proposal)
                 
                 if not approved:
                     self._log(f"   ✗ Proposal REJECTED by The Council")
@@ -114,12 +114,13 @@ class Chronos:
         # Send briefing via The Diplomat (Level 18)
         diplomat = get_diplomat()
         changelog_summary = self._get_changelog_summary()
-        diplomat.send_briefing(
+        await asyncio.to_thread(
+            diplomat.send_briefing,
             message=changelog_summary,
             title="🌙 Night Shift Complete"
         )
         
-        # Step 5: Geneticist - Self-modifying prompt evolution (Level 19)
+        # Step 5: Geneticist - Self-modifying prompt evolution (Level 14)
         self._log("\n🧬 Step 5: Geneticist - Evolving DNA...")
         try:
             geneticist = get_geneticist()
@@ -145,7 +146,8 @@ class Chronos:
                     
                     if result.get("success"):
                         self._log(f"   ✓ {result.get('message', 'DNA Mutated')}")
-                        diplomat.send_briefing(
+                        await asyncio.to_thread(
+                            diplomat.send_briefing,
                             message=f"🧬 {result.get('message')}",
                             title="🧬 DNA Mutation Applied"
                         )

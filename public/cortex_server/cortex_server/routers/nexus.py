@@ -401,6 +401,129 @@ def _is_brainstorm_intent(query: str) -> bool:
     return q.startswith("brainstorm:") or " brainstorm:" in q or "brainstorm " in q or q == "brainstorm"
 
 
+def _is_coding_intent(query: str) -> bool:
+    q = (query or "").lower()
+    markers = [
+        "write code", "implement", "refactor", "patch", "bug", "fix", "debug",
+        "unit test", "tests", "function", "class", "api endpoint", "migration",
+    ]
+    return any(m in q for m in markers)
+
+
+def _is_incident_intent(query: str) -> bool:
+    q = (query or "").lower()
+
+    if _is_schedule_intent(query) and any(x in q for x in ["remind", "schedule", "calendar"]):
+        severe_signals = ["outage", "sev1", "sev2", "production down", "service down", "incident response", "on-call"]
+        if not any(s in q for s in severe_signals):
+            return False
+
+    hard_markers = [
+        "outage", "sev1", "sev2", "on-call", "service down", "status page",
+        "page me", "production down", "incident response", "incident commander",
+    ]
+    if _is_architecture_intent(query) and not any(m in q for m in hard_markers):
+        return False
+    if any(m in q for m in hard_markers):
+        return True
+
+    if "postmortem" in q and any(c in q for c in ["outage", "sev", "production", "service"]):
+        return True
+
+    soft_markers = ["rollback", "degraded", "hotfix", "latency spiked", "error rate", "incident"]
+    context_markers = ["prod", "production", "outage", "service", "deploy", "api"]
+    return any(m in q for m in soft_markers) and any(c in q for c in context_markers)
+
+
+def _is_research_intent(query: str) -> bool:
+    q = (query or "").lower()
+    markers = [
+        "research", "sources", "cite", "evidence", "literature", "survey",
+        "compare options", "pros and cons", "benchmark",
+    ]
+    return any(m in q for m in markers)
+
+
+def _is_architecture_intent(query: str) -> bool:
+    q = (query or "").lower()
+    markers = [
+        "architecture", "system design", "design doc", "blueprint", "infra design",
+        "service boundaries", "component diagram", "api design", "schema design",
+        "scalability", "fault tolerance", "high availability",
+    ]
+    return any(m in q for m in markers)
+
+
+def _is_translation_intent(query: str) -> bool:
+    q = (query or "").lower()
+    markers = ["translate", "translation", "in spanish", "in french", "in german", "in japanese", "in korean"]
+    return any(m in q for m in markers)
+
+
+def _is_schedule_intent(query: str) -> bool:
+    q = (query or "").lower()
+
+    explicit_markers = [
+        "remind me", "set a reminder", "schedule", "calendar", "add to calendar",
+        "due date", "deadline", "meeting", "appointment",
+    ]
+    if any(m in q for m in explicit_markers):
+        return True
+
+    has_action = bool(re.search(r"(remind|schedule|calendar|book|set)", q))
+    has_date = bool(re.search(r"(today|tomorrow|tonight|next week|next month|this (?:morning|afternoon|evening)|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))", q))
+    has_time = bool(re.search(r"at\s+(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?|noon|midnight)", q))
+    return has_action and (has_date or has_time)
+
+
+def _is_mediation_intent(query: str) -> bool:
+    q = (query or "").lower()
+    markers = ["mediate", "conflict", "disagreement", "negotiate", "alignment", "stakeholder tension"]
+    return any(m in q for m in markers)
+
+
+def _is_forecast_intent(query: str) -> bool:
+    q = (query or "").lower()
+    markers = ["forecast", "predict", "projection", "scenario", "what will happen", "next quarter"]
+    return any(m in q for m in markers)
+
+
+def _is_training_intent(query: str) -> bool:
+    q = (query or "").lower()
+    markers = [
+        "teach me", "training plan", "curriculum", "study plan", "onboarding plan",
+        "learning path", "learn this", "upskill", "practice roadmap",
+    ]
+    return any(m in q for m in markers)
+
+
+def _is_ethics_intent(query: str) -> bool:
+    q = (query or "").lower()
+    markers = [
+        "ethical", "ethics", "compliance", "fairness", "bias", "governance",
+        "policy risk", "regulatory", "responsible ai",
+    ]
+    return any(m in q for m in markers)
+
+
+def _specialist_level_nudges(query: str) -> list[tuple[int, str]]:
+    q = (query or "").lower()
+    rules = [
+        ((("search the web" in q) or ("latest" in q and "news" in q) or ("web" in q and "news" in q)), 2, "Web/news intent nudge -> L2 Ghost"),
+        (((("create a workflow" in q) or ("workflow" in q and "run" in q))), 26, "Workflow intent nudge -> L26 Conductor"),
+        (((("creative campaign" in q) or ("campaign concept" in q) or ("creative concept" in q))), 29, "Creative concept nudge -> L29 Muse"),
+        (((("self-improvement" in q) or ("code quality" in q and "opportunit" in q))), 35, "Self-improvement intent nudge -> L35 Singularity"),
+        (((("synthesize insights" in q) or ("across multiple levels" in q))), 32, "Synthesis intent nudge -> L32 Synthesist"),
+    ]
+    out: list[tuple[int, str]] = []
+    seen: set[int] = set()
+    for matched, lvl, why in rules:
+        if matched and lvl not in seen:
+            out.append((lvl, why))
+            seen.add(lvl)
+    return out
+
+
 def _canary_hit(query: str, percent: int) -> bool:
     pct = max(0, min(100, int(percent)))
     if pct <= 0:
@@ -803,7 +926,26 @@ async def orchestrate_query(query: str, request: Request = None):
             "cortex_first": True,
             "brainstorm_triggered": False,
             "brainstorm_chain": [],
+            "coding_triggered": False,
+            "coding_chain": [],
+            "incident_triggered": False,
+            "incident_chain": [],
+            "research_triggered": False,
+            "research_chain": [],
+            "translation_triggered": False,
+            "translation_chain": [],
+            "schedule_triggered": False,
+            "schedule_chain": [],
+            "mediation_triggered": False,
+            "mediation_chain": [],
+            "forecast_triggered": False,
+            "forecast_chain": [],
+            "training_triggered": False,
+            "training_chain": [],
+            "ethics_triggered": False,
+            "ethics_chain": [],
             "l9_triggered": False,
+            "l9_chain": [],
         }
         optimizer_telemetry: Dict[str, Any] = {}
         token_plan: Dict[str, Any] = {}
@@ -854,6 +996,18 @@ async def orchestrate_query(query: str, request: Request = None):
             referent_info = prefetch["results"]["context"]
 
         brainstorm_forced = _is_brainstorm_intent(query)
+        coding_forced = _is_coding_intent(query)
+        incident_forced = _is_incident_intent(query)
+        research_forced = _is_research_intent(query)
+        architecture_forced = _is_architecture_intent(query)
+        translation_auto = _is_translation_intent(query)
+        schedule_auto = _is_schedule_intent(query)
+        mediation_auto = _is_mediation_intent(query)
+        forecast_auto = _is_forecast_intent(query)
+        training_auto = _is_training_intent(query)
+        ethics_auto = _is_ethics_intent(query)
+        specialist_nudges = _specialist_level_nudges(query)
+
         if brainstorm_forced:
             routing_method = "brainstorm_chain_forced"
             routing_markers["brainstorm_triggered"] = True
@@ -861,10 +1015,120 @@ async def orchestrate_query(query: str, request: Request = None):
             reasoning.append("Brainstorm trigger detected; forcing Dreamer+Muse before synthesis.")
             for lvl in [13, 29, 32]:
                 recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "brainstorm_forced"})
+        elif incident_forced:
+            routing_method = "incident_chain_forced"
+            routing_markers["incident_triggered"] = True
+            routing_markers["incident_chain"] = ["sentinel", "seer", "council", "diplomat", "chronos"]
+            reasoning.append("Incident trigger detected; forcing Sentinel+Seer+Council+Diplomat+Chronos chain.")
+            for lvl in [21, 30, 15, 18, 14]:
+                recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "incident_forced"})
+        elif architecture_forced:
+            routing_method = "l9_chain_forced"
+            routing_markers["l9_triggered"] = True
+            routing_markers["l9_chain"] = ["architect", "council", "synthesist", "validator"]
+            reasoning.append("Architecture trigger detected; forcing L9 Architect chain for design reasoning.")
+            for lvl in [9, 15, 32, 34]:
+                if lvl == 9 and not _architect_healthy():
+                    reasoning.append("L9 architect health check failed; substituting L15/L32 for architecture-chain resilience.")
+                    for fallback_lvl in [15, 32]:
+                        if fallback_lvl not in [r.get("level") for r in recommended]:
+                            recommended.append({"level": fallback_lvl, "name": LEVEL_MAP[fallback_lvl]["name"], "method": "l9_fallback"})
+                    continue
+                recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "l9_forced"})
+        elif coding_forced:
+            routing_method = "coding_chain_forced"
+            routing_markers["coding_triggered"] = True
+            routing_markers["coding_chain"] = ["lab", "architect", "validator", "forge", "council"]
+            routing_markers["l9_triggered"] = True
+            routing_markers["l9_chain"] = ["architect"]
+            reasoning.append("Coding trigger detected; forcing Lab+Architect+Validator+Forge+Council chain.")
+            for lvl in [4, 9, 34, 27, 15]:
+                if lvl == 9 and not _architect_healthy():
+                    reasoning.append("L9 architect health check failed; substituting L15/L32 for coding chain resilience.")
+                    for fallback_lvl in [15, 32]:
+                        if fallback_lvl not in [r.get("level") for r in recommended]:
+                            recommended.append({"level": fallback_lvl, "name": LEVEL_MAP[fallback_lvl]["name"], "method": "coding_fallback"})
+                    continue
+                recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "coding_forced"})
+        elif research_forced:
+            routing_method = "research_chain_forced"
+            routing_markers["research_triggered"] = True
+            routing_markers["research_chain"] = ["ghost", "librarian", "mnemosyne", "oracle", "validator"]
+            reasoning.append("Research trigger detected; forcing Ghost+Librarian+Mnemosyne+Oracle+Validator chain.")
+            for lvl in [2, 7, 22, 5, 34]:
+                recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "research_forced"})
+
+        if translation_auto:
+            routing_markers["translation_triggered"] = True
+            routing_markers["translation_chain"] = ["polyglot", "diplomat"]
+            reasoning.append("Translation intent detected; auto-activating Polyglot+Diplomat.")
+            for lvl in [28, 18]:
+                if lvl not in [r.get("level") for r in recommended]:
+                    recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "auto_level_trigger"})
+
+        if schedule_auto:
+            routing_markers["schedule_triggered"] = True
+            routing_markers["schedule_chain"] = ["chronos", "listener"]
+            reasoning.append("Scheduling intent detected; auto-activating Chronos+Listener.")
+            for lvl in [14, 10]:
+                if lvl not in [r.get("level") for r in recommended]:
+                    recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "auto_level_trigger"})
+
+        if mediation_auto:
+            routing_markers["mediation_triggered"] = True
+            routing_markers["mediation_chain"] = ["mediator", "council", "diplomat"]
+            reasoning.append("Mediation intent detected; auto-activating Mediator+Council+Diplomat.")
+            for lvl in [31, 15, 18]:
+                if lvl not in [r.get("level") for r in recommended]:
+                    recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "auto_level_trigger"})
+
+        if forecast_auto:
+            routing_markers["forecast_triggered"] = True
+            routing_markers["forecast_chain"] = ["seer", "simulator", "oracle"]
+            reasoning.append("Forecast intent detected; auto-activating Seer+Simulator+Oracle.")
+            for lvl in [30, 20, 5]:
+                if lvl not in [r.get("level") for r in recommended]:
+                    recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "auto_level_trigger"})
+
+        if training_auto:
+            routing_markers["training_triggered"] = True
+            routing_markers["training_chain"] = ["academy", "librarian", "bard"]
+            reasoning.append("Training intent detected; auto-activating Academy+Librarian+Bard.")
+            for lvl in [16, 7, 6]:
+                if lvl not in [r.get("level") for r in recommended]:
+                    recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "auto_level_trigger"})
+
+        if ethics_auto:
+            routing_markers["ethics_triggered"] = True
+            routing_markers["ethics_chain"] = ["ethicist", "council", "validator"]
+            reasoning.append("Ethics/compliance intent detected; auto-activating Ethicist+Council+Validator.")
+            for lvl in [33, 15, 34]:
+                if lvl not in [r.get("level") for r in recommended]:
+                    recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "auto_level_trigger"})
+
+        for lvl, why in specialist_nudges:
+            if lvl not in [r.get("level") for r in recommended]:
+                recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "benchmark_intent_nudge"})
+                reasoning.append(why)
+
+        specialist_guard = bool(
+            brainstorm_forced
+            or coding_forced
+            or incident_forced
+            or research_forced
+            or architecture_forced
+            or translation_auto
+            or schedule_auto
+            or mediation_auto
+            or forecast_auto
+            or training_auto
+            or ethics_auto
+            or specialist_nudges
+        )
 
         fastlane_kill_switch = bool(fastlane_cfg.get("kill_switch", False))
         use_fastlane = (
-            (not brainstorm_forced)
+            (not specialist_guard)
             and (not referent_query)
             and ("codeword" not in (query or "").lower())
             and fastlane_cfg.get("enabled", True)
@@ -899,7 +1163,7 @@ async def orchestrate_query(query: str, request: Request = None):
             for lvl in bandit_choice.get("levels", []):
                 if lvl in LEVEL_MAP and lvl not in ALWAYS_ON_LEVELS and lvl not in [r.get("level") for r in recommended]:
                     recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "bandit_policy"})
-            if bandit_choice.get("policy") == "deliberate" and not brainstorm_forced:
+            if bandit_choice.get("policy") == "deliberate" and not specialist_guard:
                 use_fastlane = False
                 reasoning.append("Bandit policy selected deliberate mode; bypassing fastlane.")
 
@@ -911,6 +1175,7 @@ async def orchestrate_query(query: str, request: Request = None):
         if complexity_gate.get("l9_triggered"):
             routing_markers["l9_triggered"] = True
             if _architect_healthy():
+                routing_markers["l9_chain"] = ["architect"]
                 if 9 not in [r.get("level") for r in recommended]:
                     recommended.append({"level": 9, "name": "architect", "method": "autotune_l9"})
                 reasoning.append("Autotune L9 activation threshold met; adding Architect.")
@@ -1019,7 +1284,7 @@ async def orchestrate_query(query: str, request: Request = None):
 
         early_exit = {"enabled": False, "triggered": False, "reason": "disabled"}
         semantic_result: Dict[str, Any] = {}
-        if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("anytime_enabled", True) and isinstance(fastlane, dict):
+        if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("anytime_enabled", True) and isinstance(fastlane, dict) and not specialist_guard:
             trigger, reason = should_early_exit(
                 confidence=float(fastlane.get("confidence", 0.0)),
                 risk_flags=risk_flags,
