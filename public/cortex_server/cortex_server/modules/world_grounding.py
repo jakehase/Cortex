@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Dict, Any, List
 from datetime import datetime, timezone
-from urllib.parse import urlparse, quote_plus
+from urllib.parse import urlparse, quote_plus, parse_qs, unquote
 import hashlib
 import requests
 import re
@@ -99,6 +99,17 @@ def _search_web(query: str, timeout_s: float = 3.2) -> List[Dict[str, Any]]:
     for a in links:
         href = str(a.get("href") or "").strip()
         title = re.sub(r"\s+", " ", a.get_text(" ", strip=True))
+
+        # DuckDuckGo often wraps outbound links as /l/?uddg=<urlencoded-target>
+        if href.startswith("/") and "uddg=" in href:
+            try:
+                q = parse_qs(urlparse(href).query)
+                target = (q.get("uddg") or [""])[0]
+                if target:
+                    href = unquote(target)
+            except Exception:
+                pass
+
         if not href.startswith("http"):
             continue
         if any(x in href for x in ["duckduckgo.com", "startpage.com"]):
