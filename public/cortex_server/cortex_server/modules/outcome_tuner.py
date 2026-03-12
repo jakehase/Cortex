@@ -45,7 +45,7 @@ class OutcomeTuner:
             try:
                 data = json.loads(self.state_path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    data.setdefault("version", "nexus.outcome_tuner.v2")
+                    data["version"] = "nexus.outcome_tuner.v2"
                     data.setdefault("count", 0)
                     data.setdefault("archetypes", {})
                     data.setdefault("last", None)
