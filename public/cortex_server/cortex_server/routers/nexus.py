@@ -31,6 +31,7 @@ from cortex_server.modules.routing_autotune import get_policy_snapshot, observe_
 from cortex_server.modules.execution_transaction import ExecutionTransaction, RetryPolicy
 from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
 from cortex_server.modules.outcome_tuner import OutcomeTuner
+from cortex_server.modules.world_grounding import gather_live_evidence
 from cortex_server.middleware.hud_middleware import track_level
 
 router = APIRouter()
@@ -946,6 +947,10 @@ async def orchestrate_query(query: str, request: Request = None):
             "ethics_chain": [],
             "l9_triggered": False,
             "l9_chain": [],
+            "world_grounding_required": False,
+            "world_grounding_mode": "not_required",
+            "policy_rollout_stage": "shadow",
+            "policy_rollout_apply": False,
         }
         optimizer_telemetry: Dict[str, Any] = {}
         token_plan: Dict[str, Any] = {}
@@ -963,10 +968,22 @@ async def orchestrate_query(query: str, request: Request = None):
         )
         archetype = classify_task_archetype(query, risk_flags=risk_flags, complexity_gate=complexity_gate)
         policy_hint = _OUTCOME_TUNER.get_policy_hint(archetype=archetype, query=query)
+        world_grounding = gather_live_evidence(
+            query,
+            max_sources=3,
+            notary_packets=1,
+            enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}),
+        )
         latency_plan = _LATENCY_GOVERNOR.plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate, fastlane_cfg=fastlane_cfg, optimizer_cfg=optimizer_cfg)
         optimizer_telemetry["enabled"] = bool(optimizer_cfg.get("enabled", True))
         optimizer_telemetry["autotune_policy"] = autotune_policy
         optimizer_telemetry["policy_hint"] = policy_hint
+        optimizer_telemetry["world_grounding"] = {
+            "required": bool(world_grounding.get("required", False)),
+            "mode": world_grounding.get("mode", "not_required"),
+            "evidence_count": int(world_grounding.get("evidence_count", 0)),
+            "degraded": bool(world_grounding.get("degraded", False)),
+        }
         tx.preflight({
             "query_present": lambda: {"ok": bool((query or "").strip()), "chars": len(query or "")},
             "latency_budget": lambda: {"ok": int(latency_plan.get("max_latency_ms", 0)) >= 500, "max_latency_ms": latency_plan.get("max_latency_ms")},
@@ -994,6 +1011,20 @@ async def orchestrate_query(query: str, request: Request = None):
         prefetched_retrieval = prefetch.get("results", {}).get("retrieval") if isinstance(prefetch.get("results", {}).get("retrieval"), list) else []
         if isinstance(prefetch.get("results", {}).get("context"), dict) and prefetch.get("results", {}).get("context", {}).get("resolved"):
             referent_info = prefetch["results"]["context"]
+
+        if bool(world_grounding.get("required", False)):
+            routing_markers["world_grounding_required"] = True
+            routing_markers["world_grounding_mode"] = str(world_grounding.get("mode", "live_grounded"))
+            reasoning.append("World-grounding guard engaged for volatile external-state query.")
+            if bool(world_grounding.get("degraded", False)):
+                reasoning.append("Live grounding degraded; using best-effort evidence path with validator emphasis.")
+            for lvl in [2, 34]:
+                if lvl not in [r.get("level") for r in recommended]:
+                    recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "world_grounding"})
+            if int(world_grounding.get("evidence_count", 0)) > 0:
+                for lvl in [7, 22]:
+                    if lvl not in [r.get("level") for r in recommended]:
+                        recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "world_grounding"})
 
         brainstorm_forced = _is_brainstorm_intent(query)
         coding_forced = _is_coding_intent(query)
@@ -1124,6 +1155,7 @@ async def orchestrate_query(query: str, request: Request = None):
             or training_auto
             or ethics_auto
             or specialist_nudges
+            or bool(world_grounding.get("required", False))
         )
 
         fastlane_kill_switch = bool(fastlane_cfg.get("kill_switch", False))
@@ -1136,6 +1168,7 @@ async def orchestrate_query(query: str, request: Request = None):
             and _is_simple_qa(query)
             and len(risk_flags) == 0
             and not complexity_gate.get("hard", False)
+            and not bool(world_grounding.get("required", False))
         )
 
         if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("semantic_delta_enabled", True):
@@ -1151,12 +1184,19 @@ async def orchestrate_query(query: str, request: Request = None):
                 brainstorm=bool(brainstorm_forced),
             )
             candidate_arms = ["creative_fractal"] if brainstorm_forced else None
+            routing_markers["policy_rollout_stage"] = str(policy_hint.get("stage", "shadow"))
+            routing_markers["policy_rollout_apply"] = bool(policy_hint.get("apply_recommendation", False))
             if policy_hint.get("recommended_policy") and policy_hint.get("apply_recommendation"):
                 candidate_arms = [str(policy_hint.get("recommended_policy"))]
-                reasoning.append(f"Outcome tuner bounded rollout applying {policy_hint.get('recommended_policy')}.")
+                reasoning.append(
+                    f"Outcome tuner {policy_hint.get('stage')} applying {policy_hint.get('recommended_policy')} "
+                    f"({int(policy_hint.get('rollout_percent', 0))}% rollout, conf={float(policy_hint.get('decision_confidence', 0.0)):.2f})."
+                )
             elif policy_hint.get("recommended_policy") and policy_hint.get("stage") == "recommend":
                 candidate_arms = [str(policy_hint.get("recommended_policy")), str(policy_hint.get("baseline_policy"))]
-                reasoning.append(f"Outcome tuner recommends {policy_hint.get('recommended_policy')} in shadow/recommend mode.")
+                reasoning.append(
+                    f"Outcome tuner recommends {policy_hint.get('recommended_policy')} (evidence={policy_hint.get('evidence', {})})."
+                )
             bandit_choice = _BANDIT_SCHEDULER.select_arm(context_bucket, query, candidates=candidate_arms)
             optimizer_telemetry["bandit"] = bandit_choice
             routing_markers["bandit_arm"] = bandit_choice.get("selected_arm")
@@ -1197,6 +1237,11 @@ async def orchestrate_query(query: str, request: Request = None):
             "visible": True,
             "complexity_gate": complexity_gate,
             "model_lane": "strong_reasoning" if complexity_gate.get("hard") else "default",
+            "world_grounding": {
+                "required": bool(world_grounding.get("required", False)),
+                "mode": world_grounding.get("mode", "not_required"),
+                "evidence_count": int(world_grounding.get("evidence_count", 0)),
+            },
         }
         fastlane = None
         checks = {}
@@ -1375,7 +1420,7 @@ async def orchestrate_query(query: str, request: Request = None):
             hud_parts.append(f"🟢 L{level_num} ({name})")
         hud_line = " | ".join(hud_parts)
 
-        activated = [f"L{item['level']}:{item['name']}" for item in recommended if item.get('method') in {'qa_fastlane', 'brainstorm_forced', 'semantic', 'keyword', 'referent_guard', 'l9_fallback', 'cognitive_policy', 'bandit_policy', 'autotune_l9', 'complexity_gate'} or item.get('always_on')]
+        activated = [f"L{item['level']}:{item['name']}" for item in recommended if item.get('method') in {'qa_fastlane', 'brainstorm_forced', 'semantic', 'keyword', 'referent_guard', 'l9_fallback', 'cognitive_policy', 'bandit_policy', 'autotune_l9', 'complexity_gate', 'world_grounding'} or item.get('always_on')]
         workflow_checkpoint = _build_workflow_checkpoint(query, routing_method, recommended)
 
         cognitive_trace = _cognitive_reasoning(query, risk_flags)
@@ -1426,7 +1471,7 @@ async def orchestrate_query(query: str, request: Request = None):
 
         if request is not None:
             for item in recommended:
-                if item.get("method") in {"qa_fastlane", "brainstorm_forced", "semantic", "keyword", "referent_guard", "l9_fallback", "cognitive_policy", "bandit_policy", "autotune_l9", "complexity_gate"}:
+                if item.get("method") in {"qa_fastlane", "brainstorm_forced", "semantic", "keyword", "referent_guard", "l9_fallback", "cognitive_policy", "bandit_policy", "autotune_l9", "complexity_gate", "world_grounding"}:
                     track_level(request, item["level"], item["name"], always_on=False)
             request.state.routing_method = routing_method
 
@@ -1496,6 +1541,7 @@ async def orchestrate_query(query: str, request: Request = None):
                 "canary_first": True,
             },
             "referent_context": referent_info,
+            "world_grounding": world_grounding,
             "fastlane": fastlane,
             "tool_path_observability": tool_path_observability,
             "cognitive_wave": cognitive_slice,
