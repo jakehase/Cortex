@@ -10,7 +10,7 @@ from cortex_server.models.requests import (
     GraphQueryResponse, GraphNodeResponse, GraphEdgeResponse
 )
 from cortex_server.services.knowledge_service import KnowledgeService
-from cortex_server.routers.librarian import collection
+from cortex_server.routers.librarian import collection, robust_search
 
 router = APIRouter()
 service = KnowledgeService()
@@ -56,33 +56,37 @@ async def knowledge_status():
 
 @router.post("/search")
 async def search_knowledge(request: KnowledgeSearchRequest):
-    """Compatibility semantic search endpoint used by OpenClaw config."""
+    """Compatibility semantic search endpoint used by OpenClaw config.
+
+    Uses Librarian's resilient recall path so memory_search remains available even
+    when embedding providers are temporarily degraded.
+    """
     try:
         if not request.query.strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
 
-        results = collection.query(
-            query_texts=[request.query],
+        result = robust_search(
+            query=request.query,
             n_results=request.n_results,
+            allow_fallback=True,
         )
-
-        memories = []
-        if results.get("ids") and results["ids"][0]:
-            for i, memory_id in enumerate(results["ids"][0]):
-                memories.append(
-                    {
-                        "id": memory_id,
-                        "text": results["documents"][0][i],
-                        "distance": results["distances"][0][i] if results.get("distances") else 0.0,
-                        "metadata": results["metadatas"][0][i] if results.get("metadatas") else None,
-                    }
-                )
-
-        return {"query": request.query, "results": memories}
+        return {
+            "query": request.query,
+            "results": result.get("results", []),
+            "search_mode": result.get("search_mode", "semantic"),
+            "degraded": bool(result.get("degraded", False)),
+            "warning": result.get("warning"),
+        }
     except HTTPException:
         raise
     except Exception as e:
-        return {"query": request.query, "results": [], "error": str(e)}
+        return {
+            "query": request.query,
+            "results": [],
+            "search_mode": "error",
+            "degraded": True,
+            "error": str(e),
+        }
 
 
 @router.post("/query")

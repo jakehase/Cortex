@@ -27,6 +27,10 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
+    return max(lo, min(hi, float(x)))
+
+
 class OutcomeTuner:
     def __init__(self, artifact_dir: Optional[Path] = None):
         self.artifact_dir = artifact_dir or DEFAULT_ARTIFACT_DIR
@@ -41,10 +45,14 @@ class OutcomeTuner:
             try:
                 data = json.loads(self.state_path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
+                    data.setdefault("version", "nexus.outcome_tuner.v2")
+                    data.setdefault("count", 0)
+                    data.setdefault("archetypes", {})
+                    data.setdefault("last", None)
                     return data
             except Exception:
                 pass
-        return {"version": "nexus.outcome_tuner.v1", "count": 0, "archetypes": {}, "last": None}
+        return {"version": "nexus.outcome_tuner.v2", "count": 0, "archetypes": {}, "last": None}
 
     @staticmethod
     def _safe(value: Any) -> Any:
@@ -70,13 +78,29 @@ class OutcomeTuner:
             archetype,
             {
                 "baseline_policy": BASELINE_POLICY_BY_ARCHETYPE.get(archetype, "fastlane_memory"),
-                "decisions": {"stage": "shadow", "recommended_policy": None, "rollout_percent": 0, "reason": "collecting_evidence"},
+                "decisions": {
+                    "stage": "shadow",
+                    "recommended_policy": None,
+                    "rollout_percent": 0,
+                    "reason": "collecting_evidence",
+                    "confidence": 0.0,
+                    "evidence": {"candidate_count": 0, "baseline_count": 0},
+                    "updated_at": "",
+                },
                 "policies": {},
+                "history": [],
             },
         )
         return arch.setdefault("policies", {}).setdefault(
             policy,
-            {"count": 0, "success_rate": 0.0, "validator_rate": 0.0, "correction_rate": 0.0, "avg_latency_ms": 0.0, "avg_reward": 0.0},
+            {
+                "count": 0,
+                "success_rate": 0.0,
+                "validator_rate": 0.0,
+                "correction_rate": 0.0,
+                "avg_latency_ms": 0.0,
+                "avg_reward": 0.0,
+            },
         )
 
     def _update_ema(self, row: Dict[str, Any], *, success: float, validator: float, correction: float, latency_ms: float, reward: float) -> None:
@@ -101,10 +125,33 @@ class OutcomeTuner:
         return round(max(0.0, min(1.0, (0.45 * success) + (0.30 * validator) + latency_bonus - correction_penalty - recovery_penalty)), 4)
 
     def _recompute_decision(self, archetype: str) -> Dict[str, Any]:
-        arch = self.state.setdefault("archetypes", {}).setdefault(archetype, {"baseline_policy": BASELINE_POLICY_BY_ARCHETYPE.get(archetype, "fastlane_memory"), "decisions": {}, "policies": {}})
+        arch = self.state.setdefault(
+            "archetypes",
+            {},
+        ).setdefault(
+            archetype,
+            {
+                "baseline_policy": BASELINE_POLICY_BY_ARCHETYPE.get(archetype, "fastlane_memory"),
+                "decisions": {},
+                "policies": {},
+                "history": [],
+            },
+        )
         baseline_policy = arch.get("baseline_policy") or BASELINE_POLICY_BY_ARCHETYPE.get(archetype, "fastlane_memory")
         policies = arch.get("policies") or {}
-        baseline = policies.get(baseline_policy, {"count": 0, "avg_reward": 0.0, "success_rate": 0.0, "validator_rate": 0.0, "correction_rate": 0.0, "avg_latency_ms": 999999})
+
+        baseline = policies.get(
+            baseline_policy,
+            {
+                "count": 0,
+                "avg_reward": 0.0,
+                "success_rate": 0.0,
+                "validator_rate": 0.0,
+                "correction_rate": 0.0,
+                "avg_latency_ms": 999999,
+            },
+        )
+
         best_policy = baseline_policy
         best_row = baseline
         for policy, row in policies.items():
@@ -114,29 +161,157 @@ class OutcomeTuner:
                 best_policy = policy
                 best_row = row
 
-        decision = {"stage": "shadow", "recommended_policy": None, "rollout_percent": 0, "reason": "collecting_evidence"}
-        if best_policy != baseline_policy:
-            delta_reward = float(best_row.get("avg_reward", 0.0)) - float(baseline.get("avg_reward", 0.0))
-            enough_shadow = int(best_row.get("count", 0)) >= 5 and int(baseline.get("count", 0)) >= 3
-            safe = float(best_row.get("validator_rate", 0.0)) >= max(0.9, float(baseline.get("validator_rate", 0.0)) - 0.02)
-            low_correction = float(best_row.get("correction_rate", 0.0)) <= float(baseline.get("correction_rate", 0.0)) + 0.02
-            if enough_shadow and delta_reward >= 0.05 and safe and low_correction:
-                decision = {"stage": "recommend", "recommended_policy": best_policy, "rollout_percent": 0, "reason": f"shadow win +{delta_reward:.3f}"}
-            if int(best_row.get("count", 0)) >= 8 and delta_reward >= 0.08 and safe and low_correction:
-                decision = {"stage": "bounded_rollout", "recommended_policy": best_policy, "rollout_percent": 10, "reason": f"bounded rollout win +{delta_reward:.3f}"}
+        baseline_count = int(baseline.get("count", 0))
+        candidate_count = int(best_row.get("count", 0))
+        delta_reward = float(best_row.get("avg_reward", 0.0)) - float(baseline.get("avg_reward", 0.0))
+        delta_success = float(best_row.get("success_rate", 0.0)) - float(baseline.get("success_rate", 0.0))
+        delta_validator = float(best_row.get("validator_rate", 0.0)) - float(baseline.get("validator_rate", 0.0))
+        correction_delta = float(best_row.get("correction_rate", 0.0)) - float(baseline.get("correction_rate", 0.0))
+
+        safe = (
+            float(best_row.get("validator_rate", 0.0)) >= max(0.90, float(baseline.get("validator_rate", 0.0)) - 0.02)
+            and float(best_row.get("success_rate", 0.0)) >= float(baseline.get("success_rate", 0.0)) - 0.02
+            and float(best_row.get("correction_rate", 0.0)) <= float(baseline.get("correction_rate", 0.0)) + 0.03
+        )
+
+        evidence_scale = _clamp((candidate_count + baseline_count) / 36.0, 0.0, 1.0)
+        lift_scale = _clamp((delta_reward + 0.12) / 0.24, 0.0, 1.0)
+        confidence = round(_clamp((0.6 * evidence_scale) + (0.4 * lift_scale), 0.0, 1.0), 3)
+
+        decision: Dict[str, Any] = {
+            "stage": "shadow",
+            "recommended_policy": None,
+            "rollout_percent": 0,
+            "reason": "collecting_evidence",
+            "confidence": confidence,
+            "evidence": {"candidate_count": candidate_count, "baseline_count": baseline_count},
+            "deltas": {
+                "reward": round(delta_reward, 4),
+                "success": round(delta_success, 4),
+                "validator": round(delta_validator, 4),
+                "correction": round(correction_delta, 4),
+            },
+            "updated_at": _now_iso(),
+        }
+
+        if best_policy == baseline_policy:
+            decision["reason"] = "baseline_only_or_no_stronger_candidate"
+            arch["decisions"] = decision
+            return decision
+
+        # Explicit rollback rail: stop rollout if candidate regresses safety/quality.
+        if candidate_count >= 6 and (
+            delta_reward <= -0.03 or delta_validator <= -0.03 or correction_delta > 0.05
+        ):
+            decision.update(
+                {
+                    "stage": "shadow",
+                    "recommended_policy": None,
+                    "rollout_percent": 0,
+                    "reason": f"rollback_guard: reward={delta_reward:.3f}, validator={delta_validator:.3f}, correction_delta={correction_delta:.3f}",
+                }
+            )
+            arch["decisions"] = decision
+            return decision
+
+        enough_shadow = candidate_count >= 5 and baseline_count >= 4
+        if enough_shadow and safe and delta_reward >= 0.03:
+            decision.update(
+                {
+                    "stage": "recommend",
+                    "recommended_policy": best_policy,
+                    "rollout_percent": 0,
+                    "reason": f"shadow win +{delta_reward:.3f}",
+                }
+            )
+
+        # Evidence-backed bounded rollout ramp.
+        if safe and candidate_count >= 10 and baseline_count >= 8 and delta_reward >= 0.05:
+            decision.update(
+                {
+                    "stage": "bounded_rollout",
+                    "recommended_policy": best_policy,
+                    "rollout_percent": 10,
+                    "reason": f"bounded rollout start +{delta_reward:.3f}",
+                }
+            )
+        if safe and candidate_count >= 16 and baseline_count >= 10 and delta_reward >= 0.08:
+            decision.update(
+                {
+                    "stage": "bounded_rollout",
+                    "recommended_policy": best_policy,
+                    "rollout_percent": 25,
+                    "reason": f"bounded rollout ramp +{delta_reward:.3f}",
+                }
+            )
+
+        # Graduated active rollout once evidence and lift are both strong.
+        if safe and candidate_count >= 22 and baseline_count >= 12 and delta_reward >= 0.12:
+            decision.update(
+                {
+                    "stage": "active_rollout",
+                    "recommended_policy": best_policy,
+                    "rollout_percent": 50,
+                    "reason": f"active rollout +{delta_reward:.3f}",
+                }
+            )
+        if safe and candidate_count >= 30 and baseline_count >= 15 and delta_reward >= 0.15:
+            decision.update(
+                {
+                    "stage": "active_rollout",
+                    "recommended_policy": best_policy,
+                    "rollout_percent": 75,
+                    "reason": f"active rollout ramp +{delta_reward:.3f}",
+                }
+            )
+
         arch["decisions"] = decision
+        hist = arch.setdefault("history", [])
+        hist.append(
+            {
+                "ts": decision.get("updated_at"),
+                "stage": decision.get("stage"),
+                "recommended_policy": decision.get("recommended_policy"),
+                "rollout_percent": decision.get("rollout_percent"),
+                "reason": decision.get("reason"),
+                "confidence": decision.get("confidence"),
+            }
+        )
+        if len(hist) > 80:
+            arch["history"] = hist[-80:]
         return decision
 
     def get_policy_hint(self, *, archetype: str, query: str) -> Dict[str, Any]:
         arch = self.state.setdefault("archetypes", {}).setdefault(
             archetype,
-            {"baseline_policy": BASELINE_POLICY_BY_ARCHETYPE.get(archetype, "fastlane_memory"), "decisions": {"stage": "shadow", "recommended_policy": None, "rollout_percent": 0, "reason": "collecting_evidence"}, "policies": {}},
+            {
+                "baseline_policy": BASELINE_POLICY_BY_ARCHETYPE.get(archetype, "fastlane_memory"),
+                "decisions": {
+                    "stage": "shadow",
+                    "recommended_policy": None,
+                    "rollout_percent": 0,
+                    "reason": "collecting_evidence",
+                    "confidence": 0.0,
+                    "evidence": {"candidate_count": 0, "baseline_count": 0},
+                    "updated_at": "",
+                },
+                "policies": {},
+                "history": [],
+            },
         )
-        decision = arch.get("decisions") or {"stage": "shadow", "recommended_policy": None, "rollout_percent": 0, "reason": "collecting_evidence"}
+        decision = arch.get("decisions") or {
+            "stage": "shadow",
+            "recommended_policy": None,
+            "rollout_percent": 0,
+            "reason": "collecting_evidence",
+            "confidence": 0.0,
+            "evidence": {"candidate_count": 0, "baseline_count": 0},
+            "updated_at": "",
+        }
         stage = str(decision.get("stage") or "shadow")
         rollout_percent = int(decision.get("rollout_percent") or 0)
         bucket = int(hashlib.sha256(f"{archetype}|{query}".encode("utf-8")).hexdigest(), 16) % 100
-        apply = stage == "bounded_rollout" and bucket < max(0, min(100, rollout_percent))
+        apply = stage in {"bounded_rollout", "active_rollout"} and bucket < max(0, min(100, rollout_percent))
         return {
             "archetype": archetype,
             "baseline_policy": arch.get("baseline_policy"),
@@ -145,6 +320,9 @@ class OutcomeTuner:
             "rollout_percent": rollout_percent,
             "apply_recommendation": apply,
             "reason": decision.get("reason"),
+            "decision_confidence": float(decision.get("confidence", 0.0)),
+            "evidence": decision.get("evidence", {}),
+            "updated_at": decision.get("updated_at", ""),
         }
 
     def observe(self, record: Dict[str, Any]) -> Dict[str, Any]:
@@ -192,6 +370,11 @@ class OutcomeTuner:
             lines.append(f"- Stage: **{decision.get('stage', 'shadow')}**")
             lines.append(f"- Recommended policy: `{decision.get('recommended_policy')}`")
             lines.append(f"- Rollout percent: {int(decision.get('rollout_percent', 0))}%")
+            lines.append(f"- Decision confidence: {float(decision.get('confidence', 0.0)):.2f}")
+            evidence = decision.get("evidence") or {}
+            lines.append(
+                f"- Evidence counts: candidate={int(evidence.get('candidate_count', 0))}, baseline={int(evidence.get('baseline_count', 0))}"
+            )
             lines.append(f"- Reason: {decision.get('reason', 'n/a')}")
             lines.append("")
             lines.append("| Policy | Count | Success | Validator | Correction | Avg latency ms | Avg reward |")
