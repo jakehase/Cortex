@@ -527,7 +527,11 @@
       "createdAt": "2026-03-19T09:10:51.079Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "completed",
+      "completedAt": "2026-03-19T14:26:16.958Z",
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:25 AM (America/Chicago) / 2026-03-19 14:25 UTC\"}],\"timestamp\":1773930353750},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
+      "escalatedAt": "2026-03-19T14:30:51.311Z",
+      "announcementPromptInjectedAt": "2026-03-19T14:30:51.312Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773911751080",
