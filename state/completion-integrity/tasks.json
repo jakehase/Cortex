@@ -447,7 +447,11 @@
       "createdAt": "2026-03-19T08:20:51.044Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "completed",
+      "completedAt": "2026-03-19T15:16:21.767Z",
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:15 AM (America/Chicago) / 2026-03-19 15:15 UTC\"}],\"timestamp\":1773933353802},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
+      "escalatedAt": "2026-03-19T15:20:51.341Z",
+      "announcementPromptInjectedAt": "2026-03-19T15:20:51.341Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773908751057",
@@ -935,7 +939,9 @@
       "createdAt": "2026-03-19T11:41:35.120Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A6373EB0249C5945255\", \"reply_to_id\": \"3AFA50EF8F9C21F821E2\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```js",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "completed",
+      "completedAt": "2026-03-19T15:20:57.286Z",
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Conversation info (untrusted metadata):\\n```json\\n{\\n  \\\"message_id\\\": \\\"3AC61ACD946A2B3A24DE\\\",\\n  \\\"sender_id\\\": \\\"+17855410986\\\",\\n  \\\"sender\\\": \\\"Jake\\\"\\n}\\n```\\n\\nSender (untrusted metadata):\\n```json\\n{\\n  \\\"label\\\": \\\"Jake (+17855410986)\\\",\\n  \\\"id\\\": \\\"+17855410986\\\",\\n  \\\"name\\\": \\\"Jake\\\",\\n  \\\"e164\\\": \\\"+17855410986\\\"\\n}\\n```\\n\\nWhat happened?\"}],\"timestamp\":1773919923787},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"content\":\"Cortex"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920656108",
