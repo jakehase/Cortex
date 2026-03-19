@@ -6,6 +6,7 @@ Current design
 - works from `/root/clawd`
 - exports only Cortex-scoped files into a clean mirror repo at `/root/clawd/.cortex-export`
 - commits and pushes the clean mirror to the GitHub Cortex repo
+- uses a stable manifest only; no per-run timestamps are written into tracked export files
 
 Why this design exists
 - the main `/root/clawd` git history contains unrelated files and old secret-bearing history
