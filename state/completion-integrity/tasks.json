@@ -343,7 +343,11 @@
       "createdAt": "2026-03-19T07:15:50.991Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "completed",
+      "completedAt": "2026-03-19T16:21:11.192Z",
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 11:20 AM (America/Chicago) / 2026-03-19 16:20 UTC\"}],\"timestamp\":1773937253900},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
+      "escalatedAt": "2026-03-19T16:25:51.389Z",
+      "announcementPromptInjectedAt": "2026-03-19T16:25:51.390Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773904850992",
@@ -1035,7 +1039,9 @@
       "createdAt": "2026-03-19T16:19:31.502Z",
       "prompt": "[Thu 2026-03-19 11:19 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Implement a full trust-hardening system in /root/clawd focused o",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "completed",
+      "completedAt": "2026-03-19T16:24:17.079Z",
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[Thu 2026-03-19 11:19 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status.\\n\\n[Subagent Task]: Implement a full trust-hardening system in /root/clawd focused on Cortex/OpenClaw reliability for user-visible tasks. Requirements: 1) design and implement a hard task-state machine (pending, running, internal_complete, notification_sent, delivery_confirmed, closed, fail"
     }
   ]
 }
