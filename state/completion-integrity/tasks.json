@@ -3547,7 +3547,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-19T20:16:11.957Z",
+      "updatedAt": "2026-03-19T20:21:12.129Z",
       "history": [
         {
           "from": null,
@@ -3565,9 +3565,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 46,
+        "runs": 47,
         "failures": [],
-        "lastRunAt": "2026-03-19T20:16:11.958Z",
+        "lastRunAt": "2026-03-19T20:21:12.135Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3652,12 +3652,12 @@
       "id": "agent:main:subagent:a59a2130-fe52-4351-ba0e-6fb86c33252d:1773951439223:f4c4973ee6a38f8f",
       "sessionKey": "agent:main:subagent:a59a2130-fe52-4351-ba0e-6fb86c33252d",
       "createdAt": "2026-03-19T20:17:19.223Z",
-      "updatedAt": "2026-03-19T20:17:19.225Z",
+      "updatedAt": "2026-03-19T20:25:45.957Z",
       "prompt": "[Thu 2026-03-19 15:17 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: In /root/clawd/pmhnp-denial-copilot, implement the four fundabil",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Thu 2026-03-19 15:17 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: In /root/clawd/pmhnp-denial-copilot, implement the four fundability upgrades fully, not just document them. Sp",
       "history": [
         {
           "from": null,
@@ -3668,6 +3668,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-19T20:17:19.225Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T20:25:45.957Z",
+          "completedAt": "2026-03-19T20:25:45.957Z",
+          "completionSummary": "Thu 2026-03-19 15:17 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: In /root/clawd/pmhnp-denial-copilot, implement the four fundability upgrades fully, not just document them. Sp",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -3678,10 +3686,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-19T20:25:45.962Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-19T20:25:45.957Z",
+      "completionSource": "agent_end"
     }
   ]
 }

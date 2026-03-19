@@ -1,1 +1,2 @@
 {"at":"2026-03-19T20:17:19.225Z","type":"state_transition","taskId":"agent:main:subagent:a59a2130-fe52-4351-ba0e-6fb86c33252d:1773951439223:f4c4973ee6a38f8f","sessionKey":"agent:main:subagent:a59a2130-fe52-4351-ba0e-6fb86c33252d","from":"pending","to":"running"}
+{"at":"2026-03-19T20:25:45.957Z","type":"state_transition","taskId":"agent:main:subagent:a59a2130-fe52-4351-ba0e-6fb86c33252d:1773951439223:f4c4973ee6a38f8f","sessionKey":"agent:main:subagent:a59a2130-fe52-4351-ba0e-6fb86c33252d","from":"running","to":"internal_complete"}
