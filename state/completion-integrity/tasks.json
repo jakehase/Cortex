@@ -503,7 +503,11 @@
       "createdAt": "2026-03-19T08:55:51.078Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "completed",
+      "completedAt": "2026-03-19T14:41:09.967Z",
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:40 AM (America/Chicago) / 2026-03-19 14:40 UTC\"}],\"timestamp\":1773931253770},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
+      "escalatedAt": "2026-03-19T14:45:51.338Z",
+      "announcementPromptInjectedAt": "2026-03-19T14:45:51.339Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773910851069",
@@ -915,7 +919,9 @@
       "createdAt": "2026-03-19T11:44:16.108Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A36495A46508A2FC757\", \"reply_to_id\": \"3EB049D08C72A32DBC0972\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "completed",
+      "completedAt": "2026-03-19T14:45:18.996Z",
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Conversation info (untrusted metadata):\\n```json\\n{\\n  \\\"message_id\\\": \\\"3AC61ACD946A2B3A24DE\\\",\\n  \\\"sender_id\\\": \\\"+17855410986\\\",\\n  \\\"sender\\\": \\\"Jake\\\"\\n}\\n```\\n\\nSender (untrusted metadata):\\n```json\\n{\\n  \\\"label\\\": \\\"Jake (+17855410986)\\\",\\n  \\\"id\\\": \\\"+17855410986\\\",\\n  \\\"name\\\": \\\"Jake\\\",\\n  \\\"e164\\\": \\\"+17855410986\\\"\\n}\\n```\\n\\nWhat happened?\"}],\"timestamp\":1773919923787},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"content\":\"Cortex"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920751175",
@@ -938,7 +944,8 @@
       "status": "completed",
       "completedAt": "2026-03-19T14:19:19.368Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Conversation info (untrusted metadata):\\n```json\\n{\\n  \\\"message_id\\\": \\\"3AC61ACD946A2B3A24DE\\\",\\n  \\\"sender_id\\\": \\\"+17855410986\\\",\\n  \\\"sender\\\": \\\"Jake\\\"\\n}\\n```\\n\\nSender (untrusted metadata):\\n```json\\n{\\n  \\\"label\\\": \\\"Jake (+17855410986)\\\",\\n  \\\"id\\\": \\\"+17855410986\\\",\\n  \\\"name\\\": \\\"Jake\\\",\\n  \\\"e164\\\": \\\"+17855410986\\\"\\n}\\n```\\n\\nWhat happened?\"}],\"timestamp\":1773919923787},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"content\":\"Cortex",
-      "announcementPromptInjectedAt": "2026-03-19T14:23:30.494Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:23:30.494Z",
+      "escalatedAt": "2026-03-19T14:44:46.604Z"
     }
   ]
 }
