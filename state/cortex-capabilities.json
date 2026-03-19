@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "generatedAt": null,
+  "capabilities": [
+    {
+      "id": "route_governor",
+      "name": "Cortex route governor",
+      "category": "orchestration",
+      "implemented": true,
+      "live": true,
+      "verified": true,
+      "codePaths": [
+        "plugins/cortex-route-gate/index.ts",
+        "plugins/cortex-route-gate/openclaw.plugin.json"
+      ],
+      "runtimeEvidence": [
+        "/root/.openclaw/cortex-route-gate/prompt-fingerprints.json",
+        "/root/.openclaw/cortex-route-gate/adaptive-routing-stats.json"
+      ],
+      "verificationChecks": [
+        "route governor block present",
+        "adaptive routing stats persistence present"
+      ],
+      "blockers": []
+    },
+    {
+      "id": "memory_write_through",
+      "name": "Cortex memory write-through",
+      "category": "memory",
+      "implemented": true,
+      "live": true,
+      "verified": false,
+      "codePaths": [
+        "plugins/cortex-memory-bridge/index.ts",
+        "plugins/cortex-memory-bridge/openclaw.plugin.json"
+      ],
+      "runtimeEvidence": [
+        "manual /l22/store verification succeeded"
+      ],
+      "verificationChecks": [
+        "memory write-through config present",
+        "durability scoring present",
+        "memory store path write-through present"
+      ],
+      "blockers": [
+        "automatic agent_end/llm_output durable write-through not fully verified end-to-end"
+      ]
+    },
+    {
+      "id": "l2_browser_bridge",
+      "name": "Cortex L2 browser bridge",
+      "category": "browsing",
+      "implemented": true,
+      "live": false,
+      "verified": false,
+      "codePaths": [
+        "plugins/cortex-browser-bridge/index.ts",
+        "plugins/cortex-browser-bridge/openclaw.plugin.json"
+      ],
+      "runtimeEvidence": [],
+      "verificationChecks": [
+        "plugin loads in runtime",
+        "cortex_browser_status succeeds",
+        "cortex_browse callable from agent toolset"
+      ],
+      "blockers": [
+        "plugin allowlist/runtime loading still not fully confirmed live"
+      ]
+    },
+    {
+      "id": "capability_registry_preflight",
+      "name": "Capability registry and preflight verifier",
+      "category": "governance",
+      "implemented": true,
+      "live": true,
+      "verified": true,
+      "codePaths": [
+        "state/cortex-capabilities.json",
+        "scripts/cortex-capability-preflight.mjs",
+        "docs/CORTEX_CAPABILITY_REGISTRY.md"
+      ],
+      "runtimeEvidence": [
+        "preflight script can be run before upgrades"
+      ],
+      "verificationChecks": [
+        "registry parses",
+        "preflight can report overlaps and blockers"
+      ],
+      "blockers": []
+    }
+  ]
+}
