@@ -1,12 +1,12 @@
 {
   "version": 1,
   "counters": {
-    "silent_success_count": 291,
+    "silent_success_count": 388,
     "duplicate_reply_count": 0,
     "false_done_count": 0,
     "tool_error_count": 0,
     "recovery_success_count": 41,
-    "validator_runs": 2,
+    "validator_runs": 3,
     "validator_failures": 0
   },
   "completion_to_notification_latency_ms": [],
@@ -20,5 +20,5 @@
   "task_state_counts": {
     "internal_complete": 101
   },
-  "updatedAt": "2026-03-19T16:40:51.410Z"
+  "updatedAt": "2026-03-19T16:45:51.479Z"
 }
