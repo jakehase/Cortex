@@ -3547,7 +3547,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-19T17:11:11.096Z",
+      "updatedAt": "2026-03-19T17:16:10.907Z",
       "history": [
         {
           "from": null,
@@ -3565,9 +3565,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 9,
+        "runs": 10,
         "failures": [],
-        "lastRunAt": "2026-03-19T17:11:11.103Z",
+        "lastRunAt": "2026-03-19T17:16:10.914Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3584,10 +3584,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:19:19.368Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Conversation info (untrusted metadata):\\n```json\\n{\\n  \\\"message_id\\\": \\\"3AC61ACD946A2B3A24DE\\\",\\n  \\\"sender_id\\\": \\\"+17855410986\\\",\\n  \\\"sender\\\": \\\"Jake\\\"\\n}\\n```\\n\\nSender (untrusted metadata):\\n```json\\n{\\n  \\\"label\\\": \\\"Jake (+17855410986)\\\",\\n  \\\"id\\\": \\\"+17855410986\\\",\\n  \\\"name\\\": \\\"Jake\\\",\\n  \\\"e164\\\": \\\"+17855410986\\\"\\n}\\n```\\n\\nWhat happened?\"}],\"timestamp\":1773919923787},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"content\":\"Cortex",
+      "completionSummary": "Conversation info (untrusted metadata): ```json message_id: 3AC61ACD946A2B3A24DE, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), id: +17855410986, name: Jake, e164: +17855410986 ``` What happened? Cortex upstream routing",
       "announcementPromptInjectedAt": "2026-03-19T14:23:30.494Z",
       "escalatedAt": "2026-03-19T14:44:46.604Z",
-      "updatedAt": "2026-03-19T14:19:19.368Z",
+      "updatedAt": "2026-03-19T17:18:09.254Z",
       "history": [
         {
           "from": null,
@@ -3605,10 +3605,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 3,
+        "failures": [],
+        "lastRunAt": "2026-03-19T17:18:09.260Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "completionSource": "agent_end"
     },
     {
       "id": "agent:main:subagent:979af9a7-b0a1-432d-8501-9f5673d7895c:1773937171502",
