@@ -10,11 +10,13 @@ Implementation
 
 Behavior
 - detects task-like user requests such as fix/implement/do it/restart/verify/deploy
+- ignores recurring cron prompts so background maintenance does not flood the tracker
 - tracks them as pending user-visible tasks
-- when a subagent ends, marks the most recent pending task as completed-awaiting-announcement
+- when a subagent or successful agent run ends, marks the most recent pending task as completed-awaiting-announcement
 - on the next prompt build for that session, injects a hard completion reminder requiring a reply in the pattern: done, evidence, what remains
+- only marks tasks as announced after an actual outbound message is sent for that session
 
 Limitation
-- this does not directly send a message out-of-band at task completion
+- this still does not directly send a message out-of-band at task completion
 - instead it enforces announcement on the next runtime turn, especially for async/background completions
-- it is still a strong guard against silent success drift
+- it is stronger than the prior version because it no longer treats prompt injection alone as equivalent to user notification
