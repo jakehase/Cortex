@@ -3544,10 +3544,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T11:51:06.088Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 6:50 AM (America/Chicago) / 2026-03-19 11:50 UTC\"}],\"timestamp\":1773921053691},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-19T11:51:06.088Z",
+      "updatedAt": "2026-03-19T16:31:17.533Z",
       "history": [
         {
           "from": null,
@@ -3565,10 +3565,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-19T16:31:17.539Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "completionSource": "agent_end"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920934380",
