@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "tasks": [
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773891950900",
@@ -7,7 +7,38 @@
       "createdAt": "2026-03-19T03:45:50.900Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T03:45:50.900Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T03:45:50.900Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773892250864",
@@ -15,7 +46,38 @@
       "createdAt": "2026-03-19T03:50:50.864Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T03:50:50.864Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T03:50:50.864Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773892550867",
@@ -23,7 +85,38 @@
       "createdAt": "2026-03-19T03:55:50.867Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T03:55:50.867Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T03:55:50.867Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773892850878",
@@ -31,7 +124,38 @@
       "createdAt": "2026-03-19T04:00:50.878Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:00:50.878Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:00:50.878Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773893150882",
@@ -39,7 +163,38 @@
       "createdAt": "2026-03-19T04:05:50.882Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:05:50.882Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:05:50.882Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773893450884",
@@ -47,7 +202,38 @@
       "createdAt": "2026-03-19T04:10:50.884Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:10:50.884Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:10:50.884Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773893750889",
@@ -55,7 +241,38 @@
       "createdAt": "2026-03-19T04:15:50.889Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:15:50.889Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:15:50.889Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773894050894",
@@ -63,7 +280,38 @@
       "createdAt": "2026-03-19T04:20:50.894Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:20:50.894Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:20:50.894Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773894350892",
@@ -71,7 +319,38 @@
       "createdAt": "2026-03-19T04:25:50.892Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:25:50.892Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:25:50.892Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773894650894",
@@ -79,7 +358,38 @@
       "createdAt": "2026-03-19T04:30:50.894Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:30:50.894Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:30:50.894Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773894950901",
@@ -87,7 +397,38 @@
       "createdAt": "2026-03-19T04:35:50.901Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:35:50.901Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:35:50.901Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773895250904",
@@ -95,7 +436,38 @@
       "createdAt": "2026-03-19T04:40:50.904Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:40:50.904Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:40:50.904Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773895550909",
@@ -103,7 +475,38 @@
       "createdAt": "2026-03-19T04:45:50.909Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:45:50.909Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:45:50.909Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773895850912",
@@ -111,7 +514,38 @@
       "createdAt": "2026-03-19T04:50:50.912Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:50:50.912Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:50:50.912Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773896150919",
@@ -119,7 +553,38 @@
       "createdAt": "2026-03-19T04:55:50.919Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T04:55:50.919Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T04:55:50.919Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773896450917",
@@ -127,7 +592,38 @@
       "createdAt": "2026-03-19T05:00:50.917Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:00:50.917Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:00:50.917Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773896750919",
@@ -135,7 +631,38 @@
       "createdAt": "2026-03-19T05:05:50.919Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:05:50.919Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:05:50.919Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773897050922",
@@ -143,7 +670,38 @@
       "createdAt": "2026-03-19T05:10:50.922Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:10:50.922Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:10:50.922Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.438Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.438Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.438Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773897350920",
@@ -151,7 +709,38 @@
       "createdAt": "2026-03-19T05:15:50.920Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:15:50.920Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:15:50.920Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773897650922",
@@ -159,7 +748,38 @@
       "createdAt": "2026-03-19T05:20:50.922Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:20:50.922Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:20:50.922Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773897950920",
@@ -167,7 +787,38 @@
       "createdAt": "2026-03-19T05:25:50.920Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:25:50.920Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:25:50.920Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773898250925",
@@ -175,7 +826,38 @@
       "createdAt": "2026-03-19T05:30:50.925Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:30:50.925Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:30:50.925Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773898550931",
@@ -183,7 +865,38 @@
       "createdAt": "2026-03-19T05:35:50.931Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:35:50.931Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:35:50.931Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773898850931",
@@ -191,7 +904,38 @@
       "createdAt": "2026-03-19T05:40:50.931Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:40:50.931Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:40:50.931Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773899150933",
@@ -199,7 +943,38 @@
       "createdAt": "2026-03-19T05:45:50.933Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:45:50.933Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:45:50.933Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773899450935",
@@ -207,7 +982,38 @@
       "createdAt": "2026-03-19T05:50:50.935Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:50:50.935Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:50:50.935Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773899750936",
@@ -215,7 +1021,38 @@
       "createdAt": "2026-03-19T05:55:50.936Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T05:55:50.936Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T05:55:50.936Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773900050940",
@@ -223,7 +1060,38 @@
       "createdAt": "2026-03-19T06:00:50.940Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:00:50.940Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:00:50.940Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773900350946",
@@ -231,7 +1099,38 @@
       "createdAt": "2026-03-19T06:05:50.946Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:05:50.946Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:05:50.946Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773900650957",
@@ -239,7 +1138,38 @@
       "createdAt": "2026-03-19T06:10:50.957Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:10:50.957Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:10:50.957Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773900950954",
@@ -247,7 +1177,38 @@
       "createdAt": "2026-03-19T06:15:50.954Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:15:50.954Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:15:50.954Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773901250956",
@@ -255,7 +1216,38 @@
       "createdAt": "2026-03-19T06:20:50.956Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:20:50.956Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:20:50.956Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773901550959",
@@ -263,7 +1255,38 @@
       "createdAt": "2026-03-19T06:25:50.959Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:25:50.959Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:25:50.959Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773901850960",
@@ -271,7 +1294,38 @@
       "createdAt": "2026-03-19T06:30:50.960Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:30:50.960Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:30:50.960Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773902150961",
@@ -279,7 +1333,38 @@
       "createdAt": "2026-03-19T06:35:50.961Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:35:50.961Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:35:50.961Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773902450962",
@@ -287,7 +1372,38 @@
       "createdAt": "2026-03-19T06:40:50.962Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:40:50.962Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:40:50.962Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773902750974",
@@ -295,7 +1411,38 @@
       "createdAt": "2026-03-19T06:45:50.974Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:45:50.974Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:45:50.974Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773903050971",
@@ -303,7 +1450,38 @@
       "createdAt": "2026-03-19T06:50:50.971Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:50:50.971Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:50:50.971Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773903350981",
@@ -311,7 +1489,38 @@
       "createdAt": "2026-03-19T06:55:50.981Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T06:55:50.981Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T06:55:50.981Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773903650978",
@@ -319,7 +1528,38 @@
       "createdAt": "2026-03-19T07:00:50.978Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T07:00:50.978Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T07:00:50.978Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773903950988",
@@ -327,7 +1567,38 @@
       "createdAt": "2026-03-19T07:05:50.988Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "updatedAt": "2026-03-19T07:05:50.988Z",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-19T07:05:50.988Z",
+          "migrated": true
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-19T16:27:30.439Z",
+          "recovery": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal",
+      "recoveredAt": "2026-03-19T16:27:30.439Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-19T16:27:30.439Z"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773904250996",
@@ -335,7 +1606,31 @@
       "createdAt": "2026-03-19T07:10:50.996Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "pending"
+      "status": "internal_complete",
+      "completedAt": "2026-03-19T16:26:13.586Z",
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 11:25 AM (America/Chicago) / 2026-03-19 16:25 UTC\"}],\"timestamp\":1773937553863},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
+      "updatedAt": "2026-03-19T16:26:13.586Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T16:26:13.586Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773904550991",
@@ -343,11 +1638,33 @@
       "createdAt": "2026-03-19T07:15:50.991Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T16:21:11.192Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 11:20 AM (America/Chicago) / 2026-03-19 16:20 UTC\"}],\"timestamp\":1773937253900},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T16:25:51.389Z",
-      "announcementPromptInjectedAt": "2026-03-19T16:25:51.390Z"
+      "announcementPromptInjectedAt": "2026-03-19T16:25:51.390Z",
+      "updatedAt": "2026-03-19T16:21:11.192Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T16:21:11.192Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773904850992",
@@ -355,11 +1672,33 @@
       "createdAt": "2026-03-19T07:20:50.992Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T16:16:15.739Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 11:15 AM (America/Chicago) / 2026-03-19 16:15 UTC\"}],\"timestamp\":1773936959953},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T16:20:51.397Z",
-      "announcementPromptInjectedAt": "2026-03-19T16:20:51.398Z"
+      "announcementPromptInjectedAt": "2026-03-19T16:20:51.398Z",
+      "updatedAt": "2026-03-19T16:16:15.739Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T16:16:15.739Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773905150993",
@@ -367,11 +1706,33 @@
       "createdAt": "2026-03-19T07:25:50.993Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T16:11:14.867Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 11:10 AM (America/Chicago) / 2026-03-19 16:10 UTC\"}],\"timestamp\":1773936655734},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T16:15:51.392Z",
-      "announcementPromptInjectedAt": "2026-03-19T16:15:51.393Z"
+      "announcementPromptInjectedAt": "2026-03-19T16:15:51.393Z",
+      "updatedAt": "2026-03-19T16:11:14.867Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T16:11:14.867Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773905451008",
@@ -379,11 +1740,33 @@
       "createdAt": "2026-03-19T07:30:51.008Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T16:06:13.323Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 11:05 AM (America/Chicago) / 2026-03-19 16:05 UTC\"}],\"timestamp\":1773936353833},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T16:10:51.390Z",
-      "announcementPromptInjectedAt": "2026-03-19T16:10:51.391Z"
+      "announcementPromptInjectedAt": "2026-03-19T16:10:51.391Z",
+      "updatedAt": "2026-03-19T16:06:13.323Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T16:06:13.323Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773905751001",
@@ -391,11 +1774,33 @@
       "createdAt": "2026-03-19T07:35:51.001Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T16:01:07.487Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 11:00 AM (America/Chicago) / 2026-03-19 16:00 UTC\"}],\"timestamp\":1773936053829},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T16:05:51.369Z",
-      "announcementPromptInjectedAt": "2026-03-19T16:05:51.369Z"
+      "announcementPromptInjectedAt": "2026-03-19T16:05:51.369Z",
+      "updatedAt": "2026-03-19T16:01:07.487Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T16:01:07.487Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773906051004",
@@ -403,11 +1808,33 @@
       "createdAt": "2026-03-19T07:40:51.004Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:56:21.152Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:55 AM (America/Chicago) / 2026-03-19 15:55 UTC\"}],\"timestamp\":1773935753860},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T16:00:51.367Z",
-      "announcementPromptInjectedAt": "2026-03-19T16:00:51.368Z"
+      "announcementPromptInjectedAt": "2026-03-19T16:00:51.368Z",
+      "updatedAt": "2026-03-19T15:56:21.152Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:56:21.152Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773906351011",
@@ -415,11 +1842,33 @@
       "createdAt": "2026-03-19T07:45:51.011Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:51:24.469Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:50 AM (America/Chicago) / 2026-03-19 15:50 UTC\"}],\"timestamp\":1773935453853},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:55:51.387Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:55:51.388Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:55:51.388Z",
+      "updatedAt": "2026-03-19T15:51:24.469Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:51:24.469Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773906651010",
@@ -427,11 +1876,33 @@
       "createdAt": "2026-03-19T07:50:51.010Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:46:11.910Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:45 AM (America/Chicago) / 2026-03-19 15:45 UTC\"}],\"timestamp\":1773935153851},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:50:51.376Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:50:51.377Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:50:51.377Z",
+      "updatedAt": "2026-03-19T15:46:11.910Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:46:11.910Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773906951013",
@@ -439,11 +1910,33 @@
       "createdAt": "2026-03-19T07:55:51.013Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:41:22.936Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:40 AM (America/Chicago) / 2026-03-19 15:40 UTC\"}],\"timestamp\":1773934860746},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:45:51.378Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:45:51.379Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:45:51.379Z",
+      "updatedAt": "2026-03-19T15:41:22.936Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:41:22.936Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773907251023",
@@ -451,11 +1944,33 @@
       "createdAt": "2026-03-19T08:00:51.023Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:36:09.941Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:35 AM (America/Chicago) / 2026-03-19 15:35 UTC\"}],\"timestamp\":1773934553862},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:40:51.369Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:40:51.370Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:40:51.370Z",
+      "updatedAt": "2026-03-19T15:36:09.941Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:36:09.941Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773907551028",
@@ -463,11 +1978,33 @@
       "createdAt": "2026-03-19T08:05:51.028Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:31:14.979Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:30 AM (America/Chicago) / 2026-03-19 15:30 UTC\"}],\"timestamp\":1773934253807},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:35:51.380Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:35:51.381Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:35:51.381Z",
+      "updatedAt": "2026-03-19T15:31:14.979Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:31:14.979Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773907851040",
@@ -475,11 +2012,33 @@
       "createdAt": "2026-03-19T08:10:51.040Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:26:09.111Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:25 AM (America/Chicago) / 2026-03-19 15:25 UTC\"}],\"timestamp\":1773933953834},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:30:51.340Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:30:51.340Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:30:51.340Z",
+      "updatedAt": "2026-03-19T15:26:09.111Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:26:09.111Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773908151037",
@@ -487,11 +2046,33 @@
       "createdAt": "2026-03-19T08:15:51.037Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:21:10.130Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:20 AM (America/Chicago) / 2026-03-19 15:20 UTC\"}],\"timestamp\":1773933653804},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:25:51.356Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:25:51.357Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:25:51.357Z",
+      "updatedAt": "2026-03-19T15:21:10.130Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:21:10.130Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773908451044",
@@ -499,11 +2080,33 @@
       "createdAt": "2026-03-19T08:20:51.044Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:16:21.767Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:15 AM (America/Chicago) / 2026-03-19 15:15 UTC\"}],\"timestamp\":1773933353802},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:20:51.341Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:20:51.341Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:20:51.341Z",
+      "updatedAt": "2026-03-19T15:16:21.767Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:16:21.767Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773908751057",
@@ -511,11 +2114,33 @@
       "createdAt": "2026-03-19T08:25:51.057Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:11:07.088Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:10 AM (America/Chicago) / 2026-03-19 15:10 UTC\"}],\"timestamp\":1773933053795},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:15:51.343Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:15:51.344Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:15:51.344Z",
+      "updatedAt": "2026-03-19T15:11:07.088Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:11:07.088Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773909051042",
@@ -523,11 +2148,33 @@
       "createdAt": "2026-03-19T08:30:51.042Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:06:09.854Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:05 AM (America/Chicago) / 2026-03-19 15:05 UTC\"}],\"timestamp\":1773932753810},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:10:51.323Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:10:51.323Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:10:51.323Z",
+      "updatedAt": "2026-03-19T15:06:09.854Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:06:09.854Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773909351050",
@@ -535,11 +2182,33 @@
       "createdAt": "2026-03-19T08:35:51.050Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:01:28.666Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 10:00 AM (America/Chicago) / 2026-03-19 15:00 UTC\"}],\"timestamp\":1773932453791},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"cont",
       "escalatedAt": "2026-03-19T15:05:51.331Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:05:51.331Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:05:51.331Z",
+      "updatedAt": "2026-03-19T15:01:28.666Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:01:28.666Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773909651050",
@@ -547,11 +2216,33 @@
       "createdAt": "2026-03-19T08:40:51.050Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:56:14.509Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:55 AM (America/Chicago) / 2026-03-19 14:55 UTC\"}],\"timestamp\":1773932153783},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "escalatedAt": "2026-03-19T15:00:51.322Z",
-      "announcementPromptInjectedAt": "2026-03-19T15:00:51.323Z"
+      "announcementPromptInjectedAt": "2026-03-19T15:00:51.323Z",
+      "updatedAt": "2026-03-19T14:56:14.509Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:56:14.509Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773909951058",
@@ -559,11 +2250,33 @@
       "createdAt": "2026-03-19T08:45:51.058Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:51:34.658Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:50 AM (America/Chicago) / 2026-03-19 14:50 UTC\"}],\"timestamp\":1773931853770},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
-      "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
+      "updatedAt": "2026-03-19T14:51:34.658Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:51:34.658Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773910251081",
@@ -571,11 +2284,33 @@
       "createdAt": "2026-03-19T08:50:51.081Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:46:11.749Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:45 AM (America/Chicago) / 2026-03-19 14:45 UTC\"}],\"timestamp\":1773931553832},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "escalatedAt": "2026-03-19T14:50:51.302Z",
-      "announcementPromptInjectedAt": "2026-03-19T14:50:51.303Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:50:51.303Z",
+      "updatedAt": "2026-03-19T14:46:11.749Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:46:11.749Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773910551078",
@@ -583,11 +2318,33 @@
       "createdAt": "2026-03-19T08:55:51.078Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:41:09.967Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:40 AM (America/Chicago) / 2026-03-19 14:40 UTC\"}],\"timestamp\":1773931253770},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "escalatedAt": "2026-03-19T14:45:51.338Z",
-      "announcementPromptInjectedAt": "2026-03-19T14:45:51.339Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:45:51.339Z",
+      "updatedAt": "2026-03-19T14:41:09.967Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:41:09.967Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773910851069",
@@ -595,11 +2352,33 @@
       "createdAt": "2026-03-19T09:00:51.069Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:36:16.288Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:35 AM (America/Chicago) / 2026-03-19 14:35 UTC\"}],\"timestamp\":1773930953763},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "escalatedAt": "2026-03-19T14:40:51.295Z",
-      "announcementPromptInjectedAt": "2026-03-19T14:40:51.295Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:40:51.295Z",
+      "updatedAt": "2026-03-19T14:36:16.288Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:36:16.288Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773911151074",
@@ -607,11 +2386,33 @@
       "createdAt": "2026-03-19T09:05:51.074Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:31:13.455Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:30 AM (America/Chicago) / 2026-03-19 14:30 UTC\"}],\"timestamp\":1773930653782},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
-      "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
+      "updatedAt": "2026-03-19T14:31:13.455Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:31:13.455Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773911451079",
@@ -619,11 +2420,33 @@
       "createdAt": "2026-03-19T09:10:51.079Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:26:16.958Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:25 AM (America/Chicago) / 2026-03-19 14:25 UTC\"}],\"timestamp\":1773930353750},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "escalatedAt": "2026-03-19T14:30:51.311Z",
-      "announcementPromptInjectedAt": "2026-03-19T14:30:51.312Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:30:51.312Z",
+      "updatedAt": "2026-03-19T14:26:16.958Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:26:16.958Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773911751080",
@@ -631,11 +2454,33 @@
       "createdAt": "2026-03-19T09:15:51.080Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:21:25.511Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:20 AM (America/Chicago) / 2026-03-19 14:20 UTC\"}],\"timestamp\":1773930053772},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T14:21:25.511Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:21:25.511Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912051098",
@@ -643,11 +2488,33 @@
       "createdAt": "2026-03-19T09:20:51.098Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:16:37.912Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:15 AM (America/Chicago) / 2026-03-19 14:15 UTC\"}],\"timestamp\":1773929753726},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T14:20:51.297Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T14:16:37.912Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:16:37.912Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912351100",
@@ -655,11 +2522,33 @@
       "createdAt": "2026-03-19T09:25:51.100Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:11:15.474Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:10 AM (America/Chicago) / 2026-03-19 14:10 UTC\"}],\"timestamp\":1773929453734},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T14:15:51.263Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T14:11:15.474Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:11:15.474Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912651101",
@@ -667,11 +2556,33 @@
       "createdAt": "2026-03-19T09:30:51.101Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:06:21.997Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:05 AM (America/Chicago) / 2026-03-19 14:05 UTC\"}],\"timestamp\":1773929153723},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T14:10:51.265Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T14:06:21.997Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:06:21.997Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912951097",
@@ -679,11 +2590,33 @@
       "createdAt": "2026-03-19T09:35:51.097Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:01:27.378Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:00 AM (America/Chicago) / 2026-03-19 14:00 UTC\"}],\"timestamp\":1773928853718},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T14:05:51.257Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T14:01:27.378Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:01:27.378Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913251103",
@@ -691,11 +2624,33 @@
       "createdAt": "2026-03-19T09:40:51.103Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:56:18.004Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:55 AM (America/Chicago) / 2026-03-19 13:55 UTC\"}],\"timestamp\":1773928553719},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T14:00:51.262Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:56:18.004Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:56:18.004Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913551107",
@@ -703,11 +2658,33 @@
       "createdAt": "2026-03-19T09:45:51.107Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:51:04.275Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:50 AM (America/Chicago) / 2026-03-19 13:50 UTC\"}],\"timestamp\":1773928253710},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:55:51.253Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:51:04.275Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:51:04.275Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913851117",
@@ -715,11 +2692,33 @@
       "createdAt": "2026-03-19T09:50:51.117Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:46:21.800Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:45 AM (America/Chicago) / 2026-03-19 13:45 UTC\"}],\"timestamp\":1773927957336},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:46:21.800Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:46:21.800Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914151109",
@@ -727,11 +2726,33 @@
       "createdAt": "2026-03-19T09:55:51.109Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:41:15.410Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:40 AM (America/Chicago) / 2026-03-19 13:40 UTC\"}],\"timestamp\":1773927660953},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:41:15.410Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:41:15.410Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914451110",
@@ -739,11 +2760,33 @@
       "createdAt": "2026-03-19T10:00:51.110Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:36:49.603Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:35 AM (America/Chicago) / 2026-03-19 13:35 UTC\"}],\"timestamp\":1773927378367},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:40:51.267Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:36:49.603Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:36:49.603Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914751116",
@@ -751,11 +2794,33 @@
       "createdAt": "2026-03-19T10:05:51.116Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:31:22.299Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:30 AM (America/Chicago) / 2026-03-19 13:30 UTC\"}],\"timestamp\":1773927062596},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:35:51.241Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:31:22.299Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:31:22.299Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915051118",
@@ -763,11 +2828,33 @@
       "createdAt": "2026-03-19T10:10:51.118Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:26:20.509Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:25 AM (America/Chicago) / 2026-03-19 13:25 UTC\"}],\"timestamp\":1773926757297},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:26:20.509Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:26:20.509Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915351132",
@@ -775,11 +2862,33 @@
       "createdAt": "2026-03-19T10:15:51.132Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:21:08.948Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:20 AM (America/Chicago) / 2026-03-19 13:20 UTC\"}],\"timestamp\":1773926453693},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:21:08.948Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:21:08.948Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915651124",
@@ -787,11 +2896,33 @@
       "createdAt": "2026-03-19T10:20:51.124Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:16:05.739Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:15 AM (America/Chicago) / 2026-03-19 13:15 UTC\"}],\"timestamp\":1773926153700},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:16:05.739Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:16:05.739Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915951125",
@@ -799,11 +2930,33 @@
       "createdAt": "2026-03-19T10:25:51.125Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:11:08.709Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:10 AM (America/Chicago) / 2026-03-19 13:10 UTC\"}],\"timestamp\":1773925853685},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:11:08.709Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:11:08.709Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773916251134",
@@ -811,11 +2964,33 @@
       "createdAt": "2026-03-19T10:30:51.134Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:06:08.997Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:05 AM (America/Chicago) / 2026-03-19 13:05 UTC\"}],\"timestamp\":1773925553696},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:10:51.230Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:06:08.997Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:06:08.997Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773916551133",
@@ -823,11 +2998,33 @@
       "createdAt": "2026-03-19T10:35:51.133Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T13:01:30.849Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:00 AM (America/Chicago) / 2026-03-19 13:00 UTC\"}],\"timestamp\":1773925262333},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:05:51.223Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T13:01:30.849Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T13:01:30.849Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773916851134",
@@ -835,11 +3032,33 @@
       "createdAt": "2026-03-19T10:40:51.134Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:56:20.673Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:55 AM (America/Chicago) / 2026-03-19 12:55 UTC\"}],\"timestamp\":1773924953678},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T13:00:51.225Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:56:20.673Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:56:20.673Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773917151140",
@@ -847,11 +3066,33 @@
       "createdAt": "2026-03-19T10:45:51.140Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:51:13.364Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:50 AM (America/Chicago) / 2026-03-19 12:50 UTC\"}],\"timestamp\":1773924653690},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:55:51.220Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:51:13.364Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:51:13.364Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773917451146",
@@ -859,11 +3100,33 @@
       "createdAt": "2026-03-19T10:50:51.146Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:46:13.788Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:45 AM (America/Chicago) / 2026-03-19 12:45 UTC\"}],\"timestamp\":1773924353682},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:50:51.223Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:46:13.788Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:46:13.788Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773917751157",
@@ -871,11 +3134,33 @@
       "createdAt": "2026-03-19T10:55:51.157Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:41:20.782Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:40 AM (America/Chicago) / 2026-03-19 12:40 UTC\"}],\"timestamp\":1773924053700},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:45:51.218Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:41:20.782Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:41:20.782Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918051150",
@@ -883,11 +3168,33 @@
       "createdAt": "2026-03-19T11:00:51.150Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:36:04.078Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:35 AM (America/Chicago) / 2026-03-19 12:35 UTC\"}],\"timestamp\":1773923753664},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:40:51.231Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:36:04.078Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:36:04.078Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918351148",
@@ -895,11 +3202,33 @@
       "createdAt": "2026-03-19T11:05:51.148Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:31:18.905Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:30 AM (America/Chicago) / 2026-03-19 12:30 UTC\"}],\"timestamp\":1773923453666},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:35:51.211Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:31:18.905Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:31:18.905Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918651156",
@@ -907,11 +3236,33 @@
       "createdAt": "2026-03-19T11:10:51.156Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:26:08.079Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:25 AM (America/Chicago) / 2026-03-19 12:25 UTC\"}],\"timestamp\":1773923153695},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:30:51.210Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:26:08.079Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:26:08.079Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918951158",
@@ -919,11 +3270,33 @@
       "createdAt": "2026-03-19T11:15:51.158Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:21:37.641Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:20 AM (America/Chicago) / 2026-03-19 12:20 UTC\"}],\"timestamp\":1773922853672},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:25:51.219Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:21:37.641Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:21:37.641Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773919251165",
@@ -931,11 +3304,33 @@
       "createdAt": "2026-03-19T11:20:51.165Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:16:10.463Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:15 AM (America/Chicago) / 2026-03-19 12:15 UTC\"}],\"timestamp\":1773922553674},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:20:51.208Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:16:10.463Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:16:10.463Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773919551165",
@@ -943,11 +3338,33 @@
       "createdAt": "2026-03-19T11:25:51.165Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:11:14.015Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:10 AM (America/Chicago) / 2026-03-19 12:10 UTC\"}],\"timestamp\":1773922253687},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:15:51.206Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:11:14.015Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:11:14.015Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773919851167",
@@ -955,11 +3372,33 @@
       "createdAt": "2026-03-19T11:30:51.167Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:06:07.032Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:05 AM (America/Chicago) / 2026-03-19 12:05 UTC\"}],\"timestamp\":1773921953656},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:06:07.032Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:06:07.032Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920151166",
@@ -967,11 +3406,33 @@
       "createdAt": "2026-03-19T11:35:51.166Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T12:01:08.559Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:00 AM (America/Chicago) / 2026-03-19 12:00 UTC\"}],\"timestamp\":1773921653663},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:05:51.201Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T12:01:08.559Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T12:01:08.559Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920451170",
@@ -979,11 +3440,33 @@
       "createdAt": "2026-03-19T11:40:51.170Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T11:56:08.384Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 6:55 AM (America/Chicago) / 2026-03-19 11:55 UTC\"}],\"timestamp\":1773921353659},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T12:00:51.196Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T11:56:08.384Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T11:56:08.384Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920495120",
@@ -991,11 +3474,33 @@
       "createdAt": "2026-03-19T11:41:35.120Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A6373EB0249C5945255\", \"reply_to_id\": \"3AFA50EF8F9C21F821E2\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```js",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T15:20:57.286Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Conversation info (untrusted metadata):\\n```json\\n{\\n  \\\"message_id\\\": \\\"3AC61ACD946A2B3A24DE\\\",\\n  \\\"sender_id\\\": \\\"+17855410986\\\",\\n  \\\"sender\\\": \\\"Jake\\\"\\n}\\n```\\n\\nSender (untrusted metadata):\\n```json\\n{\\n  \\\"label\\\": \\\"Jake (+17855410986)\\\",\\n  \\\"id\\\": \\\"+17855410986\\\",\\n  \\\"name\\\": \\\"Jake\\\",\\n  \\\"e164\\\": \\\"+17855410986\\\"\\n}\\n```\\n\\nWhat happened?\"}],\"timestamp\":1773919923787},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"content\":\"Cortex",
       "announcementPromptInjectedAt": "2026-03-19T15:21:31.378Z",
-      "escalatedAt": "2026-03-19T15:28:06.085Z"
+      "escalatedAt": "2026-03-19T15:28:06.085Z",
+      "updatedAt": "2026-03-19T15:20:57.286Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T15:20:57.286Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920656108",
@@ -1003,11 +3508,33 @@
       "createdAt": "2026-03-19T11:44:16.108Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A36495A46508A2FC757\", \"reply_to_id\": \"3EB049D08C72A32DBC0972\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:45:18.996Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Conversation info (untrusted metadata):\\n```json\\n{\\n  \\\"message_id\\\": \\\"3AC61ACD946A2B3A24DE\\\",\\n  \\\"sender_id\\\": \\\"+17855410986\\\",\\n  \\\"sender\\\": \\\"Jake\\\"\\n}\\n```\\n\\nSender (untrusted metadata):\\n```json\\n{\\n  \\\"label\\\": \\\"Jake (+17855410986)\\\",\\n  \\\"id\\\": \\\"+17855410986\\\",\\n  \\\"name\\\": \\\"Jake\\\",\\n  \\\"e164\\\": \\\"+17855410986\\\"\\n}\\n```\\n\\nWhat happened?\"}],\"timestamp\":1773919923787},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"content\":\"Cortex",
       "escalatedAt": "2026-03-19T14:52:47.464Z",
-      "announcementPromptInjectedAt": "2026-03-19T14:52:47.465Z"
+      "announcementPromptInjectedAt": "2026-03-19T14:52:47.465Z",
+      "updatedAt": "2026-03-19T14:45:18.996Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:45:18.996Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920751175",
@@ -1015,11 +3542,33 @@
       "createdAt": "2026-03-19T11:45:51.175Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T11:51:06.088Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 6:50 AM (America/Chicago) / 2026-03-19 11:50 UTC\"}],\"timestamp\":1773921053691},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
-      "escalatedAt": "2026-03-19T14:25:51.284Z"
+      "escalatedAt": "2026-03-19T14:25:51.284Z",
+      "updatedAt": "2026-03-19T11:51:06.088Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T11:51:06.088Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920934380",
@@ -1027,11 +3576,33 @@
       "createdAt": "2026-03-19T11:48:54.380Z",
       "prompt": "System: [2026-03-19 06:45:18 CDT] Exec completed (mild-lob, code 0) :: 9.0k/272k (3%) · 🗄️ 34% cached │ └──────────────────────────────────────────────────┴────────┴─────────┴──────────────┴─────────────────────────────────┘ FAQ: https://d",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T14:19:19.368Z",
       "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Conversation info (untrusted metadata):\\n```json\\n{\\n  \\\"message_id\\\": \\\"3AC61ACD946A2B3A24DE\\\",\\n  \\\"sender_id\\\": \\\"+17855410986\\\",\\n  \\\"sender\\\": \\\"Jake\\\"\\n}\\n```\\n\\nSender (untrusted metadata):\\n```json\\n{\\n  \\\"label\\\": \\\"Jake (+17855410986)\\\",\\n  \\\"id\\\": \\\"+17855410986\\\",\\n  \\\"name\\\": \\\"Jake\\\",\\n  \\\"e164\\\": \\\"+17855410986\\\"\\n}\\n```\\n\\nWhat happened?\"}],\"timestamp\":1773919923787},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"content\":\"Cortex",
       "announcementPromptInjectedAt": "2026-03-19T14:23:30.494Z",
-      "escalatedAt": "2026-03-19T14:44:46.604Z"
+      "escalatedAt": "2026-03-19T14:44:46.604Z",
+      "updatedAt": "2026-03-19T14:19:19.368Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T14:19:19.368Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     },
     {
       "id": "agent:main:subagent:979af9a7-b0a1-432d-8501-9f5673d7895c:1773937171502",
@@ -1039,9 +3610,31 @@
       "createdAt": "2026-03-19T16:19:31.502Z",
       "prompt": "[Thu 2026-03-19 11:19 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Implement a full trust-hardening system in /root/clawd focused o",
       "kind": "user_visible",
-      "status": "completed",
+      "status": "internal_complete",
       "completedAt": "2026-03-19T16:24:17.079Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[Thu 2026-03-19 11:19 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status.\\n\\n[Subagent Task]: Implement a full trust-hardening system in /root/clawd focused on Cortex/OpenClaw reliability for user-visible tasks. Requirements: 1) design and implement a hard task-state machine (pending, running, internal_complete, notification_sent, delivery_confirmed, closed, fail"
+      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[Thu 2026-03-19 11:19 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status.\\n\\n[Subagent Task]: Implement a full trust-hardening system in /root/clawd focused on Cortex/OpenClaw reliability for user-visible tasks. Requirements: 1) design and implement a hard task-state machine (pending, running, internal_complete, notification_sent, delivery_confirmed, closed, fail",
+      "updatedAt": "2026-03-19T16:24:17.079Z",
+      "history": [
+        {
+          "from": null,
+          "to": "internal_complete",
+          "at": "2026-03-19T16:24:17.079Z",
+          "migrated": true
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "trustTier": "normal"
     }
   ]
 }
