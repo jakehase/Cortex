@@ -328,6 +328,7 @@ export default function register(api: any) {
     if (stateKey) {
       runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [], selfModel, predictedChecks });
     }
+    api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length}`);
     return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
   });
 
