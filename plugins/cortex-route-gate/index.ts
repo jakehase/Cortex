@@ -18,6 +18,15 @@ type RouteStats = {
   byTask: Record<string, { uses: number; successes: number; failures: number }>;
 };
 
+type CapabilitySelfModel = {
+  version?: number;
+  generatedAt?: string;
+  capabilities?: Record<string, { claimed?: boolean; implemented?: boolean; live?: boolean; verified?: boolean; observedAt?: string; evidence?: unknown[] }>;
+  confidence?: Record<string, number>;
+  degraded?: string[];
+  recommendations?: string[];
+};
+
 type RunState = {
   prompt: string;
   promptFingerprint: string;
@@ -26,6 +35,8 @@ type RunState = {
   startedAt: number;
   toolCalls: { toolName: string; ok: boolean; durationMs?: number; error?: string }[];
   observedSignals: string[];
+  selfModel?: CapabilitySelfModel;
+  predictedChecks?: { capability: string; usable: boolean; confidence: number; rationale: string }[];
 };
 
 function normalizeBaseUrl(value: unknown): string {
@@ -98,6 +109,9 @@ function classifyTask(prompt: string): string {
   if (/\b(design|architecture|plan|roadmap|system)\b/.test(p)) return 'design';
   return 'general';
 }
+function loadJson<T>(targetPath: string, fallback: T): T {
+  try { return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as T; } catch { return fallback; }
+}
 function buildFailureModes(prompt: string, plan: RoutePlan): string[] {
   const task = classifyTask(prompt);
   const modes = [
@@ -142,6 +156,36 @@ function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, m
   });
   const chosen = sorted.filter((x, i) => i < maxLevels || mandatory.has(x.level));
   return { ...plan, recommendedLevels: uniqueLevels(chosen) };
+}
+function predictCapabilityUse(prompt: string, model: CapabilitySelfModel): { capability: string; usable: boolean; confidence: number; rationale: string }[] {
+  const task = classifyTask(prompt);
+  const checks: { capability: string; usable: boolean; confidence: number; rationale: string }[] = [];
+  const degraded = new Set(model.degraded || []);
+  const confidence = model.confidence || {};
+  if (task === 'research') {
+    const usable = !degraded.has('l2_browser_bridge') && (confidence.l2_browser_bridge ?? 0) >= 0.6;
+    checks.push({ capability: 'l2_browser_bridge', usable, confidence: confidence.l2_browser_bridge ?? 0, rationale: usable ? 'Observed browser path appears healthy enough for primary use.' : 'Observed browser path is degraded or weakly verified; require fallback language.' });
+  }
+  if (task === 'memory') {
+    const usable = !degraded.has('memory_write_through') && (confidence.memory_write_through ?? 0) >= 0.5;
+    checks.push({ capability: 'memory_write_through', usable, confidence: confidence.memory_write_through ?? 0, rationale: usable ? 'Memory endpoint is live, but rely only with partial confidence.' : 'Memory path is degraded or not trustworthy enough for strong claims.' });
+  }
+  return checks;
+}
+function renderSelfModelBlock(model: CapabilitySelfModel, predicted: { capability: string; usable: boolean; confidence: number; rationale: string }[]): string {
+  const degraded = (model.degraded || []).map((x) => `- ${x}`).join('\n') || '- none';
+  const recs = (model.recommendations || []).slice(0, 5).map((x) => `- ${x}`).join('\n') || '- none';
+  const preds = predicted.map((x) => `- ${x.capability}: usable=${x.usable} confidence=${x.confidence.toFixed(2)} rationale=${x.rationale}`).join('\n') || '- none';
+  return [
+    'CORTEX_SELF_MODEL',
+    `generated_at: ${model.generatedAt || 'unknown'}`,
+    'degraded_capabilities:',
+    degraded,
+    'counterfactual_pre_action_checks:',
+    preds,
+    'operational_recommendations:',
+    recs,
+  ].join('\n');
 }
 function renderExecutionContract(plan: RoutePlan, prompt: string): string {
   const lines = [
@@ -214,6 +258,8 @@ export default function register(api: any) {
   const stateDir = typeof cfg.stateDir === 'string' && cfg.stateDir.trim() ? cfg.stateDir.trim() : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-route-gate');
   const statsPath = path.join(stateDir, 'adaptive-routing-stats.json');
   const historyPath = path.join(stateDir, 'prompt-fingerprints.json');
+  const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
+  const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
 
   function loadFingerprintHistory(): string[] {
@@ -230,7 +276,7 @@ export default function register(api: any) {
     fs.writeFileSync(historyPath, JSON.stringify(compact.slice(-100), null, 2));
   }
 
-  async function getPlan(prompt: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string }> {
+  async function getPlan(prompt: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[] }> {
     let plan: RoutePlan | null = null;
     try {
       const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs);
@@ -263,24 +309,26 @@ export default function register(api: any) {
     }
     const taskClass = classifyTask(prompt);
     const stats = loadStats(statsPath);
+    const selfModel = loadJson<CapabilitySelfModel>(selfModelPath, { version: 1, capabilities: {}, confidence: {}, degraded: [], recommendations: [] });
+    const predictedChecks = predictCapabilityUse(prompt, selfModel);
     const prioritized = prioritizePlan(plan!, stats, taskClass, maxLevels);
     const fingerprint = fingerprintText(prompt);
     const history = loadFingerprintHistory();
     const duplicateRisk = history.some((x) => similarity(x, fingerprint) >= 0.9);
     history.push(fingerprint);
     saveFingerprintHistory(history);
-    return { plan: prioritized, duplicateRisk, taskClass };
+    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks };
   }
 
   api.on('before_prompt_build', async (event: any, ctx: any) => {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
-    const { plan, duplicateRisk, taskClass } = await getPlan(prompt);
+    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks } = await getPlan(prompt);
     const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     if (stateKey) {
-      runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [] });
+      runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [], selfModel, predictedChecks });
     }
-    return { appendSystemContext: renderPlan(plan, prompt, duplicateRisk) };
+    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
   });
 
   api.on('before_tool_call', async (event: any, ctx: any) => {
@@ -289,8 +337,14 @@ export default function register(api: any) {
     if ((event?.toolName === 'web_search' || event?.toolName === 'web_fetch') && !hasLevel(rs.plan, 2)) {
       rs.observedSignals.push('web_tool_without_l2');
     }
+    if ((event?.toolName === 'web_search' || event?.toolName === 'web_fetch') && rs.predictedChecks?.some((x) => x.capability === 'l2_browser_bridge' && !x.usable)) {
+      rs.observedSignals.push('counterfactual_warn:l2_browser_bridge');
+    }
     if (event?.toolName === 'memory_search' && !hasLevel(rs.plan, 22) && !hasLevel(rs.plan, 7)) {
       rs.observedSignals.push('memory_tool_without_l7l22');
+    }
+    if (event?.toolName === 'memory_search' && rs.predictedChecks?.some((x) => x.capability === 'memory_write_through' && !x.usable)) {
+      rs.observedSignals.push('counterfactual_warn:memory_write_through');
     }
   });
 
@@ -318,6 +372,7 @@ export default function register(api: any) {
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs) return;
     const stats = loadStats(statsPath);
+    const contradictions = loadJson<{ contradictions?: any[] }>(contradictionPath, { contradictions: [] });
     const success = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
     const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
     taskBucket.uses += 1;
@@ -332,6 +387,10 @@ export default function register(api: any) {
       stats.byLevel[String(level.level)] = bucket;
     }
     saveStats(statsPath, stats);
+    if ((contradictions.contradictions || []).length > 0 && rs.observedSignals.every((x) => !x.startsWith('contradiction:'))) {
+      const severe = (contradictions.contradictions || []).filter((x: any) => x?.severity === 'high').length;
+      if (severe > 0) rs.observedSignals.push(`contradiction:high:${severe}`);
+    }
     runStateByKey.delete(stateKey);
   });
 }

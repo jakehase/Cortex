@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "generatedAt": "2026-03-19T02:50:27.331Z",
+  "capabilities": {
+    "route_governor": {
+      "claimed": true,
+      "implemented": true,
+      "live": true,
+      "verified": true,
+      "observedAt": "2026-03-19T02:50:27.331Z",
+      "evidence": [
+        "/root/.openclaw/cortex-route-gate/adaptive-routing-stats.json",
+        "/root/.openclaw/cortex-route-gate/prompt-fingerprints.json"
+      ]
+    },
+    "l2_browser_bridge": {
+      "claimed": true,
+      "implemented": true,
+      "live": true,
+      "verified": true,
+      "observedAt": "2026-03-19T02:50:27.624Z",
+      "evidence": [
+        {
+          "ok": true,
+          "status": 200,
+          "text": "{\"success\": true, \"level\": 2, \"name\": \"Ghost (Browser)\", \"status\": \"active\", \"capabilities\": [\"web_search\", \"web_browse\", \"screenshot\", \"temporal_web_twin\", \"truth_arbitration\", \"change_radar\", \"evidence_notary\", \"web_action_sandbox\", \"counterfactual_web_sim\"], \"engine\": \"playwright_chromium\", \"engine_status\": \"ready\", \"executable_path\": \"/root/.cache/ms-playwright/chromium-1208/chrome-linux64/chr"
+        }
+      ]
+    },
+    "memory_write_through": {
+      "claimed": true,
+      "implemented": true,
+      "live": true,
+      "verified": false,
+      "observedAt": "2026-03-19T02:50:27.815Z",
+      "evidence": [
+        {
+          "ok": true,
+          "status": 200,
+          "text": "{\"id\": \"45f4dde0-4ca2-4533-a44f-e5aeaa298801\", \"status\": \"stored\", \"success\": true, \"response_shape_version\": \"cortex.v1\", \"hud\": \"\\ud83d\\udfe2 L22 (Mnemosyne)\", \"activated_levels\": [{\"level\": 22, \"name\": \"mnemosyne\", \"always_on\": false, \"derived_from\": \"route\"}], \"contract\": {\"identity_phrase\": \"Cortex-first orchestration active\", \"activation_metadata_available\": true, \"activation_metadata_source"
+        },
+        "automatic hook path not yet directly observed"
+      ]
+    },
+    "capability_registry_preflight": {
+      "claimed": true,
+      "implemented": true,
+      "live": true,
+      "verified": true,
+      "observedAt": "2026-03-19T02:50:27.815Z",
+      "evidence": [
+        "/root/clawd/state/cortex-capabilities.json",
+        "/root/clawd/scripts/cortex-capability-preflight.mjs"
+      ]
+    }
+  },
+  "confidence": {
+    "route_governor": 0.95,
+    "l2_browser_bridge": 0.9,
+    "memory_write_through": 0.55,
+    "capability_registry_preflight": 0.95
+  },
+  "degraded": [],
+  "recommendations": [
+    "Treat memory write-through as partially trusted: endpoint works, hook automation still needs direct verification evidence."
+  ]
+}

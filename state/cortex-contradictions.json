@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "generatedAt": "2026-03-19T02:50:27.815Z",
+  "contradictions": [
+    {
+      "id": "memory_write_through_partial",
+      "severity": "medium",
+      "summary": "Memory store endpoint is live, but automatic write-through hook remains unverified.",
+      "evidence": [
+        {
+          "ok": true,
+          "status": 200,
+          "text": "{\"id\": \"45f4dde0-4ca2-4533-a44f-e5aeaa298801\", \"status\": \"stored\", \"success\": true, \"response_shape_version\": \"cortex.v1\", \"hud\": \"\\ud83d\\udfe2 L22 (Mnemosyne)\", \"activated_levels\": [{\"level\": 22, \"name\": \"mnemosyne\", \"always_on\": false, \"derived_from\": \"route\"}], \"contract\": {\"identity_phrase\": \"Cortex-first orchestration active\", \"activation_metadata_available\": true, \"activation_metadata_source"
+        },
+        "hook path lacks direct success evidence"
+      ],
+      "detectedAt": "2026-03-19T02:50:27.815Z"
+    }
+  ]
+}

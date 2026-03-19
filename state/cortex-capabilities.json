@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-03-19T02:37:54.926Z",
+  "generatedAt": "2026-03-19T02:49:56.259Z",
   "capabilities": [
     {
       "id": "route_governor",
@@ -87,6 +87,52 @@
         "preflight can report overlaps and blockers"
       ],
       "blockers": []
+    },
+    {
+      "id": "dynamic_self_model",
+      "name": "Dynamic capability self-model",
+      "category": "governance",
+      "implemented": true,
+      "live": true,
+      "verified": true,
+      "codePaths": [
+        "scripts/cortex-capability-probe.mjs",
+        "scripts/cortex-self-model-report.mjs",
+        "state/cortex-self-model.json",
+        "state/cortex-contradictions.json",
+        "docs/CORTEX_SELF_MODEL.md"
+      ],
+      "runtimeEvidence": [
+        "state/cortex-self-model.json",
+        "state/cortex-contradictions.json"
+      ],
+      "verificationChecks": [
+        "probe script writes self-model",
+        "report script reads self-model"
+      ],
+      "blockers": []
+    },
+    {
+      "id": "counterfactual_pre_action_testing",
+      "name": "Counterfactual pre-action self-testing",
+      "category": "governance",
+      "implemented": true,
+      "live": false,
+      "verified": false,
+      "codePaths": [
+        "plugins/cortex-route-gate/index.ts",
+        "docs/CORTEX_COUNTERFACTUAL_SELF_TESTING.md"
+      ],
+      "runtimeEvidence": [
+        "route-gate now injects CORTEX_SELF_MODEL after restart"
+      ],
+      "verificationChecks": [
+        "route-gate loads after restart",
+        "prompt build includes counterfactual checks"
+      ],
+      "blockers": [
+        "needs live post-restart confirmation in runtime"
+      ]
     }
   ]
 }
