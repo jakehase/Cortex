@@ -1,0 +1,14 @@
+{
+  "id": "cortex-browser-bridge",
+  "name": "Cortex Browser Bridge",
+  "version": "0.1.0",
+  "entry": "./index.ts",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": { "type": "string", "default": "http://127.0.0.1:18888" },
+      "timeoutMs": { "type": "number", "minimum": 1000, "maximum": 60000, "default": 15000 }
+    }
+  }
+}

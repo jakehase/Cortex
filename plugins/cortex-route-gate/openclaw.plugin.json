@@ -1,0 +1,25 @@
+{
+  "id": "cortex-route-gate",
+  "name": "Cortex Route Gate",
+  "description": "Forces every agent run to consult Cortex routing first and injects the selected levels into the prompt.",
+  "kind": "utility",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": { "type": "string" },
+      "enabled": { "type": "boolean" },
+      "requireRouting": { "type": "boolean" },
+      "timeoutMs": { "type": "number", "minimum": 100, "maximum": 60000 },
+      "maxLevels": { "type": "number", "minimum": 1, "maximum": 20 },
+      "stateDir": { "type": "string" }
+    }
+  },
+  "uiHints": {
+    "baseUrl": { "label": "Cortex Base URL", "placeholder": "http://127.0.0.1:18888" },
+    "enabled": { "label": "Enable route gate" },
+    "requireRouting": { "label": "Require Cortex routing before answer generation" },
+    "timeoutMs": { "label": "Routing timeout (ms)", "advanced": true },
+    "maxLevels": { "label": "Max routed levels", "advanced": true }
+  }
+}

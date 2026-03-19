@@ -1,0 +1,74 @@
+{
+  "id": "cortex-memory-bridge",
+  "name": "Cortex Memory Bridge",
+  "description": "Workspace-staged bridge plugin that proxies OpenClaw memory_search to a Cortex HTTP service.",
+  "kind": "memory",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": { "type": "string" },
+      "searchPath": { "type": "string" },
+      "storePath": { "type": "string" },
+      "timeoutMs": { "type": "number", "minimum": 100, "maximum": 60000 },
+      "enabledWriteThrough": { "type": "boolean" },
+      "curatedBoost": { "type": "number", "minimum": 0, "maximum": 1 },
+      "projectFactBoost": { "type": "number", "minimum": 0, "maximum": 1 },
+      "durableCandidatePenalty": { "type": "number", "minimum": 0, "maximum": 1 },
+      "noisyWhatsappPenalty": { "type": "number", "minimum": 0, "maximum": 1 },
+      "noisyPatternPenalty": { "type": "number", "minimum": 0, "maximum": 1 },
+      "minDurabilityScore": { "type": "number", "minimum": 0, "maximum": 1 },
+      "writeTags": { "type": "array", "items": { "type": "string" } },
+      "debugShapes": { "type": "boolean" }
+    }
+  },
+  "uiHints": {
+    "baseUrl": {
+      "label": "Cortex Base URL",
+      "placeholder": "http://127.0.0.1:18888"
+    },
+    "searchPath": {
+      "label": "Search Path",
+      "placeholder": "/knowledge/search"
+    },
+    "storePath": {
+      "label": "Store Path",
+      "placeholder": "/l22/store"
+    },
+    "timeoutMs": {
+      "label": "HTTP Timeout (ms)",
+      "placeholder": "8000",
+      "advanced": true
+    },
+    "enabledWriteThrough": {
+      "label": "Enable write-through capture",
+      "advanced": true,
+      "help": "Off by default. When implemented, lifecycle hooks could POST captured memories to Cortex."
+    },
+    "curatedBoost": {
+      "label": "Curated Result Boost",
+      "advanced": true,
+      "placeholder": "0.24"
+    },
+    "projectFactBoost": {
+      "label": "Project-State Boost",
+      "advanced": true,
+      "placeholder": "0.12"
+    },
+    "durableCandidatePenalty": {
+      "label": "Vague Candidate Penalty",
+      "advanced": true,
+      "placeholder": "0.14"
+    },
+    "noisyWhatsappPenalty": {
+      "label": "Vague WhatsApp Penalty",
+      "advanced": true,
+      "placeholder": "0.26"
+    },
+    "noisyPatternPenalty": {
+      "label": "Noise Pattern Penalty",
+      "advanced": true,
+      "placeholder": "0.2"
+    }
+  }
+}

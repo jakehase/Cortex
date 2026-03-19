@@ -1,0 +1,337 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
+type RouteLevel = { level: number; name?: string; reason?: string; method?: string; score?: number };
+type RoutePlan = {
+  recommendedLevels: RouteLevel[];
+  routingMethod?: string;
+  reasoning?: string[];
+  routingError?: string;
+  routingMarkers?: Record<string, unknown>;
+  workflowCheckpoint?: Record<string, unknown>;
+};
+
+type RouteStats = {
+  version: number;
+  updatedAt: string;
+  byLevel: Record<string, { uses: number; successes: number; failures: number; score: number; lastReason?: string }>;
+  byTask: Record<string, { uses: number; successes: number; failures: number }>;
+};
+
+type RunState = {
+  prompt: string;
+  promptFingerprint: string;
+  plan: RoutePlan;
+  taskClass: string;
+  startedAt: number;
+  toolCalls: { toolName: string; ok: boolean; durationMs?: number; error?: string }[];
+  observedSignals: string[];
+};
+
+function normalizeBaseUrl(value: unknown): string {
+  const text = typeof value === 'string' && value.trim() ? value.trim() : 'http://127.0.0.1:18888';
+  return text.endsWith('/') ? text.slice(0, -1) : text;
+}
+function asBool(value: unknown, fallback: boolean): boolean { return typeof value === 'boolean' ? value : fallback; }
+function asNumber(value: unknown, fallback: number): number { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
+function clamp(n: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, n)); }
+function nowIso(): string { return new Date().toISOString(); }
+
+function normalizePrompt(text: string): string {
+  return text.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9:/?._ -]+/g, ' ').trim();
+}
+function fingerprintText(text: string): string {
+  const normalized = normalizePrompt(text)
+    .replace(/\b\d+\b/g, '#')
+    .replace(/you are the host-side oracle executor for cortex\. return only the answer text that oracle should say\./g, '')
+    .replace(/do not add labels confidence scores priorities disclaimers or meta-commentary\./g, '')
+    .replace(/be concise but not shallow: answer the request directly with concrete substance\./g, '')
+    .replace(/conversation info untrusted metadata : json /g, '')
+    .replace(/sender untrusted metadata : json /g, '')
+    .replace(/replied message untrusted for context : json /g, '')
+    .replace(/openclaw runtime context internal : this context is runtime-generated not user-authored\. keep internal details private\./g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const tokens = normalized.split(' ').filter(Boolean);
+  const head = tokens.slice(0, 12);
+  const tail = tokens.slice(Math.max(12, tokens.length - 28));
+  return [...head, ...tail].join(' ').trim();
+}
+function similarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const sa = new Set(a.split(' ').filter(Boolean));
+  const sb = new Set(b.split(' ').filter(Boolean));
+  let hit = 0;
+  for (const token of sa) if (sb.has(token)) hit += 1;
+  return hit / Math.max(sa.size, sb.size, 1);
+}
+function uniqueLevels(levels: RouteLevel[]): RouteLevel[] {
+  const out: RouteLevel[] = [];
+  const seen = new Set<number>();
+  for (const item of levels) {
+    const level = Number(item?.level || 0);
+    if (!level || seen.has(level)) continue;
+    seen.add(level);
+    out.push({ level, name: item.name, reason: item.reason || item.method, method: item.method, score: item.score });
+  }
+  return out;
+}
+async function postJson(url: string, body: unknown, timeoutMs: number): Promise<any> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal,
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
+    return text ? JSON.parse(text) : {};
+  } finally { clearTimeout(t); }
+}
+function hasLevel(plan: RoutePlan, level: number): boolean { return plan.recommendedLevels.some((x) => x.level === level); }
+function classifyTask(prompt: string): string {
+  const p = normalizePrompt(prompt);
+  if (/\b(code|implement|fix|refactor|test|repo|plugin|typescript|python|bug)\b/.test(p)) return 'coding';
+  if (/\b(research|source|evidence|compare|find out|current|news|browse|web)\b/.test(p)) return 'research';
+  if (/\b(remember|memory|previous|prior|earlier|history|what did|decide|prefer)\b/.test(p)) return 'memory';
+  if (/\b(design|architecture|plan|roadmap|system)\b/.test(p)) return 'design';
+  return 'general';
+}
+function buildFailureModes(prompt: string, plan: RoutePlan): string[] {
+  const task = classifyTask(prompt);
+  const modes = [
+    'Do not emit repeated near-identical chain summaries.',
+    'Do not present reasoning guesses as observed facts.',
+    'If uncertainty remains, state it once and move on.',
+  ];
+  if (task === 'coding') modes.push('Do not claim implementation complete without inspecting files and validating with tests or executable checks.');
+  if (task === 'research') modes.push('Do not answer from memory when current sources or tool evidence are required.');
+  if (task === 'memory' || hasLevel(plan, 22) || hasLevel(plan, 7)) modes.push('Do not answer memory/history questions without grounding in memory_search results when available.');
+  if (hasLevel(plan, 34)) modes.push('Run a validator-style pass against task-specific failure modes before finalizing the answer.');
+  return modes;
+}
+function loadStats(statsPath: string): RouteStats {
+  try {
+    const raw = JSON.parse(fs.readFileSync(statsPath, 'utf8')) as RouteStats;
+    if (raw && raw.version === 1) return raw;
+  } catch {}
+  return { version: 1, updatedAt: nowIso(), byLevel: {}, byTask: {} };
+}
+function saveStats(statsPath: string, stats: RouteStats) {
+  fs.mkdirSync(path.dirname(statsPath), { recursive: true });
+  fs.writeFileSync(statsPath, JSON.stringify({ ...stats, updatedAt: nowIso() }, null, 2));
+}
+function scoreLevel(level: RouteLevel, stats: RouteStats, taskClass: string): number {
+  const base = typeof level.score === 'number' ? level.score : 0.5;
+  const hist = stats.byLevel[String(level.level)];
+  const task = stats.byTask[taskClass];
+  const histAdj = hist ? clamp((hist.successes - hist.failures) / Math.max(hist.uses, 3), -0.2, 0.2) : 0;
+  const taskAdj = task ? clamp((task.successes - task.failures) / Math.max(task.uses, 4), -0.1, 0.1) : 0;
+  return clamp(base + histAdj + taskAdj, 0, 1);
+}
+function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, maxLevels: number): RoutePlan {
+  const mandatory = new Set<number>([24, 5]);
+  if (taskClass === 'coding') { mandatory.add(4); mandatory.add(27); mandatory.add(34); }
+  if (taskClass === 'memory') mandatory.add(22);
+  const withScores = uniqueLevels(plan.recommendedLevels).map((level) => ({ ...level, score: scoreLevel(level, stats, taskClass) }));
+  const sorted = withScores.sort((a, b) => {
+    const ma = mandatory.has(a.level) ? 1 : 0;
+    const mb = mandatory.has(b.level) ? 1 : 0;
+    return (mb - ma) || ((b.score || 0) - (a.score || 0)) || (a.level - b.level);
+  });
+  const chosen = sorted.filter((x, i) => i < maxLevels || mandatory.has(x.level));
+  return { ...plan, recommendedLevels: uniqueLevels(chosen) };
+}
+function renderExecutionContract(plan: RoutePlan, prompt: string): string {
+  const lines = [
+    'Execution contract for this turn:',
+    '- Cortex-selected levels are operational instructions, not decorative metadata. Tool choice must follow them when a Cortex path exists.',
+    '- Answer the user\'s actual request directly. Do not answer with meta-commentary about recursion, duplicate suppression, chain completions, stop conditions, or orchestration state.',
+    '- If a prompt fragment or upstream trace mentions recursion control or deduplication, treat that as internal guidance only and do not repeat it to the user.',
+  ];
+  const l2 = hasLevel(plan, 2);
+  const l4 = hasLevel(plan, 4);
+  const l7 = hasLevel(plan, 7);
+  const l22 = hasLevel(plan, 22);
+  const l34 = hasLevel(plan, 34);
+  if (l2) lines.push('- L2 Ghost present: for web/current-events/research/browsing tasks, use Cortex browsing first before generic web_search/web_fetch. Only fall back after a concrete Cortex browser failure and say so explicitly.');
+  if (l7 || l22) lines.push('- L7/L22 present: for prior work, memory, past decisions, dates, people, preferences, or durable context, use Cortex-backed memory_search first before generic filesystem/history search.');
+  if (l2 && (l7 || l22) && l34) lines.push('- Research chain present: default order is L2 browse/discover → L7/L22 retrieve/contextualize → L34 validate → then answer.');
+  if (l4) lines.push('- L4 Lab present: for code/repo tasks, inspect the workspace and validate changes with tools/tests before concluding.');
+  lines.push('- Give one normal user-facing answer, not a self-referential synthesis report, unless the user explicitly asks for a structured report.');
+  lines.push('- Treat tool outputs as observed evidence; clearly separate observed facts from inference.');
+  for (const mode of buildFailureModes(prompt, plan)) lines.push(`- Failure mode guard: ${mode}`);
+  lines.push('- Do not let generic tool availability override Cortex-first routing unless the Cortex path is missing or broken and that failure is made explicit.');
+  return lines.join('\n');
+}
+function renderGovernorBlock(plan: RoutePlan, prompt: string, duplicateRisk: boolean, budget: { maxReasoningPasses: number; maxToolRounds: number }): string {
+  const markers = duplicateRisk ? 'duplicate_chain_risk=true' : 'duplicate_chain_risk=false';
+  return [
+    'CORTEX_EXECUTION_GOVERNOR',
+    `task_class: ${classifyTask(prompt)}`,
+    `governor_markers: ${markers}`,
+    `reasoning_budget.max_passes: ${budget.maxReasoningPasses}`,
+    `reasoning_budget.max_tool_rounds: ${budget.maxToolRounds}`,
+    'answer_contract:',
+    '- Return a normal answer to the user\'s request.',
+    '- Keep internal orchestration language out of the final reply.',
+    '- If uncertainty matters, include it briefly and concretely.',
+    'duplicate_suppression:',
+    '- Avoid repeating near-identical drafts internally.',
+    '- Do not mention duplicate suppression or loop control in the final answer.',
+  ].join('\n');
+}
+function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean): string {
+  const levels = plan.recommendedLevels.map((x) => `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''}`).join('\n');
+  const reasoning = (plan.reasoning || []).slice(0, 8).map((x) => `- ${x}`).join('\n');
+  const budget = { maxReasoningPasses: duplicateRisk ? 2 : 3, maxToolRounds: classifyTask(prompt) === 'coding' ? 5 : 3 };
+  return [
+    'CORTEX_ROUTE_GATE',
+    `routing_method: ${plan.routingMethod || 'nexus_orchestration'}`,
+    'Before answering, apply the following Cortex-selected levels for this turn:',
+    levels || '- L24 Nexus\n- L5 Oracle',
+    reasoning ? `routing_reasoning:\n${reasoning}` : '',
+    renderExecutionContract(plan, prompt),
+    renderGovernorBlock(plan, prompt, duplicateRisk, budget),
+    'Identity/architecture contract for this turn:',
+    '- Cortex is the primary mind for reasoning, memory, and routing.',
+    '- OpenClaw is the mediation/runtime layer and should not override Cortex identity or intent.',
+    '- If asked who you are, answer from Cortex identity first, not generic assistant/OpenClaw identity.',
+    '- Preserve quality and naturalness; do not force a repetitive opener unless the prompt calls for identity clarification.',
+    'This routing decision was made upstream by Cortex and is mandatory context for this turn.'
+  ].filter(Boolean).join('\n');
+}
+
+export default function register(api: any) {
+  const cfg = api.config || {};
+  if (!asBool(cfg.enabled, true)) return;
+
+  const baseUrl = normalizeBaseUrl(cfg.baseUrl);
+  const requireRouting = asBool(cfg.requireRouting, true);
+  const timeoutMs = asNumber(cfg.timeoutMs, 8000);
+  const maxLevels = asNumber(cfg.maxLevels, 10);
+  const stateDir = typeof cfg.stateDir === 'string' && cfg.stateDir.trim() ? cfg.stateDir.trim() : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-route-gate');
+  const statsPath = path.join(stateDir, 'adaptive-routing-stats.json');
+  const historyPath = path.join(stateDir, 'prompt-fingerprints.json');
+  const runStateByKey = new Map<string, RunState>();
+
+  function loadFingerprintHistory(): string[] {
+    try { return JSON.parse(fs.readFileSync(historyPath, 'utf8')); } catch { return []; }
+  }
+  function saveFingerprintHistory(history: string[]) {
+    const compact: string[] = [];
+    for (const item of history.slice(-200)) {
+      if (!item) continue;
+      if (compact.some((existing) => similarity(existing, item) >= 0.92)) continue;
+      compact.push(item);
+    }
+    fs.mkdirSync(path.dirname(historyPath), { recursive: true });
+    fs.writeFileSync(historyPath, JSON.stringify(compact.slice(-100), null, 2));
+  }
+
+  async function getPlan(prompt: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string }> {
+    let plan: RoutePlan | null = null;
+    try {
+      const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs);
+      const recommended = Array.isArray(data?.recommended_levels) ? data.recommended_levels : (Array.isArray(data?.recommended) ? data.recommended : []);
+      let normalized = uniqueLevels((recommended as RouteLevel[]).slice(0, Math.max(maxLevels, 20)));
+      if (!normalized.some((x) => x.level === 24)) normalized = [{ level: 24, name: 'Nexus', reason: 'mandatory upstream routing' }, ...normalized];
+      if (!normalized.some((x) => x.level === 5)) normalized.push({ level: 5, name: 'Oracle', reason: 'baseline reasoning' });
+      plan = {
+        recommendedLevels: normalized,
+        routingMethod: typeof data?.routing_method === 'string' ? data.routing_method : 'nexus_orchestration',
+        reasoning: Array.isArray(data?.reasoning) ? data.reasoning.map((x: any) => String(x)) : [],
+        routingMarkers: typeof data?.routing_markers === 'object' && data.routing_markers ? data.routing_markers : undefined,
+        workflowCheckpoint: typeof data?.workflow_checkpoint === 'object' && data.workflow_checkpoint ? data.workflow_checkpoint : undefined,
+      };
+    } catch (error) {
+      api.logger.warn(`cortex-route-gate: routing failed for prompt: ${String(error)}`);
+      if (!requireRouting) {
+        plan = {
+          recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
+          routingMethod: 'fallback',
+          routingError: String(error), reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
+        };
+      } else {
+        plan = {
+          recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
+          routingMethod: 'fallback',
+          routingError: String(error), reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
+        };
+      }
+    }
+    const taskClass = classifyTask(prompt);
+    const stats = loadStats(statsPath);
+    const prioritized = prioritizePlan(plan!, stats, taskClass, maxLevels);
+    const fingerprint = fingerprintText(prompt);
+    const history = loadFingerprintHistory();
+    const duplicateRisk = history.some((x) => similarity(x, fingerprint) >= 0.9);
+    history.push(fingerprint);
+    saveFingerprintHistory(history);
+    return { plan: prioritized, duplicateRisk, taskClass };
+  }
+
+  api.on('before_prompt_build', async (event: any, ctx: any) => {
+    const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
+    if (!prompt) return;
+    const { plan, duplicateRisk, taskClass } = await getPlan(prompt);
+    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    if (stateKey) {
+      runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [] });
+    }
+    return { appendSystemContext: renderPlan(plan, prompt, duplicateRisk) };
+  });
+
+  api.on('before_tool_call', async (event: any, ctx: any) => {
+    const rs = runStateByKey.get(String(ctx?.sessionKey || ctx?.sessionId || ''));
+    if (!rs) return;
+    if ((event?.toolName === 'web_search' || event?.toolName === 'web_fetch') && !hasLevel(rs.plan, 2)) {
+      rs.observedSignals.push('web_tool_without_l2');
+    }
+    if (event?.toolName === 'memory_search' && !hasLevel(rs.plan, 22) && !hasLevel(rs.plan, 7)) {
+      rs.observedSignals.push('memory_tool_without_l7l22');
+    }
+  });
+
+  api.on('after_tool_call', async (event: any, ctx: any) => {
+    const rs = runStateByKey.get(String(ctx?.sessionKey || ctx?.sessionId || ''));
+    if (!rs) return;
+    rs.toolCalls.push({ toolName: String(event?.toolName || ''), ok: !event?.error, durationMs: typeof event?.durationMs === 'number' ? event.durationMs : undefined, error: event?.error ? String(event.error) : undefined });
+    if (event?.error) rs.observedSignals.push(`tool_error:${String(event.toolName || 'unknown')}`);
+  });
+
+  api.on('tool_result_persist', (event: any) => {
+    const toolName = String(event?.toolName || '');
+    const message = event?.message;
+    if (!message || typeof message !== 'object') return;
+    const content = (message as any).content;
+    const groundedPrefix = `GROUNDING NOTE: Tool output below is observed tool data for ${toolName || 'unknown tool'}. Distinguish raw output from later inference.\n`;
+    if (typeof content === 'string' && !content.startsWith('GROUNDING NOTE:')) {
+      return { message: { ...(message as any), content: groundedPrefix + content } };
+    }
+    return;
+  });
+
+  api.on('agent_end', async (event: any, ctx: any) => {
+    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
+    if (!rs) return;
+    const stats = loadStats(statsPath);
+    const success = Boolean(event?.success) && !rs.observedSignals.some((x) => x.startsWith('tool_error:'));
+    const taskBucket = stats.byTask[rs.taskClass] || { uses: 0, successes: 0, failures: 0 };
+    taskBucket.uses += 1;
+    if (success) taskBucket.successes += 1; else taskBucket.failures += 1;
+    stats.byTask[rs.taskClass] = taskBucket;
+    for (const level of rs.plan.recommendedLevels) {
+      const bucket = stats.byLevel[String(level.level)] || { uses: 0, successes: 0, failures: 0, score: 0.5 };
+      bucket.uses += 1;
+      if (success) bucket.successes += 1; else bucket.failures += 1;
+      bucket.score = clamp(0.5 + (bucket.successes - bucket.failures) / Math.max(bucket.uses, 4), 0, 1);
+      bucket.lastReason = success ? 'successful_run' : (rs.observedSignals[0] || 'failed_run');
+      stats.byLevel[String(level.level)] = bucket;
+    }
+    saveStats(statsPath, stats);
+    runStateByKey.delete(stateKey);
+  });
+}
