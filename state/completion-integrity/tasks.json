@@ -768,6 +768,30 @@
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
       "status": "pending"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1773920495120",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-19T11:41:35.120Z",
+      "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A6373EB0249C5945255\", \"reply_to_id\": \"3AFA50EF8F9C21F821E2\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```js",
+      "kind": "user_visible",
+      "status": "pending"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1773920656108",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-19T11:44:16.108Z",
+      "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A36495A46508A2FC757\", \"reply_to_id\": \"3EB049D08C72A32DBC0972\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```",
+      "kind": "user_visible",
+      "status": "pending"
+    },
+    {
+      "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920751175",
+      "sessionKey": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69",
+      "createdAt": "2026-03-19T11:45:51.175Z",
+      "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
+      "kind": "user_visible",
+      "status": "pending"
     }
   ]
 }
