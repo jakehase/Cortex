@@ -3547,7 +3547,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-19T23:01:09.605Z",
+      "updatedAt": "2026-03-19T23:06:09.982Z",
       "history": [
         {
           "from": null,
@@ -3565,9 +3565,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 79,
+        "runs": 80,
         "failures": [],
-        "lastRunAt": "2026-03-19T23:01:09.607Z",
+        "lastRunAt": "2026-03-19T23:06:09.987Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3587,7 +3587,7 @@
       "completionSummary": "Conversation info (untrusted metadata): ```json message_id: 3AC61ACD946A2B3A24DE, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), id: +17855410986, name: Jake, e164: +17855410986 ``` What happened? Cortex upstream routing",
       "announcementPromptInjectedAt": "2026-03-19T14:23:30.494Z",
       "escalatedAt": "2026-03-19T14:44:46.604Z",
-      "updatedAt": "2026-03-19T22:30:59.227Z",
+      "updatedAt": "2026-03-19T23:09:46.251Z",
       "history": [
         {
           "from": null,
@@ -3605,9 +3605,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 12,
+        "runs": 13,
         "failures": [],
-        "lastRunAt": "2026-03-19T22:30:59.234Z",
+        "lastRunAt": "2026-03-19T23:09:46.259Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
