@@ -67,7 +67,6 @@ type RunState = {
   predictedChecks?: { capability: string; usable: boolean; confidence: number; rationale: string }[];
   creativity?: CreativityProfile;
   creativityAudit?: CreativityAudit;
-  creativityRetryCount?: number;
 };
 
 function normalizeBaseUrl(value: unknown): string {
@@ -247,23 +246,6 @@ function renderCreativityRetryBlock(audit?: CreativityAudit): string {
     '- Avoid the prior overlapping anchor terms unless strictly necessary.',
     '- Return at least 3 candidate directions before narrowing.',
     '- Lead with a wild-card or orthogonal option before any adjacent option.',
-  ].join('\n');
-}
-
-function renderCreativityAutoRetryPrompt(audit: CreativityAudit, attempt: number): string {
-  const overlapTerms = audit.overlapTerms.join(', ') || 'none';
-  const reasons = audit.reasons.join(', ') || 'none';
-  return [
-    'Regenerate the previous answer now.',
-    'This is an automatic creativity-governor retry inside the same overall turn.',
-    `Retry attempt: ${attempt}.`,
-    `Prior audit reasons: ${reasons}.`,
-    `Avoid these overlapping anchor terms unless absolutely necessary: ${overlapTerms}.`,
-    'Requirements:',
-    '- Increase conceptual distance from recent context.',
-    '- Produce at least 3 candidate directions before narrowing.',
-    '- Lead with a wild-card or orthogonal option before any adjacent option.',
-    '- Do not apologize or explain the retry; just give the improved answer.',
   ].join('\n');
 }
 
@@ -632,7 +614,6 @@ export default function register(api: any) {
     const retryState = stateKey ? loadCreativityRetryState() : {};
     const retryAudit = stateKey && creativity.requested ? retryState[stateKey] : undefined;
     if (stateKey) {
-      const previousState = runStateByKey.get(stateKey);
       runStateByKey.set(stateKey, {
         prompt,
         promptFingerprint: fingerprintText(prompt),
@@ -645,7 +626,6 @@ export default function register(api: any) {
         predictedChecks,
         creativity,
         creativityAudit: retryAudit,
-        creativityRetryCount: previousState?.creativityRetryCount || 0,
       });
     }
     if (stateKey && retryAudit && creativity.requested) { const metrics = loadCreativityMetrics(); metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; saveCreativityMetrics(metrics); delete retryState[stateKey]; saveCreativityRetryState(retryState); }
@@ -719,15 +699,6 @@ export default function register(api: any) {
       saveCreativityRetryState(retryState);
       rs.observedSignals.push(`creativity_audit_failed:${audit.reasons.join('|')}`);
       api.logger.warn?.(`cortex-route-gate: creativity audit failed session=${stateKey} reasons=${audit.reasons.join(',') || 'none'} overlap=${audit.overlapTerms.join(',') || 'none'}`);
-
-      if (audit.retryRecommended && rs.creativityRetryCount === 0 && typeof api.sendUserMessage === 'function') {
-        rs.creativityRetryCount = 1;
-        metrics.counters.retryTriggered = Number(metrics.counters.retryTriggered || 0) + 1;
-        saveCreativityMetrics(metrics);
-        rs.observedSignals.push('creativity_retry_same_turn');
-        api.logger.info?.(`cortex-route-gate: triggering same-turn creativity retry session=${stateKey}`);
-        api.sendUserMessage(renderCreativityAutoRetryPrompt(audit, rs.creativityRetryCount), { deliverAs: 'followUp' });
-      }
     }
   });
 

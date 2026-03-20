@@ -27,7 +27,6 @@ test.after(() => {
 function createHarness(config = {}) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-creativity-governor-'));
   const handlers = new Map();
-  const sentUserMessages = [];
   const api = {
     config: {
       enabled: true,
@@ -48,14 +47,10 @@ function createHarness(config = {}) {
     on(name, handler) {
       handlers.set(name, handler);
     },
-    sendUserMessage(content, options) {
-      sentUserMessages.push({ content, options });
-    },
   };
   register(api);
   return {
     stateDir,
-    sentUserMessages,
     beforePromptBuild: handlers.get('before_prompt_build'),
     llmOutput: handlers.get('llm_output'),
   };
@@ -197,7 +192,7 @@ test('recent anchors are quarantined on later strict-novelty prompts', async () 
   assert.match(context, /- trust/);
 });
 
-test('creative outputs that stay too adjacent trigger same-turn auto-retry and create fallback retry state', async () => {
+test('creative outputs that stay too adjacent create fallback retry state for the next creative turn', async () => {
   const harness = createHarness();
   const sessionKey = 'agent:main:test:creative-retry';
 
@@ -213,10 +208,6 @@ test('creative outputs that stay too adjacent trigger same-turn auto-retry and c
     ],
     sessionKey,
   });
-
-  assert.equal(harness.sentUserMessages.length, 1);
-  assert.match(String(harness.sentUserMessages[0].content), /automatic creativity-governor retry/i);
-  assert.deepEqual(harness.sentUserMessages[0].options, { deliverAs: 'followUp' });
 
   const retryState = JSON.parse(fs.readFileSync(path.join(harness.stateDir, 'creativity-retry.json'), 'utf8'));
   assert.ok(retryState[sessionKey]);
