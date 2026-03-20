@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T18:23:25.808Z",
+      "updatedAt": "2026-03-20T18:28:36.921Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-03-20T18:23:25.810Z",
+        "lastRunAt": "2026-03-20T18:28:36.934Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3898,7 +3898,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774014239156:b6aedc32d51d02c7",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-20T13:43:59.156Z",
-      "updatedAt": "2026-03-20T18:27:08.110Z",
+      "updatedAt": "2026-03-20T18:31:21.435Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A9CBF3E4B53925D6475\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (untrusted metadata): ```json { \"label\": \"Jake (+17855410986)\", \"id\": \"+17855410986\", \"name\":",
       "kind": "user_visible",
       "trustTier": "important",
@@ -3933,14 +3933,14 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 27,
+        "runs": 29,
         "failures": [
           {
             "at": "2026-03-20T16:41:59.280Z",
             "reason": "summary_missing_or_failed"
           }
         ],
-        "lastRunAt": "2026-03-20T18:27:08.112Z",
+        "lastRunAt": "2026-03-20T18:31:21.437Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
