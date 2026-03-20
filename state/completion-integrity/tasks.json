@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T20:13:26.757Z",
+      "updatedAt": "2026-03-20T20:18:28.720Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 24,
+        "runs": 25,
         "failures": [],
-        "lastRunAt": "2026-03-20T20:13:26.764Z",
+        "lastRunAt": "2026-03-20T20:18:28.733Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4014,12 +4014,12 @@
       "id": "agent:main:subagent:a44c177d-e198-484b-acda-a36905c3df7e:1774037794070:54d5ecdd72f8a065",
       "sessionKey": "agent:main:subagent:a44c177d-e198-484b-acda-a36905c3df7e",
       "createdAt": "2026-03-20T20:16:34.070Z",
-      "updatedAt": "2026-03-20T20:16:34.073Z",
+      "updatedAt": "2026-03-20T20:18:37.149Z",
       "prompt": "[Fri 2026-03-20 15:16 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Audit the Cortex semantic-awareness codebase and produce concret",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Fri 2026-03-20 15:16 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Audit the Cortex semantic-awareness codebase and produce concrete integration points for implementing: commitm",
       "history": [
         {
           "from": null,
@@ -4030,6 +4030,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-20T20:16:34.073Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-20T20:18:37.149Z",
+          "completedAt": "2026-03-20T20:18:37.149Z",
+          "completionSummary": "Fri 2026-03-20 15:16 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Audit the Cortex semantic-awareness codebase and produce concrete integration points for implementing: commitm",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -4040,10 +4048,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-20T20:18:37.151Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-20T20:18:37.149Z",
+      "completionSource": "agent_end"
     }
   ]
 }
