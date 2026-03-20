@@ -3553,7 +3553,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T02:56:15.730Z",
+      "updatedAt": "2026-03-20T03:01:21.752Z",
       "history": [
         {
           "from": null,
@@ -3571,9 +3571,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 126,
+        "runs": 127,
         "failures": [],
-        "lastRunAt": "2026-03-20T02:56:15.737Z",
+        "lastRunAt": "2026-03-20T03:01:21.765Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3769,12 +3769,12 @@
       "id": "oracle-prod-bridge-general-ac1786e8e4:1773975667647:aba07bbe65e1b898",
       "sessionKey": "oracle-prod-bridge-general-ac1786e8e4",
       "createdAt": "2026-03-20T03:01:07.647Z",
-      "updatedAt": "2026-03-20T03:01:07.650Z",
+      "updatedAt": "2026-03-20T03:02:11.420Z",
       "prompt": "[Thu 2026-03-19 22:01 CDT] You are the host-side Oracle executor for Cortex. Return only the answer text that Oracle should say. Do not add labels, confidence scores, priorities, disclaimers, or meta-commentary. Be concise but not shallow: ",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Thu 2026-03-19 22:01 CDT You are the host-side Oracle executor for Cortex. Return only the answer text that Oracle should say. Do not add labels, confidence scores, priorities, disclaimers, or meta-commentary. Be concise but not shallow: answer the request directly with concrete ",
       "history": [
         {
           "from": null,
@@ -3785,6 +3785,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-20T03:01:07.650Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-20T03:01:27.852Z",
+          "completedAt": "2026-03-20T03:01:27.852Z",
+          "completionSummary": "Thu 2026-03-19 22:01 CDT You are the host-side Oracle executor for Cortex. Return only the answer text that Oracle should say. Do not add labels, confidence scores, priorities, disclaimers, or meta-commentary. Be concise but not shallow: answer the request directly with concrete ",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -3796,9 +3804,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
-      }
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-03-20T03:02:11.428Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-20T03:01:27.852Z",
+      "completionSource": "agent_end"
     }
   ]
 }
