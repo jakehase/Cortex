@@ -11,6 +11,8 @@
       "searchPath": { "type": "string" },
       "storePath": { "type": "string" },
       "timeoutMs": { "type": "number", "minimum": 100, "maximum": 60000 },
+      "retryCount": { "type": "number", "minimum": 0, "maximum": 5 },
+      "retryBackoffMs": { "type": "number", "minimum": 50, "maximum": 5000 },
       "enabledWriteThrough": { "type": "boolean" },
       "curatedBoost": { "type": "number", "minimum": 0, "maximum": 1 },
       "projectFactBoost": { "type": "number", "minimum": 0, "maximum": 1 },
@@ -37,7 +39,17 @@
     },
     "timeoutMs": {
       "label": "HTTP Timeout (ms)",
-      "placeholder": "8000",
+      "placeholder": "12000",
+      "advanced": true
+    },
+    "retryCount": {
+      "label": "Retry Count",
+      "placeholder": "2",
+      "advanced": true
+    },
+    "retryBackoffMs": {
+      "label": "Retry Backoff (ms)",
+      "placeholder": "350",
       "advanced": true
     },
     "enabledWriteThrough": {

@@ -4,7 +4,9 @@ function resolveConfig(cfg) {
   return {
     baseUrl: String(pluginCfg.baseUrl || 'http://127.0.0.1:18888').replace(/\/$/, ''),
     searchPath: String(pluginCfg.searchPath || '/knowledge/search'),
-    timeoutMs: Number(pluginCfg.timeoutMs || 8000),
+    timeoutMs: Number(pluginCfg.timeoutMs || 12000),
+    retryCount: Number(pluginCfg.retryCount ?? 2),
+    retryBackoffMs: Number(pluginCfg.retryBackoffMs ?? 350),
     curatedBoost: Number(pluginCfg.curatedBoost ?? 0.24),
     projectFactBoost: Number(pluginCfg.projectFactBoost ?? 0.12),
     durableCandidatePenalty: Number(pluginCfg.durableCandidatePenalty ?? 0.14),
@@ -59,14 +61,27 @@ function rerankResults(query, items, cfg) {
   }).sort((a,b) => (b.score-a.score) || String(a.path).localeCompare(String(b.path)));
 }
 
-async function postJson(url, body, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body), signal: controller.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    return await res.json();
-  } finally { clearTimeout(timer); }
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function retryableError(error) {
+  const msg = String(error?.message || error || '');
+  return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
+}
+async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 250) {
+  let lastError;
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body), signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      return await res.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retryCount || !retryableError(error)) throw error;
+      await sleep(retryBackoffMs * (attempt + 1));
+    } finally { clearTimeout(timer); }
+  }
+  throw lastError || new Error('unknown cortex memory manager error');
 }
 
 export class CortexMemorySearchManager {
@@ -77,7 +92,7 @@ export class CortexMemorySearchManager {
   }
   static async create(params) { return new CortexMemorySearchManager(params); }
   async search(query, opts={}) {
-    const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, { query, n_results: Number(opts.maxResults || 6) }, this.rcfg.timeoutMs);
+    const response = await postJson(`${this.rcfg.baseUrl}${this.rcfg.searchPath}`, { query, n_results: Number(opts.maxResults || 6) }, this.rcfg.timeoutMs, this.rcfg.retryCount, this.rcfg.retryBackoffMs);
     const items = Array.isArray(response?.results) ? response.results : [];
     let results = rerankResults(query, items, this.rcfg);
     const minScore = typeof opts.minScore === 'number' ? opts.minScore : null;

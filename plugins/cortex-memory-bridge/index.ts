@@ -5,6 +5,8 @@ type BridgeConfig = {
   searchPath?: string;
   storePath?: string;
   timeoutMs?: number;
+  retryCount?: number;
+  retryBackoffMs?: number;
   enabledWriteThrough?: boolean;
   curatedBoost?: number;
   projectFactBoost?: number;
@@ -24,13 +26,15 @@ const GetSchema = {
   properties: { path: { type: 'string' }, from: { type: 'number' }, lines: { type: 'number' } },
 } as const;
 
-function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'timeoutMs' | 'curatedBoost' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags'>> & BridgeConfig {
+function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags'>> & BridgeConfig {
   const cfg = (pluginConfig ?? {}) as BridgeConfig;
   return {
     baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
     searchPath: cfg.searchPath ?? '/knowledge/search',
     storePath: cfg.storePath ?? '/l22/store',
-    timeoutMs: cfg.timeoutMs ?? 8000,
+    timeoutMs: cfg.timeoutMs ?? 12000,
+    retryCount: cfg.retryCount ?? 2,
+    retryBackoffMs: cfg.retryBackoffMs ?? 350,
     enabledWriteThrough: cfg.enabledWriteThrough ?? false,
     curatedBoost: cfg.curatedBoost ?? 0.24,
     projectFactBoost: cfg.projectFactBoost ?? 0.12,
@@ -91,14 +95,27 @@ function rerankResults(query: string, items: any[], cfg: ReturnType<typeof resol
   }).sort((a: any, b: any) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
 }
 
-async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${baseUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    return await res.json();
-  } finally { clearTimeout(timer); }
+function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function retryableError(error: unknown): boolean {
+  const msg = String((error as any)?.message || error || '');
+  return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
+}
+async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number, retryCount = 0, retryBackoffMs = 250) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${baseUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      return await res.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= retryCount || !retryableError(error)) throw error;
+      await sleep(retryBackoffMs * (attempt + 1));
+    } finally { clearTimeout(timer); }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'unknown memory bridge error'));
 }
 
 function extractText(value: unknown): string {
@@ -173,7 +190,7 @@ async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof 
   if (dur.score < cfg.minDurabilityScore) return;
   const senderScoped = { channel: ctx?.channelId ?? 'unknown', sessionKey: ctx?.sessionKey ?? undefined, source: 'openclaw-agent-end', quality: 'curated', memory_kind: dur.kind, tags: [...cfg.writeTags, ...dur.reasons] };
   try {
-    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped }, cfg.timeoutMs);
+    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
     api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
   } catch (error) {
     api.logger.warn?.(`cortex-memory-bridge: write-through failed: ${String(error)}`);
@@ -192,7 +209,7 @@ const plugin = {
       execute: async (_toolCallId, params) => {
         const cfg = resolveConfig(api.pluginConfig);
         try {
-          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query: String((params as { query: string }).query ?? ''), n_results: Number((params as { maxResults?: number }).maxResults ?? 5) }, cfg.timeoutMs);
+          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query: String((params as { query: string }).query ?? ''), n_results: Number((params as { maxResults?: number }).maxResults ?? 5) }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
           const results = Array.isArray(response?.results) ? rerankResults(String((params as { query: string }).query ?? ''), response.results, cfg) : [];
           return JSON.stringify({ results, provider: 'cortex-http', mode: response?.mode ?? response?.search_mode ?? 'semantic', fallback: response?.degraded ? { from: 'cortex', reason: response?.warning ?? 'degraded' } : undefined });
         } catch (error) {
