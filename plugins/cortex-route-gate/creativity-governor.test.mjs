@@ -27,6 +27,7 @@ test.after(() => {
 function createHarness(config = {}) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-creativity-governor-'));
   const handlers = new Map();
+  const sentUserMessages = [];
   const api = {
     config: {
       enabled: true,
@@ -47,10 +48,14 @@ function createHarness(config = {}) {
     on(name, handler) {
       handlers.set(name, handler);
     },
+    sendUserMessage(content, options) {
+      sentUserMessages.push({ content, options });
+    },
   };
   register(api);
   return {
     stateDir,
+    sentUserMessages,
     beforePromptBuild: handlers.get('before_prompt_build'),
     llmOutput: handlers.get('llm_output'),
   };
@@ -192,7 +197,7 @@ test('recent anchors are quarantined on later strict-novelty prompts', async () 
   assert.match(context, /- trust/);
 });
 
-test('creative outputs that stay too adjacent create retry state for the next creative turn', async () => {
+test('creative outputs that stay too adjacent trigger same-turn auto-retry and create fallback retry state', async () => {
   const harness = createHarness();
   const sessionKey = 'agent:main:test:creative-retry';
 
@@ -208,6 +213,10 @@ test('creative outputs that stay too adjacent create retry state for the next cr
     ],
     sessionKey,
   });
+
+  assert.equal(harness.sentUserMessages.length, 1);
+  assert.match(String(harness.sentUserMessages[0].content), /automatic creativity-governor retry/i);
+  assert.deepEqual(harness.sentUserMessages[0].options, { deliverAs: 'followUp' });
 
   const retryState = JSON.parse(fs.readFileSync(path.join(harness.stateDir, 'creativity-retry.json'), 'utf8'));
   assert.ok(retryState[sessionKey]);
@@ -241,6 +250,34 @@ test('strong creative outputs do not create retry state', async () => {
 
   const metrics = JSON.parse(fs.readFileSync(path.join(harness.stateDir, 'creativity-metrics.json'), 'utf8'));
   assert.equal(metrics.counters.audited >= 1, true);
+  assert.equal(harness.sentUserMessages.length, 0);
+  const retryPath = path.join(harness.stateDir, 'creativity-retry.json');
+  if (fs.existsSync(retryPath)) {
+    const retryState = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
+    assert.equal(Boolean(retryState[sessionKey]), false);
+  }
+});
+
+test('passing retry clears stored fallback retry state', async () => {
+  const harness = createHarness();
+  const sessionKey = 'agent:main:test:creative-retry-clear';
+
+  await runBeforePromptBuild(harness, {
+    prompt: 'Wrapper prompt.',
+    messages: [{ role: 'user', content: 'Brainstorm a novel product direction not related to memory.' }],
+    sessionKey,
+  });
+
+  await runLlmOutput(harness, {
+    assistantTexts: ['1. Better memory engine\n2. Better memory graph\n3. Better trust layer'],
+    sessionKey,
+  });
+
+  await runLlmOutput(harness, {
+    assistantTexts: ['1. Synthetic bureaucracy sandbox\n2. Live spatial decision software\n3. Ambient personal ops layer'],
+    sessionKey,
+  });
+
   const retryPath = path.join(harness.stateDir, 'creativity-retry.json');
   if (fs.existsSync(retryPath)) {
     const retryState = JSON.parse(fs.readFileSync(retryPath, 'utf8'));
