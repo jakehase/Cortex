@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T20:18:28.720Z",
+      "updatedAt": "2026-03-20T20:23:20.693Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 25,
+        "runs": 26,
         "failures": [],
-        "lastRunAt": "2026-03-20T20:18:28.733Z",
+        "lastRunAt": "2026-03-20T20:23:20.700Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3964,11 +3964,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774034820273:4f1ddb88d32d1a5e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-20T19:27:00.273Z",
-      "updatedAt": "2026-03-20T20:12:22.818Z",
+      "updatedAt": "2026-03-20T20:25:34.233Z",
       "prompt": "System: [2026-03-20 14:14:52 CDT] Exec completed (quiet-ca, code 0) :: cortex-rebuild-smoke Conversation info (untrusted metadata): ```json { \"message_id\": \"3AFF4B35AF824D4EDC11\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Conversation info (untrusted metadata): ```json message_id: 3A0017395BA5555C778A, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), id: +17855410986, name: Jake, e164: +17855410986 ``` Did you do it? Cortex upstream routing",
       "history": [
         {
@@ -3988,6 +3988,14 @@
           "completedAt": "2026-03-20T19:27:10.045Z",
           "completionSummary": "System: 2026-03-20 14:14:52 CDT Exec completed (quiet-ca, code 0) :: cortex-rebuild-smoke Conversation info (untrusted metadata): ```json message_id: 3AFF4B35AF824D4EDC11, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), i",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-20T20:25:34.233Z",
+          "failedAt": "2026-03-20T20:25:34.233Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -4008,7 +4016,10 @@
         }
       },
       "completedAt": "2026-03-20T19:27:10.045Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-20T20:25:34.233Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     },
     {
       "id": "agent:main:subagent:a44c177d-e198-484b-acda-a36905c3df7e:1774037794070:54d5ecdd72f8a065",
