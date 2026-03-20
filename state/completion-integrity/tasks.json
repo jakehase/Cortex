@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T21:08:27.812Z",
+      "updatedAt": "2026-03-20T21:13:25.804Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 35,
+        "runs": 36,
         "failures": [],
-        "lastRunAt": "2026-03-20T21:08:27.818Z",
+        "lastRunAt": "2026-03-20T21:13:25.806Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4070,6 +4070,56 @@
       },
       "completedAt": "2026-03-20T20:18:37.149Z",
       "completionSource": "agent_end"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774041352036:1b6cece2b80ecf88",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-20T21:15:52.036Z",
+      "updatedAt": "2026-03-20T21:15:54.558Z",
+      "prompt": "System: [2026-03-20 15:59:52 CDT] Exec completed (good-sea, code 0) :: cortex-rebuild-smoke System: [2026-03-20 16:02:03 CDT] Exec completed (tender-c, code 0) :: cortex-rebuild-smoke Conversation info (untrusted metadata): ```json { \"messa",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "System: 2026-03-20 15:59:52 CDT Exec completed (good-sea, code 0) :: cortex-rebuild-smoke System: 2026-03-20 16:02:03 CDT Exec completed (tender-c, code 0) :: cortex-rebuild-smoke Conversation info (untrusted metadata): ```json message_id: 3EB06E23A277CD6630A74C, sender_id: +1785",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-20T21:15:52.036Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-20T21:15:52.038Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-20T21:15:54.558Z",
+          "completedAt": "2026-03-20T21:15:54.558Z",
+          "completionSummary": "System: 2026-03-20 15:59:52 CDT Exec completed (good-sea, code 0) :: cortex-rebuild-smoke System: 2026-03-20 16:02:03 CDT Exec completed (tender-c, code 0) :: cortex-rebuild-smoke Conversation info (untrusted metadata): ```json message_id: 3EB06E23A277CD6630A74C, sender_id: +1785",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-20T21:15:54.560Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "completedAt": "2026-03-20T21:15:54.558Z",
+      "completionSource": "runtime_message"
     }
   ]
 }
