@@ -3476,10 +3476,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T15:20:57.286Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Conversation info (untrusted metadata):\\n```json\\n{\\n  \\\"message_id\\\": \\\"3AC61ACD946A2B3A24DE\\\",\\n  \\\"sender_id\\\": \\\"+17855410986\\\",\\n  \\\"sender\\\": \\\"Jake\\\"\\n}\\n```\\n\\nSender (untrusted metadata):\\n```json\\n{\\n  \\\"label\\\": \\\"Jake (+17855410986)\\\",\\n  \\\"id\\\": \\\"+17855410986\\\",\\n  \\\"name\\\": \\\"Jake\\\",\\n  \\\"e164\\\": \\\"+17855410986\\\"\\n}\\n```\\n\\nWhat happened?\"}],\"timestamp\":1773919923787},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"content\":\"Cortex",
+      "completionSummary": "System: 2026-03-19 23:25:30 CDT Exec completed (warm-ree, code 0) :: bind=loopback (127.0.0.1), port=18789 (service args) Probe target: ws://127.0.0.1:18789 Dashboard: http://127.0.0.1:18789/ Probe note: Loopback-only gateway; only local clients ca… System: 2026-03-19 23:25:42 CD",
       "announcementPromptInjectedAt": "2026-03-19T15:21:31.378Z",
       "escalatedAt": "2026-03-19T15:28:06.085Z",
-      "updatedAt": "2026-03-19T15:20:57.286Z",
+      "updatedAt": "2026-03-20T04:28:12.712Z",
       "history": [
         {
           "from": null,
@@ -3497,10 +3497,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-03-20T04:28:12.714Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "completionSource": "runtime_message"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920656108",
@@ -3508,18 +3514,26 @@
       "createdAt": "2026-03-19T11:44:16.108Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A36495A46508A2FC757\", \"reply_to_id\": \"3EB049D08C72A32DBC0972\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T14:45:18.996Z",
-      "completionSummary": "-20T04:21:22.364Z warn plugins subsystem:plugins hooks before_message_write handler from completion-integrity returned a Promise; this hook is synchronous and the result was ignored. 20:2026-03-20T04:21:23.424Z warn plugins subsystem:plugins hooks before_message_write handler fro",
+      "completionSummary": "30.697Z info Runtime: running (pid 42419, state active, sub running, last exit 0, reason 0) 2026-03-20T04:25:30.698Z info RPC probe: ok 2026-03-20T04:25:30.698Z info 0:,_meta:runtime:node,runtimeVersion:22.22.1,hostname:unknown,name:openclaw,date:2026-03-20T04:25:30.698Z,logLevel",
       "escalatedAt": "2026-03-19T14:52:47.464Z",
       "announcementPromptInjectedAt": "2026-03-19T14:52:47.465Z",
-      "updatedAt": "2026-03-20T04:25:53.442Z",
+      "updatedAt": "2026-03-20T04:26:24.342Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T14:45:18.996Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-20T04:26:24.342Z",
+          "failedAt": "2026-03-20T04:26:24.342Z",
+          "failureReason": "[[reply_to_current]] **Done:** I added the missing bridge for background/runtime completions. **What I changed** - Wired `completion-integrity` into **`before_message_write`** - It now parses runtime/system messages like: - `Exec completed (...)` - `Exec failed (...)` - `Process exited ...` - Those now feed the same task state machine as subagent/agent completions: - success → `internal_complete`",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -3531,16 +3545,19 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 12,
+        "runs": 13,
         "failures": [],
-        "lastRunAt": "2026-03-20T04:25:53.449Z",
+        "lastRunAt": "2026-03-20T04:26:06.721Z",
         "lastDetails": {
           "source": "runtime_message",
           "signal": "completed"
         }
       },
       "trustTier": "normal",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-20T04:26:24.342Z",
+      "failureReason": "[[reply_to_current]] **Done:** I added the missing bridge for background/runtime completions. **What I changed** - Wired `completion-integrity` into **`before_message_write`** - It now parses runtime/system messages like: - `Exec completed (...)` - `Exec failed (...)` - `Process exited ...` - Those now feed the same task state machine as subagent/agent completions: - success → `internal_complete`",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920751175",
@@ -3553,7 +3570,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T04:21:12.771Z",
+      "updatedAt": "2026-03-20T04:26:09.151Z",
       "history": [
         {
           "from": null,
@@ -3571,9 +3588,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 143,
+        "runs": 144,
         "failures": [],
-        "lastRunAt": "2026-03-20T04:21:12.776Z",
+        "lastRunAt": "2026-03-20T04:26:09.158Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
