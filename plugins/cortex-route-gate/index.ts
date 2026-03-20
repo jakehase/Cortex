@@ -153,7 +153,7 @@ function latestUserTurnText(messages: unknown[]): string {
     if (!item || typeof item !== 'object') continue;
     const role = String((item as any).role || '').toLowerCase();
     if (role !== 'user') continue;
-    const text = flattenMessageText((item as any).content);
+    const text = flattenMessageText(item);
     if (text.trim()) return text.trim();
   }
   return '';
