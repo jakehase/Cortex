@@ -3513,7 +3513,7 @@
       "completionSummary": "Conversation info (untrusted metadata): ```json message_id: 3AC61ACD946A2B3A24DE, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), id: +17855410986, name: Jake, e164: +17855410986 ``` What happened? Cortex upstream routing",
       "escalatedAt": "2026-03-19T14:52:47.464Z",
       "announcementPromptInjectedAt": "2026-03-19T14:52:47.465Z",
-      "updatedAt": "2026-03-20T02:52:44.193Z",
+      "updatedAt": "2026-03-20T02:57:04.071Z",
       "history": [
         {
           "from": null,
@@ -3531,9 +3531,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 4,
+        "runs": 5,
         "failures": [],
-        "lastRunAt": "2026-03-20T02:52:44.197Z",
+        "lastRunAt": "2026-03-20T02:57:04.078Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3553,7 +3553,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T02:51:16.702Z",
+      "updatedAt": "2026-03-20T02:56:15.730Z",
       "history": [
         {
           "from": null,
@@ -3571,9 +3571,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 125,
+        "runs": 126,
         "failures": [],
-        "lastRunAt": "2026-03-20T02:51:16.704Z",
+        "lastRunAt": "2026-03-20T02:56:15.737Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3764,6 +3764,41 @@
       },
       "completedAt": "2026-03-19T21:18:30.952Z",
       "completionSource": "agent_end"
+    },
+    {
+      "id": "oracle-prod-bridge-general-ac1786e8e4:1773975667647:aba07bbe65e1b898",
+      "sessionKey": "oracle-prod-bridge-general-ac1786e8e4",
+      "createdAt": "2026-03-20T03:01:07.647Z",
+      "updatedAt": "2026-03-20T03:01:07.650Z",
+      "prompt": "[Thu 2026-03-19 22:01 CDT] You are the host-side Oracle executor for Cortex. Return only the answer text that Oracle should say. Do not add labels, confidence scores, priorities, disclaimers, or meta-commentary. Be concise but not shallow: ",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-20T03:01:07.647Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-20T03:01:07.650Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }

@@ -83,6 +83,20 @@ It improves conceptual distance by:
 
 But truly novel outputs still depend on the underlying model and prompt quality.
 
+## Verification
+
+Behavioral test harness:
+- `node --test /root/clawd/plugins/cortex-route-gate/creativity-governor.test.mjs`
+
+Upgrade/presence selftest:
+- `node /root/clawd/scripts/cortex-upgrade-selftest.mjs`
+
+The behavioral harness verifies:
+- novelty prompt → creativity governor present
+- normal prompt → no creativity governor
+- cron/runtime false-positive paths stay off
+- recent anchor terms are quarantined for later strict-novelty prompts
+
 ## Practical outcome
 
 The governor is designed to stop the common failure mode:
