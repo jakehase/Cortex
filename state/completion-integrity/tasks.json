@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T23:28:31.548Z",
+      "updatedAt": "2026-03-20T23:33:21.351Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 63,
+        "runs": 64,
         "failures": [],
-        "lastRunAt": "2026-03-20T23:28:31.555Z",
+        "lastRunAt": "2026-03-20T23:33:21.353Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4182,12 +4182,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774049292934:6ff5db4cc43d63dd",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-20T23:28:12.934Z",
-      "updatedAt": "2026-03-20T23:28:20.643Z",
+      "updatedAt": "2026-03-20T23:34:13.741Z",
       "prompt": "System: [2026-03-20 17:54:42 CDT] Exec completed (fast-wha, code 0) :: cortex-rebuild-smoke Conversation info (untrusted metadata): ```json { \"message_id\": \"3AA8C22EA0F514CC3505\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "System: 2026-03-20 17:54:42 CDT Exec completed (fast-wha, code 0) :: cortex-rebuild-smoke Conversation info (untrusted metadata): ```json message_id: 3AA8C22EA0F514CC3505, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), i",
+      "completionSummary": "Conversation info (untrusted metadata): ```json message_id: 3A0017395BA5555C778A, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), id: +17855410986, name: Jake, e164: +17855410986 ``` Did you do it? Cortex upstream routing",
       "history": [
         {
           "from": null,
@@ -4217,16 +4217,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 1,
+        "runs": 2,
         "failures": [],
-        "lastRunAt": "2026-03-20T23:28:20.646Z",
+        "lastRunAt": "2026-03-20T23:34:13.748Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "completedAt": "2026-03-20T23:28:20.643Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
