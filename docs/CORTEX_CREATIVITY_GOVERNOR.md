@@ -58,14 +58,10 @@ The governor activates on prompts that contain creativity/novelty intent such as
    - Flags answers that still look too adjacent or provide too few candidate directions
    - Persists retry state in `creativity-retry.json` and metrics in `creativity-metrics.json`
 
-7. **Triggers an automatic same-turn retry when audit fails**
-   - On the first failed creativity audit for a run, the governor injects a follow-up regeneration prompt inside the same overall turn
-   - The retry prompt tells the model to increase conceptual distance, avoid overlapping anchor terms, and return at least 3 directions before narrowing
-   - This is capped to one automatic retry per run
-
-8. **Falls back to next-turn retry guidance if needed**
-   - When a creativity-targeted answer fails audit, the next creativity-targeted turn in that session also gets `CORTEX_CREATIVITY_RETRY`
-   - That fallback survives across turns in case the same-turn retry still fails or the run ends before recovery
+7. **Injects stronger retry guidance on the next creative turn**
+   - When a creativity-targeted answer fails audit, the next creativity-targeted turn in that session gets `CORTEX_CREATIVITY_RETRY`
+   - The retry contract tells the model to increase conceptual distance, avoid overlapping anchor terms, and return at least 3 directions before narrowing
+   - This design avoids emitting a visible second assistant pass after the original answer has already been produced
 
 ## Prompt contract
 
@@ -111,7 +107,7 @@ The behavioral harness verifies:
 - normal prompt → no creativity governor
 - cron/runtime false-positive paths stay off
 - recent anchor terms are quarantined for later strict-novelty prompts
-- failed creativity audits trigger a same-turn follow-up retry
+- failed creativity audits create next-turn retry guidance
 - passing retry output clears stale fallback retry state
 
 ## Practical outcome

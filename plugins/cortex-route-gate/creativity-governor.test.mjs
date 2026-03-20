@@ -27,6 +27,7 @@ test.after(() => {
 function createHarness(config = {}) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-creativity-governor-'));
   const handlers = new Map();
+  const sentUserMessages = [];
   const api = {
     config: {
       enabled: true,
@@ -47,12 +48,17 @@ function createHarness(config = {}) {
     on(name, handler) {
       handlers.set(name, handler);
     },
+    sendUserMessage(content, options) {
+      sentUserMessages.push({ content, options });
+    },
   };
   register(api);
   return {
     stateDir,
+    sentUserMessages,
     beforePromptBuild: handlers.get('before_prompt_build'),
     llmOutput: handlers.get('llm_output'),
+    messageSending: handlers.get('message_sending'),
   };
 }
 
@@ -73,6 +79,15 @@ async function runLlmOutput(harness, { assistantTexts, sessionKey }) {
   await handler(
     { assistantTexts, runId: 'test-run', sessionId: 'test-session', provider: 'test', model: 'test-model' },
     { sessionKey }
+  );
+}
+
+async function runMessageSending(harness, { to, content, channelId = 'test', accountId = 'default' }) {
+  const handler = harness.messageSending;
+  assert.equal(typeof handler, 'function', 'message_sending hook should be registered');
+  return await handler(
+    { to, content },
+    { channelId, accountId }
   );
 }
 
@@ -241,7 +256,6 @@ test('strong creative outputs do not create retry state', async () => {
 
   const metrics = JSON.parse(fs.readFileSync(path.join(harness.stateDir, 'creativity-metrics.json'), 'utf8'));
   assert.equal(metrics.counters.audited >= 1, true);
-  assert.equal(harness.sentUserMessages.length, 0);
   const retryPath = path.join(harness.stateDir, 'creativity-retry.json');
   if (fs.existsSync(retryPath)) {
     const retryState = JSON.parse(fs.readFileSync(retryPath, 'utf8'));

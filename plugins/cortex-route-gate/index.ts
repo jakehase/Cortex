@@ -55,6 +55,14 @@ type CreativityAudit = {
   retryRecommended: boolean;
 };
 
+type PendingCreativitySuppression = {
+  deliveryKey: string;
+  expectedOutputFingerprint: string;
+  createdAt: number;
+  retryPrompt: string;
+  sessionKey: string;
+};
+
 type RunState = {
   prompt: string;
   promptFingerprint: string;
@@ -251,6 +259,24 @@ function renderCreativityRetryBlock(audit?: CreativityAudit): string {
 
 function normalizePrompt(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9:/?._ -]+/g, ' ').trim();
+}
+function creativityOutputFingerprint(text: string): string {
+  return normalizePrompt(text).replace(/\b\d+[.)]?\b/g, '#').trim();
+}
+function buildCreativityAutoRetryPrompt(audit: CreativityAudit): string {
+  const overlapTerms = audit.overlapTerms.join(', ') || 'none';
+  const reasons = audit.reasons.join(', ') || 'none';
+  return [
+    'Regenerate the previous answer now.',
+    'This retry happens before delivery so only the improved answer should be shown.',
+    `Prior audit reasons: ${reasons}.`,
+    `Avoid these overlapping anchor terms unless absolutely necessary: ${overlapTerms}.`,
+    'Requirements:',
+    '- Increase conceptual distance from recent context.',
+    '- Produce at least 3 candidate directions before narrowing.',
+    '- Lead with a wild-card or orthogonal option before any adjacent option.',
+    '- Do not apologize or explain the retry; just give the improved answer.',
+  ].join('\n');
 }
 function fingerprintText(text: string): string {
   const normalized = normalizePrompt(text)
@@ -506,6 +532,7 @@ export default function register(api: any) {
   const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
+  const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
 
   function loadFingerprintHistory(): string[] {
     try { return JSON.parse(fs.readFileSync(historyPath, 'utf8')); } catch { return []; }
@@ -543,6 +570,19 @@ export default function register(api: any) {
   function saveCreativityMetrics(metrics: any) {
     fs.mkdirSync(path.dirname(creativityMetricsPath), { recursive: true });
     fs.writeFileSync(creativityMetricsPath, JSON.stringify({ ...metrics, updatedAt: nowIso() }, null, 2));
+  }
+  function extractDeliveryKeyFromSessionKey(sessionKey: string): string | undefined {
+    const match = /^agent:[^:]+:([^:]+):direct:(.+)$/.exec(sessionKey);
+    if (!match) return undefined;
+    const channel = String(match[1] || '').trim();
+    const to = String(match[2] || '').trim();
+    if (!channel || !to) return undefined;
+    return `${channel}:default:${to}`;
+  }
+  function cleanupPendingCreativitySuppressions(nowMs = Date.now()) {
+    for (const [key, value] of pendingCreativitySuppressions.entries()) {
+      if (nowMs - value.createdAt > 2 * 60 * 1000) pendingCreativitySuppressions.delete(key);
+    }
   }
 
   async function getPlan(prompt: string, messages: unknown[], sessionKey?: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
@@ -676,6 +716,7 @@ export default function register(api: any) {
     const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
     if (!rs || !rs.creativity?.requested || !creativityAuditEnabled) return;
+    cleanupPendingCreativitySuppressions();
     const output = Array.isArray(event?.assistantTexts) ? event.assistantTexts.join('\n\n') : '';
     if (!output.trim()) return;
     const audit = auditCreativityOutput(output, rs.creativity);
@@ -699,7 +740,37 @@ export default function register(api: any) {
       saveCreativityRetryState(retryState);
       rs.observedSignals.push(`creativity_audit_failed:${audit.reasons.join('|')}`);
       api.logger.warn?.(`cortex-route-gate: creativity audit failed session=${stateKey} reasons=${audit.reasons.join(',') || 'none'} overlap=${audit.overlapTerms.join(',') || 'none'}`);
+
+      const deliveryKey = extractDeliveryKeyFromSessionKey(stateKey);
+      if (deliveryKey && typeof api.sendUserMessage === 'function') {
+        pendingCreativitySuppressions.set(deliveryKey, {
+          deliveryKey,
+          expectedOutputFingerprint: creativityOutputFingerprint(output),
+          createdAt: Date.now(),
+          retryPrompt: buildCreativityAutoRetryPrompt(audit),
+          sessionKey: stateKey,
+        });
+        const metrics2 = loadCreativityMetrics();
+        metrics2.counters.retryTriggered = Number(metrics2.counters.retryTriggered || 0) + 1;
+        saveCreativityMetrics(metrics2);
+        rs.observedSignals.push('creativity_retry_predelivery');
+        api.logger.info?.(`cortex-route-gate: scheduled pre-delivery creativity retry session=${stateKey} delivery=${deliveryKey}`);
+        api.sendUserMessage(buildCreativityAutoRetryPrompt(audit), { deliverAs: 'followUp' });
+      }
     }
+  });
+
+  api.on('message_sending', async (event: any, ctx: any) => {
+    cleanupPendingCreativitySuppressions();
+    const deliveryKey = `${String(ctx?.channelId || '').trim()}:${String(ctx?.accountId || 'default').trim() || 'default'}:${String(event?.to || '').trim()}`;
+    const pending = pendingCreativitySuppressions.get(deliveryKey);
+    if (!pending) return;
+    const outgoing = typeof event?.content === 'string' ? event.content : '';
+    if (!outgoing.trim()) return;
+    if (similarity(creativityOutputFingerprint(outgoing), pending.expectedOutputFingerprint) < 0.9) return;
+    pendingCreativitySuppressions.delete(deliveryKey);
+    api.logger.info?.(`cortex-route-gate: cancelled pre-delivery adjacent creative answer for ${deliveryKey}`);
+    return { cancel: true };
   });
 
   api.on('agent_end', async (event: any, ctx: any) => {
