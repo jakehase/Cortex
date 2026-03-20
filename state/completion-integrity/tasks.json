@@ -3510,10 +3510,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:45:18.996Z",
-      "completionSummary": "Conversation info (untrusted metadata): ```json message_id: 3AC61ACD946A2B3A24DE, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), id: +17855410986, name: Jake, e164: +17855410986 ``` What happened? Cortex upstream routing",
+      "completionSummary": "-20T04:21:22.364Z warn plugins subsystem:plugins hooks before_message_write handler from completion-integrity returned a Promise; this hook is synchronous and the result was ignored. 20:2026-03-20T04:21:23.424Z warn plugins subsystem:plugins hooks before_message_write handler fro",
       "escalatedAt": "2026-03-19T14:52:47.464Z",
       "announcementPromptInjectedAt": "2026-03-19T14:52:47.465Z",
-      "updatedAt": "2026-03-20T03:56:47.791Z",
+      "updatedAt": "2026-03-20T04:25:53.442Z",
       "history": [
         {
           "from": null,
@@ -3531,16 +3531,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 8,
+        "runs": 12,
         "failures": [],
-        "lastRunAt": "2026-03-20T03:56:47.798Z",
+        "lastRunAt": "2026-03-20T04:25:53.449Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "trustTier": "normal",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920751175",
@@ -3553,7 +3553,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T04:16:07.990Z",
+      "updatedAt": "2026-03-20T04:21:12.771Z",
       "history": [
         {
           "from": null,
@@ -3571,9 +3571,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 142,
+        "runs": 143,
         "failures": [],
-        "lastRunAt": "2026-03-20T04:16:07.997Z",
+        "lastRunAt": "2026-03-20T04:21:12.776Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
