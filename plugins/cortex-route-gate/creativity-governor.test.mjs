@@ -207,9 +207,10 @@ test('recent anchors are quarantined on later strict-novelty prompts', async () 
   assert.match(context, /- trust/);
 });
 
-test('creative outputs that stay too adjacent create fallback retry state for the next creative turn', async () => {
+test('creative outputs that stay too adjacent are suppressed before delivery and create fallback retry state', async () => {
   const harness = createHarness();
-  const sessionKey = 'agent:main:test:creative-retry';
+  const sessionKey = 'agent:main:test:direct:+15551234567';
+  const adjacentOutput = '1. Better memory engine\n2. Better memory graph\n3. Better trust layer for memory systems';
 
   await runBeforePromptBuild(harness, {
     prompt: 'Wrapper prompt.',
@@ -218,11 +219,26 @@ test('creative outputs that stay too adjacent create fallback retry state for th
   });
 
   await runLlmOutput(harness, {
-    assistantTexts: [
-      '1. Better memory engine\n2. Better memory graph\n3. Better trust layer for memory systems',
-    ],
+    assistantTexts: [adjacentOutput],
     sessionKey,
   });
+
+  assert.equal(harness.sentUserMessages.length, 1);
+  assert.match(String(harness.sentUserMessages[0].content), /before delivery so only the improved answer should be shown/i);
+
+  const blocked = await runMessageSending(harness, {
+    to: '+15551234567',
+    content: adjacentOutput,
+    channelId: 'test',
+  });
+  assert.deepEqual(blocked, { cancel: true });
+
+  const allowed = await runMessageSending(harness, {
+    to: '+15551234567',
+    content: '1. Synthetic bureaucracy sandbox\n2. Live spatial decision software\n3. Ambient personal ops layer',
+    channelId: 'test',
+  });
+  assert.equal(allowed, undefined);
 
   const retryState = JSON.parse(fs.readFileSync(path.join(harness.stateDir, 'creativity-retry.json'), 'utf8'));
   assert.ok(retryState[sessionKey]);

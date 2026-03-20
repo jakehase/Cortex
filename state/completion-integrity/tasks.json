@@ -3445,7 +3445,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:00:51.196Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T14:41:18.461Z",
+      "updatedAt": "2026-03-20T14:46:10.279Z",
       "history": [
         {
           "from": null,
@@ -3463,9 +3463,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 16,
+        "runs": 17,
         "failures": [],
-        "lastRunAt": "2026-03-20T14:41:18.463Z",
+        "lastRunAt": "2026-03-20T14:46:10.285Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3864,7 +3864,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774014239156:b6aedc32d51d02c7",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-20T13:43:59.156Z",
-      "updatedAt": "2026-03-20T14:41:44.592Z",
+      "updatedAt": "2026-03-20T14:46:37.123Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A9CBF3E4B53925D6475\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (untrusted metadata): ```json { \"label\": \"Jake (+17855410986)\", \"id\": \"+17855410986\", \"name\":",
       "kind": "user_visible",
       "trustTier": "important",
@@ -3899,9 +3899,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 8,
+        "runs": 9,
         "failures": [],
-        "lastRunAt": "2026-03-20T14:41:44.594Z",
+        "lastRunAt": "2026-03-20T14:46:37.130Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
