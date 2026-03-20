@@ -52,6 +52,16 @@ The governor activates on prompts that contain creativity/novelty intent such as
      - anti-anchor checks
      - Dreamer/Muse/Synthesist operational roles
 
+6. **Audits creativity-targeted outputs**
+   - Uses `llm_output` to inspect the assistant text after generation
+   - Records overlap against quarantined anchor terms
+   - Flags answers that still look too adjacent or provide too few candidate directions
+   - Persists retry state in `creativity-retry.json` and metrics in `creativity-metrics.json`
+
+7. **Injects a stronger retry contract on the next creative turn**
+   - When a creativity-targeted answer fails audit, the next creativity-targeted turn in that session gets `CORTEX_CREATIVITY_RETRY`
+   - This is a next-turn correction path because current runtime hooks do not expose a same-turn rerun primitive from `llm_output`
+
 ## Prompt contract
 
 When active, the governor tells the assistant to:

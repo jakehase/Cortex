@@ -26,6 +26,8 @@
     "maxLevels": { "label": "Max routed levels", "advanced": true },
     "creativityGovernorEnabled": { "label": "Enable creativity governor", "advanced": true },
     "creativityHistorySize": { "label": "Creativity prompt history size", "advanced": true },
-    "creativityQuarantineTerms": { "label": "Creativity quarantine term limit", "advanced": true }
+    "creativityQuarantineTerms": { "label": "Creativity quarantine term limit", "advanced": true },
+    "creativityAuditEnabled": { "label": "Enable creativity output audit", "advanced": true },
+    "creativityAuditOverlapThreshold": { "label": "Creativity audit overlap threshold", "advanced": true }
   }
 }

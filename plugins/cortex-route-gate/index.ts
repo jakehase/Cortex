@@ -45,6 +45,16 @@ type PromptHistoryEntry = {
   tokens: string[];
 };
 
+type CreativityAudit = {
+  auditedAt: string;
+  passed: boolean;
+  overlapTerms: string[];
+  overlapRatio: number;
+  itemCount: number;
+  reasons: string[];
+  retryRecommended: boolean;
+};
+
 type RunState = {
   prompt: string;
   promptFingerprint: string;
@@ -56,6 +66,7 @@ type RunState = {
   selfModel?: CapabilitySelfModel;
   predictedChecks?: { capability: string; usable: boolean; confidence: number; rationale: string }[];
   creativity?: CreativityProfile;
+  creativityAudit?: CreativityAudit;
 };
 
 function normalizeBaseUrl(value: unknown): string {
@@ -194,6 +205,48 @@ function ensureLevels(plan: RoutePlan, required: RouteLevel[]): RoutePlan {
   const merged = [...plan.recommendedLevels];
   for (const level of required) if (!existing.has(level.level)) merged.unshift(level);
   return { ...plan, recommendedLevels: uniqueLevels(merged) };
+}
+
+function countIdeaItems(text: string): number {
+  const bulletMatches = text.match(/(?:^|\n)\s*(?:[-*]|\d+[.)])\s+/g);
+  if (bulletMatches?.length) return bulletMatches.length;
+  const paragraphCount = text.split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).length;
+  return Math.max(1, paragraphCount);
+}
+function auditCreativityOutput(output: string, creativity: CreativityProfile): CreativityAudit {
+  const normalized = normalizePrompt(output);
+  const distinctTerms = uniqueStrings([...creativity.quarantineTerms, ...creativity.recentAnchorTerms]).slice(0, 16);
+  const overlapTerms = distinctTerms.filter((term) => normalized.includes(term));
+  const overlapRatio = overlapTerms.length / Math.max(distinctTerms.length || 1, 1);
+  const itemCount = countIdeaItems(output);
+  const reasons: string[] = [];
+  if (creativity.strictNovelty && overlapTerms.length >= 3) reasons.push('too_many_anchor_terms');
+  if (creativity.strictNovelty && overlapRatio >= 0.34) reasons.push('anchor_overlap_ratio_high');
+  if (creativity.signals.includes('ideation') && itemCount < 3) reasons.push('too_few_candidate_directions');
+  const passed = reasons.length === 0;
+  return {
+    auditedAt: nowIso(),
+    passed,
+    overlapTerms,
+    overlapRatio,
+    itemCount,
+    reasons,
+    retryRecommended: !passed,
+  };
+}
+function renderCreativityRetryBlock(audit?: CreativityAudit): string {
+  if (!audit || !audit.retryRecommended) return '';
+  return [
+    'CORTEX_CREATIVITY_RETRY',
+    'Your previous creativity-targeted answer was judged too adjacent to recent context.',
+    `audit_reasons: ${audit.reasons.join(', ') || 'none'}`,
+    `audit_overlap_terms: ${audit.overlapTerms.join(', ') || 'none'}`,
+    'retry_contract:',
+    '- Increase conceptual distance from recent context.',
+    '- Avoid the prior overlapping anchor terms unless strictly necessary.',
+    '- Return at least 3 candidate directions before narrowing.',
+    '- Lead with a wild-card or orthogonal option before any adjacent option.',
+  ].join('\n');
 }
 
 function normalizePrompt(text: string): string {
@@ -408,7 +461,7 @@ function renderCreativityGovernorBlock(creativity: CreativityProfile): string {
     '- Do not quietly collapse all buckets into adjacent ideas.',
   ].join('\n');
 }
-function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile): string {
+function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile, retryAudit?: CreativityAudit): string {
   const levels = plan.recommendedLevels.map((x) => `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''}`).join('\n');
   const reasoning = (plan.reasoning || []).slice(0, 8).map((x) => `- ${x}`).join('\n');
   const budget = { maxReasoningPasses: duplicateRisk ? 2 : 3, maxToolRounds: classifyTask(prompt) === 'coding' ? 5 : 3 };
@@ -421,6 +474,7 @@ function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, cre
     renderExecutionContract(plan, prompt),
     renderGovernorBlock(plan, prompt, duplicateRisk, budget, creativity),
     renderCreativityGovernorBlock(creativity || { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false }),
+    renderCreativityRetryBlock(retryAudit),
     'Identity/architecture contract for this turn:',
     '- Cortex is the primary mind for reasoning, memory, and routing.',
     '- OpenClaw is the mediation/runtime layer and should not override Cortex identity or intent.',
@@ -441,10 +495,14 @@ export default function register(api: any) {
   const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
   const creativityHistorySize = asNumber(cfg.creativityHistorySize, 24);
   const creativityQuarantineTerms = asNumber(cfg.creativityQuarantineTerms, 8);
+  const creativityAuditEnabled = asBool(cfg.creativityAuditEnabled, true);
+  const creativityAuditOverlapThreshold = asNumber(cfg.creativityAuditOverlapThreshold, 0.34);
   const stateDir = typeof cfg.stateDir === 'string' && cfg.stateDir.trim() ? cfg.stateDir.trim() : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-route-gate');
   const statsPath = path.join(stateDir, 'adaptive-routing-stats.json');
   const historyPath = path.join(stateDir, 'prompt-fingerprints.json');
   const promptHistoryPath = path.join(stateDir, 'prompt-history.json');
+  const creativityRetryPath = path.join(stateDir, 'creativity-retry.json');
+  const creativityMetricsPath = path.join(stateDir, 'creativity-metrics.json');
   const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
@@ -471,6 +529,20 @@ export default function register(api: any) {
   function savePromptHistory(history: PromptHistoryEntry[]) {
     fs.mkdirSync(path.dirname(promptHistoryPath), { recursive: true });
     fs.writeFileSync(promptHistoryPath, JSON.stringify(history.slice(-creativityHistorySize), null, 2));
+  }
+  function loadCreativityRetryState(): Record<string, CreativityAudit> {
+    try { return JSON.parse(fs.readFileSync(creativityRetryPath, 'utf8')); } catch { return {}; }
+  }
+  function saveCreativityRetryState(state: Record<string, CreativityAudit>) {
+    fs.mkdirSync(path.dirname(creativityRetryPath), { recursive: true });
+    fs.writeFileSync(creativityRetryPath, JSON.stringify(state, null, 2));
+  }
+  function loadCreativityMetrics(): any {
+    try { return JSON.parse(fs.readFileSync(creativityMetricsPath, 'utf8')); } catch { return { version: 1, updatedAt: nowIso(), counters: { audited: 0, failed: 0, retryInjected: 0 } }; }
+  }
+  function saveCreativityMetrics(metrics: any) {
+    fs.mkdirSync(path.dirname(creativityMetricsPath), { recursive: true });
+    fs.writeFileSync(creativityMetricsPath, JSON.stringify({ ...metrics, updatedAt: nowIso() }, null, 2));
   }
 
   async function getPlan(prompt: string, messages: unknown[], sessionKey?: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
@@ -539,11 +611,14 @@ export default function register(api: any) {
     if (!prompt) return;
     const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText } = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey);
+    const retryState = stateKey ? loadCreativityRetryState() : {};
+    const retryAudit = stateKey && creativity.requested ? retryState[stateKey] : undefined;
     if (stateKey) {
-      runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [], selfModel, predictedChecks, creativity });
+      runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [], selfModel, predictedChecks, creativity, creativityAudit: retryAudit });
     }
+    if (stateKey && retryAudit && creativity.requested) { const metrics = loadCreativityMetrics(); metrics.counters.retryInjected = Number(metrics.counters.retryInjected || 0) + 1; saveCreativityMetrics(metrics); delete retryState[stateKey]; saveCreativityRetryState(retryState); }
     api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
-    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
+    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity, retryAudit)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
   });
 
   api.on('before_tool_call', async (event: any, ctx: any) => {
@@ -583,6 +658,32 @@ export default function register(api: any) {
       return { message: { ...(message as any), content: groundedPrefix + content } };
     }
     return;
+  });
+
+  api.on('llm_output', async (event: any, ctx: any) => {
+    const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const rs = stateKey ? runStateByKey.get(stateKey) : undefined;
+    if (!rs || !rs.creativity?.requested || !creativityAuditEnabled) return;
+    const output = Array.isArray(event?.assistantTexts) ? event.assistantTexts.join('\n\n') : '';
+    if (!output.trim()) return;
+    const audit = auditCreativityOutput(output, rs.creativity);
+    if (audit.overlapRatio < creativityAuditOverlapThreshold && audit.reasons.includes('anchor_overlap_ratio_high')) {
+      audit.reasons.splice(audit.reasons.indexOf('anchor_overlap_ratio_high'), 1);
+      audit.passed = audit.reasons.length === 0;
+      audit.retryRecommended = !audit.passed;
+    }
+    rs.creativityAudit = audit;
+    const metrics = loadCreativityMetrics();
+    metrics.counters.audited = Number(metrics.counters.audited || 0) + 1;
+    if (!audit.passed) metrics.counters.failed = Number(metrics.counters.failed || 0) + 1;
+    saveCreativityMetrics(metrics);
+    if (!audit.passed && stateKey) {
+      const retryState = loadCreativityRetryState();
+      retryState[stateKey] = audit;
+      saveCreativityRetryState(retryState);
+      rs.observedSignals.push(`creativity_audit_failed:${audit.reasons.join('|')}`);
+      api.logger.warn?.(`cortex-route-gate: creativity audit failed session=${stateKey} reasons=${audit.reasons.join(',') || 'none'} overlap=${audit.overlapTerms.join(',') || 'none'}`);
+    }
   });
 
   api.on('agent_end', async (event: any, ctx: any) => {
