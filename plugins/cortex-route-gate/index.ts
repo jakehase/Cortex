@@ -135,12 +135,40 @@ function recentAnchorTerms(entries: PromptHistoryEntry[], limit: number): string
     .slice(0, limit)
     .map(([token]) => token);
 }
-function buildCreativityProfile(prompt: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number): CreativityProfile {
-  const requested = isCreativityPrompt(prompt);
-  const strictNovelty = requested && isStrictNoveltyPrompt(prompt);
-  const signals = detectCreativitySignals(prompt);
-  const explicitConstraints = extractExplicitConstraintTerms(prompt);
-  const currentTokens = new Set(extractContentTokens(prompt, quarantineTermLimit));
+function flattenMessageText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map((item) => flattenMessageText(item)).filter(Boolean).join(' ');
+  if (!value || typeof value !== 'object') return '';
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.text === 'string') return obj.text;
+  if (typeof obj.content === 'string') return obj.content;
+  if (Array.isArray(obj.content)) return flattenMessageText(obj.content);
+  if (typeof obj.body === 'string') return obj.body;
+  if (typeof obj.message === 'string') return obj.message;
+  return '';
+}
+function latestUserTurnText(messages: unknown[]): string {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const item = messages[i];
+    if (!item || typeof item !== 'object') continue;
+    const role = String((item as any).role || '').toLowerCase();
+    if (role !== 'user') continue;
+    const text = flattenMessageText((item as any).content);
+    if (text.trim()) return text.trim();
+  }
+  return '';
+}
+function tailIntentText(prompt: string): string {
+  const tokens = normalizePrompt(prompt).split(' ').filter(Boolean);
+  return tokens.slice(-48).join(' ').trim();
+}
+function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, eligible = true): CreativityProfile {
+  const focus = intentText.trim();
+  const requested = eligible && isCreativityPrompt(focus);
+  const strictNovelty = requested && isStrictNoveltyPrompt(focus);
+  const signals = detectCreativitySignals(focus);
+  const explicitConstraints = extractExplicitConstraintTerms(focus);
+  const currentTokens = new Set(extractContentTokens(focus, quarantineTermLimit));
   const rawAnchors = requested ? recentAnchorTerms(priorPromptHistory, quarantineTermLimit) : [];
   const overlap = requested ? rawAnchors.filter((token) => currentTokens.has(token)).slice(0, quarantineTermLimit) : [];
   const anchors = requested ? rawAnchors.filter((token) => !currentTokens.has(token)) : [];
@@ -445,7 +473,7 @@ export default function register(api: any) {
     fs.writeFileSync(promptHistoryPath, JSON.stringify(history.slice(-creativityHistorySize), null, 2));
   }
 
-  async function getPlan(prompt: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile }> {
+  async function getPlan(prompt: string, messages: unknown[], sessionKey?: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile; intentText: string }> {
     let plan: RoutePlan | null = null;
     try {
       const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs);
