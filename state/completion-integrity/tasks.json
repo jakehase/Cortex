@@ -3442,10 +3442,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T11:56:08.384Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 6:55 AM (America/Chicago) / 2026-03-19 11:55 UTC\"}],\"timestamp\":1773921353659},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:00:51.196Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-19T11:56:08.384Z",
+      "updatedAt": "2026-03-20T13:26:16.496Z",
       "history": [
         {
           "from": null,
@@ -3463,10 +3463,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-20T13:26:16.502Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "completionSource": "agent_end"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920495120",
@@ -3474,18 +3480,26 @@
       "createdAt": "2026-03-19T11:41:35.120Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A6373EB0249C5945255\", \"reply_to_id\": \"3AFA50EF8F9C21F821E2\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```js",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T15:20:57.286Z",
-      "completionSummary": "System: 2026-03-19 23:25:30 CDT Exec completed (warm-ree, code 0) :: bind=loopback (127.0.0.1), port=18789 (service args) Probe target: ws://127.0.0.1:18789 Dashboard: http://127.0.0.1:18789/ Probe note: Loopback-only gateway; only local clients ca… System: 2026-03-19 23:25:42 CD",
+      "completionSummary": "Conversation info (untrusted metadata): ```json message_id: 3A0017395BA5555C778A, sender_id: +17855410986, sender: Jake ``` Sender (untrusted metadata): ```json label: Jake (+17855410986), id: +17855410986, name: Jake, e164: +17855410986 ``` Did you do it? Cortex upstream routing",
       "announcementPromptInjectedAt": "2026-03-19T15:21:31.378Z",
       "escalatedAt": "2026-03-19T15:28:06.085Z",
-      "updatedAt": "2026-03-20T04:28:12.712Z",
+      "updatedAt": "2026-03-20T13:29:15.315Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T15:20:57.286Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-20T13:29:15.315Z",
+          "failedAt": "2026-03-20T13:29:15.315Z",
+          "failureReason": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A7D246A132C5D94BC23\", \"reply_to_id\": \"3EB033030702F2F8EDAC7C\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```json { \"label\": \"Jake (+17855410986)\", \"id\": \"+17855410986\", \"name\": \"Jake\", \"e164\": \"+17855410986\" } ``` Replied message (untrusted, for context): ```json { \"s",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -3497,16 +3511,19 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-03-20T04:28:12.714Z",
+        "lastRunAt": "2026-03-20T13:27:50.422Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "trustTier": "normal",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-20T13:29:15.315Z",
+      "failureReason": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A7D246A132C5D94BC23\", \"reply_to_id\": \"3EB033030702F2F8EDAC7C\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```json { \"label\": \"Jake (+17855410986)\", \"id\": \"+17855410986\", \"name\": \"Jake\", \"e164\": \"+17855410986\" } ``` Replied message (untrusted, for context): ```json { \"s",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920656108",
@@ -3565,18 +3582,26 @@
       "createdAt": "2026-03-19T11:45:51.175Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T11:51:06.088Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T11:55:51.198Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-20T13:21:17.577Z",
+      "updatedAt": "2026-03-20T13:26:07.809Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T11:51:06.088Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-20T13:26:07.809Z",
+          "failedAt": "2026-03-20T13:26:07.808Z",
+          "failureReason": "To https://github.com/jakehase/Cortex.git fbb360c..d04db42 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -3597,7 +3622,10 @@
         }
       },
       "trustTier": "normal",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-20T13:26:07.808Z",
+      "failureReason": "To https://github.com/jakehase/Cortex.git fbb360c..d04db42 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920934380",

@@ -6,3 +6,5 @@
 {"at":"2026-03-20T03:01:07.650Z","type":"state_transition","taskId":"oracle-prod-bridge-general-ac1786e8e4:1773975667647:aba07bbe65e1b898","sessionKey":"oracle-prod-bridge-general-ac1786e8e4","from":"pending","to":"running"}
 {"at":"2026-03-20T03:01:27.852Z","type":"state_transition","taskId":"oracle-prod-bridge-general-ac1786e8e4:1773975667647:aba07bbe65e1b898","sessionKey":"oracle-prod-bridge-general-ac1786e8e4","from":"running","to":"internal_complete"}
 {"at":"2026-03-20T04:26:24.342Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1773920656108","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"internal_complete","to":"failed"}
+{"at":"2026-03-20T13:26:07.809Z","type":"state_transition","taskId":"agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920751175","sessionKey":"agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69","from":"internal_complete","to":"failed"}
+{"at":"2026-03-20T13:29:15.315Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1773920495120","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"internal_complete","to":"failed"}
