@@ -27,6 +27,24 @@ type CapabilitySelfModel = {
   recommendations?: string[];
 };
 
+type CreativityProfile = {
+  requested: boolean;
+  strictNovelty: boolean;
+  signals: string[];
+  explicitConstraints: string[];
+  recentAnchorTerms: string[];
+  quarantineTerms: string[];
+  overlapTerms: string[];
+  routeEnforced: boolean;
+};
+
+type PromptHistoryEntry = {
+  createdAt: string;
+  promptFingerprint: string;
+  taskClass: string;
+  tokens: string[];
+};
+
 type RunState = {
   prompt: string;
   promptFingerprint: string;
@@ -37,6 +55,7 @@ type RunState = {
   observedSignals: string[];
   selfModel?: CapabilitySelfModel;
   predictedChecks?: { capability: string; usable: boolean; confidence: number; rationale: string }[];
+  creativity?: CreativityProfile;
 };
 
 function normalizeBaseUrl(value: unknown): string {
@@ -47,6 +66,107 @@ function asBool(value: unknown, fallback: boolean): boolean { return typeof valu
 function asNumber(value: unknown, fallback: number): number { return typeof value === 'number' && Number.isFinite(value) ? value : fallback; }
 function clamp(n: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, n)); }
 function nowIso(): string { return new Date().toISOString(); }
+
+const STOP_WORDS = new Set([
+  'a','an','and','are','as','at','be','been','being','but','by','can','could','did','do','does','for','from','get','had','has','have','how','i','if','in','into','is','it','its','just','like','may','me','more','most','my','need','of','on','or','our','out','so','than','that','the','their','them','then','there','these','they','this','to','up','use','want','was','we','were','what','when','which','who','why','will','with','would','you','your'
+]);
+
+function uniqueStrings(items: string[]): string[] { return [...new Set(items.filter(Boolean))]; }
+function extractContentTokens(text: string, limit = 16): string[] {
+  const counts = new Map<string, number>();
+  for (const token of normalizePrompt(text).split(' ')) {
+    if (!token || token.length < 4) continue;
+    if (STOP_WORDS.has(token)) continue;
+    if (!/^[a-z][a-z0-9_-]+$/.test(token)) continue;
+    counts.set(token, (counts.get(token) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => (b[1] - a[1]) || (b[0].length - a[0].length) || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([token]) => token);
+}
+function detectCreativitySignals(prompt: string): string[] {
+  const p = normalizePrompt(prompt);
+  const signals: string[] = [];
+  if (/\b(brainstorm|ideate|ideation|come up with|generate ideas|possibilities|concepts?)\b/.test(p)) signals.push('ideation');
+  if (/\b(novel|novelty|original|invent|first to build|from scratch|new category|category defining)\b/.test(p)) signals.push('novelty');
+  if (/\b(creative|creativity|wild|weird|blue sky|moonshot|surprising)\b/.test(p)) signals.push('divergence');
+  if (/\b(orthogonal|not necessarily related|outside of|beyond|different direction|unrelated)\b/.test(p)) signals.push('distance');
+  if (/\b(not .*memory|other than .*memory|didn.?t have to do with .*memory)\b/.test(p)) signals.push('negative_constraint');
+  return uniqueStrings(signals);
+}
+function isCreativityPrompt(prompt: string): boolean {
+  const p = normalizePrompt(prompt);
+  const signals = detectCreativitySignals(prompt);
+  if (!signals.length) return false;
+  if (/\b(implement|fix|patch|edit|write tests?|code|plugin)\b/.test(p) && !/\b(brainstorm|idea|ideas|novel|novelty|orthogonal|original|from scratch|first to build|blue sky)\b/.test(p)) return false;
+  return true;
+}
+function isStrictNoveltyPrompt(prompt: string): boolean {
+  const p = normalizePrompt(prompt);
+  return /\b(orthogonal|first to build|from scratch|not necessarily related|different direction|outside of|unrelated|blue sky|category defining)\b/.test(p) || /\b(not .*memory|other than .*memory|didn.?t have to do with .*memory)\b/.test(p);
+}
+function extractExplicitConstraintTerms(prompt: string): string[] {
+  const out = new Set<string>();
+  const p = normalizePrompt(prompt);
+  const patterns = [
+    /not(?: necessarily)?(?: related to| about| limited to| to do with)\s+([a-z0-9 -]{1,40})/g,
+    /other than\s+([a-z0-9 -]{1,40})/g,
+    /outside of\s+([a-z0-9 -]{1,40})/g,
+    /beyond\s+([a-z0-9 -]{1,40})/g,
+    /instead of\s+([a-z0-9 -]{1,40})/g,
+    /didn.?t have to do with\s+([a-z0-9 -]{1,40})/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of p.matchAll(pattern)) {
+      for (const token of extractContentTokens(match[1] || '', 4)) out.add(token);
+    }
+  }
+  if (/\bmemory\b/.test(p) && /\b(not|other than|outside of|beyond|instead of|didn)\b/.test(p)) out.add('memory');
+  return [...out].slice(0, 8);
+}
+function recentAnchorTerms(entries: PromptHistoryEntry[], limit: number): string[] {
+  const counts = new Map<string, number>();
+  for (const entry of entries.slice(-12)) {
+    for (const token of entry.tokens || []) counts.set(token, (counts.get(token) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => (b[1] - a[1]) || (b[0].length - a[0].length) || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([token]) => token);
+}
+function buildCreativityProfile(prompt: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number): CreativityProfile {
+  const requested = isCreativityPrompt(prompt);
+  const strictNovelty = requested && isStrictNoveltyPrompt(prompt);
+  const signals = detectCreativitySignals(prompt);
+  const explicitConstraints = extractExplicitConstraintTerms(prompt);
+  const currentTokens = new Set(extractContentTokens(prompt, quarantineTermLimit));
+  const rawAnchors = requested ? recentAnchorTerms(priorPromptHistory, quarantineTermLimit) : [];
+  const overlap = requested ? rawAnchors.filter((token) => currentTokens.has(token)).slice(0, quarantineTermLimit) : [];
+  const anchors = requested ? rawAnchors.filter((token) => !currentTokens.has(token)) : [];
+  const quarantineTerms = requested
+    ? uniqueStrings([
+        ...explicitConstraints,
+        ...(strictNovelty ? anchors : anchors.slice(0, Math.min(4, quarantineTermLimit))),
+      ]).slice(0, quarantineTermLimit)
+    : [];
+  return {
+    requested,
+    strictNovelty,
+    signals,
+    explicitConstraints,
+    recentAnchorTerms: anchors,
+    quarantineTerms,
+    overlapTerms: overlap,
+    routeEnforced: false,
+  };
+}
+function ensureLevels(plan: RoutePlan, required: RouteLevel[]): RoutePlan {
+  const existing = new Set(plan.recommendedLevels.map((x) => x.level));
+  const merged = [...plan.recommendedLevels];
+  for (const level of required) if (!existing.has(level.level)) merged.unshift(level);
+  return { ...plan, recommendedLevels: uniqueLevels(merged) };
+}
 
 function normalizePrompt(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9:/?._ -]+/g, ' ').trim();
@@ -144,11 +264,17 @@ function scoreLevel(level: RouteLevel, stats: RouteStats, taskClass: string): nu
   const taskAdj = task ? clamp((task.successes - task.failures) / Math.max(task.uses, 4), -0.1, 0.1) : 0;
   return clamp(base + histAdj + taskAdj, 0, 1);
 }
-function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, maxLevels: number): RoutePlan {
+function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, maxLevels: number, creativity?: CreativityProfile): RoutePlan {
   const mandatory = new Set<number>([24, 5]);
   if (taskClass === 'coding') { mandatory.add(4); mandatory.add(27); mandatory.add(34); }
   if (taskClass === 'memory') mandatory.add(22);
-  const withScores = uniqueLevels(plan.recommendedLevels).map((level) => ({ ...level, score: scoreLevel(level, stats, taskClass) }));
+  if (creativity?.requested) { mandatory.add(13); mandatory.add(29); mandatory.add(32); mandatory.add(34); }
+  const withScores = uniqueLevels(plan.recommendedLevels).map((level) => {
+    let score = scoreLevel(level, stats, taskClass);
+    if (creativity?.requested && (level.level === 13 || level.level === 29 || level.level === 32)) score = clamp(score + 0.2, 0, 1);
+    if (creativity?.strictNovelty && level.level === 34) score = clamp(score + 0.1, 0, 1);
+    return { ...level, score };
+  });
   const sorted = withScores.sort((a, b) => {
     const ma = mandatory.has(a.level) ? 1 : 0;
     const mb = mandatory.has(b.level) ? 1 : 0;
@@ -157,6 +283,7 @@ function prioritizePlan(plan: RoutePlan, stats: RouteStats, taskClass: string, m
   const chosen = sorted.filter((x, i) => i < maxLevels || mandatory.has(x.level));
   return { ...plan, recommendedLevels: uniqueLevels(chosen) };
 }
+
 function predictCapabilityUse(prompt: string, model: CapabilitySelfModel): { capability: string; usable: boolean; confidence: number; rationale: string }[] {
   const task = classifyTask(prompt);
   const checks: { capability: string; usable: boolean; confidence: number; rationale: string }[] = [];
@@ -209,12 +336,12 @@ function renderExecutionContract(plan: RoutePlan, prompt: string): string {
   lines.push('- Do not let generic tool availability override Cortex-first routing unless the Cortex path is missing or broken and that failure is made explicit.');
   return lines.join('\n');
 }
-function renderGovernorBlock(plan: RoutePlan, prompt: string, duplicateRisk: boolean, budget: { maxReasoningPasses: number; maxToolRounds: number }): string {
+function renderGovernorBlock(plan: RoutePlan, prompt: string, duplicateRisk: boolean, budget: { maxReasoningPasses: number; maxToolRounds: number }, creativity?: CreativityProfile): string {
   const markers = duplicateRisk ? 'duplicate_chain_risk=true' : 'duplicate_chain_risk=false';
   return [
     'CORTEX_EXECUTION_GOVERNOR',
     `task_class: ${classifyTask(prompt)}`,
-    `governor_markers: ${markers}`,
+    `governor_markers: ${markers}${creativity?.requested ? ', creativity_mode=true' : ''}`,
     `reasoning_budget.max_passes: ${budget.maxReasoningPasses}`,
     `reasoning_budget.max_tool_rounds: ${budget.maxToolRounds}`,
     'answer_contract:',
@@ -226,7 +353,34 @@ function renderGovernorBlock(plan: RoutePlan, prompt: string, duplicateRisk: boo
     '- Do not mention duplicate suppression or loop control in the final answer.',
   ].join('\n');
 }
-function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean): string {
+function renderCreativityGovernorBlock(creativity: CreativityProfile): string {
+  if (!creativity.requested) return '';
+  return [
+    'CORTEX_CREATIVITY_GOVERNOR',
+    `mode: ${creativity.strictNovelty ? 'strict_novelty' : 'novelty'}`,
+    `signals: ${creativity.signals.join(', ') || 'none'}`,
+    `route_enforced: ${creativity.routeEnforced}`,
+    `recent_anchor_overlap: ${creativity.overlapTerms.join(', ') || 'none'}`,
+    'explicit_constraints:',
+    ...(creativity.explicitConstraints.length ? creativity.explicitConstraints.map((term) => `- ${term}`) : ['- none']),
+    'context_quarantine:',
+    ...(creativity.quarantineTerms.length ? creativity.quarantineTerms.map((term) => `- ${term}`) : ['- none']),
+    'distance_contract:',
+    '- First generate at least 3 candidate directions that avoid the quarantined terms.',
+    '- Do not let the lead idea be a near-neighbor of the last few turns.',
+    '- If novelty/originality was requested, lead with Orthogonal or Wild-card before Adjacent.',
+    '- Only reuse recent project nouns after presenting at least one genuinely different direction.',
+    'muse_dreamer_contract:',
+    '- Dreamer: generate high-variance, cross-domain candidates.',
+    '- Muse: rename/reframe survivors into elegant, surprising forms.',
+    '- Synthesist: pick the strongest non-obvious direction and explain why.',
+    'anti_anchor_checks:',
+    '- If the answer could have been produced by simply continuing the previous thread, regenerate once with higher conceptual distance.',
+    '- If the lead option reuses more than two quarantined terms, regenerate.',
+    '- Do not quietly collapse all buckets into adjacent ideas.',
+  ].join('\n');
+}
+function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, creativity?: CreativityProfile): string {
   const levels = plan.recommendedLevels.map((x) => `- L${x.level}${x.name ? ` ${x.name}` : ''}${x.reason ? ` — ${x.reason}` : ''}${typeof x.score === 'number' ? ` [score=${x.score.toFixed(2)}]` : ''}`).join('\n');
   const reasoning = (plan.reasoning || []).slice(0, 8).map((x) => `- ${x}`).join('\n');
   const budget = { maxReasoningPasses: duplicateRisk ? 2 : 3, maxToolRounds: classifyTask(prompt) === 'coding' ? 5 : 3 };
@@ -237,7 +391,8 @@ function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean): st
     levels || '- L24 Nexus\n- L5 Oracle',
     reasoning ? `routing_reasoning:\n${reasoning}` : '',
     renderExecutionContract(plan, prompt),
-    renderGovernorBlock(plan, prompt, duplicateRisk, budget),
+    renderGovernorBlock(plan, prompt, duplicateRisk, budget, creativity),
+    renderCreativityGovernorBlock(creativity || { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false }),
     'Identity/architecture contract for this turn:',
     '- Cortex is the primary mind for reasoning, memory, and routing.',
     '- OpenClaw is the mediation/runtime layer and should not override Cortex identity or intent.',
@@ -255,9 +410,13 @@ export default function register(api: any) {
   const requireRouting = asBool(cfg.requireRouting, true);
   const timeoutMs = asNumber(cfg.timeoutMs, 8000);
   const maxLevels = asNumber(cfg.maxLevels, 10);
+  const creativityGovernorEnabled = asBool(cfg.creativityGovernorEnabled, true);
+  const creativityHistorySize = asNumber(cfg.creativityHistorySize, 24);
+  const creativityQuarantineTerms = asNumber(cfg.creativityQuarantineTerms, 8);
   const stateDir = typeof cfg.stateDir === 'string' && cfg.stateDir.trim() ? cfg.stateDir.trim() : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-route-gate');
   const statsPath = path.join(stateDir, 'adaptive-routing-stats.json');
   const historyPath = path.join(stateDir, 'prompt-fingerprints.json');
+  const promptHistoryPath = path.join(stateDir, 'prompt-history.json');
   const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
@@ -275,8 +434,18 @@ export default function register(api: any) {
     fs.mkdirSync(path.dirname(historyPath), { recursive: true });
     fs.writeFileSync(historyPath, JSON.stringify(compact.slice(-100), null, 2));
   }
+  function loadPromptHistory(): PromptHistoryEntry[] {
+    try {
+      const raw = JSON.parse(fs.readFileSync(promptHistoryPath, 'utf8'));
+      return Array.isArray(raw) ? raw.filter((item) => item && typeof item === 'object') as PromptHistoryEntry[] : [];
+    } catch { return []; }
+  }
+  function savePromptHistory(history: PromptHistoryEntry[]) {
+    fs.mkdirSync(path.dirname(promptHistoryPath), { recursive: true });
+    fs.writeFileSync(promptHistoryPath, JSON.stringify(history.slice(-creativityHistorySize), null, 2));
+  }
 
-  async function getPlan(prompt: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[] }> {
+  async function getPlan(prompt: string): Promise<{ plan: RoutePlan; duplicateRisk: boolean; taskClass: string; selfModel: CapabilitySelfModel; predictedChecks: { capability: string; usable: boolean; confidence: number; rationale: string }[]; creativity: CreativityProfile }> {
     let plan: RoutePlan | null = null;
     try {
       const data = await postJson(`${baseUrl}/nexus/orchestrate?query=${encodeURIComponent(prompt)}`, {}, timeoutMs);
@@ -311,25 +480,40 @@ export default function register(api: any) {
     const stats = loadStats(statsPath);
     const selfModel = loadJson<CapabilitySelfModel>(selfModelPath, { version: 1, capabilities: {}, confidence: {}, degraded: [], recommendations: [] });
     const predictedChecks = predictCapabilityUse(prompt, selfModel);
-    const prioritized = prioritizePlan(plan!, stats, taskClass, maxLevels);
+    const priorPromptHistory = loadPromptHistory();
+    let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(prompt, priorPromptHistory, creativityQuarantineTerms) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
+    let routedPlan = plan!;
+    if (creativity.requested) {
+      const creativeLevels: RouteLevel[] = [
+        { level: 13, name: 'Dreamer', reason: 'creativity_governor' },
+        { level: 29, name: 'Muse', reason: 'creativity_governor' },
+        { level: 32, name: 'Synthesist', reason: 'creativity_governor' },
+        { level: 34, name: 'Validator', reason: 'creativity_governor' },
+      ];
+      creativity = { ...creativity, routeEnforced: !creativeLevels.every((level) => hasLevel(routedPlan, level.level)) };
+      routedPlan = ensureLevels(routedPlan, creativeLevels);
+    }
+    const prioritized = prioritizePlan(routedPlan, stats, taskClass, maxLevels, creativity);
     const fingerprint = fingerprintText(prompt);
     const history = loadFingerprintHistory();
     const duplicateRisk = history.some((x) => similarity(x, fingerprint) >= 0.9);
     history.push(fingerprint);
     saveFingerprintHistory(history);
-    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks };
+    const promptHistory = priorPromptHistory.concat([{ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(prompt, creativityQuarantineTerms) }]);
+    savePromptHistory(promptHistory);
+    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity };
   }
 
   api.on('before_prompt_build', async (event: any, ctx: any) => {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
-    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks } = await getPlan(prompt);
+    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity } = await getPlan(prompt);
     const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
     if (stateKey) {
-      runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [], selfModel, predictedChecks });
+      runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [], selfModel, predictedChecks, creativity });
     }
-    api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length}`);
-    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
+    api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested}`);
+    return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
   });
 
   api.on('before_tool_call', async (event: any, ctx: any) => {
@@ -346,6 +530,9 @@ export default function register(api: any) {
     }
     if (event?.toolName === 'memory_search' && rs.predictedChecks?.some((x) => x.capability === 'memory_write_through' && !x.usable)) {
       rs.observedSignals.push('counterfactual_warn:memory_write_through');
+    }
+    if (rs.creativity?.requested && (event?.toolName === 'memory_search' || event?.toolName === 'web_search' || event?.toolName === 'web_fetch')) {
+      rs.observedSignals.push(`creative_grounding:${String(event.toolName)}`);
     }
   });
 

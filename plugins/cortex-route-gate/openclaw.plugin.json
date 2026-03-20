@@ -12,6 +12,9 @@
       "requireRouting": { "type": "boolean" },
       "timeoutMs": { "type": "number", "minimum": 100, "maximum": 60000 },
       "maxLevels": { "type": "number", "minimum": 1, "maximum": 20 },
+      "creativityGovernorEnabled": { "type": "boolean" },
+      "creativityHistorySize": { "type": "number", "minimum": 4, "maximum": 100 },
+      "creativityQuarantineTerms": { "type": "number", "minimum": 2, "maximum": 20 },
       "stateDir": { "type": "string" }
     }
   },
@@ -20,6 +23,9 @@
     "enabled": { "label": "Enable route gate" },
     "requireRouting": { "label": "Require Cortex routing before answer generation" },
     "timeoutMs": { "label": "Routing timeout (ms)", "advanced": true },
-    "maxLevels": { "label": "Max routed levels", "advanced": true }
+    "maxLevels": { "label": "Max routed levels", "advanced": true },
+    "creativityGovernorEnabled": { "label": "Enable creativity governor", "advanced": true },
+    "creativityHistorySize": { "label": "Creativity prompt history size", "advanced": true },
+    "creativityQuarantineTerms": { "label": "Creativity quarantine term limit", "advanced": true }
   }
 }

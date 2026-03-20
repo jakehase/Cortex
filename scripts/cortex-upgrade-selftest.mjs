@@ -12,6 +12,10 @@ const files = [
 
 const requiredChecks = [
   { file: files[0], match: /CORTEX_EXECUTION_GOVERNOR/, label: 'route governor block present' },
+  { file: files[0], match: /CORTEX_CREATIVITY_GOVERNOR/, label: 'creativity governor block present' },
+  { file: files[0], match: /prompt-history\.json/, label: 'prompt history persistence present' },
+  { file: files[0], match: /buildCreativityProfile\(/, label: 'creativity profile builder present' },
+  { file: files[0], match: /creativity_governor/, label: 'creative route enforcement present' },
   { file: files[0], match: /tool_result_persist/, label: 'tool grounding hook present' },
   { file: files[0], match: /adaptive-routing-stats\.json/, label: 'adaptive routing stats persistence present' },
   { file: files[0], match: /Failure mode guard:/, label: 'failure-mode validator prompt present' },
