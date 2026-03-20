@@ -504,12 +504,14 @@ export default function register(api: any) {
         };
       }
     }
-    const taskClass = classifyTask(prompt);
+    const intentText = latestUserTurnText(messages) || tailIntentText(prompt);
+    const creativityEligible = Boolean(latestUserTurnText(messages)) && !(sessionKey || '').includes(':cron:');
+    const taskClass = classifyTask(intentText || prompt);
     const stats = loadStats(statsPath);
     const selfModel = loadJson<CapabilitySelfModel>(selfModelPath, { version: 1, capabilities: {}, confidence: {}, degraded: [], recommendations: [] });
-    const predictedChecks = predictCapabilityUse(prompt, selfModel);
+    const predictedChecks = predictCapabilityUse(intentText || prompt, selfModel);
     const priorPromptHistory = loadPromptHistory();
-    let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(prompt, priorPromptHistory, creativityQuarantineTerms) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
+    let creativity: CreativityProfile = creativityGovernorEnabled ? buildCreativityProfile(intentText, priorPromptHistory, creativityQuarantineTerms, creativityEligible) : { requested: false, strictNovelty: false, signals: [], explicitConstraints: [], recentAnchorTerms: [], quarantineTerms: [], overlapTerms: [], routeEnforced: false };
     let routedPlan = plan!;
     if (creativity.requested) {
       const creativeLevels: RouteLevel[] = [
@@ -527,20 +529,20 @@ export default function register(api: any) {
     const duplicateRisk = history.some((x) => similarity(x, fingerprint) >= 0.9);
     history.push(fingerprint);
     saveFingerprintHistory(history);
-    const promptHistory = priorPromptHistory.concat([{ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(prompt, creativityQuarantineTerms) }]);
+    const promptHistory = priorPromptHistory.concat([{ createdAt: nowIso(), promptFingerprint: fingerprint, taskClass, tokens: extractContentTokens(intentText || prompt, creativityQuarantineTerms) }]);
     savePromptHistory(promptHistory);
-    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity };
+    return { plan: prioritized, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText };
   }
 
   api.on('before_prompt_build', async (event: any, ctx: any) => {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
-    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity } = await getPlan(prompt);
     const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText } = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey);
     if (stateKey) {
       runStateByKey.set(stateKey, { prompt, promptFingerprint: fingerprintText(prompt), plan, taskClass, startedAt: Date.now(), toolCalls: [], observedSignals: [], selfModel, predictedChecks, creativity });
     }
-    api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested}`);
+    api.logger.info?.(`cortex-route-gate: appended self-model block session=${stateKey || 'unknown'} degraded=${(selfModel.degraded || []).length} predicted=${predictedChecks.length} creativity=${creativity.requested} intent=${JSON.stringify((intentText || '').slice(0, 80))}`);
     return { appendSystemContext: `${renderPlan(plan, prompt, duplicateRisk, creativity)}\n${renderSelfModelBlock(selfModel, predictedChecks)}` };
   });
 
