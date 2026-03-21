@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-21T15:38:37.815Z",
+      "updatedAt": "2026-03-21T22:21:00.554Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 258,
+        "runs": 270,
         "failures": [],
-        "lastRunAt": "2026-03-21T15:38:37.822Z",
+        "lastRunAt": "2026-03-21T22:21:00.561Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4379,6 +4379,52 @@
       },
       "failedAt": "2026-03-21T14:47:58.860Z",
       "failureReason": "/root/clawd/docs/CORTEX_COMPLETION_INTEGRITY.md:11:- plugin: `plugins/completion-integrity` /root/clawd/docs/CORTEX_COMPLETION_INTEGRITY.md:12:- core: `plugins/completion-integrity/core.mjs` /root/clawd/docs/CORTEX_COMPLETION_INTEGRITY.md:13:- tests: `plugins/completion-integrity/core.test.mjs` /root/clawd/docs/CORTEX_COMPLETION_INTEGRITY.md:14:- state: `state/completion-integrity/tasks.json` /roo",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774133278704:454b04a80363e000",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-21T22:47:58.704Z",
+      "updatedAt": "2026-03-21T22:53:18.986Z",
+      "prompt": "fix whatever is causing me having to prompt to get you to respond, but not just a bandaid fix like a watchdog making sure you respond. I want you to dig into specifically why it's happening, and change the code so it doesn't happen again. I",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-21T22:47:58.704Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-21T22:47:58.708Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-03-21T22:53:18.986Z",
+          "failedAt": "2026-03-21T22:53:18.986Z",
+          "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 12.466041 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 1.637714 type: '",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "failedAt": "2026-03-21T22:53:18.986Z",
+      "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 12.466041 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 1.637714 type: '",
       "failureSource": "runtime_message"
     }
   ]
