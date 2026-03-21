@@ -181,6 +181,20 @@ function tailIntentText(prompt: string): string {
   const tokens = normalizePrompt(prompt).split(' ').filter(Boolean);
   return tokens.slice(-48).join(' ').trim();
 }
+function isOracleExecutorPrompt(prompt: string): boolean {
+  const normalized = normalizePrompt(prompt);
+  return normalized.includes('host-side oracle executor for cortex')
+    || normalized.includes('return only the answer text that oracle should say');
+}
+function isInternalOracleSession(sessionKey: string): boolean {
+  const key = String(sessionKey || '').trim().toLowerCase();
+  return key.startsWith('oracle-prod-bridge-short-')
+    || key.startsWith('oracle-prod-bridge-general-')
+    || key.startsWith('oracle-gateway-');
+}
+function shouldBypassRouteGate(prompt: string, sessionKey?: string): boolean {
+  return isInternalOracleSession(String(sessionKey || '')) || isOracleExecutorPrompt(prompt);
+}
 function buildCreativityProfile(intentText: string, priorPromptHistory: PromptHistoryEntry[], quarantineTermLimit: number, eligible = true): CreativityProfile {
   const focus = intentText.trim();
   const requested = eligible && isCreativityPrompt(focus);
@@ -523,6 +537,10 @@ export default function register(api: any) {
   const creativityQuarantineTerms = asNumber(cfg.creativityQuarantineTerms, 8);
   const creativityAuditEnabled = asBool(cfg.creativityAuditEnabled, true);
   const creativityAuditOverlapThreshold = asNumber(cfg.creativityAuditOverlapThreshold, 0.34);
+  const oracleSessionResetBytes = asNumber(cfg.oracleSessionResetBytes, 500_000);
+  const oracleSessionDir = typeof cfg.oracleSessionDir === 'string' && cfg.oracleSessionDir.trim()
+    ? cfg.oracleSessionDir.trim()
+    : path.join(process.env.HOME || '/root', '.openclaw', 'agents', 'main', 'sessions');
   const stateDir = typeof cfg.stateDir === 'string' && cfg.stateDir.trim() ? cfg.stateDir.trim() : path.join(process.env.OPENCLAW_STATE_DIR || path.join(process.env.HOME || '/root', '.openclaw'), 'cortex-route-gate');
   const statsPath = path.join(stateDir, 'adaptive-routing-stats.json');
   const historyPath = path.join(stateDir, 'prompt-fingerprints.json');
@@ -533,6 +551,30 @@ export default function register(api: any) {
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
   const pendingCreativitySuppressions = new Map<string, PendingCreativitySuppression>();
+
+  function quarantineOversizedOracleSessions() {
+    if (!oracleSessionResetBytes || oracleSessionResetBytes < 1024) return;
+    try {
+      const entries = fs.readdirSync(oracleSessionDir, { withFileTypes: true });
+      const quarantineDir = path.join(oracleSessionDir, 'quarantine');
+      for (const entry of entries) {
+        if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+        const sessionName = entry.name.replace(/\.jsonl$/i, '');
+        if (!isInternalOracleSession(sessionName)) continue;
+        const filePath = path.join(oracleSessionDir, entry.name);
+        const stat = fs.statSync(filePath);
+        if (stat.size <= oracleSessionResetBytes) continue;
+        fs.mkdirSync(quarantineDir, { recursive: true });
+        const targetPath = path.join(quarantineDir, `${sessionName}.${Date.now()}.jsonl`);
+        fs.renameSync(filePath, targetPath);
+        api.logger.warn?.(`cortex-route-gate: quarantined oversized oracle session ${entry.name} size=${stat.size}`);
+      }
+    } catch (error) {
+      api.logger.warn?.(`cortex-route-gate: failed to quarantine oversized oracle sessions: ${String(error)}`);
+    }
+  }
+
+  quarantineOversizedOracleSessions();
 
   function loadFingerprintHistory(): string[] {
     try { return JSON.parse(fs.readFileSync(historyPath, 'utf8')); } catch { return []; }
@@ -650,6 +692,11 @@ export default function register(api: any) {
     const prompt = typeof event?.prompt === 'string' ? event.prompt.trim() : '';
     if (!prompt) return;
     const stateKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+    if (shouldBypassRouteGate(prompt, stateKey)) {
+      if (stateKey) runStateByKey.delete(stateKey);
+      api.logger.info?.(`cortex-route-gate: bypassed internal oracle session=${stateKey || 'unknown'}`);
+      return;
+    }
     const { plan, duplicateRisk, taskClass, selfModel, predictedChecks, creativity, intentText } = await getPlan(prompt, Array.isArray(event?.messages) ? event.messages : [], stateKey);
     const retryState = stateKey ? loadCreativityRetryState() : {};
     const retryAudit = stateKey && creativity.requested ? retryState[stateKey] : undefined;

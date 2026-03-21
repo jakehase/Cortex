@@ -153,6 +153,38 @@ test('cron turns are ineligible even if they contain creativity language', async
   assert.doesNotMatch(context, /L13 Dreamer/);
 });
 
+test('internal oracle bridge sessions bypass route injection entirely', async () => {
+  const harness = createHarness();
+  const handler = harness.beforePromptBuild;
+  assert.equal(typeof handler, 'function', 'before_prompt_build hook should be registered');
+
+  const result = await handler(
+    {
+      prompt: '[Sat 2026-03-21 03:31 CDT] You are the host-side Oracle executor for Cortex. Return only the answer text that oracle should say.',
+      messages: [],
+    },
+    { sessionKey: 'oracle-prod-bridge-short-abc123' },
+  );
+
+  assert.equal(result, undefined);
+});
+
+test('oracle executor prompts bypass route injection even without special session key', async () => {
+  const harness = createHarness();
+  const handler = harness.beforePromptBuild;
+  assert.equal(typeof handler, 'function', 'before_prompt_build hook should be registered');
+
+  const result = await handler(
+    {
+      prompt: 'You are the host-side Oracle executor for Cortex. Return only the answer text that oracle should say.',
+      messages: [],
+    },
+    { sessionKey: 'agent:main:test:oracle-wrapper' },
+  );
+
+  assert.equal(result, undefined);
+});
+
 test('runtime wrapper text with creative labels does not false-trigger when latest user ask is ordinary', async () => {
   const harness = createHarness();
   const context = await runBeforePromptBuild(harness, {
@@ -173,6 +205,19 @@ test('runtime wrapper text with creative labels does not false-trigger when late
 
   assert.doesNotMatch(context, /CORTEX_CREATIVITY_GOVERNOR/);
   assert.doesNotMatch(context, /governor_markers: .*creativity_mode=true/);
+});
+
+test('oversized oracle sessions are quarantined at startup', async () => {
+  const oracleSessionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cortex-oracle-sessions-'));
+  const giantPath = path.join(oracleSessionDir, 'oracle-prod-bridge-short-deadbeef.jsonl');
+  fs.writeFileSync(giantPath, 'x'.repeat(4096));
+
+  createHarness({ oracleSessionDir, oracleSessionResetBytes: 1024 });
+
+  assert.equal(fs.existsSync(giantPath), false);
+  const quarantineDir = path.join(oracleSessionDir, 'quarantine');
+  const quarantined = fs.readdirSync(quarantineDir).filter((name) => name.includes('oracle-prod-bridge-short-deadbeef'));
+  assert.equal(quarantined.length, 1);
 });
 
 test('recent anchors are quarantined on later strict-novelty prompts', async () => {

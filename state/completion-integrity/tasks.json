@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-21T23:41:34.688Z",
+      "updatedAt": "2026-03-21T23:46:29.859Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 275,
+        "runs": 276,
         "failures": [],
-        "lastRunAt": "2026-03-21T23:41:34.690Z",
+        "lastRunAt": "2026-03-21T23:46:29.861Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4431,11 +4431,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774136652107:138cad166390ab1e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-21T23:44:12.107Z",
-      "updatedAt": "2026-03-21T23:44:12.110Z",
+      "updatedAt": "2026-03-21T23:48:44.255Z",
       "prompt": "this is what I mean by doing a thorough analysis of the problem, we shouldn't just be bandaid fixing. We need to be applying broad fixes, to issues that can cause issues etc so do that here, I want you to fix whatever is causing these issue",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -4447,6 +4447,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-21T23:44:12.110Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-03-21T23:48:44.255Z",
+          "failedAt": "2026-03-21T23:48:44.255Z",
+          "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 17.529009 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 1.877107 type: '",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -4460,7 +4468,10 @@
         "passed": false,
         "runs": 0,
         "failures": []
-      }
+      },
+      "failedAt": "2026-03-21T23:48:44.255Z",
+      "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 17.529009 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 1.877107 type: '",
+      "failureSource": "runtime_message"
     }
   ]
 }
