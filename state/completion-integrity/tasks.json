@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-21T00:38:25.194Z",
+      "updatedAt": "2026-03-21T00:43:24.135Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 77,
+        "runs": 78,
         "failures": [],
-        "lastRunAt": "2026-03-21T00:38:25.200Z",
+        "lastRunAt": "2026-03-21T00:43:24.142Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4238,6 +4238,41 @@
       "failedAt": "2026-03-21T00:34:21.438Z",
       "failureReason": "System: [2026-03-20 19:03:08 CDT] Exec completed (delta-se, code 0) :: {} System: [2026-03-20 19:03:15 CDT] Exec completed (fast-zep, code 1) :: \", line 563, in error return self._call_chain(*args) ^^^^^^^^^^^^^^^^^^^^^^^ File \"/usr/lib/python3.11/urllib/request.py\", line 496, in _call_chain result = func(*args) ^^^^^^^^^^… Conversation info (untrusted metadata): ```json { \"message_id\": \"3EB02C9A8",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774053919000:ca3a571b25be116c",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-21T00:45:19.000Z",
+      "updatedAt": "2026-03-21T00:45:19.004Z",
+      "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3EB041A4D7F5F5F853F7F6\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (untrusted metadata): ```json { \"label\": \"Jake (+17855410986)\", \"id\": \"+17855410986\", \"name",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-21T00:45:19.000Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-21T00:45:19.004Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }
