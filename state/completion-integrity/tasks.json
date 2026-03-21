@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-21T23:36:38.557Z",
+      "updatedAt": "2026-03-21T23:41:34.688Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 274,
+        "runs": 275,
         "failures": [],
-        "lastRunAt": "2026-03-21T23:36:38.564Z",
+        "lastRunAt": "2026-03-21T23:41:34.690Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4426,6 +4426,41 @@
       "failedAt": "2026-03-21T22:53:18.986Z",
       "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 12.466041 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 1.637714 type: '",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774136652107:138cad166390ab1e",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-21T23:44:12.107Z",
+      "updatedAt": "2026-03-21T23:44:12.110Z",
+      "prompt": "this is what I mean by doing a thorough analysis of the problem, we shouldn't just be bandaid fixing. We need to be applying broad fixes, to issues that can cause issues etc so do that here, I want you to fix whatever is causing these issue",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-21T23:44:12.107Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-21T23:44:12.110Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }
