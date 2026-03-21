@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-21T00:48:20.954Z",
+      "updatedAt": "2026-03-21T00:53:29.980Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 79,
+        "runs": 80,
         "failures": [],
-        "lastRunAt": "2026-03-21T00:48:20.961Z",
+        "lastRunAt": "2026-03-21T00:53:29.987Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4243,11 +4243,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774053919000:ca3a571b25be116c",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-21T00:45:19.000Z",
-      "updatedAt": "2026-03-21T00:45:19.004Z",
+      "updatedAt": "2026-03-21T00:55:19.006Z",
       "prompt": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3EB041A4D7F5F5F853F7F6\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (untrusted metadata): ```json { \"label\": \"Jake (+17855410986)\", \"id\": \"+17855410986\", \"name",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -4259,6 +4259,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-21T00:45:19.004Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-03-21T00:55:19.006Z",
+          "failedAt": "2026-03-21T00:55:19.006Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -4272,7 +4280,10 @@
         "passed": false,
         "runs": 0,
         "failures": []
-      }
+      },
+      "failedAt": "2026-03-21T00:55:19.006Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     }
   ]
 }
