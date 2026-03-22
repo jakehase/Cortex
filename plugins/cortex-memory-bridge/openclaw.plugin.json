@@ -21,6 +21,11 @@
       "noisyPatternPenalty": { "type": "number", "minimum": 0, "maximum": 1 },
       "minDurabilityScore": { "type": "number", "minimum": 0, "maximum": 1 },
       "writeTags": { "type": "array", "items": { "type": "string" } },
+      "conflictPenalty": { "type": "number", "minimum": 0, "maximum": 1 },
+      "recencyBoost": { "type": "number", "minimum": 0, "maximum": 1 },
+      "explicitBoost": { "type": "number", "minimum": 0, "maximum": 1 },
+      "corroborationBoost": { "type": "number", "minimum": 0, "maximum": 1 },
+      "hardQueryCandidateCount": { "type": "number", "minimum": 1, "maximum": 50 },
       "debugShapes": { "type": "boolean" }
     }
   },
