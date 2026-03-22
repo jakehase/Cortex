@@ -1,6 +1,7 @@
 # Public docs index
 
 ## Start here
+- [Start here](START_HERE.md)
 - [Super-agent stack](SUPER_AGENT_STACK.md)
 - [Cortex vs OpenClaw](CORTEX_VS_OPENCLAW.md)
 - [Capabilities](CAPABILITIES.md)

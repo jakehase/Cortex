@@ -29,6 +29,7 @@ Together, they form a persistent agent runtime that can chat across channels, br
 
 ## Start here
 
+- `public/docs/START_HERE.md` — canonical landing page
 - `public/docs/NOVELTY_INDEX.md` — map of what is actually distinctive in Cortex
 - `public/docs/ARCHITECTURE_VISUAL.md` — quick visual of stack, research chain, memory chain, control-plane loop
 - `public/docs/CORTEX_VS_OPENCLAW.md` — architecture split
