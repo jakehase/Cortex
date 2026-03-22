@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-22T17:52:56.062Z",
+      "updatedAt": "2026-03-22T17:57:58.144Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 479,
+        "runs": 480,
         "failures": [],
-        "lastRunAt": "2026-03-22T17:52:56.065Z",
+        "lastRunAt": "2026-03-22T17:57:58.146Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4660,11 +4660,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774155274777:ddae42fc1b16e537",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-22T04:54:34.777Z",
-      "updatedAt": "2026-03-22T17:34:14.251Z",
+      "updatedAt": "2026-03-22T18:00:01.648Z",
       "prompt": "System: [2026-03-21 23:48:21 CDT] Exec completed (vivid-wi, code 0) :: ecific health signals like uptime, load, memory, disk, or OpenClaw gat\" }, { \"i\": 4, \"ok\": true, \"elapsed\": 9.73, \"body\": \"{\\\"ok\\\":true,\\\"response\\\":\\\"I can\\u2019t verif",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "https://x.com/hero_ui/status/2035353810181251490?s=46 Would this help us any? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just he",
       "history": [
         {
@@ -4684,6 +4684,14 @@
           "completedAt": "2026-03-22T04:54:37.760Z",
           "completionSummary": "System: 2026-03-21 23:48:21 CDT Exec completed (vivid-wi, code 0) :: ecific health signals like uptime, load, memory, disk, or OpenClaw gat , i: 4, ok: true, elapsed: 9.73, body: \\ok\\:true,\\response\\:\\I can\\u2019t verify live sta… Sender (",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-22T18:00:01.648Z",
+          "failedAt": "2026-03-22T18:00:01.648Z",
+          "failureReason": "{\"0\":\"{\\\"module\\\":\\\"web-auto-reply\\\",\\\"runId\\\":\\\"e75928fc-d57d-4c46-bbc3-439da370b6b9\\\"}\",\"1\":{\"correlationId\":\"3A60FDCF12A38BA2E370\",\"connectionId\":\"152ec67d-196b-43fc-b995-3b9cf014957e\",\"to\":\"+17855410986\",\"from\":\"+17855410986\",\"text\":\"Here’s the concrete spec I’d use for **our** stack.\\n\\n**High-level design**\\n\\nAdd a new memory pipeline with 3 retrieval modes:\\n\\n- **M0: Fast recall**\\n- curr",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -4704,7 +4712,10 @@
         }
       },
       "completedAt": "2026-03-22T04:54:37.760Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-22T18:00:01.648Z",
+      "failureReason": "{\"0\":\"{\\\"module\\\":\\\"web-auto-reply\\\",\\\"runId\\\":\\\"e75928fc-d57d-4c46-bbc3-439da370b6b9\\\"}\",\"1\":{\"correlationId\":\"3A60FDCF12A38BA2E370\",\"connectionId\":\"152ec67d-196b-43fc-b995-3b9cf014957e\",\"to\":\"+17855410986\",\"from\":\"+17855410986\",\"text\":\"Here’s the concrete spec I’d use for **our** stack.\\n\\n**High-level design**\\n\\nAdd a new memory pipeline with 3 retrieval modes:\\n\\n- **M0: Fast recall**\\n- curr",
+      "failureSource": "runtime_message"
     }
   ]
 }
