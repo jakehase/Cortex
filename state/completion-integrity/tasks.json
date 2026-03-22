@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-22T00:36:23.008Z",
+      "updatedAt": "2026-03-22T00:41:27.676Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 286,
+        "runs": 287,
         "failures": [],
-        "lastRunAt": "2026-03-22T00:36:23.015Z",
+        "lastRunAt": "2026-03-22T00:41:27.678Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4477,11 +4477,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774137457215:29e6f6945015d3dd",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-21T23:57:37.215Z",
-      "updatedAt": "2026-03-22T00:29:46.089Z",
+      "updatedAt": "2026-03-22T00:44:45.221Z",
       "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-03-21.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this flush; never",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowe",
       "history": [
         {
@@ -4501,6 +4501,14 @@
           "completedAt": "2026-03-21T23:58:07.518Z",
           "completionSummary": "? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowe",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-22T00:44:45.221Z",
+          "failedAt": "2026-03-22T00:44:45.221Z",
+          "failureReason": "TAP version 13 # Subtest: creative novelty prompt injects creativity governor and forces Dreamer/Muse/Synthesist/Validator ok 1 - creative novelty prompt injects creativity governor and forces Dreamer/Muse/Synthesist/Validator --- duration_ms: 15.142198 type: 'test' ... # Subtest: ordinary status prompt does not inject creativity governor ok 2 - ordinary status prompt does not inject creativity go",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -4521,7 +4529,10 @@
         }
       },
       "completedAt": "2026-03-21T23:58:07.518Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-22T00:44:45.221Z",
+      "failureReason": "TAP version 13 # Subtest: creative novelty prompt injects creativity governor and forces Dreamer/Muse/Synthesist/Validator ok 1 - creative novelty prompt injects creativity governor and forces Dreamer/Muse/Synthesist/Validator --- duration_ms: 15.142198 type: 'test' ... # Subtest: ordinary status prompt does not inject creativity governor ok 2 - ordinary status prompt does not inject creativity go",
+      "failureSource": "runtime_message"
     }
   ]
 }
