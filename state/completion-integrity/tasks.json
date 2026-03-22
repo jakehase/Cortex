@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-22T18:37:54.889Z",
+      "updatedAt": "2026-03-22T18:42:55.230Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 488,
+        "runs": 489,
         "failures": [],
-        "lastRunAt": "2026-03-22T18:37:54.896Z",
+        "lastRunAt": "2026-03-22T18:42:55.239Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4721,12 +4721,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774202897367:c05bbd4cd9920a1d",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-22T18:08:17.367Z",
-      "updatedAt": "2026-03-22T18:08:17.370Z",
+      "updatedAt": "2026-03-22T18:43:05.457Z",
       "prompt": "Yes do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "",
+      "completionSummary": "https://x.com/hero_ui/status/2035353810181251490?s=46 Would this help us any? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just he",
       "history": [
         {
           "from": null,
@@ -4754,12 +4754,18 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-22T18:43:05.465Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "recoveredAt": "2026-03-22T18:31:15.138Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-22T18:31:15.138Z"
+      "completedAt": "2026-03-22T18:31:15.138Z",
+      "completionSource": "agent_end"
     }
   ]
 }
