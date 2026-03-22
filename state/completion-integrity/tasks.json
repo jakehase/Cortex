@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-22T18:22:57.137Z",
+      "updatedAt": "2026-03-22T18:27:56.817Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 485,
+        "runs": 486,
         "failures": [],
-        "lastRunAt": "2026-03-22T18:22:57.144Z",
+        "lastRunAt": "2026-03-22T18:27:56.819Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4725,7 +4725,7 @@
       "prompt": "Yes do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
+      "status": "internal_complete",
       "completionSummary": "",
       "history": [
         {
@@ -4737,6 +4737,12 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-22T18:08:17.370Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-22T18:31:15.138Z",
+          "recovery": true
         }
       ],
       "delivery": {
@@ -4750,7 +4756,10 @@
         "passed": true,
         "runs": 0,
         "failures": []
-      }
+      },
+      "recoveredAt": "2026-03-22T18:31:15.138Z",
+      "recoveryReason": "restart_or_stale_running",
+      "completedAt": "2026-03-22T18:31:15.138Z"
     }
   ]
 }
