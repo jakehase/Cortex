@@ -182,6 +182,7 @@ function reconcileResults(query, items, cfg) {
     for (let j = i + 1; j < mapped.length; j += 1) {
       const aSignals = mapped[i].metadata.candidateSignals;
       const bSignals = mapped[j].metadata.candidateSignals;
+      if (!queryIsAboutInternalOracle(query) && aSignals.attribute === 'internal_noise' && bSignals.attribute === 'internal_noise') continue;
       if (!detectConflict(aSignals, bSignals)) continue;
       aSignals.contradictionPenalty += cfg.conflictPenalty;
       bSignals.contradictionPenalty += cfg.conflictPenalty;

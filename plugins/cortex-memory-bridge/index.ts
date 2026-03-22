@@ -257,6 +257,7 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
     for (let j = i + 1; j < mapped.length; j += 1) {
       const aSignals = mapped[i].metadata.candidateSignals as CandidateSignals;
       const bSignals = mapped[j].metadata.candidateSignals as CandidateSignals;
+      if (!queryIsAboutInternalOracle(query) && aSignals.attribute === 'internal_noise' && bSignals.attribute === 'internal_noise') continue;
       if (!detectConflict(aSignals, bSignals)) continue;
       aSignals.contradictionPenalty += cfg.conflictPenalty;
       bSignals.contradictionPenalty += cfg.conflictPenalty;
