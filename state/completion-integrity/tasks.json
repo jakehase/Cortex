@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-22T04:52:16.031Z",
+      "updatedAt": "2026-03-22T04:57:18.325Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 324,
+        "runs": 325,
         "failures": [],
-        "lastRunAt": "2026-03-22T04:52:16.038Z",
+        "lastRunAt": "2026-03-22T04:57:18.327Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4660,12 +4660,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774155274777:ddae42fc1b16e537",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-22T04:54:34.777Z",
-      "updatedAt": "2026-03-22T04:57:04.017Z",
+      "updatedAt": "2026-03-22T04:57:59.916Z",
       "prompt": "System: [2026-03-21 23:48:21 CDT] Exec completed (vivid-wi, code 0) :: ecific health signals like uptime, load, memory, disk, or OpenClaw gat\" }, { \"i\": 4, \"ok\": true, \"elapsed\": 9.73, \"body\": \"{\\\"ok\\\":true,\\\"response\\\":\\\"I can\\u2019t verif",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "seq_success: 10, seq_total: 10, burst_success: 10, burst_total: 10, overall_success: 20, overall_total: 20, avg_ok_s: 7.42, p95_ok_s: 10.54, max_ok_s: 13.33, failures: , sample_seq: ok: true, elapsed: 8.61, body: \\ok\\:true,\\response\\:\\I can\\u2019t verify live status from here rig",
+      "completionSummary": "? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowe",
       "history": [
         {
           "from": null,
@@ -4695,16 +4695,16 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-03-22T04:57:04.020Z",
+        "lastRunAt": "2026-03-22T04:57:59.919Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "completedAt": "2026-03-22T04:54:37.760Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
