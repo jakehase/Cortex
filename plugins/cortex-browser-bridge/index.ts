@@ -26,17 +26,21 @@ function cfg(pluginConfig?: Record<string, unknown>): Required<BridgeConfig> {
   };
 }
 
-async function requestJson(url: string, init: RequestInit, timeoutMs: number) {
+async function requestText(url: string, init: RequestInit, timeoutMs: number) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { ...init, signal: controller.signal, headers: { 'content-type': 'application/json', ...(init.headers || {}) } });
     const text = await res.text();
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
-    return text ? JSON.parse(text) : {};
+    return text;
   } finally {
     clearTimeout(timer);
   }
+}
+
+function maybeJson(text: string) {
+  try { return JSON.parse(text); } catch { return text; }
 }
 
 const plugin = {
@@ -51,17 +55,20 @@ const plugin = {
       parameters: BrowseSchema,
       execute: async (_toolCallId: string, params: any) => {
         const c = cfg(api.pluginConfig);
+        const query = String(params?.query ?? '');
+        const hasUrl = typeof params?.url === 'string' && String(params.url).trim().length > 0;
         const payload = {
-          query: String(params?.query ?? ''),
-          url: params?.url ? String(params.url) : undefined,
+          query,
+          ...(hasUrl ? { url: String(params.url) } : {}),
           max_results: Number(params?.maxResults ?? 5),
           include_content: Boolean(params?.includeContent ?? true),
         };
+        const endpoint = hasUrl ? '/browser/browse' : '/browser/search';
         try {
-          const data = await requestJson(`${c.baseUrl}/browser/browse`, { method: 'POST', body: JSON.stringify(payload) }, c.timeoutMs);
-          return JSON.stringify({ ok: true, provider: 'cortex-browser', data });
+          const raw = await requestText(`${c.baseUrl}${endpoint}`, { method: 'POST', body: JSON.stringify(payload) }, c.timeoutMs);
+          return JSON.stringify({ ok: true, provider: 'cortex-browser', endpoint, data: maybeJson(raw) });
         } catch (error) {
-          return JSON.stringify({ ok: false, provider: 'cortex-browser', error: error instanceof Error ? error.message : String(error) });
+          return JSON.stringify({ ok: false, provider: 'cortex-browser', endpoint, error: error instanceof Error ? error.message : String(error) });
         }
       },
     }), { names: ['cortex_browse'] });
@@ -76,7 +83,7 @@ const plugin = {
         try {
           const res = await fetch(`${c.baseUrl}/browser/status`);
           const text = await res.text();
-          return JSON.stringify({ ok: res.ok, status: res.status, body: text.slice(0, 1000) });
+          return JSON.stringify({ ok: res.ok, status: res.status, body: maybeJson(text) });
         } catch (error) {
           return JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) });
         }
