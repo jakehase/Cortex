@@ -426,6 +426,7 @@ const plugin = {
           let results = reconciled.results.slice(0, requestedMax);
           const minScore = typeof (params as { minScore?: number }).minScore === 'number' ? Number((params as { minScore?: number }).minScore) : null;
           if (minScore !== null) results = results.filter((x) => x.score >= minScore);
+          const cleanButEmpty = results.length === 0 && reconciled.resolvedFacts.length === 0 && reconciled.conflicts.length === 0;
           return JSON.stringify({
             results,
             provider: 'cortex-http',
@@ -434,7 +435,9 @@ const plugin = {
             queryType: reconciled.queryType,
             resolvedFacts: reconciled.resolvedFacts,
             conflicts: reconciled.conflicts,
-            fallback: response?.degraded ? { from: 'cortex', reason: response?.warning ?? 'degraded' } : undefined,
+            fallback: cleanButEmpty
+              ? { from: 'memory', reason: 'clean_but_empty', suggestion: 'No relevant durable memory was found after noise suppression; fall back to workspace/filesystem or live tools.' }
+              : (response?.degraded ? { from: 'cortex', reason: response?.warning ?? 'degraded' } : undefined),
           });
         } catch (error) {
           return JSON.stringify({ results: [], disabled: true, error: error instanceof Error ? error.message : String(error) });
