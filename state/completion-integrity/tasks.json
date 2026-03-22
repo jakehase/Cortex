@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-22T03:22:17.939Z",
+      "updatedAt": "2026-03-22T03:27:11.523Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 306,
+        "runs": 307,
         "failures": [],
-        "lastRunAt": "2026-03-22T03:22:17.946Z",
+        "lastRunAt": "2026-03-22T03:27:11.526Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4538,12 +4538,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774149861227:400c0b255407471a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-22T03:24:21.227Z",
-      "updatedAt": "2026-03-22T03:24:31.377Z",
+      "updatedAt": "2026-03-22T03:28:49.649Z",
       "prompt": "System: [2026-03-21 21:42:08 CDT] Exec completed (quick-ce, code 0) :: n health from this Oracle bridge right now. The last visible state in workspace memory says the runtime was up on the main agent in `/root/clawd`, with current model `op",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "System: 2026-03-21 21:42:08 CDT Exec completed (quick-ce, code 0) :: n health from this Oracle bridge right now. The last visible state in workspace memory says the runtime was up on the main agent in `/root/clawd`, with current model `openai-codex… System: 2026-03-21 21:42:38 CD",
+      "completionSummary": "EXIT:0 runId: 48982ff4-aaf8-4a12-96f6-5f46532a4257, status: ok, summary: completed, result: payloads: text: Overall: up, but not especially tight.\\n\\n- OpenClaw gateway service is running normally.\\n- OS is Debian 12.\\n- OpenClaw UI is bound to loopback only (`127.0.0.1:18789`), ",
       "history": [
         {
           "from": null,
@@ -4573,9 +4573,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 1,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-03-22T03:24:31.380Z",
+        "lastRunAt": "2026-03-22T03:28:49.652Z",
         "lastDetails": {
           "source": "runtime_message",
           "signal": "completed"
