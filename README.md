@@ -28,6 +28,7 @@ Cortex + OpenClaw is a modular super-agent stack.
 Together, they form a persistent agent runtime that can chat across channels, browse the web, remember durable context, delegate work, run coding agents, and operate across multiple sessions.
 
 ## Start here
+- `public/docs/INDEX.md` — docs navigation
 
 - `public/docs/START_HERE.md` — canonical landing page
 - `public/docs/NOVELTY_INDEX.md` — map of what is actually distinctive in Cortex
@@ -53,3 +54,7 @@ Together, they form a persistent agent runtime that can chat across channels, br
 - explicit fallback when Cortex is unavailable or broken
 - clear failure reporting over silent papering-over
 - private memories and backups over convenience when security is at stake
+
+## Docs structure
+
+- `public/docs/DOCS_MAP.md` — how the docs are grouped and which pages are legacy
