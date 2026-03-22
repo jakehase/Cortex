@@ -57,3 +57,9 @@ Together, they form a persistent agent runtime that can chat across channels, br
 Read docs/L2_ARCHITECTURE.md for the browser/discovery layer
 Read docs/RESEARCH_CHAIN.md for the discover -> contextualize -> validate -> synthesize flow
 Read docs/WHAT_IS_NOVEL.md for what is actually distinctive in Cortex
+Read docs/NOVELTY_INDEX.md for the full novelty map
+Read docs/COGNITIVE_ROUTING_ARCHITECTURE.md for routing as cognition
+Read docs/EPISTEMIC_MEMORY.md for the memory model
+Read docs/CAPABILITY_REALITY_CHECKING.md for implementation-state checking
+Read docs/CONTROL_PLANE_AND_SELF_AUDIT.md for self-audit/control-plane ideas
+Read docs/WHY_NOT_JUST_AN_AGENT_FRAMEWORK.md for the broader architectural claim
