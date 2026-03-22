@@ -28,6 +28,20 @@ function isCurated(metadata) { const tags = Array.isArray(metadata?.tags) ? meta
 function isWhatsappHighSignal(metadata) { return metadata?.source === 'whatsapp-high-signal'; }
 function isProjectStateMemory(metadata) { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
 function isDurableCandidate(metadata) { return metadata?.source === 'durable-candidates'; }
+function isInternalOracleMemory(metadata, text) {
+  const source = String(metadata?.source ?? '').toLowerCase();
+  const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x) => String(x).toLowerCase()) : [];
+  const t = String(text || '').toLowerCase();
+  return source.includes('oracle')
+    || sessionKey.includes('oracle')
+    || tags.includes('semantic_prediction')
+    || tags.includes('awareness')
+    || /oracle predicts|durable verification marker|durable smoke marker|memory bridge probe|anti recursion|terminal synthesis|repeat safeguard|convergence guard|loop guard|recursion barrier/.test(t);
+}
+function queryIsAboutInternalOracle(query) {
+  return /\boracle\b|semantic prediction|memory bridge probe|durable (verification|smoke) marker|anti recursion|recursion barrier|loop guard/.test(String(query || '').toLowerCase());
+}
 function toTimestamp(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
   if (typeof value === 'string') {
@@ -75,12 +89,14 @@ function sourceQualityScore(metadata) {
   if (isWhatsappHighSignal(metadata)) return 0.54;
   return 0.45;
 }
-function extractEntity(query, text) {
+function extractEntity(query, text, metadata) {
+  if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) return undefined;
   const explicit = String(text || '').match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
   if (explicit) return explicit;
   return String(query || '').match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
 }
-function extractAttribute(query, text) {
+function extractAttribute(query, text, metadata) {
+  if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) return 'internal_noise';
   const hay = `${query} ${text}`.toLowerCase();
   if (/latest|current|changed|used to|timeline|when|before|after/.test(hay)) return 'temporal_state';
   if (/prefer|preference|like|want|call me|timezone|pronouns/.test(hay)) return 'preference';
@@ -136,6 +152,8 @@ function mapCandidate(query, item, cfg, corroborationCount) {
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
+  if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
+  if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
   if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
   if (signals.explicitnessScore >= 0.7) signals.reasons.push('explicit');
   return {
@@ -184,6 +202,7 @@ function reconcileResults(query, items, cfg) {
   const resolvedFactsMap = new Map();
   for (const item of mapped) {
     const signals = item.metadata.candidateSignals;
+    if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) continue;
     const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
     const existing = resolvedFactsMap.get(key);
     if (!existing || item.score > existing.bestScore) {
@@ -243,25 +262,6 @@ export class CortexMemorySearchManager {
     if (minScore !== null) results = results.filter((x) => x.score >= minScore);
     return results;
   }
-  async readFile(params) {
-    return { path: String(params?.relPath || ''), text: '' };
-  }
-  status() {
-    return {
-      backend: 'builtin',
-      provider: 'cortex-http',
-      model: 'semantic-http',
-      files: 0,
-      chunks: 0,
-      custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
-    };
-  }
-  async probeEmbeddingAvailability() { return { ok: true }; }
-  async probeVectorAvailability() { return true; }
-  async close() {}
-}
-
-export default { CortexMemorySearchManager };
   async readFile(params) {
     return { path: String(params?.relPath || ''), text: '' };
   }

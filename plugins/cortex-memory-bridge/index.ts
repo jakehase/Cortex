@@ -98,6 +98,20 @@ function isCurated(metadata: any): boolean { const tags = Array.isArray(metadata
 function isWhatsappHighSignal(metadata: any): boolean { return metadata?.source === 'whatsapp-high-signal'; }
 function isProjectStateMemory(metadata: any): boolean { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
 function isDurableCandidate(metadata: any): boolean { return metadata?.source === 'durable-candidates'; }
+function isInternalOracleMemory(metadata: Record<string, unknown>, text: string): boolean {
+  const source = String(metadata?.source ?? '').toLowerCase();
+  const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
+  const t = text.toLowerCase();
+  return source.includes('oracle')
+    || sessionKey.includes('oracle')
+    || tags.includes('semantic_prediction')
+    || tags.includes('awareness')
+    || /oracle predicts|durable verification marker|durable smoke marker|memory bridge probe|anti recursion|terminal synthesis|repeat safeguard|convergence guard|loop guard|recursion barrier/.test(t);
+}
+function queryIsAboutInternalOracle(query: string): boolean {
+  return /\boracle\b|semantic prediction|memory bridge probe|durable (verification|smoke) marker|anti recursion|recursion barrier|loop guard/.test(query.toLowerCase());
+}
 function toTimestamp(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
   if (typeof value === 'string') {
@@ -145,13 +159,15 @@ function sourceQualityScore(metadata: Record<string, unknown>): number {
   if (isWhatsappHighSignal(metadata)) return 0.54;
   return 0.45;
 }
-function extractEntity(query: string, text: string): string | undefined {
+function extractEntity(query: string, text: string, metadata: Record<string, unknown>): string | undefined {
+  if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) return undefined;
   const explicit = text.match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
   if (explicit) return explicit;
   const fromQuery = query.match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
   return fromQuery ?? undefined;
 }
-function extractAttribute(query: string, text: string): string | undefined {
+function extractAttribute(query: string, text: string, metadata: Record<string, unknown>): string | undefined {
+  if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) return 'internal_noise';
   const hay = `${query} ${text}`.toLowerCase();
   if (/latest|current|changed|used to|timeline|when|before|after/.test(hay)) return 'temporal_state';
   if (/prefer|preference|like|want|call me|timezone|pronouns/.test(hay)) return 'preference';
@@ -211,6 +227,8 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
+  if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
+  if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
   if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
   if (signals.explicitnessScore >= 0.7) signals.reasons.push('explicit');
   return {
@@ -265,6 +283,7 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
   const resolvedFactsMap = new Map<string, { entity?: string; attribute?: string; bestPath: string; supportingPaths: string[]; bestScore: number }>();
   for (const item of mapped) {
     const signals = item.metadata.candidateSignals as CandidateSignals;
+    if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) continue;
     const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
     const existing = resolvedFactsMap.get(key);
     if (!existing || item.score > existing.bestScore) {
@@ -441,15 +460,6 @@ const plugin = {
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
       const fallbackText = key ? recentOutputBySession.get(key) : undefined;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
-        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
-      }
-      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
-      if (key) recentOutputBySession.delete(key);
-    });
-  },
-};
-
-export default plugin;
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
       await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
