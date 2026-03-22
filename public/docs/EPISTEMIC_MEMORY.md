@@ -39,3 +39,9 @@ If memory is clean after noise suppression but still has nothing useful, say so 
 ## Distinctive claim
 
 The novelty is not "we have memory." The novelty is trying to make memory behave more like an epistemic system than a similarity bucket.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

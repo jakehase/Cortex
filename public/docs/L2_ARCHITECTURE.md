@@ -49,3 +49,9 @@ It is the first stage in a broader chain:
 - synthesis
 
 That is why L2 should be documented as a layer, not just a plugin.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

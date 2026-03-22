@@ -65,3 +65,9 @@ with
 - **what can be executed in this session** (OpenClaw)
 
 Both matter.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

@@ -40,3 +40,9 @@ The goal is a reasoning-and-execution stack with:
 ## Distinctive claim
 
 If Cortex succeeds, it should feel less like a single agent loop and more like a layered cognitive system operating through a runtime.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

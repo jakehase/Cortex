@@ -60,3 +60,9 @@ Examples:
 - if a tool is filtered by policy, say so
 - if memory is empty after noise suppression, say so
 - if fallback is used, say so
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

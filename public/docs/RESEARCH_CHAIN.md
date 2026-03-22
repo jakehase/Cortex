@@ -48,3 +48,9 @@ The research-chain model is meant to reduce that.
 ## Operational principle
 
 If Cortex-first is the architecture, failures in the research chain should be surfaced explicitly rather than silently hidden behind fallback behavior.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

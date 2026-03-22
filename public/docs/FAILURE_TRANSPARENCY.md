@@ -36,3 +36,9 @@ If memory is clean-but-empty:
 
 A system that hides failures teaches operators the wrong model.
 A system that surfaces failures helps debugging, trust, and architecture quality.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

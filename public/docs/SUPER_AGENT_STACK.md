@@ -50,3 +50,9 @@ The goal is a persistent agent runtime that can:
 - delegate
 - automate
 - operate safely across multiple contexts
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

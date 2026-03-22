@@ -68,3 +68,9 @@ It is novel because it treats:
 - validation
 - runtime mediation
 as parts of one reasoning-and-execution stack.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

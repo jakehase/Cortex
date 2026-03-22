@@ -31,3 +31,9 @@ Use a capability registry and preflight process to distinguish between:
 ## Distinctive claim
 
 This is unusual because it treats upgrade planning as something that also needs evidence, not just enthusiasm.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

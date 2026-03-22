@@ -25,3 +25,9 @@ Without a control-plane mindset, an agent system can become incoherent over time
 
 The novelty here is not full self-governance in some grandiose sense.
 It is the practical move toward a system that can audit its own implementation state and reason about upgrades more carefully.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+

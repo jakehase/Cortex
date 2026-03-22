@@ -33,3 +33,9 @@ Routing becomes part of cognition, not just a helper function around tools.
 
 The point is not merely to choose a tool.
 The point is to choose a **mode of reasoning** that then determines how tools, memory, validation, and synthesis should be used.
+
+## See also
+- [Public docs index](INDEX.md)
+- [Novelty index](NOVELTY_INDEX.md)
+- [Architecture visual](ARCHITECTURE_VISUAL.md)
+
