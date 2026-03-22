@@ -15,6 +15,45 @@ type BridgeConfig = {
   noisyPatternPenalty?: number;
   minDurabilityScore?: number;
   writeTags?: string[];
+  conflictPenalty?: number;
+  recencyBoost?: number;
+  explicitBoost?: number;
+  corroborationBoost?: number;
+  hardQueryCandidateCount?: number;
+};
+
+type MemoryCandidate = {
+  path: string;
+  startLine: number;
+  endLine: number;
+  score: number;
+  snippet: string;
+  source: 'memory';
+  citation?: string;
+  metadata: Record<string, unknown>;
+};
+
+type QueryMode = 'fast' | 'reconcile' | 'investigate';
+type CandidateSignals = {
+  rawScore: number;
+  recencyScore: number;
+  explicitnessScore: number;
+  sourceQualityScore: number;
+  corroborationScore: number;
+  contradictionPenalty: number;
+  supersededPenalty: number;
+  reasons: string[];
+  entity?: string;
+  attribute?: string;
+  valueSignature?: string;
+};
+
+type ReconcileResult = {
+  mode: QueryMode;
+  queryType: string[];
+  results: MemoryCandidate[];
+  resolvedFacts: Array<{ entity?: string; attribute?: string; bestPath: string; supportingPaths: string[] }>;
+  conflicts: Array<{ entity?: string; attribute?: string; paths: string[]; values: string[] }>;
 };
 
 const SearchSchema = {
@@ -26,7 +65,7 @@ const GetSchema = {
   properties: { path: { type: 'string' }, from: { type: 'number' }, lines: { type: 'number' } },
 } as const;
 
-function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags'>> & BridgeConfig {
+function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount'>> & BridgeConfig {
   const cfg = (pluginConfig ?? {}) as BridgeConfig;
   return {
     baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
@@ -43,16 +82,35 @@ function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<Br
     noisyPatternPenalty: cfg.noisyPatternPenalty ?? 0.2,
     minDurabilityScore: cfg.minDurabilityScore ?? 0.72,
     writeTags: Array.isArray(cfg.writeTags) ? cfg.writeTags.map((x) => String(x)) : ['durable-memory', 'auto-curated'],
+    conflictPenalty: cfg.conflictPenalty ?? 0.18,
+    recencyBoost: cfg.recencyBoost ?? 0.12,
+    explicitBoost: cfg.explicitBoost ?? 0.14,
+    corroborationBoost: cfg.corroborationBoost ?? 0.08,
+    hardQueryCandidateCount: cfg.hardQueryCandidateCount ?? 12,
   };
 }
 
 function normalizeQuery(text: string): string { return text.trim().toLowerCase(); }
 function looksHistoricalQuery(query: string): boolean { return /\b(history|historical|when|timeline|previous|earlier|used to|what happened|completion events|finished|completed)\b/i.test(query); }
 function isShortVagueQuery(query: string): boolean { const q = normalizeQuery(query); const words = q.split(/\s+/).filter(Boolean); return words.length <= 3 || q.length <= 24; }
+function explicitNoiseSeekingQuery(query: string): boolean { return /\b(link|source|url|hash|log|info|status line|status update|historical completion|completion event)\b/i.test(query); }
 function isCurated(metadata: any): boolean { const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x)) : []; return metadata?.quality === 'curated' || tags.includes('curated'); }
 function isWhatsappHighSignal(metadata: any): boolean { return metadata?.source === 'whatsapp-high-signal'; }
 function isProjectStateMemory(metadata: any): boolean { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
 function isDurableCandidate(metadata: any): boolean { return metadata?.source === 'durable-candidates'; }
+function toTimestamp(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
+  if (typeof value === 'string') {
+    const n = Number(value);
+    if (Number.isFinite(n) && value.trim() !== '') return n > 1e12 ? n : n * 1000;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+function extractTimestamp(metadata: Record<string, unknown>): number | null {
+  return toTimestamp(metadata.timestamp) ?? toTimestamp(metadata.createdAt) ?? toTimestamp(metadata.updatedAt) ?? toTimestamp(metadata.occurredAt) ?? null;
+}
 function textMatchesNoise(text: string): boolean {
   const t = text.trim();
   return [
@@ -65,34 +123,163 @@ function textMatchesNoise(text: string): boolean {
     /^\[.*\]\sJake:\s(Absolutely|Perfect|Okay|Yep|Yes)\b/i,
   ].some((re) => re.test(t));
 }
-function explicitNoiseSeekingQuery(query: string): boolean { return /\b(link|source|url|hash|log|info|status line|status update|historical completion|completion event)\b/i.test(query); }
+function recencyScore(timestampMs: number | null): number {
+  if (!timestampMs) return 0.25;
+  const ageDays = Math.max(0, (Date.now() - timestampMs) / 86400000);
+  if (ageDays <= 2) return 1;
+  if (ageDays <= 7) return 0.85;
+  if (ageDays <= 30) return 0.65;
+  if (ageDays <= 180) return 0.45;
+  return 0.25;
+}
+function explicitnessScore(text: string): number {
+  let score = 0.2;
+  if (/\b(i prefer|prefer|remember this|please remember|call me|my timezone|we decided|the plan is|always use|default to|never use|use this|current|latest|final)\b/i.test(text)) score += 0.55;
+  if (/\b(maybe|probably|might|i think|seems|guess|not sure)\b/i.test(text)) score -= 0.18;
+  return Math.max(0, Math.min(1, score));
+}
+function sourceQualityScore(metadata: Record<string, unknown>): number {
+  if (isCurated(metadata)) return 1;
+  if (isProjectStateMemory(metadata)) return 0.92;
+  if (isDurableCandidate(metadata)) return 0.66;
+  if (isWhatsappHighSignal(metadata)) return 0.54;
+  return 0.45;
+}
+function extractEntity(query: string, text: string): string | undefined {
+  const explicit = text.match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
+  if (explicit) return explicit;
+  const fromQuery = query.match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
+  return fromQuery ?? undefined;
+}
+function extractAttribute(query: string, text: string): string | undefined {
+  const hay = `${query} ${text}`.toLowerCase();
+  if (/latest|current|changed|used to|timeline|when|before|after/.test(hay)) return 'temporal_state';
+  if (/prefer|preference|like|want|call me|timezone|pronouns/.test(hay)) return 'preference';
+  if (/decid|plan|architecture|setup|config|memory/.test(hay)) return 'decision';
+  if (/status|working|l2|browser bridge|tool/.test(hay)) return 'runtime_state';
+  return undefined;
+}
+function normalizeValueSignature(text: string): string {
+  return text.toLowerCase().replace(/https?:\/\/\S+/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+function detectConflict(a: CandidateSignals, b: CandidateSignals): boolean {
+  if (!a.attribute || !b.attribute || a.attribute !== b.attribute) return false;
+  if (a.entity && b.entity && a.entity.toLowerCase() !== b.entity.toLowerCase()) return false;
+  if (!a.valueSignature || !b.valueSignature || a.valueSignature === b.valueSignature) return false;
+  return true;
+}
+function queryNeedsReconcile(query: string): boolean {
+  return /\b(latest|current|end up|decide|decided|change|changed|still|final|actually|correct|updated|now|working)\b/i.test(query);
+}
+function queryNeedsInvestigate(query: string): boolean {
+  return /\b(timeline|before|after|used to|across sessions|over time|reconstruct|walk me through|evolved|history|what happened)\b/i.test(query);
+}
+function classifyQuery(query: string): { mode: QueryMode; tags: string[] } {
+  const tags: string[] = [];
+  if (queryNeedsInvestigate(query)) tags.push('timeline');
+  if (queryNeedsReconcile(query)) tags.push('conflict-prone');
+  if (/\bprefer|preference|relationship|context|social cue\b/i.test(query)) tags.push('preference');
+  if (tags.includes('timeline')) return { mode: 'investigate', tags };
+  if (tags.length > 0) return { mode: 'reconcile', tags };
+  return { mode: 'fast', tags: ['simple-recall'] };
+}
 
-function rerankResults(query: string, items: any[], cfg: ReturnType<typeof resolveConfig>) {
+function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveConfig>, corroborationCount: number): MemoryCandidate {
+  const metadata = (item?.metadata ?? {}) as Record<string, unknown>;
+  const text = String(item?.text ?? '');
+  const rawScore = typeof item?.distance === 'number' ? 1 / (1 + item.distance) : (typeof item?.score === 'number' ? item.score : 0.5);
+  const timestampMs = extractTimestamp(metadata);
+  const signals: CandidateSignals = {
+    rawScore,
+    recencyScore: recencyScore(timestampMs),
+    explicitnessScore: explicitnessScore(text),
+    sourceQualityScore: sourceQualityScore(metadata),
+    corroborationScore: Math.min(1, corroborationCount / 3),
+    contradictionPenalty: 0,
+    supersededPenalty: 0,
+    reasons: [],
+    entity: extractEntity(query, text),
+    attribute: extractAttribute(query, text),
+    valueSignature: normalizeValueSignature(text),
+  };
+  let score = rawScore * 0.3 + signals.recencyScore * cfg.recencyBoost + signals.explicitnessScore * cfg.explicitBoost + signals.sourceQualityScore * 0.1 + signals.corroborationScore * cfg.corroborationBoost;
   const historical = looksHistoricalQuery(query);
   const vague = isShortVagueQuery(query);
   const noiseSeeking = explicitNoiseSeekingQuery(query);
-  return items.map((item: any) => {
-    const metadata = item?.metadata ?? {};
-    const text = String(item?.text ?? '');
-    const rawScore = typeof item?.distance === 'number' ? 1 / (1 + item.distance) : 0.5;
-    let score = rawScore;
-    const reasons: string[] = [];
-    if (isCurated(metadata)) { score += cfg.curatedBoost; reasons.push('curated_boost'); }
-    if (isProjectStateMemory(metadata) && !historical) { score += cfg.projectFactBoost ?? 0.12; reasons.push('project_fact_boost'); }
-    if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty ?? 0.14; reasons.push('vague_candidate_penalty'); }
-    if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; reasons.push('vague_whatsapp_penalty'); }
-    if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; reasons.push('noise_pattern_penalty'); }
-    return {
-      path: `cortex:${item.id ?? 'unknown'}`,
-      startLine: 1,
-      endLine: 1,
-      score: Math.max(0, Math.min(1, score)),
-      snippet: text,
-      source: 'memory',
-      citation: item?.id ? `cortex:${item.id}` : undefined,
-      metadata: { ...metadata, rerank: reasons, rawScore },
-    };
-  }).sort((a: any, b: any) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
+  if (isCurated(metadata)) { score += cfg.curatedBoost; signals.reasons.push('curated_boost'); }
+  if (isProjectStateMemory(metadata) && !historical) { score += cfg.projectFactBoost; signals.reasons.push('project_fact_boost'); }
+  if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
+  if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
+  if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
+  if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
+  if (signals.explicitnessScore >= 0.7) signals.reasons.push('explicit');
+  return {
+    path: `cortex:${item.id ?? 'unknown'}`,
+    startLine: 1,
+    endLine: 1,
+    score: Math.max(0, Math.min(1, score)),
+    snippet: text,
+    source: 'memory',
+    citation: item?.id ? `cortex:${item.id}` : undefined,
+    metadata: { ...metadata, rerank: signals.reasons, rawScore, timestampMs, candidateSignals: signals },
+  };
+}
+
+function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof resolveConfig>): ReconcileResult {
+  const classification = classifyQuery(query);
+  const groupedBySignature = new Map<string, number>();
+  for (const item of items) {
+    const signature = normalizeValueSignature(String(item?.text ?? ''));
+    if (!signature) continue;
+    groupedBySignature.set(signature, (groupedBySignature.get(signature) ?? 0) + 1);
+  }
+  const mapped = items.map((item) => mapCandidate(query, item, cfg, groupedBySignature.get(normalizeValueSignature(String(item?.text ?? ''))) ?? 1));
+  const conflicts: ReconcileResult['conflicts'] = [];
+  for (let i = 0; i < mapped.length; i += 1) {
+    for (let j = i + 1; j < mapped.length; j += 1) {
+      const aSignals = mapped[i].metadata.candidateSignals as CandidateSignals;
+      const bSignals = mapped[j].metadata.candidateSignals as CandidateSignals;
+      if (!detectConflict(aSignals, bSignals)) continue;
+      aSignals.contradictionPenalty += cfg.conflictPenalty;
+      bSignals.contradictionPenalty += cfg.conflictPenalty;
+      mapped[i].score = Math.max(0, mapped[i].score - cfg.conflictPenalty);
+      mapped[j].score = Math.max(0, mapped[j].score - cfg.conflictPenalty);
+      const aTs = Number(mapped[i].metadata.timestampMs ?? 0);
+      const bTs = Number(mapped[j].metadata.timestampMs ?? 0);
+      if (aTs && bTs && aTs !== bTs) {
+        const older = aTs < bTs ? mapped[i] : mapped[j];
+        older.score = Math.max(0, older.score - cfg.conflictPenalty / 2);
+        const olderSignals = older.metadata.candidateSignals as CandidateSignals;
+        olderSignals.supersededPenalty += cfg.conflictPenalty / 2;
+        olderSignals.reasons.push('likely_superseded');
+      }
+      conflicts.push({
+        entity: aSignals.entity ?? bSignals.entity,
+        attribute: aSignals.attribute,
+        paths: [mapped[i].path, mapped[j].path],
+        values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''],
+      });
+    }
+  }
+  mapped.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
+  const resolvedFactsMap = new Map<string, { entity?: string; attribute?: string; bestPath: string; supportingPaths: string[]; bestScore: number }>();
+  for (const item of mapped) {
+    const signals = item.metadata.candidateSignals as CandidateSignals;
+    const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
+    const existing = resolvedFactsMap.get(key);
+    if (!existing || item.score > existing.bestScore) {
+      resolvedFactsMap.set(key, { entity: signals.entity, attribute: signals.attribute, bestPath: item.path, supportingPaths: [item.path], bestScore: item.score });
+    } else if (!existing.supportingPaths.includes(item.path)) {
+      existing.supportingPaths.push(item.path);
+    }
+  }
+  return {
+    mode: classification.mode,
+    queryType: classification.tags,
+    results: mapped.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
+    resolvedFacts: Array.from(resolvedFactsMap.values()).map(({ bestScore: _bestScore, ...rest }) => rest),
+    conflicts,
+  };
 }
 
 function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
@@ -208,10 +395,27 @@ const plugin = {
       label: 'Memory Search', name: 'memory_search', description: 'Search Cortex-backed memory over HTTP.', parameters: SearchSchema,
       execute: async (_toolCallId, params) => {
         const cfg = resolveConfig(api.pluginConfig);
+        const query = String((params as { query: string }).query ?? '');
+        const requestedMax = Number((params as { maxResults?: number }).maxResults ?? 5);
+        const classification = classifyQuery(query);
+        const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, cfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
         try {
-          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query: String((params as { query: string }).query ?? ''), n_results: Number((params as { maxResults?: number }).maxResults ?? 5) }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
-          const results = Array.isArray(response?.results) ? rerankResults(String((params as { query: string }).query ?? ''), response.results, cfg) : [];
-          return JSON.stringify({ results, provider: 'cortex-http', mode: response?.mode ?? response?.search_mode ?? 'semantic', fallback: response?.degraded ? { from: 'cortex', reason: response?.warning ?? 'degraded' } : undefined });
+          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+          const rawItems = Array.isArray(response?.results) ? response.results : [];
+          const reconciled = reconcileResults(query, rawItems, cfg);
+          let results = reconciled.results.slice(0, requestedMax);
+          const minScore = typeof (params as { minScore?: number }).minScore === 'number' ? Number((params as { minScore?: number }).minScore) : null;
+          if (minScore !== null) results = results.filter((x) => x.score >= minScore);
+          return JSON.stringify({
+            results,
+            provider: 'cortex-http',
+            mode: response?.mode ?? response?.search_mode ?? 'semantic',
+            memoryMode: reconciled.mode,
+            queryType: reconciled.queryType,
+            resolvedFacts: reconciled.resolvedFacts,
+            conflicts: reconciled.conflicts,
+            fallback: response?.degraded ? { from: 'cortex', reason: response?.warning ?? 'degraded' } : undefined,
+          });
         } catch (error) {
           return JSON.stringify({ results: [], disabled: true, error: error instanceof Error ? error.message : String(error) });
         }
