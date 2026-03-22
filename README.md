@@ -52,3 +52,8 @@ Together, they form a persistent agent runtime that can chat across channels, br
 - `docs/DEPLOY.md`
 - `docs/RESTORE_PLAN_2026-03-14.md`
 - `docs/DEERFLOW_COMPARISON_ACTION_PLAN_2026-03-22.md`
+
+
+Read docs/L2_ARCHITECTURE.md for the browser/discovery layer
+Read docs/RESEARCH_CHAIN.md for the discover -> contextualize -> validate -> synthesize flow
+Read docs/WHAT_IS_NOVEL.md for what is actually distinctive in Cortex
