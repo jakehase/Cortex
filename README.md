@@ -2,37 +2,49 @@
 
 Cortex + OpenClaw is a modular super-agent stack.
 
-- **Cortex** is the cognition layer:
+**What is unusual about it:**
+- routed cognition instead of a flat agent loop
+- L2 browser/discovery as part of a research chain
+- epistemic memory instead of plain similarity recall
+- capability reality-checking before reinvention
+- explicit failure semantics instead of smooth-looking lies
+- a control-plane/self-audit mindset around implementation reality
+
+**Architecture split:**
+- **Cortex** = cognition layer
   - routing
   - memory
   - browser/research grounding
-  - context synthesis
-- **OpenClaw** is the execution/runtime layer:
+  - validation
+  - synthesis
+- **OpenClaw** = execution/runtime layer
   - channels
   - sessions
   - tools
   - cron
   - subagents
-  - automation plumbing
+  - delivery/runtime plumbing
 
 Together, they form a persistent agent runtime that can chat across channels, browse the web, remember durable context, delegate work, run coding agents, and operate across multiple sessions.
 
-## What it can do
+## Start here
 
-- chat on messaging surfaces like WhatsApp and other supported channels
-- browse and research with Cortex browser tools
-- remember durable context and retrieve it later
-- delegate work to isolated subagents and coding sessions
-- schedule reminders and recurring tasks
-- route work across sessions, tools, and channels
+- `public/docs/NOVELTY_INDEX.md` — map of what is actually distinctive in Cortex
+- `public/docs/ARCHITECTURE_VISUAL.md` — quick visual of stack, research chain, memory chain, control-plane loop
+- `public/docs/CORTEX_VS_OPENCLAW.md` — architecture split
+- `public/docs/CAPABILITIES.md` — concrete outcomes
+- `public/docs/SUPER_AGENT_STACK.md` — product framing
 
-## Mental model
+## Novelty docs
 
-- Read **`docs/CORTEX_VS_OPENCLAW.md`** for the architecture split
-- Read **`docs/CAPABILITIES.md`** for concrete outcomes
-- Read **`docs/CHANNELS.md`** for channel/runtime behavior
-- Read **`docs/CODING_AGENT_SESSIONS.md`** for ACP/coding flows
-- Read **`docs/EXTENSIBILITY_MODEL.md`** for skills/plugins/routes/sessions
+- `public/docs/COGNITIVE_ROUTING_ARCHITECTURE.md`
+- `public/docs/L2_ARCHITECTURE.md`
+- `public/docs/RESEARCH_CHAIN.md`
+- `public/docs/EPISTEMIC_MEMORY.md`
+- `public/docs/CAPABILITY_REALITY_CHECKING.md`
+- `public/docs/FAILURE_TRANSPARENCY.md`
+- `public/docs/CONTROL_PLANE_AND_SELF_AUDIT.md`
+- `public/docs/WHY_NOT_JUST_AN_AGENT_FRAMEWORK.md`
 
 ## Practical principles
 
@@ -40,26 +52,3 @@ Together, they form a persistent agent runtime that can chat across channels, br
 - explicit fallback when Cortex is unavailable or broken
 - clear failure reporting over silent papering-over
 - private memories and backups over convenience when security is at stake
-
-## Current notes
-
-- L2 browser query-only mode uses `/browser/search`
-- URL-targeted browse mode uses `/browser/browse`
-- memory search now distinguishes between useful memory, internal noise, and clean-but-empty results
-
-## Related docs
-
-- `docs/DEPLOY.md`
-- `docs/RESTORE_PLAN_2026-03-14.md`
-- `docs/DEERFLOW_COMPARISON_ACTION_PLAN_2026-03-22.md`
-
-
-Read docs/L2_ARCHITECTURE.md for the browser/discovery layer
-Read docs/RESEARCH_CHAIN.md for the discover -> contextualize -> validate -> synthesize flow
-Read docs/WHAT_IS_NOVEL.md for what is actually distinctive in Cortex
-Read docs/NOVELTY_INDEX.md for the full novelty map
-Read docs/COGNITIVE_ROUTING_ARCHITECTURE.md for routing as cognition
-Read docs/EPISTEMIC_MEMORY.md for the memory model
-Read docs/CAPABILITY_REALITY_CHECKING.md for implementation-state checking
-Read docs/CONTROL_PLANE_AND_SELF_AUDIT.md for self-audit/control-plane ideas
-Read docs/WHY_NOT_JUST_AN_AGENT_FRAMEWORK.md for the broader architectural claim
