@@ -33,3 +33,10 @@ It is novel insofar as it combines:
 - self-audit/control-plane discipline
 
 That is the architecture story the repo should tell clearly.
+
+- **Oracle bridge and multi-level implementation**
+  - `public/docs/ORACLE_BRIDGE_AND_LEVELS.md`
+- **Publishability map for Oracle/levels**
+  - `public/docs/ORACLE_AND_LEVELS_PUBLISHABILITY.md`
+- **Cross-level orchestration patterns**
+  - `public/docs/CROSS_LEVEL_ORCHESTRATION_PATTERNS.md`

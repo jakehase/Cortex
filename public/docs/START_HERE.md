@@ -81,3 +81,8 @@ Fast recall -> Reconcile -> Investigate -> Clean-but-empty if needed
 This project uses a split public/private documentation and backup model.
 Public repos are for public-safe code and explanation.
 Private backups are for sanitized restore snapshots and memories.
+
+## If you want Oracle and the other levels
+- [Oracle bridge and other levels](ORACLE_BRIDGE_AND_LEVELS.md)
+- [Cross-level orchestration patterns](CROSS_LEVEL_ORCHESTRATION_PATTERNS.md)
+- [Oracle and levels publishability map](ORACLE_AND_LEVELS_PUBLISHABILITY.md)

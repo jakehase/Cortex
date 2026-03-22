@@ -31,3 +31,8 @@
 - [DeerFlow comparison action plan](DEERFLOW_COMPARISON_ACTION_PLAN_2026-03-22.md)
 - `L9_L15_AUDIT_2026-02-12.md`
 - `TRANSPORT_ONLY_OPENCLAW_HARDENING_2026-02-12.md`
+
+## Oracle / multi-level implementation
+- [Oracle bridge and other levels](ORACLE_BRIDGE_AND_LEVELS.md)
+- [Oracle and levels publishability map](ORACLE_AND_LEVELS_PUBLISHABILITY.md)
+- [Cross-level orchestration patterns](CROSS_LEVEL_ORCHESTRATION_PATTERNS.md)
