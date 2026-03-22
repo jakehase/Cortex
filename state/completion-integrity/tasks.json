@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-22T03:27:11.523Z",
+      "updatedAt": "2026-03-22T03:32:14.578Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 307,
+        "runs": 308,
         "failures": [],
-        "lastRunAt": "2026-03-22T03:27:11.526Z",
+        "lastRunAt": "2026-03-22T03:32:14.584Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4538,12 +4538,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774149861227:400c0b255407471a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-22T03:24:21.227Z",
-      "updatedAt": "2026-03-22T03:28:49.649Z",
+      "updatedAt": "2026-03-22T03:34:21.241Z",
       "prompt": "System: [2026-03-21 21:42:08 CDT] Exec completed (quick-ce, code 0) :: n health from this Oracle bridge right now. The last visible state in workspace memory says the runtime was up on the main agent in `/root/clawd`, with current model `op",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
-      "completionSummary": "EXIT:0 runId: 48982ff4-aaf8-4a12-96f6-5f46532a4257, status: ok, summary: completed, result: payloads: text: Overall: up, but not especially tight.\\n\\n- OpenClaw gateway service is running normally.\\n- OS is Debian 12.\\n- OpenClaw UI is bound to loopback only (`127.0.0.1:18789`), ",
+      "status": "failed",
+      "completionSummary": "ocation>/usr/lib/node_modules/openclaw/skills/node-connect/SKILL.md</location>\\n </skill>\\n <skill>\\n <name>skill-creator</name>\\n <description>Create, edit, improve, or audit AgentSkills. Use when creating a new skill from scratch or when asked to improve, review, audit, tidy up",
       "history": [
         {
           "from": null,
@@ -4562,6 +4562,14 @@
           "completedAt": "2026-03-22T03:24:31.377Z",
           "completionSummary": "System: 2026-03-21 21:42:08 CDT Exec completed (quick-ce, code 0) :: n health from this Oracle bridge right now. The last visible state in workspace memory says the runtime was up on the main agent in `/root/clawd`, with current model `openai-codex… System: 2026-03-21 21:42:38 CD",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-22T03:34:21.241Z",
+          "failedAt": "2026-03-22T03:34:21.241Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -4573,16 +4581,19 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 3,
+        "runs": 4,
         "failures": [],
-        "lastRunAt": "2026-03-22T03:28:49.652Z",
+        "lastRunAt": "2026-03-22T03:33:56.783Z",
         "lastDetails": {
           "source": "runtime_message",
           "signal": "completed"
         }
       },
       "completedAt": "2026-03-22T03:24:31.377Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-22T03:34:21.241Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     }
   ]
 }
