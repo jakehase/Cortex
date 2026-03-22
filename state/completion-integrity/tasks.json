@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-22T18:02:53.533Z",
+      "updatedAt": "2026-03-22T18:08:04.934Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 481,
+        "runs": 482,
         "failures": [],
-        "lastRunAt": "2026-03-22T18:02:53.540Z",
+        "lastRunAt": "2026-03-22T18:08:04.941Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4716,6 +4716,41 @@
       "failedAt": "2026-03-22T18:00:01.648Z",
       "failureReason": "{\"0\":\"{\\\"module\\\":\\\"web-auto-reply\\\",\\\"runId\\\":\\\"e75928fc-d57d-4c46-bbc3-439da370b6b9\\\"}\",\"1\":{\"correlationId\":\"3A60FDCF12A38BA2E370\",\"connectionId\":\"152ec67d-196b-43fc-b995-3b9cf014957e\",\"to\":\"+17855410986\",\"from\":\"+17855410986\",\"text\":\"Here’s the concrete spec I’d use for **our** stack.\\n\\n**High-level design**\\n\\nAdd a new memory pipeline with 3 retrieval modes:\\n\\n- **M0: Fast recall**\\n- curr",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774202897367:c05bbd4cd9920a1d",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-22T18:08:17.367Z",
+      "updatedAt": "2026-03-22T18:08:17.370Z",
+      "prompt": "Yes do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-22T18:08:17.367Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-22T18:08:17.370Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }

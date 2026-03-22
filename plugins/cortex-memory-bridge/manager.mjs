@@ -123,8 +123,8 @@ function mapCandidate(query, item, cfg, corroborationCount) {
     contradictionPenalty: 0,
     supersededPenalty: 0,
     reasons: [],
-    entity: extractEntity(query, text),
-    attribute: extractAttribute(query, text),
+    entity: extractEntity(query, text, metadata),
+    attribute: extractAttribute(query, text, metadata),
     valueSignature: normalizeValueSignature(text),
   };
   let score = rawScore * 0.3 + signals.recencyScore * cfg.recencyBoost + signals.explicitnessScore * cfg.explicitBoost + signals.sourceQualityScore * 0.1 + signals.corroborationScore * cfg.corroborationBoost;
@@ -242,6 +242,36 @@ export class CortexMemorySearchManager {
     const minScore = typeof opts.minScore === 'number' ? opts.minScore : null;
     if (minScore !== null) results = results.filter((x) => x.score >= minScore);
     return results;
+  }
+  async readFile(params) {
+    return { path: String(params?.relPath || ''), text: '' };
+  }
+  status() {
+    return {
+      backend: 'builtin',
+      provider: 'cortex-http',
+      model: 'semantic-http',
+      files: 0,
+      chunks: 0,
+      custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
+    };
+  }
+  async probeEmbeddingAvailability() { return { ok: true }; }
+  async probeVectorAvailability() { return true; }
+  async close() {}
+}
+
+export default { CortexMemorySearchManager };
+ortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
+    };
+  }
+  async probeEmbeddingAvailability() { return { ok: true }; }
+  async probeVectorAvailability() { return true; }
+  async close() {}
+}
+
+export default { CortexMemorySearchManager };
+ return results;
   }
   async readFile(params) {
     return { path: String(params?.relPath || ''), text: '' };
