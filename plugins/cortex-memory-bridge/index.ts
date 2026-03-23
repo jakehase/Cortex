@@ -473,21 +473,3 @@ const plugin = {
 };
 
 export default plugin;
-      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
-      if (key) recentOutputBySession.delete(key);
-    });
-  },
-};
-
-export default plugin;
-tputBySession.get(key) : undefined;
-      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
-        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
-      }
-      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
-      if (key) recentOutputBySession.delete(key);
-    });
-  },
-};
-
-export default plugin;
