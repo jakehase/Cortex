@@ -510,14 +510,17 @@ const plugin = {
           const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
           let rawItems = Array.isArray(response?.results) ? response.results : [];
           if (recentSummaryQuery && !rawItems.some((item: any) => isRecentSummaryMemory((item?.metadata ?? {}) as Record<string, unknown>, String(item?.text ?? '')))) {
-            const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: `recent status summary ${query}`.trim(), n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
-            const extra = Array.isArray(expanded?.results) ? expanded.results : [];
             const seen = new Set(rawItems.map((item: any) => String(item?.id ?? '')));
-            for (const item of extra) {
-              const id = String(item?.id ?? '');
-              if (id && seen.has(id)) continue;
-              if (id) seen.add(id);
-              rawItems.push(item);
+            for (const expandedQuery of [`recent status summary ${query}`.trim(), `question: ${query} answer:`.trim()]) {
+              const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: expandedQuery, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+              const extra = Array.isArray(expanded?.results) ? expanded.results : [];
+              for (const item of extra) {
+                const id = String(item?.id ?? '');
+                if (id && seen.has(id)) continue;
+                if (id) seen.add(id);
+                rawItems.push(item);
+              }
+              if (rawItems.some((item: any) => isRecentSummaryMemory((item?.metadata ?? {}) as Record<string, unknown>, String(item?.text ?? '')))) break;
             }
           }
           const reconciled = reconcileResults(query, rawItems, cfg);
