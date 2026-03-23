@@ -263,6 +263,7 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
     const signals = item.metadata.candidateSignals as CandidateSignals;
     if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
     if (isGhostCache(item.metadata as Record<string, unknown>) && !queryIsAboutGhostCache(query)) return false;
+    if (isProbeNoise(item.metadata as Record<string, unknown>, item.snippet) && !queryIsAboutProbe(query)) return false;
     return true;
   });
 
@@ -478,6 +479,18 @@ const plugin = {
       const cfg = resolveConfig(api.pluginConfig);
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
       const fallbackText = key ? recentOutputBySession.get(key) : undefined;
+      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+      if (key) recentOutputBySession.delete(key);
+    });
+  },
+};
+
+export default plugin;
+lugin;
+ndefined;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }

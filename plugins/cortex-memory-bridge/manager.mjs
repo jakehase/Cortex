@@ -188,6 +188,7 @@ function reconcileResults(query, items, cfg) {
     const signals = item.metadata.candidateSignals;
     if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
     if (isGhostCache(item.metadata) && !queryIsAboutGhostCache(query)) return false;
+    if (isProbeNoise(item.metadata, item.snippet) && !queryIsAboutProbe(query)) return false;
     return true;
   });
 
@@ -285,6 +286,18 @@ export class CortexMemorySearchManager {
       provider: 'cortex-http',
       model: 'semantic-http',
       files: 0,
+      chunks: 0,
+      custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
+    };
+  }
+  async probeEmbeddingAvailability() { return { ok: true }; }
+  async probeVectorAvailability() { return true; }
+  async close() {}
+}
+
+export default { CortexMemorySearchManager };
+lt { CortexMemorySearchManager };
+files: 0,
       chunks: 0,
       custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
     };
