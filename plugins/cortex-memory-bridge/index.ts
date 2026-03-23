@@ -40,6 +40,7 @@ type CandidateSignals = {
   explicitnessScore: number;
   sourceQualityScore: number;
   corroborationScore: number;
+  lexicalOverlapScore: number;
   contradictionPenalty: number;
   supersededPenalty: number;
   reasons: string[];
@@ -94,6 +95,20 @@ function normalizeQuery(text: string): string { return text.trim().toLowerCase()
 function looksHistoricalQuery(query: string): boolean { return /\b(history|historical|when|timeline|previous|earlier|used to|what happened|completion events|finished|completed)\b/i.test(query); }
 function isShortVagueQuery(query: string): boolean { const q = normalizeQuery(query); const words = q.split(/\s+/).filter(Boolean); return words.length <= 3 || q.length <= 24; }
 function explicitNoiseSeekingQuery(query: string): boolean { return /\b(link|source|url|hash|log|info|status line|status update|historical completion|completion event)\b/i.test(query); }
+const STOPWORDS = new Set(['the','a','an','and','or','but','for','from','with','without','into','onto','about','what','where','when','which','who','whom','this','that','these','those','is','are','was','were','be','been','being','to','of','in','on','at','by','my','we','it','as','do','did','does','how','main','session']);
+function semanticTerms(text: string): string[] {
+  return Array.from(new Set(normalizeQuery(text).split(/[^a-z0-9_.-]+/).filter((x) => x.length >= 3 && !STOPWORDS.has(x))));
+}
+function lexicalOverlapScore(query: string, text: string, metadata: Record<string, unknown>): number {
+  const qTerms = semanticTerms(query);
+  if (!qTerms.length) return 0;
+  const hay = `${text} ${String(metadata?.topic ?? '')} ${Array.isArray(metadata?.tags) ? metadata.tags.join(' ') : ''}`.toLowerCase();
+  let hits = 0;
+  for (const term of qTerms) {
+    if (hay.includes(term)) hits += 1;
+  }
+  return Math.max(0, Math.min(1, hits / qTerms.length));
+}
 function isCurated(metadata: any): boolean { const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x)) : []; return metadata?.quality === 'curated' || tags.includes('curated'); }
 function isWhatsappHighSignal(metadata: any): boolean { return metadata?.source === 'whatsapp-high-signal'; }
 function isProjectStateMemory(metadata: any): boolean { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
@@ -177,11 +192,12 @@ function extractEntity(query: string, text: string, metadata: Record<string, unk
 }
 function extractAttribute(query: string, text: string, metadata: Record<string, unknown>): string | undefined {
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) return 'internal_noise';
-  const hay = `${query} ${text}`.toLowerCase();
-  if (/latest|current|changed|used to|timeline|when|before|after/.test(hay)) return 'temporal_state';
-  if (/prefer|preference|like|want|call me|timezone|pronouns/.test(hay)) return 'preference';
-  if (/decid|plan|architecture|setup|config|memory/.test(hay)) return 'decision';
-  if (/status|working|l2|browser bridge|tool/.test(hay)) return 'runtime_state';
+  const textHay = text.toLowerCase();
+  const queryHay = query.toLowerCase();
+  if (/latest|current|changed|used to|timeline|when|before|after/.test(textHay) || /latest|current|changed|used to|timeline|when|before|after/.test(queryHay)) return 'temporal_state';
+  if (/prefer|preference|like|want|call me|timezone|pronouns/.test(textHay) || /prefer|preference|call me|timezone|pronouns/.test(queryHay)) return 'preference';
+  if (/decid|plan|architecture|setup|config|memory/.test(textHay)) return 'decision';
+  if (/status|working|l2|browser bridge|tool|runtime/.test(textHay)) return 'runtime_state';
   return undefined;
 }
 function normalizeValueSignature(text: string): string {
@@ -220,6 +236,7 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
     explicitnessScore: explicitnessScore(text),
     sourceQualityScore: sourceQualityScore(metadata),
     corroborationScore: Math.min(1, corroborationCount / 3),
+    lexicalOverlapScore: lexicalOverlapScore(query, text, metadata),
     contradictionPenalty: 0,
     supersededPenalty: 0,
     reasons: [],
@@ -227,12 +244,14 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
     attribute: extractAttribute(query, text, metadata),
     valueSignature: normalizeValueSignature(text),
   };
-  let score = rawScore * 0.3 + signals.recencyScore * cfg.recencyBoost + signals.explicitnessScore * cfg.explicitBoost + signals.sourceQualityScore * 0.1 + signals.corroborationScore * cfg.corroborationBoost;
+  let score = rawScore * 0.3 + signals.recencyScore * cfg.recencyBoost + signals.explicitnessScore * cfg.explicitBoost + signals.sourceQualityScore * 0.1 + signals.corroborationScore * cfg.corroborationBoost + signals.lexicalOverlapScore * 0.22;
   const historical = looksHistoricalQuery(query);
   const vague = isShortVagueQuery(query);
   const noiseSeeking = explicitNoiseSeekingQuery(query);
   if (isCurated(metadata)) { score += cfg.curatedBoost; signals.reasons.push('curated_boost'); }
   if (isProjectStateMemory(metadata) && !historical) { score += cfg.projectFactBoost; signals.reasons.push('project_fact_boost'); }
+  if (signals.lexicalOverlapScore >= 0.34) { signals.reasons.push('lexical_overlap'); }
+  if (!vague && signals.lexicalOverlapScore === 0) { score -= 0.12; signals.reasons.push('no_overlap_penalty'); }
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
