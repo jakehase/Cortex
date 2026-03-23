@@ -104,6 +104,15 @@ function isGhostCache(metadata: Record<string, unknown>): boolean {
 function queryIsAboutGhostCache(query: string): boolean {
   return /\bghost cache\b|\bghost\b.*\bcache\b|\bcache key\b|\bcached browse\b/.test(query.toLowerCase());
 }
+function isProbeNoise(metadata: Record<string, unknown>, text: string): boolean {
+  const source = String(metadata?.source ?? '').toLowerCase();
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
+  const t = text.trim().toLowerCase();
+  return source.includes('probe') || tags.includes('probe') || t === 'probe' || /^probe[:\s-]?/.test(t);
+}
+function queryIsAboutProbe(query: string): boolean {
+  return /\bprobe\b|self-model|telemetry|diagnostic/.test(query.toLowerCase());
+}
 function isInternalOracleMemory(metadata: Record<string, unknown>, text: string): boolean {
   const source = String(metadata?.source ?? '').toLowerCase();
   const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
