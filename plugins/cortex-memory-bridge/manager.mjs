@@ -51,6 +51,11 @@ function isProbeNoise(metadata, text) {
   return source.includes('probe') || tags.includes('probe') || t === 'probe' || /^probe[:\s-]?/.test(t);
 }
 function queryIsAboutProbe(query) { return /\bprobe\b|self-model|telemetry|diagnostic/.test(normalizeQuery(query)); }
+function isLeakyInternalTrace(text) {
+  const t = String(text || '').toLowerCase();
+  return /encrypted_content|thinkingsignature|cortex upstream routing applied:|\bthinking\s*\{|"type":"reasoning"|gaaaaaab/.test(t);
+}
+function queryIsAboutInternalTrace(query) { return /encrypted_content|thinking|routing applied|reasoning payload|internal trace/.test(normalizeQuery(query)); }
 function isInternalOracleMemory(metadata, text) {
   const source = String(metadata?.source ?? '').toLowerCase();
   const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
@@ -177,6 +182,7 @@ function mapCandidate(query, item, cfg, corroborationCount) {
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
   if (isGhostCache(metadata) && !queryIsAboutGhostCache(query)) { score -= 0.65; signals.reasons.push('ghost_cache_penalty'); }
   if (isProbeNoise(metadata, text) && !queryIsAboutProbe(query)) { score -= 0.7; signals.reasons.push('probe_noise_penalty'); }
+  if (isLeakyInternalTrace(text) && !queryIsAboutInternalTrace(query)) { score -= 0.9; signals.reasons.push('leaky_internal_trace_penalty'); }
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
   if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
   if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
@@ -207,6 +213,7 @@ function reconcileResults(query, items, cfg) {
     if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
     if (isGhostCache(item.metadata) && !queryIsAboutGhostCache(query)) return false;
     if (isProbeNoise(item.metadata, item.snippet) && !queryIsAboutProbe(query)) return false;
+    if (isLeakyInternalTrace(item.snippet) && !queryIsAboutInternalTrace(query)) return false;
     return true;
   });
 
