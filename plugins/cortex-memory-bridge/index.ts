@@ -474,13 +474,3 @@ const plugin = {
 };
 
 export default plugin;
-ort default plugin;
-y, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
-      }
-      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
-      if (key) recentOutputBySession.delete(key);
-    });
-  },
-};
-
-export default plugin;
