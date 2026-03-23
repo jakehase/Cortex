@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-23T06:21:50.689Z",
+      "updatedAt": "2026-03-23T06:27:03.069Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 613,
+        "runs": 614,
         "failures": [],
-        "lastRunAt": "2026-03-23T06:21:50.691Z",
+        "lastRunAt": "2026-03-23T06:27:03.076Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4782,12 +4782,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774238627390:3f86fb2ee096bd52",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-23T04:03:47.390Z",
-      "updatedAt": "2026-03-23T04:03:47.393Z",
+      "updatedAt": "2026-03-23T06:31:03.973Z",
       "prompt": "Fix it",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "https://x.com/hero_ui/status/2035353810181251490?s=46 Would this help us any? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just he",
       "history": [
         {
           "from": null,
@@ -4798,6 +4798,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-23T04:03:47.393Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-23T06:31:03.973Z",
+          "completedAt": "2026-03-23T06:31:03.973Z",
+          "completionSummary": "https://x.com/hero_ui/status/2035353810181251490?s=46 Would this help us any? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just he",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -4808,10 +4816,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-23T06:31:03.981Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-23T06:31:03.973Z",
+      "completionSource": "agent_end"
     }
   ]
 }
