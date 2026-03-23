@@ -303,7 +303,7 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
   return {
     mode: classification.mode,
     queryType: classification.tags,
-    results: mapped.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
+    results: visible.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
     resolvedFacts: Array.from(resolvedFactsMap.values()).map(({ bestScore: _bestScore, ...rest }) => rest),
     conflicts,
   };
@@ -471,6 +471,16 @@ const plugin = {
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
       const fallbackText = key ? recentOutputBySession.get(key) : undefined;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+      if (key) recentOutputBySession.delete(key);
+    });
+  },
+};
+
+export default plugin;
+.debugShapes || '') === 'true') {
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
       await maybeWriteThrough(api, cfg, event, ctx, fallbackText);

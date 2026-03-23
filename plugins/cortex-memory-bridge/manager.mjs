@@ -221,7 +221,7 @@ function reconcileResults(query, items, cfg) {
   return {
     mode: classification.mode,
     queryType: classification.tags,
-    results: mapped.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
+    results: visible.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
     resolvedFacts: Array.from(resolvedFactsMap.values()).map(({ bestScore, ...rest }) => rest),
     conflicts,
   };
@@ -280,6 +280,15 @@ export class CortexMemorySearchManager {
       files: 0,
       chunks: 0,
       custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
+    };
+  }
+  async probeEmbeddingAvailability() { return { ok: true }; }
+  async probeVectorAvailability() { return true; }
+  async close() {}
+}
+
+export default { CortexMemorySearchManager };
+de: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
     };
   }
   async probeEmbeddingAvailability() { return { ok: true }; }
