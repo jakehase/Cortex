@@ -98,21 +98,6 @@ function isCurated(metadata: any): boolean { const tags = Array.isArray(metadata
 function isWhatsappHighSignal(metadata: any): boolean { return metadata?.source === 'whatsapp-high-signal'; }
 function isProjectStateMemory(metadata: any): boolean { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
 function isDurableCandidate(metadata: any): boolean { return metadata?.source === 'durable-candidates'; }
-function isGhostCache(metadata: Record<string, unknown>): boolean {
-  return String(metadata?.type ?? '').toLowerCase() === 'ghost_cache' || String(metadata?.source ?? '').toLowerCase() === 'ghost_cache';
-}
-function queryIsAboutGhostCache(query: string): boolean {
-  return /\bghost cache\b|\bghost\b.*\bcache\b|\bcache key\b|\bcached browse\b/.test(query.toLowerCase());
-}
-function isProbeNoise(metadata: Record<string, unknown>, text: string): boolean {
-  const source = String(metadata?.source ?? '').toLowerCase();
-  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
-  const t = text.trim().toLowerCase();
-  return source.includes('probe') || tags.includes('probe') || t === 'probe' || /^probe[:\s-]?/.test(t);
-}
-function queryIsAboutProbe(query: string): boolean {
-  return /\bprobe\b|self-model|telemetry|diagnostic/.test(query.toLowerCase());
-}
 function isInternalOracleMemory(metadata: Record<string, unknown>, text: string): boolean {
   const source = String(metadata?.source ?? '').toLowerCase();
   const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
@@ -242,7 +227,6 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
-  if (isGhostCache(metadata) && !queryIsAboutGhostCache(query)) { score -= 0.65; signals.reasons.push('ghost_cache_penalty'); }
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
   if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
   if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
@@ -268,19 +252,11 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
     groupedBySignature.set(signature, (groupedBySignature.get(signature) ?? 0) + 1);
   }
   const mapped = items.map((item) => mapCandidate(query, item, cfg, groupedBySignature.get(normalizeValueSignature(String(item?.text ?? ''))) ?? 1));
-  const visible = mapped.filter((item) => {
-    const signals = item.metadata.candidateSignals as CandidateSignals;
-    if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
-    if (isGhostCache(item.metadata as Record<string, unknown>) && !queryIsAboutGhostCache(query)) return false;
-    if (isProbeNoise(item.metadata as Record<string, unknown>, item.snippet) && !queryIsAboutProbe(query)) return false;
-    return true;
-  });
-
   const conflicts: ReconcileResult['conflicts'] = [];
-  for (let i = 0; i < visible.length; i += 1) {
-    for (let j = i + 1; j < visible.length; j += 1) {
-      const aSignals = visible[i].metadata.candidateSignals as CandidateSignals;
-      const bSignals = visible[j].metadata.candidateSignals as CandidateSignals;
+  for (let i = 0; i < mapped.length; i += 1) {
+    for (let j = i + 1; j < mapped.length; j += 1) {
+      const aSignals = mapped[i].metadata.candidateSignals as CandidateSignals;
+      const bSignals = mapped[j].metadata.candidateSignals as CandidateSignals;
       if (!queryIsAboutInternalOracle(query) && aSignals.attribute === 'internal_noise' && bSignals.attribute === 'internal_noise') continue;
       if (!detectConflict(aSignals, bSignals)) continue;
       aSignals.contradictionPenalty += cfg.conflictPenalty;
@@ -299,16 +275,16 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
       conflicts.push({
         entity: aSignals.entity ?? bSignals.entity,
         attribute: aSignals.attribute,
-        paths: [visible[i].path, visible[j].path],
+        paths: [mapped[i].path, mapped[j].path],
         values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''],
       });
     }
   }
-
-  visible.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
+  mapped.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
   const resolvedFactsMap = new Map<string, { entity?: string; attribute?: string; bestPath: string; supportingPaths: string[]; bestScore: number }>();
-  for (const item of visible) {
+  for (const item of mapped) {
     const signals = item.metadata.candidateSignals as CandidateSignals;
+    if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) continue;
     const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
     const existing = resolvedFactsMap.get(key);
     if (!existing || item.score > existing.bestScore) {
@@ -317,11 +293,10 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
       existing.supportingPaths.push(item.path);
     }
   }
-
   return {
     mode: classification.mode,
     queryType: classification.tags,
-    results: visible.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
+    results: mapped.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
     resolvedFacts: Array.from(resolvedFactsMap.values()).map(({ bestScore: _bestScore, ...rest }) => rest),
     conflicts,
   };
@@ -488,6 +463,35 @@ const plugin = {
       const cfg = resolveConfig(api.pluginConfig);
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
       const fallbackText = key ? recentOutputBySession.get(key) : undefined;
+      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+      if (key) recentOutputBySession.delete(key);
+    });
+  },
+};
+
+export default plugin;
+key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+      if (key) recentOutputBySession.delete(key);
+    });
+  },
+};
+
+export default plugin;
+xt?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+      if (key) recentOutputBySession.delete(key);
+    });
+  },
+};
+
+export default plugin;
+tputBySession.get(key) : undefined;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }

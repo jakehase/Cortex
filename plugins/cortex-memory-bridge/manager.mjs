@@ -28,12 +28,6 @@ function isCurated(metadata) { const tags = Array.isArray(metadata?.tags) ? meta
 function isWhatsappHighSignal(metadata) { return metadata?.source === 'whatsapp-high-signal'; }
 function isProjectStateMemory(metadata) { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
 function isDurableCandidate(metadata) { return metadata?.source === 'durable-candidates'; }
-function isGhostCache(metadata) {
-  return String(metadata?.type ?? '').toLowerCase() === 'ghost_cache' || String(metadata?.source ?? '').toLowerCase() === 'ghost_cache';
-}
-function queryIsAboutGhostCache(query) {
-  return /\bghost cache\b|\bghost\b.*\bcache\b|\bcache key\b|\bcached browse\b/.test(String(query || '').toLowerCase());
-}
 function isInternalOracleMemory(metadata, text) {
   const source = String(metadata?.source ?? '').toLowerCase();
   const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
@@ -158,7 +152,6 @@ function mapCandidate(query, item, cfg, corroborationCount) {
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
-  if (isGhostCache(metadata) && !queryIsAboutGhostCache(query)) { score -= 0.65; signals.reasons.push('ghost_cache_penalty'); }
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
   if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
   if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
@@ -191,7 +184,6 @@ function reconcileResults(query, items, cfg) {
     if (isProbeNoise(item.metadata, item.snippet) && !queryIsAboutProbe(query)) return false;
     return true;
   });
-
   const conflicts = [];
   for (let i = 0; i < visible.length; i += 1) {
     for (let j = i + 1; j < visible.length; j += 1) {
@@ -201,23 +193,24 @@ function reconcileResults(query, items, cfg) {
       if (!detectConflict(aSignals, bSignals)) continue;
       aSignals.contradictionPenalty += cfg.conflictPenalty;
       bSignals.contradictionPenalty += cfg.conflictPenalty;
-      visible[i].score = Math.max(0, visible[i].score - cfg.conflictPenalty);
-      visible[j].score = Math.max(0, visible[j].score - cfg.conflictPenalty);
-      const aTs = Number(visible[i].metadata.timestampMs ?? 0);
-      const bTs = Number(visible[j].metadata.timestampMs ?? 0);
+      mapped[i].score = Math.max(0, mapped[i].score - cfg.conflictPenalty);
+      mapped[j].score = Math.max(0, mapped[j].score - cfg.conflictPenalty);
+      const aTs = Number(mapped[i].metadata.timestampMs ?? 0);
+      const bTs = Number(mapped[j].metadata.timestampMs ?? 0);
       if (aTs && bTs && aTs !== bTs) {
-        const older = aTs < bTs ? visible[i] : visible[j];
+        const older = aTs < bTs ? mapped[i] : mapped[j];
         older.score = Math.max(0, older.score - cfg.conflictPenalty / 2);
         older.metadata.candidateSignals.supersededPenalty += cfg.conflictPenalty / 2;
         older.metadata.candidateSignals.reasons.push('likely_superseded');
       }
-      conflicts.push({ entity: aSignals.entity ?? bSignals.entity, attribute: aSignals.attribute, paths: [visible[i].path, visible[j].path], values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''] });
+      conflicts.push({ entity: aSignals.entity ?? bSignals.entity, attribute: aSignals.attribute, paths: [mapped[i].path, mapped[j].path], values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''] });
     }
   }
-  visible.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
+  mapped.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
   const resolvedFactsMap = new Map();
-  for (const item of visible) {
+  for (const item of mapped) {
     const signals = item.metadata.candidateSignals;
+    if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) continue;
     const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
     const existing = resolvedFactsMap.get(key);
     if (!existing || item.score > existing.bestScore) {
@@ -229,7 +222,7 @@ function reconcileResults(query, items, cfg) {
   return {
     mode: classification.mode,
     queryType: classification.tags,
-    results: visible.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
+    results: mapped.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
     resolvedFacts: Array.from(resolvedFactsMap.values()).map(({ bestScore, ...rest }) => rest),
     conflicts,
   };
@@ -284,6 +277,19 @@ export class CortexMemorySearchManager {
     return {
       backend: 'builtin',
       provider: 'cortex-http',
+      model: 'semantic-http',
+      files: 0,
+      chunks: 0,
+      custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
+    };
+  }
+  async probeEmbeddingAvailability() { return { ok: true }; }
+  async probeVectorAvailability() { return true; }
+  async close() {}
+}
+
+export default { CortexMemorySearchManager };
+  provider: 'cortex-http',
       model: 'semantic-http',
       files: 0,
       chunks: 0,
