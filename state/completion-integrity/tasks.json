@@ -3204,10 +3204,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T12:31:18.905Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 7:30 AM (America/Chicago) / 2026-03-19 12:30 UTC\"}],\"timestamp\":1773923453666},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:35:51.211Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-19T12:31:18.905Z",
+      "updatedAt": "2026-03-23T17:51:59.191Z",
       "history": [
         {
           "from": null,
@@ -3225,10 +3225,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-23T17:51:59.198Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "completionSource": "agent_end"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918651156",
@@ -3236,18 +3242,26 @@
       "createdAt": "2026-03-19T11:10:51.156Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T12:26:08.079Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:30:51.210Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-23T17:46:40.344Z",
+      "updatedAt": "2026-03-23T17:51:14.371Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T12:26:08.079Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-23T17:51:14.371Z",
+          "failedAt": "2026-03-23T17:51:14.371Z",
+          "failureReason": "To https://github.com/jakehase/Cortex.git b631001..f0933e6 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -3268,7 +3282,10 @@
         }
       },
       "trustTier": "normal",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-23T17:51:14.371Z",
+      "failureReason": "To https://github.com/jakehase/Cortex.git b631001..f0933e6 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918951158",
