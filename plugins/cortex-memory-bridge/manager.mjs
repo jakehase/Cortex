@@ -56,6 +56,22 @@ function isLeakyInternalTrace(text) {
   return /encrypted_content|thinkingsignature|cortex upstream routing applied:|\bthinking\s*\{|"type":"reasoning"|gaaaaaab/.test(t);
 }
 function queryIsAboutInternalTrace(query) { return /encrypted_content|thinking|routing applied|reasoning payload|internal trace/.test(normalizeQuery(query)); }
+function isExecutionTraceNoise(text) {
+  const t = String(text || '').toLowerCase();
+  return /\btoolcall\b|\bsessions_yield\b|\bsessions_spawn\b|\bcall_[a-z0-9]+\b|"command":|"workdir":|"yieldms":|"timeoutseconds":|"runtime":"subagent"|openclaw gateway restart/.test(t);
+}
+function queryIsAboutExecutionTrace(query) { return /toolcall|sessions_yield|sessions_spawn|execution trace|tool trace|gateway restart/.test(normalizeQuery(query)); }
+function isRecentSummaryQuery(query) {
+  return /\bwhat changed recently\b|\brecent changes\b|\brecent update\b|\bstatus update\b|\bwhat'?s going on\b|\bhow'?s this going\b|\bwhat happened lately\b|\blately\b/.test(normalizeQuery(query));
+}
+function isRecentSummaryMemory(metadata, text) {
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x) => String(x).toLowerCase()) : [];
+  const topic = String(metadata?.topic ?? '').toLowerCase();
+  const t = String(text || '').toLowerCase();
+  return tags.includes('recent-summary')
+    || topic.includes('recent-status')
+    || /recent status summary:|recent changes:|this session:|bridge repair completed|write-through proved|ranking improved|noise suppression improved/.test(t);
+}
 function isInternalOracleMemory(metadata, text) {
   const source = String(metadata?.source ?? '').toLowerCase();
   const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
@@ -125,7 +141,8 @@ function extractAttribute(query, text, metadata) {
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) return 'internal_noise';
   const textHay = String(text || '').toLowerCase();
   const queryHay = String(query || '').toLowerCase();
-  if (/latest|current|changed|used to|timeline|when|before|after/.test(textHay) || /latest|current|changed|used to|timeline|when|before|after/.test(queryHay)) return 'temporal_state';
+  if (isRecentSummaryMemory(metadata, text)) return 'recent_summary';
+  if (/latest|current|changed|used to|timeline|when|before|after|renamed|fixed|updated/.test(textHay)) return 'temporal_state';
   if (/prefer|preference|like|want|call me|timezone|pronouns/.test(textHay) || /prefer|preference|call me|timezone|pronouns/.test(queryHay)) return 'preference';
   if (/decid|plan|architecture|setup|config|memory/.test(textHay)) return 'decision';
   if (/status|working|l2|browser bridge|tool|runtime/.test(textHay)) return 'runtime_state';
@@ -142,10 +159,12 @@ function queryNeedsReconcile(query) { return /\b(latest|current|end up|decide|de
 function queryNeedsInvestigate(query) { return /\b(timeline|before|after|used to|across sessions|over time|reconstruct|walk me through|evolved|history|what happened)\b/i.test(query); }
 function classifyQuery(query) {
   const tags = [];
+  if (isRecentSummaryQuery(query)) tags.push('recent-summary');
   if (queryNeedsInvestigate(query)) tags.push('timeline');
   if (queryNeedsReconcile(query)) tags.push('conflict-prone');
   if (/\bprefer|preference|relationship|context|social cue\b/i.test(query)) tags.push('preference');
   if (tags.includes('timeline')) return { mode: 'investigate', tags };
+  if (tags.includes('recent-summary')) return { mode: 'reconcile', tags };
   if (tags.length > 0) return { mode: 'reconcile', tags };
   return { mode: 'fast', tags: ['simple-recall'] };
 }
@@ -183,8 +202,16 @@ function mapCandidate(query, item, cfg, corroborationCount) {
   if (isGhostCache(metadata) && !queryIsAboutGhostCache(query)) { score -= 0.65; signals.reasons.push('ghost_cache_penalty'); }
   if (isProbeNoise(metadata, text) && !queryIsAboutProbe(query)) { score -= 0.7; signals.reasons.push('probe_noise_penalty'); }
   if (isLeakyInternalTrace(text) && !queryIsAboutInternalTrace(query)) { score -= 0.9; signals.reasons.push('leaky_internal_trace_penalty'); }
+  if (isExecutionTraceNoise(text) && !queryIsAboutExecutionTrace(query)) { score -= 0.85; signals.reasons.push('execution_trace_penalty'); }
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
   if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
+  if (isRecentSummaryQuery(query)) {
+    if (isRecentSummaryMemory(metadata, text)) { score += 0.34; signals.reasons.push('recent_summary_boost'); }
+    else {
+      if (signals.recencyScore < 0.85) { score -= 0.18; signals.reasons.push('stale_for_recent_summary'); }
+      if (/connection detail|ip address|ssh|token stored|authentication:|auth profile|credential/i.test(text)) { score -= 0.22; signals.reasons.push('static_detail_penalty'); }
+    }
+  }
   if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
   if (signals.explicitnessScore >= 0.7) signals.reasons.push('explicit');
   return {
@@ -214,6 +241,8 @@ function reconcileResults(query, items, cfg) {
     if (isGhostCache(item.metadata) && !queryIsAboutGhostCache(query)) return false;
     if (isProbeNoise(item.metadata, item.snippet) && !queryIsAboutProbe(query)) return false;
     if (isLeakyInternalTrace(item.snippet) && !queryIsAboutInternalTrace(query)) return false;
+    if (isExecutionTraceNoise(item.snippet) && !queryIsAboutExecutionTrace(query)) return false;
+    if (isRecentSummaryQuery(query) && !isRecentSummaryMemory(item.metadata, item.snippet) && (signals.recencyScore < 0.85 || /connection detail|ip address|ssh|token stored|authentication:/i.test(item.snippet))) return false;
     return true;
   });
 
