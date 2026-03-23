@@ -43,3 +43,9 @@
 - [Forced and fallback chains](FORCED_AND_FALLBACK_CHAINS.md)
 - [Creativity-governor implementation](CREATIVITY_GOVERNOR_IMPLEMENTATION.md)
 - [Validation and synthesis architecture](VALIDATION_AND_SYNTHESIS_ARCHITECTURE.md)
+
+## More implementation-facing novelty docs
+- [Auto-level activation](AUTO_LEVEL_ACTIVATION_20260219.md)
+- [Capability guard / control plane](CORTEX_CAPABILITY_GUARD_CONTROL_PLANE.md)
+- [Epistemic guard](CORTEX_EPISTEMIC_GUARD_V1.md)
+- [Smartness automation](CORTEX_SMARTNESS_AUTOMATION_20260219.md)

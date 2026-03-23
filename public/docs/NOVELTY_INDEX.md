@@ -51,3 +51,12 @@ That is the architecture story the repo should tell clearly.
   - `public/docs/CREATIVITY_GOVERNOR_IMPLEMENTATION.md`
 - **Validation and synthesis architecture**
   - `public/docs/VALIDATION_AND_SYNTHESIS_ARCHITECTURE.md`
+
+- **Auto-level activation**
+  - `public/docs/AUTO_LEVEL_ACTIVATION_20260219.md`
+- **Capability guard / control plane**
+  - `public/docs/CORTEX_CAPABILITY_GUARD_CONTROL_PLANE.md`
+- **Epistemic guard**
+  - `public/docs/CORTEX_EPISTEMIC_GUARD_V1.md`
+- **Smartness automation / autotune**
+  - `public/docs/CORTEX_SMARTNESS_AUTOMATION_20260219.md`
