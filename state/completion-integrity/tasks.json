@@ -3377,7 +3377,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:10:51.209Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-23T03:56:37.447Z",
+      "updatedAt": "2026-03-23T04:01:45.733Z",
       "history": [
         {
           "from": null,
@@ -3395,9 +3395,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 584,
+        "runs": 585,
         "failures": [],
-        "lastRunAt": "2026-03-23T03:56:37.454Z",
+        "lastRunAt": "2026-03-23T04:01:45.740Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4777,6 +4777,41 @@
       "failedAt": "2026-03-23T03:53:39.100Z",
       "failureReason": "{\"0\":\"{\\\"subsystem\\\":\\\"gateway\\\"}\",\"1\":\"cortex-route-gate: appended self-model block session=agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69 degraded=0 predicted=1 creativity=false intent=\\\"cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync in /root/clawd\\\"\",\"_meta\":{\"runtime\":\"node\",\"runtimeVersion\":\"22.22.1\",\"hostname\":\"unknown\",\"name\":\"{\\\"subsystem\\\":\\\"gateway\\\"}\",\"parentNam",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774238627390:3f86fb2ee096bd52",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-23T04:03:47.390Z",
+      "updatedAt": "2026-03-23T04:03:47.393Z",
+      "prompt": "Fix it",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-23T04:03:47.390Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-23T04:03:47.393Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }
