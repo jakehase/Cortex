@@ -285,6 +285,7 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
   for (const item of mapped) {
     const signals = item.metadata.candidateSignals as CandidateSignals;
     if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) continue;
+    if (isGhostCache(item.metadata as Record<string, unknown>) && !queryIsAboutGhostCache(query)) continue;
     const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
     const existing = resolvedFactsMap.get(key);
     if (!existing || item.score > existing.bestScore) {
@@ -465,6 +466,16 @@ const plugin = {
       const fallbackText = key ? recentOutputBySession.get(key) : undefined;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+      if (key) recentOutputBySession.delete(key);
+    });
+  },
+};
+
+export default plugin;
+ort default plugin;
+y, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
       await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
       if (key) recentOutputBySession.delete(key);

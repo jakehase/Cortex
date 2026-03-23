@@ -28,6 +28,12 @@ function isCurated(metadata) { const tags = Array.isArray(metadata?.tags) ? meta
 function isWhatsappHighSignal(metadata) { return metadata?.source === 'whatsapp-high-signal'; }
 function isProjectStateMemory(metadata) { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
 function isDurableCandidate(metadata) { return metadata?.source === 'durable-candidates'; }
+function isGhostCache(metadata) {
+  return String(metadata?.type ?? '').toLowerCase() === 'ghost_cache' || String(metadata?.source ?? '').toLowerCase() === 'ghost_cache';
+}
+function queryIsAboutGhostCache(query) {
+  return /\bghost cache\b|\bghost\b.*\bcache\b|\bcache key\b|\bcached browse\b/.test(String(query || '').toLowerCase());
+}
 function isInternalOracleMemory(metadata, text) {
   const source = String(metadata?.source ?? '').toLowerCase();
   const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
