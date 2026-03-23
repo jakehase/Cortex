@@ -60,3 +60,14 @@ That is the architecture story the repo should tell clearly.
   - `public/docs/CORTEX_EPISTEMIC_GUARD_V1.md`
 - **Smartness automation / autotune**
   - `public/docs/CORTEX_SMARTNESS_AUTOMATION_20260219.md`
+
+- **Level implementation matrix**
+  - `public/docs/LEVEL_IMPLEMENTATION_MATRIX.md`
+- **Route-gate and governor evidence**
+  - `public/docs/ROUTE_GATE_AND_GOVERNOR_EVIDENCE.md`
+- **Creativity governor doc**
+  - `public/docs/CORTEX_CREATIVITY_GOVERNOR.md`
+- **Prompt routing guard**
+  - `public/docs/CORTEX_PROMPT_ROUTING_GUARD_2026-03-15.md`
+- **Level registry**
+  - `public/docs/LEVEL_REGISTRY.md`

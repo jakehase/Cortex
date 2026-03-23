@@ -49,3 +49,10 @@
 - [Capability guard / control plane](CORTEX_CAPABILITY_GUARD_CONTROL_PLANE.md)
 - [Epistemic guard](CORTEX_EPISTEMIC_GUARD_V1.md)
 - [Smartness automation](CORTEX_SMARTNESS_AUTOMATION_20260219.md)
+
+## Evidence and implementation maps
+- [Level implementation matrix](LEVEL_IMPLEMENTATION_MATRIX.md)
+- [Route-gate and governor evidence](ROUTE_GATE_AND_GOVERNOR_EVIDENCE.md)
+- [Cortex creativity governor](CORTEX_CREATIVITY_GOVERNOR.md)
+- [Cortex prompt routing guard](CORTEX_PROMPT_ROUTING_GUARD_2026-03-15.md)
+- [Level registry](LEVEL_REGISTRY.md)
