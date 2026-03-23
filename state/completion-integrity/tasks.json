@@ -3343,7 +3343,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:15:51.206Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-23T14:11:56.206Z",
+      "updatedAt": "2026-03-23T14:16:49.887Z",
       "history": [
         {
           "from": null,
@@ -3361,9 +3361,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 3,
+        "runs": 4,
         "failures": [],
-        "lastRunAt": "2026-03-23T14:11:56.212Z",
+        "lastRunAt": "2026-03-23T14:16:49.894Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4799,12 +4799,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774238627390:3f86fb2ee096bd52",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-23T04:03:47.390Z",
-      "updatedAt": "2026-03-23T06:31:03.973Z",
+      "updatedAt": "2026-03-23T14:19:15.775Z",
       "prompt": "Fix it",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "https://x.com/hero_ui/status/2035353810181251490?s=46 Would this help us any? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just he",
+      "completionSummary": "How’s this going? results:,provider:cortex-http,mode:semantic,memoryMode:fast,queryType:simple-recall,resolvedFacts:,conflicts:,fallback:from:memory,reason:clean_but_empty,suggestion:No relevant durable memory was found after noise suppression; fall back to workspace/filesystem o",
       "history": [
         {
           "from": null,
@@ -4834,9 +4834,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 1,
+        "runs": 2,
         "failures": [],
-        "lastRunAt": "2026-03-23T06:31:03.981Z",
+        "lastRunAt": "2026-03-23T14:19:15.777Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
