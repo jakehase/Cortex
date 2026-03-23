@@ -233,6 +233,7 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
+  if (isGhostCache(metadata) && !queryIsAboutGhostCache(query)) { score -= 0.65; signals.reasons.push('ghost_cache_penalty'); }
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
   if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
   if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
@@ -258,21 +259,28 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
     groupedBySignature.set(signature, (groupedBySignature.get(signature) ?? 0) + 1);
   }
   const mapped = items.map((item) => mapCandidate(query, item, cfg, groupedBySignature.get(normalizeValueSignature(String(item?.text ?? ''))) ?? 1));
+  const visible = mapped.filter((item) => {
+    const signals = item.metadata.candidateSignals as CandidateSignals;
+    if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
+    if (isGhostCache(item.metadata as Record<string, unknown>) && !queryIsAboutGhostCache(query)) return false;
+    return true;
+  });
+
   const conflicts: ReconcileResult['conflicts'] = [];
-  for (let i = 0; i < mapped.length; i += 1) {
-    for (let j = i + 1; j < mapped.length; j += 1) {
-      const aSignals = mapped[i].metadata.candidateSignals as CandidateSignals;
-      const bSignals = mapped[j].metadata.candidateSignals as CandidateSignals;
+  for (let i = 0; i < visible.length; i += 1) {
+    for (let j = i + 1; j < visible.length; j += 1) {
+      const aSignals = visible[i].metadata.candidateSignals as CandidateSignals;
+      const bSignals = visible[j].metadata.candidateSignals as CandidateSignals;
       if (!queryIsAboutInternalOracle(query) && aSignals.attribute === 'internal_noise' && bSignals.attribute === 'internal_noise') continue;
       if (!detectConflict(aSignals, bSignals)) continue;
       aSignals.contradictionPenalty += cfg.conflictPenalty;
       bSignals.contradictionPenalty += cfg.conflictPenalty;
-      mapped[i].score = Math.max(0, mapped[i].score - cfg.conflictPenalty);
-      mapped[j].score = Math.max(0, mapped[j].score - cfg.conflictPenalty);
-      const aTs = Number(mapped[i].metadata.timestampMs ?? 0);
-      const bTs = Number(mapped[j].metadata.timestampMs ?? 0);
+      visible[i].score = Math.max(0, visible[i].score - cfg.conflictPenalty);
+      visible[j].score = Math.max(0, visible[j].score - cfg.conflictPenalty);
+      const aTs = Number(visible[i].metadata.timestampMs ?? 0);
+      const bTs = Number(visible[j].metadata.timestampMs ?? 0);
       if (aTs && bTs && aTs !== bTs) {
-        const older = aTs < bTs ? mapped[i] : mapped[j];
+        const older = aTs < bTs ? visible[i] : visible[j];
         older.score = Math.max(0, older.score - cfg.conflictPenalty / 2);
         const olderSignals = older.metadata.candidateSignals as CandidateSignals;
         olderSignals.supersededPenalty += cfg.conflictPenalty / 2;
@@ -281,17 +289,16 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
       conflicts.push({
         entity: aSignals.entity ?? bSignals.entity,
         attribute: aSignals.attribute,
-        paths: [mapped[i].path, mapped[j].path],
+        paths: [visible[i].path, visible[j].path],
         values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''],
       });
     }
   }
-  mapped.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
+
+  visible.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
   const resolvedFactsMap = new Map<string, { entity?: string; attribute?: string; bestPath: string; supportingPaths: string[]; bestScore: number }>();
-  for (const item of mapped) {
+  for (const item of visible) {
     const signals = item.metadata.candidateSignals as CandidateSignals;
-    if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) continue;
-    if (isGhostCache(item.metadata as Record<string, unknown>) && !queryIsAboutGhostCache(query)) continue;
     const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
     const existing = resolvedFactsMap.get(key);
     if (!existing || item.score > existing.bestScore) {
@@ -300,6 +307,7 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
       existing.supportingPaths.push(item.path);
     }
   }
+
   return {
     mode: classification.mode,
     queryType: classification.tags,
@@ -471,16 +479,6 @@ const plugin = {
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
       const fallbackText = key ? recentOutputBySession.get(key) : undefined;
       if (String(api.pluginConfig?.debugShapes || '') === 'true') {
-        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
-      }
-      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
-      if (key) recentOutputBySession.delete(key);
-    });
-  },
-};
-
-export default plugin;
-.debugShapes || '') === 'true') {
         api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
       }
       await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
