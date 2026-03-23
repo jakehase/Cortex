@@ -157,6 +157,17 @@ function isInternalOracleMemory(metadata: Record<string, unknown>, text: string)
 function queryIsAboutInternalOracle(query: string): boolean {
   return /\boracle\b|semantic prediction|memory bridge probe|durable (verification|smoke) marker|anti recursion|recursion barrier|loop guard/.test(query.toLowerCase());
 }
+function isOracleBoilerplate(text: string, metadata: Record<string, unknown>): boolean {
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
+  const t = text.toLowerCase().trim();
+  return tags.includes('semantic_prediction')
+    || tags.includes('awareness')
+    || /^asking oracle for a semantic prediction\.\.\.?$/.test(t)
+    || /^oracle predicts:?$/i.test(text.trim());
+}
+function queryWantsOracleBoilerplate(query: string): boolean {
+  return /semantic prediction|raw oracle|oracle trace|oracle predicts|awareness/.test(normalizeQuery(query));
+}
 function toTimestamp(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
   if (typeof value === 'string') {
@@ -284,6 +295,7 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   if (isProbeNoise(metadata, text) && !queryIsAboutProbe(query)) { score -= 0.7; signals.reasons.push('probe_noise_penalty'); }
   if (isLeakyInternalTrace(text) && !queryIsAboutInternalTrace(query)) { score -= 0.9; signals.reasons.push('leaky_internal_trace_penalty'); }
   if (isExecutionTraceNoise(text) && !queryIsAboutExecutionTrace(query)) { score -= 0.85; signals.reasons.push('execution_trace_penalty'); }
+  if (isOracleBoilerplate(text, metadata) && !queryWantsOracleBoilerplate(query)) { score -= 0.92; signals.reasons.push('oracle_boilerplate_penalty'); }
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
   if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
   if (isRecentSummaryQuery(query)) {
@@ -323,9 +335,17 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
     if (isProbeNoise(item.metadata, item.snippet) && !queryIsAboutProbe(query)) return false;
     if (isLeakyInternalTrace(item.snippet) && !queryIsAboutInternalTrace(query)) return false;
     if (isExecutionTraceNoise(item.snippet) && !queryIsAboutExecutionTrace(query)) return false;
+    if (isOracleBoilerplate(item.snippet, item.metadata) && !queryWantsOracleBoilerplate(query)) return false;
     if (isRecentSummaryQuery(query) && !isRecentSummaryMemory(item.metadata, item.snippet) && (signals.recencyScore < 0.85 || /connection detail|ip address|ssh|token stored|authentication:/i.test(item.snippet))) return false;
     return true;
   });
+  const deduped = new Map<string, MemoryCandidate>();
+  for (const item of visible) {
+    const sig = String((item.metadata.candidateSignals as CandidateSignals).valueSignature ?? item.snippet);
+    const existing = deduped.get(sig);
+    if (!existing || item.score > existing.score) deduped.set(sig, item);
+  }
+  visible = Array.from(deduped.values());
   if (isRecentSummaryQuery(query)) {
     const summaryOnly = visible.filter((item) => isRecentSummaryMemory(item.metadata, item.snippet));
     if (summaryOnly.length > 0) visible = summaryOnly;
