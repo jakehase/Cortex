@@ -28,6 +28,15 @@ function isCurated(metadata) { const tags = Array.isArray(metadata?.tags) ? meta
 function isWhatsappHighSignal(metadata) { return metadata?.source === 'whatsapp-high-signal'; }
 function isProjectStateMemory(metadata) { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
 function isDurableCandidate(metadata) { return metadata?.source === 'durable-candidates'; }
+function isGhostCache(metadata) { return String(metadata?.type ?? '').toLowerCase() === 'ghost_cache' || String(metadata?.source ?? '').toLowerCase() === 'ghost_cache'; }
+function queryIsAboutGhostCache(query) { return /\bghost cache\b|\bghost\b.*\bcache\b|\bcache key\b|\bcached browse\b/.test(normalizeQuery(query)); }
+function isProbeNoise(metadata, text) {
+  const source = String(metadata?.source ?? '').toLowerCase();
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x) => String(x).toLowerCase()) : [];
+  const t = String(text || '').trim().toLowerCase();
+  return source.includes('probe') || tags.includes('probe') || t === 'probe' || /^probe[:\s-]?/.test(t);
+}
+function queryIsAboutProbe(query) { return /\bprobe\b|self-model|telemetry|diagnostic/.test(normalizeQuery(query)); }
 function isInternalOracleMemory(metadata, text) {
   const source = String(metadata?.source ?? '').toLowerCase();
   const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
@@ -39,9 +48,7 @@ function isInternalOracleMemory(metadata, text) {
     || tags.includes('awareness')
     || /oracle predicts|durable verification marker|durable smoke marker|memory bridge probe|anti recursion|terminal synthesis|repeat safeguard|convergence guard|loop guard|recursion barrier/.test(t);
 }
-function queryIsAboutInternalOracle(query) {
-  return /\boracle\b|semantic prediction|memory bridge probe|durable (verification|smoke) marker|anti recursion|recursion barrier|loop guard/.test(String(query || '').toLowerCase());
-}
+function queryIsAboutInternalOracle(query) { return /\boracle\b|semantic prediction|memory bridge probe|durable (verification|smoke) marker|anti recursion|recursion barrier|loop guard/.test(normalizeQuery(query)); }
 function toTimestamp(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
   if (typeof value === 'string') {
@@ -53,7 +60,7 @@ function toTimestamp(value) {
   return null;
 }
 function extractTimestamp(metadata) {
-  return toTimestamp(metadata.timestamp) ?? toTimestamp(metadata.createdAt) ?? toTimestamp(metadata.updatedAt) ?? toTimestamp(metadata.occurredAt) ?? null;
+  return toTimestamp(metadata?.timestamp) ?? toTimestamp(metadata?.createdAt) ?? toTimestamp(metadata?.updatedAt) ?? toTimestamp(metadata?.occurredAt) ?? null;
 }
 function textMatchesNoise(text) {
   const t = String(text || '').trim();
@@ -78,8 +85,8 @@ function recencyScore(timestampMs) {
 }
 function explicitnessScore(text) {
   let score = 0.2;
-  if (/\b(i prefer|prefer|remember this|please remember|call me|my timezone|we decided|the plan is|always use|default to|never use|use this|current|latest|final)\b/i.test(text)) score += 0.55;
-  if (/\b(maybe|probably|might|i think|seems|guess|not sure)\b/i.test(text)) score -= 0.18;
+  if (/\b(i prefer|prefer|remember this|please remember|call me|my timezone|we decided|the plan is|always use|default to|never use|use this|current|latest|final)\b/i.test(String(text || ''))) score += 0.55;
+  if (/\b(maybe|probably|might|i think|seems|guess|not sure)\b/i.test(String(text || ''))) score -= 0.18;
   return Math.max(0, Math.min(1, score));
 }
 function sourceQualityScore(metadata) {
@@ -104,9 +111,7 @@ function extractAttribute(query, text, metadata) {
   if (/status|working|l2|browser bridge|tool/.test(hay)) return 'runtime_state';
   return undefined;
 }
-function normalizeValueSignature(text) {
-  return String(text || '').toLowerCase().replace(/https?:\/\/\S+/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
-}
+function normalizeValueSignature(text) { return String(text || '').toLowerCase().replace(/https?:\/\/\S+/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
 function detectConflict(a, b) {
   if (!a.attribute || !b.attribute || a.attribute !== b.attribute) return false;
   if (a.entity && b.entity && a.entity.toLowerCase() !== b.entity.toLowerCase()) return false;
@@ -152,6 +157,8 @@ function mapCandidate(query, item, cfg, corroborationCount) {
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
+  if (isGhostCache(metadata) && !queryIsAboutGhostCache(query)) { score -= 0.65; signals.reasons.push('ghost_cache_penalty'); }
+  if (isProbeNoise(metadata, text) && !queryIsAboutProbe(query)) { score -= 0.7; signals.reasons.push('probe_noise_penalty'); }
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) { score -= 0.55; signals.reasons.push('internal_oracle_penalty'); }
   if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) { score -= 0.35; signals.reasons.push('internal_noise_attribute_penalty'); }
   if (signals.recencyScore >= 0.85) signals.reasons.push('recent');
@@ -184,6 +191,7 @@ function reconcileResults(query, items, cfg) {
     if (isProbeNoise(item.metadata, item.snippet) && !queryIsAboutProbe(query)) return false;
     return true;
   });
+
   const conflicts = [];
   for (let i = 0; i < visible.length; i += 1) {
     for (let j = i + 1; j < visible.length; j += 1) {
@@ -193,24 +201,24 @@ function reconcileResults(query, items, cfg) {
       if (!detectConflict(aSignals, bSignals)) continue;
       aSignals.contradictionPenalty += cfg.conflictPenalty;
       bSignals.contradictionPenalty += cfg.conflictPenalty;
-      mapped[i].score = Math.max(0, mapped[i].score - cfg.conflictPenalty);
-      mapped[j].score = Math.max(0, mapped[j].score - cfg.conflictPenalty);
-      const aTs = Number(mapped[i].metadata.timestampMs ?? 0);
-      const bTs = Number(mapped[j].metadata.timestampMs ?? 0);
+      visible[i].score = Math.max(0, visible[i].score - cfg.conflictPenalty);
+      visible[j].score = Math.max(0, visible[j].score - cfg.conflictPenalty);
+      const aTs = Number(visible[i].metadata.timestampMs ?? 0);
+      const bTs = Number(visible[j].metadata.timestampMs ?? 0);
       if (aTs && bTs && aTs !== bTs) {
-        const older = aTs < bTs ? mapped[i] : mapped[j];
+        const older = aTs < bTs ? visible[i] : visible[j];
         older.score = Math.max(0, older.score - cfg.conflictPenalty / 2);
         older.metadata.candidateSignals.supersededPenalty += cfg.conflictPenalty / 2;
         older.metadata.candidateSignals.reasons.push('likely_superseded');
       }
-      conflicts.push({ entity: aSignals.entity ?? bSignals.entity, attribute: aSignals.attribute, paths: [mapped[i].path, mapped[j].path], values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''] });
+      conflicts.push({ entity: aSignals.entity ?? bSignals.entity, attribute: aSignals.attribute, paths: [visible[i].path, visible[j].path], values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''] });
     }
   }
-  mapped.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
+
+  visible.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
   const resolvedFactsMap = new Map();
-  for (const item of mapped) {
+  for (const item of visible) {
     const signals = item.metadata.candidateSignals;
-    if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) continue;
     const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
     const existing = resolvedFactsMap.get(key);
     if (!existing || item.score > existing.bestScore) {
@@ -219,10 +227,11 @@ function reconcileResults(query, items, cfg) {
       existing.supportingPaths.push(item.path);
     }
   }
+
   return {
     mode: classification.mode,
     queryType: classification.tags,
-    results: mapped.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
+    results: visible.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
     resolvedFacts: Array.from(resolvedFactsMap.values()).map(({ bestScore, ...rest }) => rest),
     conflicts,
   };
@@ -246,7 +255,9 @@ async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 2
       lastError = error;
       if (attempt >= retryCount || !retryableError(error)) throw error;
       await sleep(retryBackoffMs * (attempt + 1));
-    } finally { clearTimeout(timer); }
+    } finally {
+      clearTimeout(timer);
+    }
   }
   throw lastError || new Error('unknown cortex memory manager error');
 }
