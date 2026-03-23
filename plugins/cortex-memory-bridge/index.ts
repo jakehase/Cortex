@@ -495,6 +495,16 @@ const plugin = {
       if (key && text) recentOutputBySession.set(key, text.slice(-4000));
     });
 
+    api.on('subagent_ended', async (event: any, ctx: any) => {
+      const cfg = resolveConfig(api.pluginConfig);
+      const key = String(ctx?.sessionKey || ctx?.sessionId || '');
+      const fallbackText = key ? recentOutputBySession.get(key) : undefined;
+      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: subagent_ended shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      await maybeWriteThrough(api, cfg, { result: event?.result, messages: event?.messages }, ctx, fallbackText);
+    });
+
     api.on('agent_end', async (event: any, ctx: any) => {
       const cfg = resolveConfig(api.pluginConfig);
       const key = String(ctx?.sessionKey || ctx?.sessionId || '');
