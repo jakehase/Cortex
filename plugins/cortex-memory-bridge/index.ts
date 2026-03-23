@@ -366,6 +366,8 @@ function extractText(value: unknown): string {
   if (Array.isArray(value)) return value.map(extractText).filter(Boolean).join('\n');
   if (!value || typeof value !== 'object') return '';
   const obj = value as Record<string, unknown>;
+  if (obj.type === 'thinking' || typeof obj.thinkingSignature === 'string' || typeof obj.encrypted_content === 'string') return '';
+  if (typeof obj.customType === 'string' && obj.display === false) return '';
   if (typeof obj.text === 'string') return obj.text;
   if (typeof obj.content === 'string') return obj.content;
   if (Array.isArray(obj.content)) {
@@ -386,6 +388,15 @@ function extractText(value: unknown): string {
   }
   if (typeof obj.type === 'string' && obj.type === 'text' && typeof obj.text === 'string') return obj.text;
   return Object.values(obj).map(extractText).filter(Boolean).join('\n');
+}
+
+function extractAssistantVisibleText(messages: unknown): string {
+  if (!Array.isArray(messages)) return '';
+  return messages
+    .filter((m) => m && typeof m === 'object' && (m as Record<string, unknown>).role === 'assistant')
+    .map((m) => extractText((m as Record<string, unknown>).content ?? m))
+    .filter(Boolean)
+    .join('\n');
 }
 function containsSecretLike(text: string): boolean {
   return /\b(api[_-]?key|token|password|secret|bearer|ssh-rsa|BEGIN [A-Z ]+ PRIVATE KEY)\b/i.test(text);
@@ -419,9 +430,8 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
 async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
   if (!cfg.enabledWriteThrough) return;
   const text = [
-    extractText(event?.messages ?? []),
+    extractAssistantVisibleText(event?.messages),
     extractText(event?.result),
-    extractText(event),
     String(fallbackText || ''),
   ].filter(Boolean).join('\n').replace(/\s+/g, ' ').trim();
   if (!text) {
