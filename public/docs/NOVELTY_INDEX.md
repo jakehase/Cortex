@@ -40,3 +40,14 @@ That is the architecture story the repo should tell clearly.
   - `public/docs/ORACLE_AND_LEVELS_PUBLISHABILITY.md`
 - **Cross-level orchestration patterns**
   - `public/docs/CROSS_LEVEL_ORCHESTRATION_PATTERNS.md`
+
+- **Multi-level novelty map**
+  - `public/docs/MULTI_LEVEL_NOVELTY_MAP.md`
+- **Level-by-level novelty**
+  - `public/docs/LEVEL_BY_LEVEL_NOVELTY.md`
+- **Forced and fallback chains**
+  - `public/docs/FORCED_AND_FALLBACK_CHAINS.md`
+- **Creativity-governor implementation**
+  - `public/docs/CREATIVITY_GOVERNOR_IMPLEMENTATION.md`
+- **Validation and synthesis architecture**
+  - `public/docs/VALIDATION_AND_SYNTHESIS_ARCHITECTURE.md`

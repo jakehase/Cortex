@@ -86,3 +86,10 @@ Private backups are for sanitized restore snapshots and memories.
 - [Oracle bridge and other levels](ORACLE_BRIDGE_AND_LEVELS.md)
 - [Cross-level orchestration patterns](CROSS_LEVEL_ORCHESTRATION_PATTERNS.md)
 - [Oracle and levels publishability map](ORACLE_AND_LEVELS_PUBLISHABILITY.md)
+
+## If you want the level-system novelty
+- [Multi-level novelty map](MULTI_LEVEL_NOVELTY_MAP.md)
+- [Level-by-level novelty](LEVEL_BY_LEVEL_NOVELTY.md)
+- [Forced and fallback chains](FORCED_AND_FALLBACK_CHAINS.md)
+- [Creativity-governor implementation](CREATIVITY_GOVERNOR_IMPLEMENTATION.md)
+- [Validation and synthesis architecture](VALIDATION_AND_SYNTHESIS_ARCHITECTURE.md)
