@@ -1,76 +1,127 @@
+import type { OpenClawPluginApi } from 'openclaw/plugin-sdk/memory-core';
+
+type BridgeConfig = {
+  baseUrl?: string;
+  searchPath?: string;
+  storePath?: string;
+  timeoutMs?: number;
+  retryCount?: number;
+  retryBackoffMs?: number;
+  enabledWriteThrough?: boolean;
+  curatedBoost?: number;
+  projectFactBoost?: number;
+  durableCandidatePenalty?: number;
+  noisyWhatsappPenalty?: number;
+  noisyPatternPenalty?: number;
+  minDurabilityScore?: number;
+  writeTags?: string[];
+  conflictPenalty?: number;
+  recencyBoost?: number;
+  explicitBoost?: number;
+  corroborationBoost?: number;
+  hardQueryCandidateCount?: number;
+};
+
+type MemoryCandidate = {
+  path: string;
+  startLine: number;
+  endLine: number;
+  score: number;
+  snippet: string;
+  source: 'memory';
+  citation?: string;
+  metadata: Record<string, unknown>;
+};
+
+type QueryMode = 'fast' | 'reconcile' | 'investigate';
+type CandidateSignals = {
+  rawScore: number;
+  recencyScore: number;
+  explicitnessScore: number;
+  sourceQualityScore: number;
+  corroborationScore: number;
+  contradictionPenalty: number;
+  supersededPenalty: number;
+  reasons: string[];
+  entity?: string;
+  attribute?: string;
+  valueSignature?: string;
+};
+
+type ReconcileResult = {
+  mode: QueryMode;
+  queryType: string[];
+  results: MemoryCandidate[];
+  resolvedFacts: Array<{ entity?: string; attribute?: string; bestPath: string; supportingPaths: string[] }>;
+  conflicts: Array<{ entity?: string; attribute?: string; paths: string[]; values: string[] }>;
+};
+
 const SearchSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['query'],
-  properties: {
-    query: { type: 'string', minLength: 1 },
-    maxResults: { type: 'number', minimum: 1, maximum: 50 },
-    minScore: { type: 'number', minimum: 0, maximum: 1 }
-  }
-};
-
+  type: 'object', additionalProperties: false, required: ['query'],
+  properties: { query: { type: 'string', minLength: 1 }, maxResults: { type: 'number', minimum: 1, maximum: 50 }, minScore: { type: 'number', minimum: 0, maximum: 1 } },
+} as const;
 const GetSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['path'],
-  properties: {
-    path: { type: 'string' },
-    from: { type: 'number' },
-    lines: { type: 'number' }
-  }
-};
+  type: 'object', additionalProperties: false, required: ['path'],
+  properties: { path: { type: 'string' }, from: { type: 'number' }, lines: { type: 'number' } },
+} as const;
 
-function resolveConfig(pluginConfig) {
-  const cfg = pluginConfig || {};
+function resolveConfig(pluginConfig?: Record<string, unknown>): Required<Pick<BridgeConfig, 'baseUrl' | 'searchPath' | 'storePath' | 'timeoutMs' | 'retryCount' | 'retryBackoffMs' | 'curatedBoost' | 'projectFactBoost' | 'durableCandidatePenalty' | 'noisyWhatsappPenalty' | 'noisyPatternPenalty' | 'minDurabilityScore' | 'writeTags' | 'conflictPenalty' | 'recencyBoost' | 'explicitBoost' | 'corroborationBoost' | 'hardQueryCandidateCount'>> & BridgeConfig {
+  const cfg = (pluginConfig ?? {}) as BridgeConfig;
   return {
-    baseUrl: String(cfg.baseUrl || 'http://127.0.0.1:18888').replace(/\/$/, ''),
-    searchPath: String(cfg.searchPath || '/knowledge/search'),
-    timeoutMs: Number(cfg.timeoutMs || 12000),
-    retryCount: Number(cfg.retryCount ?? 2),
-    retryBackoffMs: Number(cfg.retryBackoffMs ?? 350),
-    curatedBoost: Number(cfg.curatedBoost ?? 0.24),
-    projectFactBoost: Number(cfg.projectFactBoost ?? 0.12),
-    durableCandidatePenalty: Number(cfg.durableCandidatePenalty ?? 0.14),
-    noisyWhatsappPenalty: Number(cfg.noisyWhatsappPenalty ?? 0.26),
-    noisyPatternPenalty: Number(cfg.noisyPatternPenalty ?? 0.2),
-    conflictPenalty: Number(cfg.conflictPenalty ?? 0.18),
-    recencyBoost: Number(cfg.recencyBoost ?? 0.12),
-    explicitBoost: Number(cfg.explicitBoost ?? 0.14),
-    corroborationBoost: Number(cfg.corroborationBoost ?? 0.08),
-    hardQueryCandidateCount: Number(cfg.hardQueryCandidateCount ?? 12)
+    baseUrl: (cfg.baseUrl ?? 'http://127.0.0.1:18888').replace(/\/$/, ''),
+    searchPath: cfg.searchPath ?? '/knowledge/search',
+    storePath: cfg.storePath ?? '/l22/store',
+    timeoutMs: cfg.timeoutMs ?? 12000,
+    retryCount: cfg.retryCount ?? 2,
+    retryBackoffMs: cfg.retryBackoffMs ?? 350,
+    enabledWriteThrough: cfg.enabledWriteThrough ?? false,
+    curatedBoost: cfg.curatedBoost ?? 0.24,
+    projectFactBoost: cfg.projectFactBoost ?? 0.12,
+    durableCandidatePenalty: cfg.durableCandidatePenalty ?? 0.14,
+    noisyWhatsappPenalty: cfg.noisyWhatsappPenalty ?? 0.26,
+    noisyPatternPenalty: cfg.noisyPatternPenalty ?? 0.2,
+    minDurabilityScore: cfg.minDurabilityScore ?? 0.72,
+    writeTags: Array.isArray(cfg.writeTags) ? cfg.writeTags.map((x) => String(x)) : ['durable-memory', 'auto-curated'],
+    conflictPenalty: cfg.conflictPenalty ?? 0.18,
+    recencyBoost: cfg.recencyBoost ?? 0.12,
+    explicitBoost: cfg.explicitBoost ?? 0.14,
+    corroborationBoost: cfg.corroborationBoost ?? 0.08,
+    hardQueryCandidateCount: cfg.hardQueryCandidateCount ?? 12,
   };
 }
 
-function normalizeQuery(text) { return String(text || '').trim().toLowerCase(); }
-function looksHistoricalQuery(query) { return /\b(history|historical|when|timeline|previous|earlier|used to|what happened|completion events|finished|completed)\b/i.test(query); }
-function isShortVagueQuery(query) { const q = normalizeQuery(query); const words = q.split(/\s+/).filter(Boolean); return words.length <= 3 || q.length <= 24; }
-function explicitNoiseSeekingQuery(query) { return /\b(link|source|url|hash|log|info|status line|status update|historical completion|completion event)\b/i.test(query); }
-function isCurated(metadata) { const tags = Array.isArray(metadata?.tags) ? metadata.tags.map(String) : []; return metadata?.quality === 'curated' || tags.includes('curated'); }
-function isWhatsappHighSignal(metadata) { return metadata?.source === 'whatsapp-high-signal'; }
-function isProjectStateMemory(metadata) { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
-function isDurableCandidate(metadata) { return metadata?.source === 'durable-candidates'; }
-function isGhostCache(metadata) { return String(metadata?.type ?? '').toLowerCase() === 'ghost_cache' || String(metadata?.source ?? '').toLowerCase() === 'ghost_cache'; }
-function queryIsAboutGhostCache(query) { return /\bghost cache\b|\bghost\b.*\bcache\b|\bcache key\b|\bcached browse\b/.test(normalizeQuery(query)); }
-function isProbeNoise(metadata, text) {
+function normalizeQuery(text: string): string { return text.trim().toLowerCase(); }
+function looksHistoricalQuery(query: string): boolean { return /\b(history|historical|when|timeline|previous|earlier|used to|what happened|completion events|finished|completed)\b/i.test(query); }
+function isShortVagueQuery(query: string): boolean { const q = normalizeQuery(query); const words = q.split(/\s+/).filter(Boolean); return words.length <= 3 || q.length <= 24; }
+function explicitNoiseSeekingQuery(query: string): boolean { return /\b(link|source|url|hash|log|info|status line|status update|historical completion|completion event)\b/i.test(query); }
+function isCurated(metadata: any): boolean { const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x)) : []; return metadata?.quality === 'curated' || tags.includes('curated'); }
+function isWhatsappHighSignal(metadata: any): boolean { return metadata?.source === 'whatsapp-high-signal'; }
+function isProjectStateMemory(metadata: any): boolean { return ['curated-project-facts', 'curated-preferences-priorities', 'curated-anti-drift', 'curated-noise-suppression'].includes(String(metadata?.source ?? '')); }
+function isDurableCandidate(metadata: any): boolean { return metadata?.source === 'durable-candidates'; }
+function isGhostCache(metadata: any): boolean { return String(metadata?.type ?? '').toLowerCase() === 'ghost_cache' || String(metadata?.source ?? '').toLowerCase() === 'ghost_cache'; }
+function queryIsAboutGhostCache(query: string): boolean { return /\bghost cache\b|\bghost\b.*\bcache\b|\bcache key\b|\bcached browse\b/.test(normalizeQuery(query)); }
+function isProbeNoise(metadata: any, text: string): boolean {
   const source = String(metadata?.source ?? '').toLowerCase();
-  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x) => String(x).toLowerCase()) : [];
-  const t = String(text || '').trim().toLowerCase();
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
+  const t = text.trim().toLowerCase();
   return source.includes('probe') || tags.includes('probe') || t === 'probe' || /^probe[:\s-]?/.test(t);
 }
-function queryIsAboutProbe(query) { return /\bprobe\b|self-model|telemetry|diagnostic/.test(normalizeQuery(query)); }
-function isInternalOracleMemory(metadata, text) {
+function queryIsAboutProbe(query: string): boolean { return /\bprobe\b|self-model|telemetry|diagnostic/.test(normalizeQuery(query)); }
+function isInternalOracleMemory(metadata: Record<string, unknown>, text: string): boolean {
   const source = String(metadata?.source ?? '').toLowerCase();
   const sessionKey = String(metadata?.sessionKey ?? '').toLowerCase();
-  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x) => String(x).toLowerCase()) : [];
-  const t = String(text || '').toLowerCase();
+  const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
+  const t = text.toLowerCase();
   return source.includes('oracle')
     || sessionKey.includes('oracle')
     || tags.includes('semantic_prediction')
     || tags.includes('awareness')
     || /oracle predicts|durable verification marker|durable smoke marker|memory bridge probe|anti recursion|terminal synthesis|repeat safeguard|convergence guard|loop guard|recursion barrier/.test(t);
 }
-function queryIsAboutInternalOracle(query) { return /\boracle\b|semantic prediction|memory bridge probe|durable (verification|smoke) marker|anti recursion|recursion barrier|loop guard/.test(normalizeQuery(query)); }
-function toTimestamp(value) {
+function queryIsAboutInternalOracle(query: string): boolean {
+  return /\boracle\b|semantic prediction|memory bridge probe|durable (verification|smoke) marker|anti recursion|recursion barrier|loop guard/.test(query.toLowerCase());
+}
+function toTimestamp(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value > 1e12 ? value : value * 1000;
   if (typeof value === 'string') {
     const n = Number(value);
@@ -80,11 +131,11 @@ function toTimestamp(value) {
   }
   return null;
 }
-function extractTimestamp(metadata) {
-  return toTimestamp(metadata?.timestamp) ?? toTimestamp(metadata?.createdAt) ?? toTimestamp(metadata?.updatedAt) ?? toTimestamp(metadata?.occurredAt) ?? null;
+function extractTimestamp(metadata: Record<string, unknown>): number | null {
+  return toTimestamp(metadata.timestamp) ?? toTimestamp(metadata.createdAt) ?? toTimestamp(metadata.updatedAt) ?? toTimestamp(metadata.occurredAt) ?? null;
 }
-function textMatchesNoise(text) {
-  const t = String(text || '').trim();
+function textMatchesNoise(text: string): boolean {
+  const t = text.trim();
   return [
     /^\[.*\]\sJake:\s\*\*.*(COMPLETE|Finished|LIVE|OPERATIONAL).*$/i,
     /^\[.*\]\sJake:\s✅\s?.*$/i,
@@ -95,7 +146,7 @@ function textMatchesNoise(text) {
     /^\[.*\]\sJake:\s(Absolutely|Perfect|Okay|Yep|Yes)\b/i,
   ].some((re) => re.test(t));
 }
-function recencyScore(timestampMs) {
+function recencyScore(timestampMs: number | null): number {
   if (!timestampMs) return 0.25;
   const ageDays = Math.max(0, (Date.now() - timestampMs) / 86400000);
   if (ageDays <= 2) return 1;
@@ -104,26 +155,27 @@ function recencyScore(timestampMs) {
   if (ageDays <= 180) return 0.45;
   return 0.25;
 }
-function explicitnessScore(text) {
+function explicitnessScore(text: string): number {
   let score = 0.2;
-  if (/\b(i prefer|prefer|remember this|please remember|call me|my timezone|we decided|the plan is|always use|default to|never use|use this|current|latest|final)\b/i.test(String(text || ''))) score += 0.55;
-  if (/\b(maybe|probably|might|i think|seems|guess|not sure)\b/i.test(String(text || ''))) score -= 0.18;
+  if (/\b(i prefer|prefer|remember this|please remember|call me|my timezone|we decided|the plan is|always use|default to|never use|use this|current|latest|final)\b/i.test(text)) score += 0.55;
+  if (/\b(maybe|probably|might|i think|seems|guess|not sure)\b/i.test(text)) score -= 0.18;
   return Math.max(0, Math.min(1, score));
 }
-function sourceQualityScore(metadata) {
+function sourceQualityScore(metadata: Record<string, unknown>): number {
   if (isCurated(metadata)) return 1;
   if (isProjectStateMemory(metadata)) return 0.92;
   if (isDurableCandidate(metadata)) return 0.66;
   if (isWhatsappHighSignal(metadata)) return 0.54;
   return 0.45;
 }
-function extractEntity(query, text, metadata) {
+function extractEntity(query: string, text: string, metadata: Record<string, unknown>): string | undefined {
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) return undefined;
-  const explicit = String(text || '').match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
+  const explicit = text.match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
   if (explicit) return explicit;
-  return String(query || '').match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
+  const fromQuery = query.match(/\b(?:Jake|HeroUI|OpenClaw|Cortex|WhatsApp|Home Assistant|Oracle)\b/i)?.[0];
+  return fromQuery ?? undefined;
 }
-function extractAttribute(query, text, metadata) {
+function extractAttribute(query: string, text: string, metadata: Record<string, unknown>): string | undefined {
   if (isInternalOracleMemory(metadata, text) && !queryIsAboutInternalOracle(query)) return 'internal_noise';
   const hay = `${query} ${text}`.toLowerCase();
   if (/latest|current|changed|used to|timeline|when|before|after/.test(hay)) return 'temporal_state';
@@ -132,17 +184,23 @@ function extractAttribute(query, text, metadata) {
   if (/status|working|l2|browser bridge|tool/.test(hay)) return 'runtime_state';
   return undefined;
 }
-function normalizeValueSignature(text) { return String(text || '').toLowerCase().replace(/https?:\/\/\S+/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
-function detectConflict(a, b) {
+function normalizeValueSignature(text: string): string {
+  return text.toLowerCase().replace(/https?:\/\/\S+/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+function detectConflict(a: CandidateSignals, b: CandidateSignals): boolean {
   if (!a.attribute || !b.attribute || a.attribute !== b.attribute) return false;
   if (a.entity && b.entity && a.entity.toLowerCase() !== b.entity.toLowerCase()) return false;
   if (!a.valueSignature || !b.valueSignature || a.valueSignature === b.valueSignature) return false;
   return true;
 }
-function queryNeedsReconcile(query) { return /\b(latest|current|end up|decide|decided|change|changed|still|final|actually|correct|updated|now|working)\b/i.test(query); }
-function queryNeedsInvestigate(query) { return /\b(timeline|before|after|used to|across sessions|over time|reconstruct|walk me through|evolved|history|what happened)\b/i.test(query); }
-function classifyQuery(query) {
-  const tags = [];
+function queryNeedsReconcile(query: string): boolean {
+  return /\b(latest|current|end up|decide|decided|change|changed|still|final|actually|correct|updated|now|working)\b/i.test(query);
+}
+function queryNeedsInvestigate(query: string): boolean {
+  return /\b(timeline|before|after|used to|across sessions|over time|reconstruct|walk me through|evolved|history|what happened)\b/i.test(query);
+}
+function classifyQuery(query: string): { mode: QueryMode; tags: string[] } {
+  const tags: string[] = [];
   if (queryNeedsInvestigate(query)) tags.push('timeline');
   if (queryNeedsReconcile(query)) tags.push('conflict-prone');
   if (/\bprefer|preference|relationship|context|social cue\b/i.test(query)) tags.push('preference');
@@ -151,12 +209,12 @@ function classifyQuery(query) {
   return { mode: 'fast', tags: ['simple-recall'] };
 }
 
-function mapCandidate(query, item, cfg, corroborationCount) {
-  const metadata = item?.metadata ?? {};
+function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveConfig>, corroborationCount: number): MemoryCandidate {
+  const metadata = (item?.metadata ?? {}) as Record<string, unknown>;
   const text = String(item?.text ?? '');
   const rawScore = typeof item?.distance === 'number' ? 1 / (1 + item.distance) : (typeof item?.score === 'number' ? item.score : 0.5);
   const timestampMs = extractTimestamp(metadata);
-  const signals = {
+  const signals: CandidateSignals = {
     rawScore,
     recencyScore: recencyScore(timestampMs),
     explicitnessScore: explicitnessScore(text),
@@ -196,9 +254,9 @@ function mapCandidate(query, item, cfg, corroborationCount) {
   };
 }
 
-function reconcileResults(query, items, cfg) {
+function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof resolveConfig>): ReconcileResult {
   const classification = classifyQuery(query);
-  const groupedBySignature = new Map();
+  const groupedBySignature = new Map<string, number>();
   for (const item of items) {
     const signature = normalizeValueSignature(String(item?.text ?? ''));
     if (!signature) continue;
@@ -206,18 +264,17 @@ function reconcileResults(query, items, cfg) {
   }
   const mapped = items.map((item) => mapCandidate(query, item, cfg, groupedBySignature.get(normalizeValueSignature(String(item?.text ?? ''))) ?? 1));
   const visible = mapped.filter((item) => {
-    const signals = item.metadata.candidateSignals;
+    const signals = item.metadata.candidateSignals as CandidateSignals;
     if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
     if (isGhostCache(item.metadata) && !queryIsAboutGhostCache(query)) return false;
     if (isProbeNoise(item.metadata, item.snippet) && !queryIsAboutProbe(query)) return false;
     return true;
   });
-
-  const conflicts = [];
+  const conflicts: ReconcileResult['conflicts'] = [];
   for (let i = 0; i < visible.length; i += 1) {
     for (let j = i + 1; j < visible.length; j += 1) {
-      const aSignals = visible[i].metadata.candidateSignals;
-      const bSignals = visible[j].metadata.candidateSignals;
+      const aSignals = visible[i].metadata.candidateSignals as CandidateSignals;
+      const bSignals = visible[j].metadata.candidateSignals as CandidateSignals;
       if (!queryIsAboutInternalOracle(query) && aSignals.attribute === 'internal_noise' && bSignals.attribute === 'internal_noise') continue;
       if (!detectConflict(aSignals, bSignals)) continue;
       aSignals.contradictionPenalty += cfg.conflictPenalty;
@@ -229,17 +286,22 @@ function reconcileResults(query, items, cfg) {
       if (aTs && bTs && aTs !== bTs) {
         const older = aTs < bTs ? visible[i] : visible[j];
         older.score = Math.max(0, older.score - cfg.conflictPenalty / 2);
-        older.metadata.candidateSignals.supersededPenalty += cfg.conflictPenalty / 2;
-        older.metadata.candidateSignals.reasons.push('likely_superseded');
+        const olderSignals = older.metadata.candidateSignals as CandidateSignals;
+        olderSignals.supersededPenalty += cfg.conflictPenalty / 2;
+        olderSignals.reasons.push('likely_superseded');
       }
-      conflicts.push({ entity: aSignals.entity ?? bSignals.entity, attribute: aSignals.attribute, paths: [visible[i].path, visible[j].path], values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''] });
+      conflicts.push({
+        entity: aSignals.entity ?? bSignals.entity,
+        attribute: aSignals.attribute,
+        paths: [visible[i].path, visible[j].path],
+        values: [aSignals.valueSignature ?? '', bSignals.valueSignature ?? ''],
+      });
     }
   }
-
   visible.sort((a, b) => (b.score - a.score) || String(a.path).localeCompare(String(b.path)));
-  const resolvedFactsMap = new Map();
+  const resolvedFactsMap = new Map<string, { entity?: string; attribute?: string; bestPath: string; supportingPaths: string[]; bestScore: number }>();
   for (const item of visible) {
-    const signals = item.metadata.candidateSignals;
+    const signals = item.metadata.candidateSignals as CandidateSignals;
     const key = `${signals.entity ?? 'unknown'}::${signals.attribute ?? 'unknown'}`;
     const existing = resolvedFactsMap.get(key);
     if (!existing || item.score > existing.bestScore) {
@@ -248,64 +310,138 @@ function reconcileResults(query, items, cfg) {
       existing.supportingPaths.push(item.path);
     }
   }
-
   return {
     mode: classification.mode,
     queryType: classification.tags,
     results: visible.slice(0, classification.mode === 'investigate' ? cfg.hardQueryCandidateCount : items.length),
-    resolvedFacts: Array.from(resolvedFactsMap.values()).map(({ bestScore, ...rest }) => rest),
+    resolvedFacts: Array.from(resolvedFactsMap.values()).map(({ bestScore: _bestScore, ...rest }) => rest),
     conflicts,
   };
 }
 
-function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-function retryableError(error) {
-  const msg = String(error?.message || error || '');
+function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function retryableError(error: unknown): boolean {
+  const msg = String((error as any)?.message || error || '');
   return /aborted|AbortError|timeout|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|HTTP 408|HTTP 429|HTTP 500|HTTP 502|HTTP 503|HTTP 504/i.test(msg);
 }
-async function postJson(url, body, timeoutMs, retryCount = 0, retryBackoffMs = 250) {
-  let lastError;
+async function postJson(baseUrl: string, route: string, body: unknown, timeoutMs: number, retryCount = 0, retryBackoffMs = 250) {
+  let lastError: unknown;
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
+      const res = await fetch(`${baseUrl}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
       return await res.json();
     } catch (error) {
       lastError = error;
       if (attempt >= retryCount || !retryableError(error)) throw error;
       await sleep(retryBackoffMs * (attempt + 1));
-    } finally {
-      clearTimeout(timer);
-    }
+    } finally { clearTimeout(timer); }
   }
-  throw lastError || new Error('unknown memory bridge error');
+  throw lastError instanceof Error ? lastError : new Error(String(lastError || 'unknown memory bridge error'));
+}
+
+function extractText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(extractText).filter(Boolean).join('\n');
+  if (!value || typeof value !== 'object') return '';
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.text === 'string') return obj.text;
+  if (typeof obj.content === 'string') return obj.content;
+  if (Array.isArray(obj.content)) {
+    const contentText = obj.content.map((p) => extractText(p)).filter(Boolean).join('\n');
+    if (contentText) return contentText;
+  }
+  if (typeof obj.role === 'string' && Array.isArray(obj.content)) {
+    const roleContent = obj.content.map((p) => extractText(p)).filter(Boolean).join('\n');
+    if (roleContent) return roleContent;
+  }
+  if (Array.isArray(obj.messages)) {
+    const msgText = obj.messages.map((m) => extractText(m)).filter(Boolean).join('\n');
+    if (msgText) return msgText;
+  }
+  if (Array.isArray(obj.payloads)) {
+    const payloadText = obj.payloads.map((p) => extractText(p)).filter(Boolean).join('\n');
+    if (payloadText) return payloadText;
+  }
+  if (typeof obj.type === 'string' && obj.type === 'text' && typeof obj.text === 'string') return obj.text;
+  return Object.values(obj).map(extractText).filter(Boolean).join('\n');
+}
+function containsSecretLike(text: string): boolean {
+  return /\b(api[_-]?key|token|password|secret|bearer|ssh-rsa|BEGIN [A-Z ]+ PRIVATE KEY)\b/i.test(text);
+}
+function summarizeShape(value: unknown, depth = 0): unknown {
+  if (depth > 2) return typeof value;
+  if (value == null) return value;
+  if (typeof value === 'string') return { type: 'string', len: value.length, preview: value.slice(0, 120) };
+  if (typeof value !== 'object') return { type: typeof value, value };
+  if (Array.isArray(value)) return { type: 'array', len: value.length, sample: value.slice(0, 2).map((v) => summarizeShape(v, depth + 1)) };
+  const obj = value as Record<string, unknown>;
+  const entries = Object.entries(obj).slice(0, 12);
+  const shape: Record<string, unknown> = {};
+  for (const [k, v] of entries) shape[k] = summarizeShape(v, depth + 1);
+  return { type: 'object', keys: Object.keys(obj).slice(0, 20), shape };
+}
+function durabilityScore(text: string): { score: number; reasons: string[]; kind: string } {
+  const t = text.trim();
+  const reasons: string[] = [];
+  let score = 0;
+  let kind = 'transient';
+  if (!t || t.length < 20) return { score: 0, reasons: ['too_short'], kind };
+  if (/\bremember this\b|\bplease remember\b|\bmy preference\b|\bi prefer\b|\bcall me\b|\btimezone\b|\bpronouns\b/i.test(t)) { score += 0.45; reasons.push('explicit_preference'); kind = 'preference'; }
+  if (/\bdecision\b|\bwe decided\b|\bthe plan is\b|\bfrom now on\b|\bdefault to\b|\balways use\b/i.test(t)) { score += 0.35; reasons.push('decision'); kind = 'decision'; }
+  if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b/i.test(t)) { score += 0.22; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
+  if (/\b(today|right now|currently|just now|this morning|tonight|lol|haha|thanks|ok|okay|sure)\b/i.test(t)) { score -= 0.18; reasons.push('transient_chat'); }
+  if (/https?:\/\/\S+/.test(t) && t.length < 140) { score -= 0.18; reasons.push('bare_link'); }
+  if (containsSecretLike(t)) { score = 0; reasons.push('secret_like'); kind = 'blocked'; }
+  return { score: Math.max(0, Math.min(1, score)), reasons, kind };
+}
+async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
+  if (!cfg.enabledWriteThrough) return;
+  const text = [
+    extractText(event?.messages ?? []),
+    extractText(event?.result),
+    extractText(event),
+    String(fallbackText || ''),
+  ].filter(Boolean).join('\n').replace(/\s+/g, ' ').trim();
+  if (!text) {
+    api.logger.info?.('cortex-memory-bridge: write-through skipped (no extractable text)');
+    return;
+  }
+  const recent = text.slice(-2000);
+  const dur = durabilityScore(recent);
+  if (dur.score < cfg.minDurabilityScore) return;
+  const senderScoped = { channel: ctx?.channelId ?? 'unknown', sessionKey: ctx?.sessionKey ?? undefined, source: 'openclaw-agent-end', quality: 'curated', memory_kind: dur.kind, tags: [...cfg.writeTags, ...dur.reasons] };
+  try {
+    await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+    api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
+  } catch (error) {
+    api.logger.warn?.(`cortex-memory-bridge: write-through failed: ${String(error)}`);
+  }
 }
 
 const plugin = {
   id: 'cortex-memory-bridge',
   name: 'Cortex Memory Bridge',
-  description: 'Bridge from OpenClaw memory_search into Cortex /knowledge/search.',
+  description: 'Bridge from OpenClaw memory_search into Cortex /knowledge/search with optional durable-memory write-through.',
   kind: 'memory',
-  register(api) {
+  register(api: OpenClawPluginApi) {
+    const recentOutputBySession = new Map<string, string>();
     api.registerTool(() => ({
-      label: 'Memory Search',
-      name: 'memory_search',
-      description: 'Search Cortex-backed memory over HTTP.',
-      parameters: SearchSchema,
+      label: 'Memory Search', name: 'memory_search', description: 'Search Cortex-backed memory over HTTP.', parameters: SearchSchema,
       execute: async (_toolCallId, params) => {
         const cfg = resolveConfig(api.pluginConfig);
-        const query = String(params?.query ?? '');
-        const requestedMax = Number(params?.maxResults ?? 5);
+        const query = String((params as { query: string }).query ?? '');
+        const requestedMax = Number((params as { maxResults?: number }).maxResults ?? 5);
         const classification = classifyQuery(query);
         const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, cfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
         try {
-          const response = await postJson(`${cfg.baseUrl}${cfg.searchPath}`, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+          const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
           const rawItems = Array.isArray(response?.results) ? response.results : [];
           const reconciled = reconcileResults(query, rawItems, cfg);
           let results = reconciled.results.slice(0, requestedMax);
-          const minScore = typeof params?.minScore === 'number' ? Number(params.minScore) : null;
+          const minScore = typeof (params as { minScore?: number }).minScore === 'number' ? Number((params as { minScore?: number }).minScore) : null;
           if (minScore !== null) results = results.filter((x) => x.score >= minScore);
           const cleanButEmpty = results.length === 0 && reconciled.resolvedFacts.length === 0 && reconciled.conflicts.length === 0;
           return JSON.stringify({
@@ -323,20 +459,34 @@ const plugin = {
         } catch (error) {
           return JSON.stringify({ results: [], disabled: true, error: error instanceof Error ? error.message : String(error) });
         }
-      }
+      },
     }), { names: ['memory_search'] });
 
     api.registerTool(() => ({
-      label: 'Memory Get',
-      name: 'memory_get',
-      description: 'Stub: Cortex does not currently expose OpenClaw-compatible file snippet reads.',
-      parameters: GetSchema,
+      label: 'Memory Get', name: 'memory_get', description: 'Stub: Cortex does not currently expose OpenClaw-compatible file snippet reads.', parameters: GetSchema,
       execute: async (_toolCallId, params) => {
-        const path = String(params?.path ?? '');
+        const path = String((params as { path?: string }).path ?? '');
         return JSON.stringify({ path, text: '', disabled: true, error: 'cortex-memory-bridge does not implement memory_get yet; Cortex search endpoints return records, not workspace file snippets.' });
-      }
+      },
     }), { names: ['memory_get'] });
-  }
+
+    api.on('llm_output', (event: any, ctx: any) => {
+      const key = String(ctx?.sessionKey || ctx?.sessionId || '');
+      const text = extractText(event).replace(/\s+/g, ' ').trim();
+      if (key && text) recentOutputBySession.set(key, text.slice(-4000));
+    });
+
+    api.on('agent_end', async (event: any, ctx: any) => {
+      const cfg = resolveConfig(api.pluginConfig);
+      const key = String(ctx?.sessionKey || ctx?.sessionId || '');
+      const fallbackText = key ? recentOutputBySession.get(key) : undefined;
+      if (String(api.pluginConfig?.debugShapes || '') === 'true') {
+        api.logger.info?.(`cortex-memory-bridge: agent_end shape ${JSON.stringify({ key, fallbackLen: fallbackText?.length || 0, summary: summarizeShape(event) })}`);
+      }
+      await maybeWriteThrough(api, cfg, event, ctx, fallbackText);
+      if (key) recentOutputBySession.delete(key);
+    });
+  },
 };
 
 export default plugin;
