@@ -289,16 +289,3 @@ export class CortexMemorySearchManager {
 }
 
 export default { CortexMemorySearchManager };
-  provider: 'cortex-http',
-      model: 'semantic-http',
-      files: 0,
-      chunks: 0,
-      custom: { searchMode: 'semantic', bridge: 'cortex-memory-bridge', baseUrl: this.rcfg.baseUrl, modes: ['fast', 'reconcile', 'investigate-lite'] }
-    };
-  }
-  async probeEmbeddingAvailability() { return { ok: true }; }
-  async probeVectorAvailability() { return true; }
-  async close() {}
-}
-
-export default { CortexMemorySearchManager };
