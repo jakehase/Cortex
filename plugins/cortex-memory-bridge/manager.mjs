@@ -151,6 +151,7 @@ function extractAttribute(query, text, metadata) {
 function normalizeValueSignature(text) { return String(text || '').toLowerCase().replace(/https?:\/\/\S+/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120); }
 function detectConflict(a, b) {
   if (!a.attribute || !b.attribute || a.attribute !== b.attribute) return false;
+  if (a.attribute === 'recent_summary') return false;
   if (a.entity && b.entity && a.entity.toLowerCase() !== b.entity.toLowerCase()) return false;
   if (!a.valueSignature || !b.valueSignature || a.valueSignature === b.valueSignature) return false;
   return true;
@@ -235,7 +236,7 @@ function reconcileResults(query, items, cfg) {
     groupedBySignature.set(signature, (groupedBySignature.get(signature) ?? 0) + 1);
   }
   const mapped = items.map((item) => mapCandidate(query, item, cfg, groupedBySignature.get(normalizeValueSignature(String(item?.text ?? ''))) ?? 1));
-  const visible = mapped.filter((item) => {
+  let visible = mapped.filter((item) => {
     const signals = item.metadata.candidateSignals;
     if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
     if (isGhostCache(item.metadata) && !queryIsAboutGhostCache(query)) return false;
@@ -246,6 +247,10 @@ function reconcileResults(query, items, cfg) {
     return true;
   });
 
+  if (isRecentSummaryQuery(query)) {
+    const summaryOnly = visible.filter((item) => isRecentSummaryMemory(item.metadata, item.snippet));
+    if (summaryOnly.length > 0) visible = summaryOnly;
+  }
   const conflicts = [];
   for (let i = 0; i < visible.length; i += 1) {
     for (let j = i + 1; j < visible.length; j += 1) {

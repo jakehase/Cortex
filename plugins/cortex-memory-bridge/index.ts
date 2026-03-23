@@ -227,6 +227,7 @@ function normalizeValueSignature(text: string): string {
 }
 function detectConflict(a: CandidateSignals, b: CandidateSignals): boolean {
   if (!a.attribute || !b.attribute || a.attribute !== b.attribute) return false;
+  if (a.attribute === 'recent_summary') return false;
   if (a.entity && b.entity && a.entity.toLowerCase() !== b.entity.toLowerCase()) return false;
   if (!a.valueSignature || !b.valueSignature || a.valueSignature === b.valueSignature) return false;
   return true;
@@ -315,7 +316,7 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
     groupedBySignature.set(signature, (groupedBySignature.get(signature) ?? 0) + 1);
   }
   const mapped = items.map((item) => mapCandidate(query, item, cfg, groupedBySignature.get(normalizeValueSignature(String(item?.text ?? ''))) ?? 1));
-  const visible = mapped.filter((item) => {
+  let visible = mapped.filter((item) => {
     const signals = item.metadata.candidateSignals as CandidateSignals;
     if (signals.attribute === 'internal_noise' && !queryIsAboutInternalOracle(query)) return false;
     if (isGhostCache(item.metadata) && !queryIsAboutGhostCache(query)) return false;
@@ -325,6 +326,10 @@ function reconcileResults(query: string, items: any[], cfg: ReturnType<typeof re
     if (isRecentSummaryQuery(query) && !isRecentSummaryMemory(item.metadata, item.snippet) && (signals.recencyScore < 0.85 || /connection detail|ip address|ssh|token stored|authentication:/i.test(item.snippet))) return false;
     return true;
   });
+  if (isRecentSummaryQuery(query)) {
+    const summaryOnly = visible.filter((item) => isRecentSummaryMemory(item.metadata, item.snippet));
+    if (summaryOnly.length > 0) visible = summaryOnly;
+  }
   const conflicts: ReconcileResult['conflicts'] = [];
   for (let i = 0; i < visible.length; i += 1) {
     for (let j = i + 1; j < visible.length; j += 1) {
@@ -511,7 +516,7 @@ const plugin = {
           let rawItems = Array.isArray(response?.results) ? response.results : [];
           if (recentSummaryQuery && !rawItems.some((item: any) => isRecentSummaryMemory((item?.metadata ?? {}) as Record<string, unknown>, String(item?.text ?? '')))) {
             const seen = new Set(rawItems.map((item: any) => String(item?.id ?? '')));
-            for (const expandedQuery of [`recent status summary ${query}`.trim(), `question: ${query} answer:`.trim()]) {
+            for (const expandedQuery of [`recent status summary ${query}`.trim(), `question: ${query} answer:`.trim(), 'Cortex memory bridge repair completed']) {
               const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: expandedQuery, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
               const extra = Array.isArray(expanded?.results) ? expanded.results : [];
               for (const item of extra) {
