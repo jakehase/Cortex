@@ -500,10 +500,26 @@ const plugin = {
         const query = String((params as { query: string }).query ?? '');
         const requestedMax = Number((params as { maxResults?: number }).maxResults ?? 5);
         const classification = classifyQuery(query);
-        const fetchCount = classification.mode === 'investigate' ? Math.max(requestedMax, cfg.hardQueryCandidateCount) : Math.max(requestedMax, 8);
+        const recentSummaryQuery = classification.tags.includes('recent-summary');
+        const fetchCount = classification.mode === 'investigate'
+          ? Math.max(requestedMax, cfg.hardQueryCandidateCount)
+          : recentSummaryQuery
+            ? Math.max(requestedMax, Math.max(cfg.hardQueryCandidateCount, 20))
+            : Math.max(requestedMax, 8);
         try {
           const response = await postJson(cfg.baseUrl, cfg.searchPath, { query, n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
-          const rawItems = Array.isArray(response?.results) ? response.results : [];
+          let rawItems = Array.isArray(response?.results) ? response.results : [];
+          if (recentSummaryQuery && !rawItems.some((item: any) => isRecentSummaryMemory((item?.metadata ?? {}) as Record<string, unknown>, String(item?.text ?? '')))) {
+            const expanded = await postJson(cfg.baseUrl, cfg.searchPath, { query: `recent status summary ${query}`.trim(), n_results: fetchCount }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
+            const extra = Array.isArray(expanded?.results) ? expanded.results : [];
+            const seen = new Set(rawItems.map((item: any) => String(item?.id ?? '')));
+            for (const item of extra) {
+              const id = String(item?.id ?? '');
+              if (id && seen.has(id)) continue;
+              if (id) seen.add(id);
+              rawItems.push(item);
+            }
+          }
           const reconciled = reconcileResults(query, rawItems, cfg);
           let results = reconciled.results.slice(0, requestedMax);
           const minScore = typeof (params as { minScore?: number }).minScore === 'number' ? Number((params as { minScore?: number }).minScore) : null;
