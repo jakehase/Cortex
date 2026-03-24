@@ -1,0 +1,36 @@
+{
+  "id": "outbound-dedupe",
+  "name": "Outbound Dedupe Guard",
+  "description": "Suppresses duplicate outbound messages per channel/recipient within a time window.",
+  "kind": "utility",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "channels": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "ttlMs": {
+        "type": "number",
+        "minimum": 1000,
+        "maximum": 86400000
+      },
+      "minNormalizedLength": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 10000
+      },
+      "memoryMaxSize": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 100000
+      },
+      "fileMaxEntries": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 1000000
+      }
+    }
+  }
+}

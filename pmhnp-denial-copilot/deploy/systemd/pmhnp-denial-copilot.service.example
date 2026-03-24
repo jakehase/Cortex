@@ -1,0 +1,23 @@
+[Unit]
+Description=PMHNP Billing AI Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pmhnp
+Group=pmhnp
+WorkingDirectory=/opt/pmhnp-denial-copilot
+EnvironmentFile=/etc/pmhnp/pmhnp.env
+ExecStart=/usr/bin/node /opt/pmhnp-denial-copilot/src/ops/operationalHttpServerCli.mjs
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pmhnp /opt/pmhnp-denial-copilot/state /opt/pmhnp-denial-copilot/backups
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

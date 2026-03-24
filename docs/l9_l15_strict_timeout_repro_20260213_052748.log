@@ -1,0 +1,35 @@
+# strict-timeout repro 20260213_052748
+darwin_pid=144071
+2026-02-13T05:27:49+00:00
+HEALTH_HTTP=000 TOTAL=2.002314 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:27:52+00:00
+HEALTH_HTTP=000 TOTAL=2.002315 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:27:55+00:00
+HEALTH_HTTP=000 TOTAL=2.002265 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:27:58+00:00
+HEALTH_HTTP=000 TOTAL=2.002262 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:01+00:00
+HEALTH_HTTP=000 TOTAL=2.002270 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:04+00:00
+HEALTH_HTTP=000 TOTAL=2.002315 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:07+00:00
+HEALTH_HTTP=000 TOTAL=2.002310 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:10+00:00
+HEALTH_HTTP=000 TOTAL=2.002403 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:13+00:00
+HEALTH_HTTP=000 TOTAL=2.002278 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:16+00:00
+HEALTH_HTTP=000 TOTAL=2.002346 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:19+00:00
+HEALTH_HTTP=000 TOTAL=2.002291 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:22+00:00
+HEALTH_HTTP=000 TOTAL=2.002282 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:25+00:00
+HEALTH_HTTP=000 TOTAL=2.002319 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:28+00:00
+HEALTH_HTTP=000 TOTAL=2.002350 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+2026-02-13T05:28:31+00:00
+HEALTH_HTTP=000 TOTAL=2.002341 ERR=Operation timed out after 2002 milliseconds with 0 bytes received
+--- DARWIN OUTPUT ---
+{"success": false, "data": null, "error": "Oracle consultation failed: HTTPConnectionPool(host='localhost', port=8888): Read timed out. (read timeout=90)", "_hud": "\ud83d\udd35 L12 (Darwin)", "_activated": [{"level": 12, "name": "Darwin"}]}
+DARWIN_HTTP=503 TOTAL=90.023185

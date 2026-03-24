@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PMHNP Claim Guard | Connect Tebra Intake</title>
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="description" content="Tebra-first intake for PMHNP Claim Guard: upload Tebra exports now or request guided live sync later for pre-submit risk checks and denial recovery workflows.">
+  <link rel="canonical" href="https://pmhnpbilling.com/app/intake.html">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "PMHNP Billing Connect Tebra Intake",
+    "description": "Hybrid Tebra onboarding for PMHNP Billing clients, including export upload and admin-assisted live sync setup.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "url": "https://pmhnpbilling.com/app/intake.html",
+    "publisher": {"@type": "Organization", "name": "PMHNP Billing", "url": "https://pmhnpbilling.com"}
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">PMHNP Billing</a>
+      <nav class="topnav">
+        <a href="/app/">Client App</a>
+        <a href="/claim-guard-pilot.html">Claim Guard Pilot</a>
+        <a href="/">Home</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="card intake-card">
+      <p class="eyebrow">Connect Tebra</p>
+      <h1>Upload a few Tebra exports and we can get started</h1>
+      <p>
+        Most practices should start with the upload-first path. You do <strong>not</strong> need OAuth or live sync to begin.
+        Upload the exports you already have, and PMHNP Billing can start reviewing your data right away.
+      </p>
+
+      <div class="notice">
+        <strong>Before you start, export these from Tebra if you can:</strong>
+        <ul class="onboarding-steps">
+          <li><strong>Patient roster</strong></li>
+          <li><strong>Claims / A/R report</strong></li>
+          <li><strong>Appointments export</strong></li>
+        </ul>
+        <p class="fine-print">If you only have one file right now, upload it anyway. We can still start.</p>
+        <p class="fine-print"><strong>Working now:</strong> upload-first onboarding, admin-assisted live sync requests, onboarding session capture, and manual review. <strong>Not yet live:</strong> self-serve OAuth click-attach, automatic claim submission, and automatic client account provisioning.</p>
+      </div>
+
+      <form id="intakeForm" class="intake-grid wizard-form">
+        <div class="full wizard-progress" aria-label="Onboarding steps">
+          <div class="wizard-step active" data-step-indicator="1"><span>1</span><strong>Basic info</strong></div>
+          <div class="wizard-step" data-step-indicator="2"><span>2</span><strong>Exports</strong></div>
+          <div class="wizard-step" data-step-indicator="3"><span>3</span><strong>Review & submit</strong></div>
+        </div>
+
+        <section class="full wizard-panel" data-step="1">
+          <div class="wizard-panel__header">
+            <h2>Step 1: Tell us about the practice</h2>
+            <p>Just the basics so we know who the onboarding is for.</p>
+          </div>
+          <div>
+            <label for="practiceName">Practice name</label>
+            <input id="practiceName" name="practice_name" required>
+          </div>
+          <div>
+            <label for="contactName">Primary contact</label>
+            <input id="contactName" name="contact_name" required>
+          </div>
+          <div>
+            <label for="contactEmail">Contact email</label>
+            <input id="contactEmail" type="email" name="contact_email" required>
+          </div>
+          <div>
+            <label for="contactPhone">Contact phone</label>
+            <input id="contactPhone" type="tel" name="contact_phone">
+          </div>
+          <div class="full wizard-actions">
+            <button type="button" class="btn-primary" data-next-step>Next: exports</button>
+          </div>
+        </section>
+
+        <section class="full wizard-panel" data-step="2" hidden>
+          <div class="wizard-panel__header">
+            <h2>Step 2: Upload the Tebra exports you have</h2>
+            <p>This is the easiest path. You can start with one file and add more later.</p>
+          </div>
+
+          <div class="tebra-guide full">
+            <h3>How to export from Tebra</h3>
+            <p class="fine-print">Inside Tebra, look for exports or reports like these. Names may vary a little by account.</p>
+            <div class="guide-grid">
+              <article class="guide-card">
+                <div class="guide-shot">Patients</div>
+                <h4>1. Patient roster</h4>
+                <p>Export your patient list or roster first. This gives us the basic practice/patient shape.</p>
+              </article>
+              <article class="guide-card">
+                <div class="guide-shot">Claims / A/R</div>
+                <h4>2. Claims / A/R report</h4>
+                <p>Export your claims, A/R, or open balances report so we can see billing risk and work queues.</p>
+              </article>
+              <article class="guide-card">
+                <div class="guide-shot">Appointments</div>
+                <h4>3. Appointments export</h4>
+                <p>Export appointments or encounters so the worklist engine can line up scheduling and billing context.</p>
+              </article>
+            </div>
+          </div>
+
+          <div class="full">
+            <label for="exportFiles">Upload your Tebra export files</label>
+            <input id="exportFiles" type="file" multiple accept=".csv,.xlsx,.xls,.xml,.json,.txt,.zip,.edi,.837,.835">
+            <p class="fine-print">Best starter set: patient roster, claims / A/R report, and appointment export. CSV or Excel is great. Total upload limit in this pilot is 12 MB.</p>
+            <p class="fine-print">Don’t have all 3 yet? Upload what you have and we’ll still get started.</p>
+            <ul id="selectedFilesList" class="stack-list"></ul>
+          </div>
+
+          <details class="advanced-options full">
+            <summary>Advanced options</summary>
+            <p class="fine-print">Only use these if you already know the details or want to talk about a longer-term live connection.</p>
+            <div class="advanced-grid">
+              <div>
+                <label for="tebraEnvironment">Is this your real Tebra account or a test account?</label>
+                <select id="tebraEnvironment" name="tebra_environment">
+                  <option value="unknown" selected>Not sure yet</option>
+                  <option value="prod">Production</option>
+                  <option value="sandbox">Sandbox</option>
+                </select>
+              </div>
+              <div>
+                <label for="tebraTenantId">Tebra account ID (optional)</label>
+                <input id="tebraTenantId" name="tebra_tenant_id" placeholder="Only enter this if you already know it">
+              </div>
+              <div class="full">
+                <label>Connection options</label>
+                <div class="lane-grid">
+                  <label class="lane-option" for="laneUpload">
+                    <input id="laneUpload" type="radio" name="connection_mode" value="export-upload" checked>
+                    <span class="lane-option__title">Upload files now (recommended)</span>
+                    <span class="lane-option__meta">Fastest and easiest. Upload CSV, Excel, XML, or 837/835 files and we can start immediately.</span>
+                  </label>
+                  <label class="lane-option" for="laneLive">
+                    <input id="laneLive" type="radio" name="connection_mode" value="soap-admin-assisted">
+                    <span class="lane-option__title">Help me set up ongoing sync later</span>
+                    <span class="lane-option__meta">Best if you want a read-only live connection after onboarding. Manual approval still gates live reads.</span>
+                  </label>
+                  <label class="lane-option" for="laneOauth">
+                    <input id="laneOauth" type="radio" name="connection_mode" value="direct-oauth-not-live">
+                    <span class="lane-option__title">Connect it myself with OAuth</span>
+                    <span class="lane-option__meta">Coming later. Not live yet.</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <div id="liveLaneNotice" class="full notice" hidden>
+            <strong>Ongoing sync later:</strong> after intake, PMHNP Billing will guide the Tebra setup with you. Live connection tests stay blocked until manual approval is complete.
+          </div>
+
+          <div id="oauthWarning" class="full notice warn" hidden>
+            Self-serve OAuth is not live yet. If you want the easiest path now, switch back to file upload. If you want ongoing sync later, choose the guided setup option.
+          </div>
+
+          <div class="full wizard-actions">
+            <button type="button" class="btn-secondary" data-prev-step>Back</button>
+            <button type="button" class="btn-primary" data-next-step>Next: review</button>
+          </div>
+        </section>
+
+        <section class="full wizard-panel" data-step="3" hidden>
+          <div class="wizard-panel__header">
+            <h2>Step 3: Final notes and submit</h2>
+            <p>We’ll create the onboarding packet and start the review workflow as soon as you submit.</p>
+          </div>
+
+          <div class="full review-card">
+            <h3>What happens after you submit</h3>
+            <ol class="onboarding-steps">
+              <li>We save your onboarding packet and review your uploaded exports.</li>
+              <li>We flag the first billing risks and next steps for the PMHNP Billing review team.</li>
+              <li>If you want ongoing sync later, we’ll help you set that up separately.</li>
+            </ol>
+          </div>
+
+          <div class="full">
+            <label for="notes">Anything we should know?</label>
+            <textarea id="notes" name="notes" placeholder="Optional: payer mix, target go-live date, office workflow details, or which files you’re attaching"></textarea>
+          </div>
+
+          <div class="full" style="display:none;">
+            <label for="website">Website</label>
+            <input id="website" name="website" autocomplete="off" tabindex="-1">
+          </div>
+
+          <div class="full wizard-actions">
+            <button type="button" class="btn-secondary" data-prev-step>Back</button>
+            <button type="submit" class="btn-primary">Submit and start onboarding</button>
+          </div>
+        </section>
+      </form>
+
+      <div id="intakeResult" class="notice" hidden></div>
+
+      <div class="flow-actions">
+        <a class="btn-secondary" href="/cdn-cgi/l/email-protection#9feff6f3f0ebdfeff2f7f1effdf6f3f3f6f1f8b1fcf0f2a0eceafdf5fafceba2cfd2d7d1cfbaadafded6baadafdef8faf1ebbaadafd0f1fdf0feedfbf6f1f8baadafcffefcf4faeb">Email <span class="__cf_email__" data-cfemail="d2a2bbbebda692a2bfbabca2b0bbbebebbbcb5fcb1bdbf">[email&#160;protected]</span></a>
+        <a class="btn-secondary" href="/app/">Back to dashboard</a>
+      </div>
+
+      <p class="fine-print">Safety note: this intake form writes an onboarding request into the PMHNP review workflow. It does not connect to payer systems directly and does not submit claims. If the upload does not go through, the page will download a backup packet so you can still email it in.</p>
+    </section>
+  </main>
+
+  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
+  <script>
+    const form = document.getElementById('intakeForm');
+    const result = document.getElementById('intakeResult');
+    const oauthWarning = document.getElementById('oauthWarning');
+    const liveLaneNotice = document.getElementById('liveLaneNotice');
+    const exportFilesInput = document.getElementById('exportFiles');
+    const selectedFilesList = document.getElementById('selectedFilesList');
+    const connectionModeInputs = Array.from(document.querySelectorAll('input[name="connection_mode"]'));
+    const wizardPanels = Array.from(document.querySelectorAll('.wizard-panel'));
+    const wizardIndicators = Array.from(document.querySelectorAll('[data-step-indicator]'));
+    const nextButtons = Array.from(document.querySelectorAll('[data-next-step]'));
+    const prevButtons = Array.from(document.querySelectorAll('[data-prev-step]'));
+    let currentStep = 1;
+
+    function showStep(step) {
+      currentStep = Math.max(1, Math.min(3, step));
+      wizardPanels.forEach((panel) => {
+        const panelStep = Number(panel.dataset.step || 0);
+        panel.hidden = panelStep !== currentStep;
+      });
+      wizardIndicators.forEach((indicator) => {
+        const stepNo = Number(indicator.dataset.stepIndicator || 0);
+        indicator.classList.toggle('active', stepNo === currentStep);
+        indicator.classList.toggle('done', stepNo < currentStep);
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function validateStep(step) {
+      if (step === 1) {
+        return document.getElementById('practiceName').reportValidity()
+          && document.getElementById('contactName').reportValidity()
+          && document.getElementById('contactEmail').reportValidity();
+      }
+      if (step === 2) {
+        const mode = selectedMode();
+        if (mode === 'export-upload' && !(exportFilesInput.files || []).length) {
+          result.hidden = false;
+          result.innerHTML = '<strong>Please add at least one Tebra export file.</strong> You can start with just one.';
+          return false;
+        }
+      }
+      return true;
+    }
+
+    function selectedMode() {
+      return connectionModeInputs.find((input) => input.checked)?.value || 'export-upload';
+    }
+
+    function requestedAdapterMode(mode) {
+      if (mode === 'export-upload') return 'export_upload';
+      if (mode === 'soap-admin-assisted') return 'soap_api';
+      return 'direct_oauth_not_live';
+    }
+
+    function updateLaneUi() {
+      const mode = selectedMode();
+      liveLaneNotice.hidden = mode !== 'soap-admin-assisted';
+      oauthWarning.hidden = mode !== 'direct-oauth-not-live';
+    }
+
+    function applyQueryLane() {
+      const lane = new URLSearchParams(window.location.search).get('lane');
+      if (lane === 'live') {
+        document.getElementById('laneLive').checked = true;
+      } else if (lane === 'oauth') {
+        document.getElementById('laneOauth').checked = true;
+      } else {
+        document.getElementById('laneUpload').checked = true;
+      }
+      updateLaneUi();
+    }
+
+    function toPacket(formData) {
+      const connectionMode = formData.get('connection_mode');
+      return {
+        packet_version: 'pmhnp_onboarding_v2_hybrid',
+        generated_at: new Date().toISOString(),
+        status: 'intake_created_publicly',
+        truths: {
+          live_tebra_oauth: false,
+          live_client_auth_provisioning: false,
+          pilot_manual_connection_request: true,
+          tebra_export_upload: true,
+          tebra_admin_assisted_sync: true
+        },
+        practice: {
+          practice_name: formData.get('practice_name'),
+          contact_name: formData.get('contact_name'),
+          contact_email: formData.get('contact_email'),
+          contact_phone: formData.get('contact_phone') || null
+        },
+        tebra: {
+          environment: formData.get('tebra_environment'),
+          tenant_id: formData.get('tebra_tenant_id') || null,
+          connection_mode: connectionMode
+        },
+        requested_adapter_mode: requestedAdapterMode(connectionMode),
+        notes: formData.get('notes') || null
+      };
+    }
+
+    function downloadPacket(packet) {
+      const blob = new Blob([JSON.stringify(packet, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pmhnp-onboarding-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function fileToArtifact(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      let binary = '';
+      const bytes = new Uint8Array(arrayBuffer);
+      const chunkSize = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+      }
+      return {
+        name: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        content_base64: btoa(binary)
+      };
+    }
+
+    async function collectArtifacts() {
+      const files = Array.from(exportFilesInput.files || []);
+      const artifacts = [];
+      for (const file of files) {
+        artifacts.push(await fileToArtifact(file));
+      }
+      return artifacts;
+    }
+
+    function renderSelectedFiles() {
+      const files = Array.from(exportFilesInput.files || []);
+      selectedFilesList.innerHTML = '';
+      if (!files.length) {
+        selectedFilesList.innerHTML = '<li class="stack-item">No files selected yet.</li>';
+        return;
+      }
+      files.forEach((file) => {
+        const li = document.createElement('li');
+        li.className = 'stack-item';
+        li.innerHTML = `<p class="item-title">${file.name}</p><p class="item-meta">${Math.round(file.size / 1024)} KB</p>`;
+        selectedFilesList.appendChild(li);
+      });
+    }
+
+    async function submitPublicIntake(packet, website, artifacts) {
+      const response = await fetch('https://api.pmhnpbilling.com/v1/public/tebra/intake', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packet, website, artifacts })
+      });
+
+      let body = {};
+      try {
+        body = await response.json();
+      } catch (_error) {
+        body = {};
+      }
+
+      if (!response.ok || body.ok === false) {
+        const error = new Error(body.message || `Request failed (${response.status})`);
+        error.payload = body;
+        error.status = response.status;
+        throw error;
+      }
+
+      return body;
+    }
+
+    function renderSuccess(run, mode) {
+      const intake = run.intake || {};
+      const uploadBatch = run.upload_batch || null;
+      const warnings = (intake.warnings || []).map((item) => item.code).join(', ') || 'none';
+      const blockers = (intake.blockers || []).map((item) => item.code).join(', ') || 'none';
+      result.innerHTML = [
+        `<strong>${mode === 'export-upload' ? 'Export upload submitted successfully.' : 'Intake submitted successfully.'}</strong>`,
+        `Session: <code>${intake.session_id}</code>`,
+        `Status: ${intake.status}`,
+        uploadBatch ? `Upload batch: <code>${uploadBatch.batch_id}</code> (${uploadBatch.summary.artifact_count} file(s))` : 'Upload batch: none',
+        `Warnings: ${warnings}`,
+        `Blockers: ${blockers}`,
+        ...(intake.next_steps || []).map((step) => `• ${step}`)
+      ].join('<br>');
+    }
+
+    nextButtons.forEach((btn) => btn.addEventListener('click', () => {
+      if (validateStep(currentStep)) showStep(currentStep + 1);
+    }));
+    prevButtons.forEach((btn) => btn.addEventListener('click', () => showStep(currentStep - 1)));
+
+    connectionModeInputs.forEach((input) => input.addEventListener('change', updateLaneUi));
+    exportFilesInput.addEventListener('change', renderSelectedFiles);
+    applyQueryLane();
+    renderSelectedFiles();
+    showStep(1);
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formData = new FormData(form);
+      const packet = toPacket(formData);
+      const website = formData.get('website') || '';
+      const mode = formData.get('connection_mode');
+
+      let artifacts = [];
+      if (mode === 'export-upload') {
+        if (!(exportFilesInput.files || []).length) {
+          result.hidden = false;
+          result.innerHTML = '<strong>Please add at least one Tebra export file.</strong> The easiest path needs an upload batch.';
+          return;
+        }
+        result.hidden = false;
+        result.innerHTML = '<strong>Preparing upload…</strong> Reading your export files securely in the browser.';
+        artifacts = await collectArtifacts();
+      }
+
+      localStorage.setItem('pmhnp_onboarding_packet_latest', JSON.stringify(packet));
+      downloadPacket(packet);
+
+      result.hidden = false;
+      result.innerHTML = '<strong>Submitting intake…</strong> Saving your onboarding request now.';
+
+      try {
+        const run = await submitPublicIntake(packet, website, artifacts);
+        renderSuccess(run, mode);
+      } catch (_error) {
+        result.innerHTML = mode === 'export-upload'
+          ? '<strong>Packet saved locally.</strong> We downloaded a JSON copy for you, but the live submission did not complete. Please email the packet and your export files to pilot@pmhnpbilling.com so we can continue the setup manually.'
+          : '<strong>Intake packet saved locally.</strong> We downloaded a JSON copy for you, but the live submission did not complete. Please email the packet to pilot@pmhnpbilling.com and we can continue the setup manually.';
+      }
+    });
+  </script>
+  <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"d35f945cec834f5b91de3b20c79f3c6b","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>

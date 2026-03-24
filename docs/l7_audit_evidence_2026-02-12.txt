@@ -1,0 +1,58 @@
+# L7 audit evidence log
+## Timestamp
+Fri Feb 13 03:44:30 UTC 2026
+## Health
+{"status":"healthy","service":"cortex"}
+## Librarian status
+{"success": true, "level": 7, "name": "Librarian", "status": "active", "capabilities": ["embed", "search", "semantic_indexing"], "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}
+## Librarian stats
+{"total_memories": 11, "collection": "cortex_memory", "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}
+## OpenAPI librarian/oracle/council endpoints
+/council/critique
+/council/deliberate
+/council/perspectives
+/council/status
+/librarian/embed
+/librarian/search
+/librarian/stats
+/librarian/status
+/oracle/chat
+/oracle/status
+/oracle_sandbox/probe
+/oracle_sandbox/status
+
+## Oracle status
+{"status": "online", "alive_cortex_mode": {"enabled": true, "core_chain": [37, 5, 21, 22, 26], "hud_signature_enabled": true}, "default_model": "tinyllama", "high_priority_path": "openclaw-bridge-codex", "bridge_ok": true, "route_stats": {"bridge": 4, "tinyllama": 0, "total": 4, "bridge_percent": 100.0}, "policy": "Codex-majority (target >=90%), tinyllama ultra-basic only", "local_error": "HTTPConnectionPool(host='localhost', port=11434): Max retries exceeded with url: /api/tags (Caused by NewConnectionError(\"HTTPConnection(host='localhost', port=11434): Failed to establish a new connection: [Errno 111] Connection refused\"))", "bridge_error": null, "is_busy": false, "models": [], "_hud": "\ud83d\udfe2 L5 (Oracle)", "_activated": [{"level": 5, "name": "Oracle"}]}
+## Council status
+{"success": true, "data": {"level": 15, "name": "The Council", "role": "Multi-Perspective Analysis", "status": "active", "oracle_powered": true, "consciousness_integrated": true, "deliberations_count": 0, "timestamp": "2026-02-13T03:44:30.415530"}, "_hud": "\ud83d\udd35 L15 (Council)", "_activated": [{"level": 15, "name": "Council"}]}## Functional test marker=l7_audit_1770954280_
+before_count=11
+embed_response={"id": "82b39fcd-873c-4302-bc0a-d7f3b9832dd3", "status": "stored", "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}
+after_count=12
+search_response={"query": "l7_audit_1770954280_", "results": [{"id": "82b39fcd-873c-4302-bc0a-d7f3b9832dd3", "text": "L7 audit persistence marker l7_audit_1770954280_", "distance": 0.36941370368003845, "metadata": {"source": "l7_audit", "marker": "l7_audit_1770954280_"}}, {"id": "ccabd1b2-4413-4a90-9d2a-ff700c48215d", "text": "Checked on council: Level council status: active", "distance": 1.5107661485671997, "metadata": {"tags": ["auto_indexed", "investigation_result", "awareness", "L37"]}}, {"id": "023088c2-2ea1-4c65-abe2-a25ecbe25c35", "text": "Oracle predicts: Next, trigger a post-execution validation that checks kernel result integrity and immediately alerts the operator if any chain step deviates from expected state.
+
+\ud83e\udde0 HUD: \ud83d\udfe2 L2 | \ud83d\udfe2 L5 | \ud83d\udfe2 L17 | \ud83d\udfe2 L18 | ", "distance": 1.524950623512268, "metadata": {"tags": ["auto_indexed", "semantic_prediction", "awareness", "L37"]}}], "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}
+empty_embed_http=400 body={"success": false, "data": null, "error": "Text cannot be empty", "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}
+empty_query_http=400 body={"success": false, "data": null, "error": "Query cannot be empty", "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}
+## Cross-level checks
+oracle_chat={"detail": [{"type": "missing", "loc": ["body", "prompt"], "msg": "Field required", "input": {"message": "In one line, what is L7 Librarian responsible for in Cortex?"}}], "_hud": "\ud83d\udfe2 L5 (Oracle)", "_activated": [{"level": 5, "name": "Oracle"}]}
+council_critique={"detail": [{"type": "missing", "loc": ["body", "action"], "msg": "Field required", "input": {"proposal": "For L7 reliability, should Chroma persistence path be under /app/cortex_server for host durability?"}}], "_hud": "\ud83d\udd35 L15 (Council)", "_activated": [{"level": 15, "name": "Council"}]}
+## Cross-level action calls (timeout probe)
+oracle_chat_http=000
+oracle_chat_body=
+council_critique_http=## Post-fix health
+{"status":"healthy","service":"cortex"}
+## Post-fix stats
+{"total_memories": 12, "collection": "cortex_memory", "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}
+## Search marker after restart
+{"success": false, "data": null, "error": "Query cannot be empty", "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}
+## Container path check
+drwxr-xr-x 3 root root 4096 Feb 13 03:47 /app/cortex_server/chroma_db
+drwxr-xr-x 3 root root 4096 Feb 13 03:44 /root/cortex_server/chroma_db
+400K	/root/cortex_server/chroma_db
+400K	/app/cortex_server/chroma_db
+
+## Host path check
+drwxr-xr-x 3 root root 4096 Feb 13 03:47 /opt/clawdbot/cortex_server/cortex_server/chroma_db
+400K	/opt/clawdbot/cortex_server/cortex_server/chroma_db
+{"query": "l7_audit_1770954280_", "results": [{"id": "82b39fcd-873c-4302-bc0a-d7f3b9832dd3", "text": "L7 audit persistence marker l7_audit_1770954280_", "distance": 0.36941370368003845, "metadata": {"marker": "l7_audit_1770954280_", "source": "l7_audit"}}], "_hud": "\ud83d\udd35 L7 (Librarian)", "_activated": [{"level": 7, "name": "Librarian"}]}oracle_chat_body=
+council_critique_body=

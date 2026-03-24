@@ -1,0 +1,29 @@
+{
+  "id": "reply-reliability",
+  "name": "Reply Reliability",
+  "description": "Turns generic transient LLM failure replies into contextual, deterministic fallback replies tied to the user's latest message.",
+  "kind": "utility",
+  "entry": "./index.ts",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "channels": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "maxAgeMs": {
+        "type": "number",
+        "minimum": 1000,
+        "maximum": 86400000,
+        "default": 900000
+      },
+      "summaryMaxChars": {
+        "type": "number",
+        "minimum": 40,
+        "maximum": 500,
+        "default": 180
+      }
+    }
+  }
+}

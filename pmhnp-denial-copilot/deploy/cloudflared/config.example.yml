@@ -1,0 +1,16 @@
+# Example named-tunnel config for PMHNP Billing AI Agent
+# Replace placeholders and keep real tunnel credentials outside the repo.
+
+tunnel: REPLACE_WITH_TUNNEL_ID
+credentials-file: /etc/cloudflared/pmhnp-tunnel.json
+
+ingress:
+  - hostname: pmhnpbilling.com
+    service: http://127.0.0.1:18087
+    originRequest:
+      httpHostHeader: pmhnpbilling.com
+  - hostname: api.pmhnpbilling.com
+    service: http://127.0.0.1:18087
+    originRequest:
+      httpHostHeader: api.pmhnpbilling.com
+  - service: http_status:404

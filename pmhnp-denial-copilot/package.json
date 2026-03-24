@@ -1,0 +1,20 @@
+{
+  "name": "pmhnp-denial-copilot-recovered",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "PMHNP denial-ops and Tebra workflow automation workspace focused on denial worklists, appeals support, and pilot ROI proof.",
+  "scripts": {
+    "mirror": "python3 scripts/mirror_live.py",
+    "start": "node src/ops/operationalHttpServerCli.mjs",
+    "dev": "PORT=18088 node src/ops/operationalHttpServerCli.mjs",
+    "smoke": "node scripts/smoke-test.mjs",
+    "preflight:prod": "node scripts/preflight-prod.mjs",
+    "backup:state": "node scripts/backup-state.mjs",
+    "restore:state": "node scripts/restore-state.mjs",
+    "cutover:check": "node scripts/cutover-check.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

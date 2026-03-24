@@ -1,0 +1,18 @@
+## Post-fix validation 2026-02-12T22:21:56-06:00
+$ curl -s http://10.0.0.52:8888/cron/status
+{"success": true, "level": 8, "name": "Cron", "status": "active", "scheduled_jobs": 0, "capabilities": ["schedule", "jobs", "trigger"], "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+\n### schedule job and verify listed name
+{"job_id": "l8audit_namecheck", "job_name": "l8audit_namecheck", "next_run_time": "2026-02-13T04:25:00+00:00", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+{"jobs": [{"job_id": "l8audit_namecheck", "job_name": "l8audit_namecheck", "next_run_time": "2026-02-13T04:25:00+00:00"}], "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+\n### delete missing job should be 404 (not 500)
+HTTP/1.1 404 Not Found
+date: Fri, 13 Feb 2026 04:21:55 GMT
+server: uvicorn
+x-request-id: 48653b65-a4ac-47f1-b54a-bece7e475b2a
+content-type: application/json
+content-length: 161
+
+{"success": false, "data": null, "error": "Job not found: l8audit_missing_again", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+\n### cleanup created job
+{"status": "removed", "job_id": "l8audit_namecheck", "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}
+{"jobs": [], "_hud": "\ud83d\udd35 L8 (Cron)", "_activated": [{"level": 8, "name": "Cron"}]}

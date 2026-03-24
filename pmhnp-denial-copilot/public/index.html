@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PMHNP Billing | Psychiatric Billing Services</title>
+    <meta name="description" content="Professional billing services for Psychiatric Mental Health Nurse Practitioners. Claims, prior authorizations, and revenue cycle management.">
+    
+    <!-- Open Graph / Social Media -->
+    <meta property="og:title" content="PMHNP Billing | Psychiatric Billing Services">
+    <meta property="og:description" content="Professional billing services for Psychiatric Mental Health Nurse Practitioners. Claims, prior authorizations, and revenue cycle management.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://pmhnpbilling.com">
+    <meta property="og:locale" content="en_US">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="PMHNP Billing | Psychiatric Billing Services">
+    <meta name="twitter:description" content="Professional billing services for Psychiatric Mental Health Nurse Practitioners.">
+    
+    <!-- Breadcrumb Schema -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://pmhnpbilling.com/"
+        }
+      ]
+    }
+    </script>
+    
+    <!-- LocalBusiness Schema -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "LocalBusiness",
+      "name": "PMHNP Billing",
+      "description": "Professional billing services for Psychiatric Mental Health Nurse Practitioners",
+      "url": "https://pmhnpbilling.com",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Chicago",
+        "addressRegion": "IL",
+        "addressCountry": "US"
+      },
+      "areaServed": [
+        {
+          "@type": "State",
+          "name": "Illinois"
+        },
+        {
+          "@type": "Country",
+          "name": "United States"
+        }
+      ],
+      "serviceType": [
+        "Medical Billing Services",
+        "Claims Management",
+        "Prior Authorization Services",
+        "Revenue Cycle Management",
+        "Billing Workflow Support (Pilot)"
+      ]
+    }
+    </script>
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://pmhnpbilling.com/">
+    
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='48' y2='48'%3E%3Cstop stop-color='%232563eb'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='12' fill='url(%23g)'/%3E%3Cpath d='M10 12h9a6 6 0 010 12h-9V12zm3 3v6h6a3 3 0 000-6h-6z' fill='white'/%3E%3Cpath d='M26 12h9a6 6 0 014.24 10.24L26 36V12zm3 3v12.5l7-7.5a3 3 0 00-4-4h-3z' fill='white' fill-opacity='0.85'/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.7;
+            color: #374151;
+            background: #fff;
+        }
+        
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            border-bottom: 1px solid rgba(0,0,0,0.06);
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.7rem;
+            text-decoration: none;
+        }
+        .logo-icon { width: 36px; height: 36px; border-radius: 8px; }
+        .logo-text { display: flex; align-items: center; gap: 0.35rem; font-size: 1.1rem; }
+        .logo-text .pmh {
+            font-weight: 700;
+            background: linear-gradient(135deg, #1e40af, #2563eb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            border-bottom: 2px solid #2563eb;
+            padding-bottom: 1px;
+        }
+        .logo-text .np {
+            font-weight: 700;
+            background: linear-gradient(135deg, #1e40af, #2563eb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .logo-text .dot { width: 4px; height: 4px; background: #60a5fa; border-radius: 50%; margin: 0 0.1rem; }
+        .logo-text .billing { font-weight: 500; color: #374151; }
+        
+        .nav-links {
+            display: flex;
+            gap: 2.5rem;
+            list-style: none;
+        }
+        .nav-links a {
+            text-decoration: none;
+            color: #6b7280;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        .nav-links a:hover { color: #2563eb; }
+        
+        .nav-intake-btn {
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: #6b7280;
+            padding: 0.4rem 0.9rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            transition: all 0.2s;
+            margin-left: 1rem;
+        }
+        .nav-intake-btn:hover {
+            color: #2563eb;
+            border-color: #2563eb;
+            background: rgba(37, 99, 235, 0.05);
+        }
+        
+        /* Hamburger Menu */
+        .menu-toggle {
+            display: none;
+            flex-direction: column;
+            gap: 5px;
+            cursor: pointer;
+            padding: 5px;
+            z-index: 1001;
+        }
+        .menu-toggle span {
+            width: 24px;
+            height: 2px;
+            background: #374151;
+            transition: all 0.3s;
+        }
+        .menu-toggle.active span:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
+        .menu-toggle.active span:nth-child(2) { opacity: 0; }
+        .menu-toggle.active span:nth-child(3) { transform: rotate(-45deg) translate(5px, -5px); }
+        
+        /* Mobile Menu */
+        .mobile-menu {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.98);
+            z-index: 999;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 2rem;
+        }
+        .mobile-menu.active { display: flex; }
+        .mobile-menu a {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1f2937;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .mobile-menu a:hover { color: #2563eb; }
+        .mobile-menu-divider { height: 1px; background: #e5e7eb; width: 100%; margin: 0.5rem 0; }
+        .mobile-intake-link { font-size: 0.9rem; color: #9ca3af !important; }
+        
+        /* Hero Section */
+        .hero-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+            min-height: 100vh;
+        }
+        .hero-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #f8fafc 0%, #e0f2fe 50%, #f0f9ff 100%);
+            z-index: 0;
+        }
+        .hero-bg::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 80%;
+            height: 150%;
+            background: radial-gradient(ellipse, rgba(37, 99, 235, 0.08) 0%, transparent 70%);
+            animation: pulse-bg 8s ease-in-out infinite;
+        }
+        .hero-bg::after {
+            content: '';
+            position: absolute;
+            bottom: -30%;
+            left: -10%;
+            width: 60%;
+            height: 100%;
+            background: radial-gradient(ellipse, rgba(14, 165, 233, 0.06) 0%, transparent 70%);
+            animation: pulse-bg 10s ease-in-out infinite reverse;
+        }
+        @keyframes pulse-bg {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        .hero {
+            padding: 10rem 2rem 6rem;
+            max-width: 1100px;
+            margin: 0 auto;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        .hero-logo {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+        .hero-logo svg {
+            width: 120px;
+            height: 120px;
+            border-radius: 28px;
+            box-shadow: 0 8px 40px rgba(37, 99, 235, 0.25);
+            animation: float-logo 4s ease-in-out infinite;
+        }
+        @keyframes float-logo {
+            0%, 100% { transform: translateY(0); box-shadow: 0 8px 40px rgba(37, 99, 235, 0.25); }
+            50% { transform: translateY(-14px); box-shadow: 0 20px 50px rgba(37, 99, 235, 0.35); }
+        }
+        /* Hero floating shapes */
+        .hero-shape {
+            position: absolute;
+            opacity: 0.4;
+            pointer-events: none;
+        }
+        .hero-shape-1 {
+            width: 12px; height: 12px;
+            background: #3b82f6;
+            border-radius: 50%;
+            top: 20%; left: 8%;
+            animation: hero-float 8s ease-in-out infinite;
+        }
+        .hero-shape-2 {
+            width: 8px; height: 8px;
+            background: #0ea5e9;
+            border-radius: 2px;
+            transform: rotate(45deg);
+            top: 35%; right: 12%;
+            animation: hero-float 10s ease-in-out infinite 1s;
+        }
+        .hero-shape-3 {
+            width: 16px; height: 16px;
+            border: 2px solid #3b82f6;
+            border-radius: 50%;
+            bottom: 30%; left: 12%;
+            animation: hero-float 12s ease-in-out infinite 2s;
+        }
+        .hero-shape-4 {
+            width: 6px; height: 6px;
+            background: #2563eb;
+            border-radius: 50%;
+            top: 25%; right: 20%;
+            animation: hero-float 7s ease-in-out infinite 0.5s;
+        }
+        .hero-shape-5 {
+            width: 10px; height: 10px;
+            border: 2px solid #0ea5e9;
+            border-radius: 2px;
+            transform: rotate(45deg);
+            bottom: 35%; right: 8%;
+            animation: hero-float 9s ease-in-out infinite 1.5s;
+        }
+        .hero-shape-6 {
+            width: 14px; height: 2px;
+            background: #3b82f6;
+            top: 45%; left: 5%;
+            animation: hero-float 11s ease-in-out infinite 3s;
+        }
+        .hero-shape-6::after {
+            content: '';
+            position: absolute;
+            width: 2px; height: 14px;
+            background: #3b82f6;
+            left: 6px; top: -6px;
+        }
+        @keyframes hero-float {
+            0%, 100% { transform: translate(0, 0) rotate(var(--rotate, 0deg)); }
+            25% { transform: translate(8px, -12px) rotate(var(--rotate, 0deg)); }
+            50% { transform: translate(-5px, -8px) rotate(var(--rotate, 0deg)); }
+            75% { transform: translate(10px, 5px) rotate(var(--rotate, 0deg)); }
+        }
+        .hero-shape-2, .hero-shape-5 { --rotate: 45deg; }
+        .hero-logo-text {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 2.25rem;
+        }
+        .hero-logo-text .pmh {
+            font-weight: 700;
+            background: linear-gradient(135deg, #1e40af, #2563eb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            border-bottom: 3px solid #2563eb;
+            padding-bottom: 2px;
+        }
+        .hero-logo-text .np {
+            font-weight: 700;
+            background: linear-gradient(135deg, #1e40af, #2563eb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .hero-logo-text .dot {
+            width: 8px;
+            height: 8px;
+            background: #60a5fa;
+            border-radius: 50%;
+            margin: 0 0.2rem;
+        }
+        .hero-logo-text .billing {
+            font-weight: 500;
+            color: #374151;
+        }
+        .hero h1 {
+            font-size: 3rem;
+            font-weight: 600;
+            color: #111827;
+            line-height: 1.2;
+            margin-bottom: 1.5rem;
+            max-width: 600px;
+            letter-spacing: -0.035em;
+        }
+        .hero h1 span {
+            background: linear-gradient(135deg, #2563eb, #0ea5e9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .hero p {
+            font-size: 1.15rem;
+            color: #6b7280;
+            margin-bottom: 2.5rem;
+            max-width: 520px;
+            line-height: 1.75;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.95rem 1.85rem;
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+        }
+        .btn svg { width: 18px; height: 18px; transition: transform 0.2s; }
+        .btn:hover svg { transform: translateX(3px); }
+        
+        /* Sections */
+        section { padding: 6rem 2rem; }
+        .section-header { max-width: 1100px; margin: 0 auto 3.5rem; }
+        .section-label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #2563eb;
+            margin-bottom: 0.75rem;
+        }
+        .section-title { font-size: 2rem; font-weight: 600; color: #111827; letter-spacing: -0.025em; }
+        
+        .fade-in { opacity: 0; transform: translateY(20px); transition: opacity 0.6s ease, transform 0.6s ease; }
+        .fade-in.visible { opacity: 1; transform: translateY(0); }
+        
+        /* Services */
+        .services { background: linear-gradient(180deg, #f9fafb 0%, #fff 100%); border-top: 1px solid #e5e7eb; }
+        .services-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; max-width: 1100px; margin: 0 auto; }
+        .service-card {
+            background: #fff;
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            transition: all 0.3s ease;
+        }
+        .service-card:hover { 
+            transform: translateY(-6px); 
+            box-shadow: 0 20px 40px rgba(37, 99, 235, 0.1); 
+            border-color: #93c5fd;
+        }
+        .service-icon {
+            width: 48px; height: 48px;
+            background: linear-gradient(135deg, #eff6ff, #dbeafe);
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            margin-bottom: 1.25rem;
+            transition: all 0.3s ease;
+        }
+        .service-icon svg { width: 24px; height: 24px; color: #2563eb; transition: all 0.3s ease; }
+        .service-card:hover .service-icon { 
+            background: linear-gradient(135deg, #2563eb, #0ea5e9);
+            transform: scale(1.05);
+        }
+        .service-card:hover .service-icon svg { color: white; }
+        .service-card h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.6rem; color: #111827; }
+        .service-card p { color: #6b7280; font-size: 0.9rem; line-height: 1.65; }
+        .service-link { display: inline-block; margin-top: 0.8rem; color: #1d4ed8; font-weight: 600; text-decoration: none; font-size: 0.9rem; }
+        .service-link:hover { text-decoration: underline; }
+        
+        /* About */
+        .about { background: #fff; }
+        .about-content { max-width: 680px; margin: 0 auto; }
+        .about-content p { font-size: 1.1rem; color: #4b5563; margin-bottom: 1.5rem; }
+        .about-content p:first-of-type::first-letter {
+            font-size: 3.5rem; font-weight: 600; float: left;
+            line-height: 1; margin-right: 0.75rem; margin-top: 0.1rem; color: #2563eb;
+        }
+        
+
+        /* Claim Guard Pilot Preview */
+        .pilot-preview { background: #f8fafc; border-top: 1px solid #e5e7eb; border-bottom: 1px solid #e5e7eb; padding: 3rem 2rem; }
+        .pilot-preview-card {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            border: 1px solid #dbeafe;
+            border-radius: 14px;
+            padding: 2rem;
+            display: grid;
+            gap: 1rem;
+            box-shadow: 0 12px 30px rgba(37, 99, 235, 0.08);
+        }
+        .pilot-preview h3 { font-size: 1.25rem; color: #111827; }
+        .pilot-preview p { color: #4b5563; font-size: 1rem; }
+        .pilot-note {
+            font-size: 0.95rem;
+            color: #374151;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 10px;
+            padding: 0.85rem 1rem;
+        }
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            text-decoration: none;
+            font-weight: 500;
+            color: #1d4ed8;
+            border: 1px solid #93c5fd;
+            border-radius: 8px;
+            padding: 0.7rem 1.1rem;
+            width: fit-content;
+            background: #eff6ff;
+            transition: all 0.2s;
+        }
+        .btn-secondary:hover { background: #dbeafe; border-color: #60a5fa; }
+
+        /* FAQ */
+        .faq { background: #fff; }
+        .faq-content { max-width: 720px; margin: 0 auto; }
+        .faq-item {
+            padding: 1.75rem 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .faq-item:last-child { border-bottom: none; }
+        .faq-item h3 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 0.75rem;
+        }
+        .faq-item p {
+            color: #6b7280;
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+        
+        /* Trust */
+        .trust {
+            background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #0ea5e9 100%);
+            color: white; position: relative; overflow: hidden;
+        }
+        .trust::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            pointer-events: none;
+        }
+        .floating-shape {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.08);
+            pointer-events: none;
+        }
+        .floating-shape-1 {
+            width: 300px; height: 300px;
+            top: -100px; right: -50px;
+            animation: float-shape 12s ease-in-out infinite;
+        }
+        .floating-shape-2 {
+            width: 200px; height: 200px;
+            bottom: -80px; left: 10%;
+            animation: float-shape 10s ease-in-out infinite reverse;
+        }
+        .floating-shape-3 {
+            width: 150px; height: 150px;
+            top: 50%; right: 15%;
+            animation: float-shape 14s ease-in-out infinite 2s;
+        }
+        .floating-shape-4 {
+            width: 80px; height: 80px;
+            top: 20%; left: 5%;
+            animation: float-shape 8s ease-in-out infinite 1s;
+        }
+        @keyframes float-shape {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(15px, -20px) scale(1.05); }
+            66% { transform: translate(-10px, 15px) scale(0.95); }
+        }
+        .trust .section-label { color: rgba(255,255,255,0.8); }
+        .trust .section-title { color: white; }
+        .trust-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2rem; max-width: 1100px; margin: 0 auto; position: relative; z-index: 1; }
+        .trust-item { text-align: center; padding: 1.5rem; }
+        .trust-item-icon {
+            width: 52px; height: 52px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 1rem;
+        }
+        .trust-item-icon svg { width: 26px; height: 26px; color: white; }
+        .trust-item h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
+        .trust-item p { font-size: 0.875rem; opacity: 0.85; line-height: 1.6; }
+        
+        /* Testimonial */
+        .testimonial { background: #fff; border-top: 1px solid #e5e7eb; }
+        .testimonial-content { max-width: 700px; margin: 0 auto; text-align: center; }
+        .testimonial-quote {
+            font-size: 1.35rem;
+            color: #374151;
+            line-height: 1.8;
+            font-style: italic;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+        .testimonial-quote::before {
+            content: '"';
+            position: absolute;
+            top: -20px;
+            left: -10px;
+            font-size: 4rem;
+            color: #dbeafe;
+            font-family: Georgia, serif;
+            line-height: 1;
+        }
+        .testimonial-author {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .testimonial-author-name {
+            font-weight: 600;
+            color: #111827;
+            font-size: 1.05rem;
+        }
+        .testimonial-author-title {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+        
+        /* Contact */
+        .contact { background: #f9fafb; border-top: 1px solid #e5e7eb; }
+        .contact-wrapper { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1.3fr; gap: 4rem; align-items: start; }
+        .contact-info h2 { font-size: 2rem; font-weight: 600; color: #111827; margin-bottom: 1rem; letter-spacing: -0.025em; }
+        .contact-info p { color: #6b7280; font-size: 1.05rem; line-height: 1.75; margin-bottom: 2rem; }
+        .contact-form { background: #fff; padding: 2.5rem; border-radius: 16px; border: 1px solid #e5e7eb; box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .form-group { margin-bottom: 1.25rem; }
+        .form-group.full { grid-column: 1 / -1; }
+        .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; font-size: 0.875rem; color: #374151; }
+        .form-group input, .form-group textarea, .form-group select {
+            width: 100%; padding: 0.8rem 1rem; border: 1.5px solid #e5e7eb; border-radius: 8px;
+            font-size: 0.95rem; font-family: inherit; background: #fff; transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .form-group input:focus, .form-group textarea:focus, .form-group select:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+        .form-group textarea { min-height: 110px; resize: vertical; }
+        .submit-btn {
+            width: 100%; padding: 0.95rem;
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            color: white; border: none; border-radius: 8px;
+            font-size: 0.95rem; font-weight: 500; cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
+        }
+        .submit-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4); }
+        
+        footer { background: #111827; color: #9ca3af; text-align: center; padding: 2.5rem; font-size: 0.875rem; }
+        
+        /* Mobile */
+        @media (max-width: 900px) {
+            .services-grid { grid-template-columns: repeat(2, 1fr); }
+            .trust-grid { grid-template-columns: repeat(2, 1fr); }
+            .contact-wrapper { grid-template-columns: 1fr; gap: 2.5rem; }
+        }
+        @media (max-width: 768px) {
+            .nav-links { display: none; }
+            .nav-intake-btn { display: none; }
+            .menu-toggle { display: flex; }
+            .hero h1 { font-size: 2.25rem; }
+            .hero p { font-size: 1.05rem; }
+            .hero-logo svg { width: 100px; height: 100px; }
+            .hero-logo-text { font-size: 1.75rem; }
+            .testimonial-quote { font-size: 1.15rem; }
+        }
+        @media (max-width: 640px) {
+            .hero-wrapper { min-height: auto; }
+            .hero { padding: 8rem 1.5rem 5rem; }
+            .hero h1 { font-size: 1.85rem; }
+            .hero-logo svg { width: 80px; height: 80px; border-radius: 20px; }
+            .hero-logo-text { font-size: 1.5rem; }
+            section { padding: 4rem 1.5rem; }
+            .services-grid { grid-template-columns: 1fr; }
+            .trust-grid { grid-template-columns: 1fr; gap: 1rem; }
+            .form-row { grid-template-columns: 1fr; }
+            .section-title { font-size: 1.75rem; }
+            .testimonial-quote { font-size: 1.1rem; }
+            .pilot-preview { padding: 2rem 1.5rem; }
+            .pilot-preview-card { padding: 1.25rem; }
+            /* Show fewer floating shapes on mobile - keep inside bounds */
+            .floating-shape-1 { width: 120px; height: 120px; top: 10px; right: -40px; }
+            .floating-shape-2 { width: 80px; height: 80px; bottom: 20px; left: -20px; }
+            .floating-shape-3, .floating-shape-4 { display: none; }
+            /* Show fewer, repositioned shapes on mobile */
+            .hero-shape { opacity: 0.3; }
+            .hero-shape-3, .hero-shape-6 { display: none; }
+            .hero-shape-1 { top: 15%; left: 5%; }
+            .hero-shape-2 { top: 20%; right: 5%; }
+            .hero-shape-4 { bottom: 25%; left: 8%; }
+            .hero-shape-5 { bottom: 20%; right: 5%; }
+        }
+    </style>
+</head>
+<body id="top">
+    <nav>
+        <a href="#top" class="logo">
+            <svg class="logo-icon" viewBox="0 0 48 48" fill="none">
+                <defs><linearGradient id="logo-grad" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient></defs>
+                <rect width="48" height="48" rx="12" fill="url(#logo-grad)"/>
+                <path d="M10 12h9a6 6 0 010 12h-9V12zm3 3v6h6a3 3 0 000-6h-6z" fill="white"/>
+                <path d="M26 12h9a6 6 0 014.24 10.24L26 36V12zm3 3v12.5l7-7.5a3 3 0 00-4-4h-3z" fill="white" fill-opacity="0.85"/>
+            </svg>
+            <span class="logo-text">
+                <span class="pmh">PMH</span><span class="np">NP</span>
+                <span class="dot"></span>
+                <span class="billing">Billing</span>
+            </span>
+        </a>
+        <ul class="nav-links">
+            <li><a href="#services">Services</a></li>
+            <li><a href="#about">About</a></li>
+            <li><a href="#faq">FAQ</a></li>
+            <li><a href="blog/">Blog</a></li>
+            <li><a href="claim-guard-pilot.html">Claim Guard Pilot</a></li>
+            <li><a href="#contact">Contact</a></li>
+        </ul>
+        <a href="/app/" class="nav-intake-btn">Client App</a>
+        <div class="menu-toggle" onclick="toggleMenu()">
+            <span></span><span></span><span></span>
+        </div>
+    </nav>
+    
+    <div class="mobile-menu" id="mobileMenu">
+        <a href="#services" onclick="toggleMenu()">Services</a>
+        <a href="#about" onclick="toggleMenu()">About</a>
+        <a href="#faq" onclick="toggleMenu()">FAQ</a>
+        <a href="blog/" onclick="toggleMenu()">Blog</a>
+        <a href="claim-guard-pilot.html" onclick="toggleMenu()">Claim Guard Pilot</a>
+        <a href="#contact" onclick="toggleMenu()">Contact</a>
+        <div class="mobile-menu-divider"></div>
+        <a href="/app/" onclick="toggleMenu()" class="mobile-intake-link">Client App</a>
+    </div>
+
+    <div class="hero-wrapper">
+        <div class="hero-bg"></div>
+        <div class="hero-shape hero-shape-1"></div>
+        <div class="hero-shape hero-shape-2"></div>
+        <div class="hero-shape hero-shape-3"></div>
+        <div class="hero-shape hero-shape-4"></div>
+        <div class="hero-shape hero-shape-5"></div>
+        <div class="hero-shape hero-shape-6"></div>
+        <section class="hero">
+            <div class="hero-logo">
+                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <defs><linearGradient id="hero-logo-grad" x1="0" y1="0" x2="48" y2="48"><stop stop-color="#2563eb"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient></defs>
+                    <rect width="48" height="48" rx="12" fill="url(#hero-logo-grad)"/>
+                    <path d="M10 12h9a6 6 0 010 12h-9V12zm3 3v6h6a3 3 0 000-6h-6z" fill="white"/>
+                    <path d="M26 12h9a6 6 0 014.24 10.24L26 36V12zm3 3v12.5l7-7.5a3 3 0 00-4-4h-3z" fill="white" fill-opacity="0.85"/>
+                </svg>
+                <span class="hero-logo-text">
+                    <span class="pmh">PMH</span><span class="np">NP</span><span class="dot"></span><span class="billing">Billing</span>
+                </span>
+            </div>
+            <h1>Billing services for <span>psychiatric providers</span></h1>
+            <p>I handle claims, prior authorizations, and revenue cycle management so you can focus on patient care.</p>
+            <a href="#contact" class="btn">
+                Get in touch
+                <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+            </a>
+        </section>
+    </div>
+
+    <section id="services" class="services">
+        <div class="section-header fade-in">
+            <div class="section-label">Services</div>
+            <h2 class="section-title">What I offer</h2>
+        </div>
+        <div class="services-grid">
+            <div class="service-card fade-in">
+                <div class="service-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"/></svg></div>
+                <h3>Claims Management</h3>
+                <p>Accurate claim submission with payer follow-up and clean-claim controls to protect reimbursement speed.</p>
+                <a class="service-link" href="/services/pmhnp-billing-services.html">Explore PMHNP Billing Services →</a>
+            </div>
+            <div class="service-card fade-in">
+                <div class="service-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+                <h3>Prior Authorization Support</h3>
+                <p>Structured medication authorization workflows, status tracking, and escalation steps to prevent treatment delays.</p>
+                <a class="service-link" href="/services/prior-authorization-support.html">Explore Prior Authorization Support →</a>
+            </div>
+            <div class="service-card fade-in">
+                <div class="service-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"/></svg></div>
+                <h3>PMHNP Credentialing Services</h3>
+                <p>Enrollment planning, CAQH upkeep, and payer follow-through to accelerate first paid claims and reduce setup risk.</p>
+                <a class="service-link" href="/services/pmhnp-credentialing-services.html">Explore Credentialing Services →</a>
+            </div>
+            <div class="service-card fade-in">
+                <div class="service-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg></div>
+                <h3>Denial Management &amp; Appeals</h3>
+                <p>Denial triage, root-cause tracking, and structured appeals built for PMHNP claim patterns.</p>
+                <a class="service-link" href="/services/denial-management-appeals-pmhnp.html">Explore Denial Management &amp; Appeals →</a>
+            </div>
+            <div class="service-card fade-in">
+                <div class="service-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"/></svg></div>
+                <h3>Telehealth Billing Compliance Support</h3>
+                <p>POS 02/10, modifier usage, and documentation controls that keep PMHNP telehealth claims clean.</p>
+                <a class="service-link" href="/services/telehealth-billing-compliance-support.html">Explore Telehealth Billing Compliance →</a>
+            </div>
+            <div class="service-card fade-in">
+                <div class="service-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg></div>
+                <h3>Revenue Review</h3>
+                <p>Periodic review of billing operations to find leakage points and improve PMHNP reimbursement performance.</p>
+                <a class="service-link" href="/services/pmhnp-billing-services.html">See Full PMHNP Billing Services →</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="about" class="about">
+        <div class="section-header fade-in">
+            <div class="section-label">About</div>
+            <h2 class="section-title">How I work</h2>
+        </div>
+        <div class="about-content fade-in">
+            <p>I started PMHNP Billing to provide psychiatric providers with reliable, attentive billing support. Many billing services treat you as one of hundreds of accounts. I take a different approach.</p>
+            <p>When you work with me, you get direct communication and consistent follow-through. I understand the specific requirements of psychiatric billing—from complex authorization processes to mental health parity regulations—and handle them with care.</p>
+            <p>My goal is straightforward: accurate claims, timely submissions, and fewer headaches for you.</p>
+        </div>
+    </section>
+
+    <section class="pilot-preview">
+        <div class="pilot-preview-card fade-in">
+            <h3>Optional: PMHNP Claim Guard Pilot</h3>
+            <p>For PMHNP practices that want help both catching likely denials before submission and tightening recovery after they land, we also run PMHNP Claim Guard — a Tebra-first pilot for claim-risk checks, recovery worklists, reviewer queues, and measurable ROI.</p>
+            <p class="pilot-note"><strong>Important:</strong> Pilot only. Human review is required before any claim-facing action, and ROI proof depends on real pilot tracking.</p>
+            <div style="display:flex;gap:0.7rem;flex-wrap:wrap;">
+                <a href="claim-guard-pilot.html" class="btn-secondary">Learn about Claim Guard</a>
+                <a href="/app/" class="btn-secondary">Open Client App</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="faq" class="faq">
+        <div class="section-header fade-in">
+            <div class="section-label">FAQ</div>
+            <h2 class="section-title">Common questions</h2>
+        </div>
+        <div class="faq-content fade-in">
+            <div class="faq-item">
+                <h3>What do you charge?</h3>
+                <p>I charge 6% of collections—no setup fees, no monthly minimums. You only pay when you get paid. Prior authorizations are billed separately at $25 each.</p>
+            </div>
+            <div class="faq-item">
+                <h3>What's included?</h3>
+                <p>Full claims management, payment posting, denial management, insurance follow-up, and periodic revenue reviews. Everything you need to keep your billing running smoothly.</p>
+            </div>
+            <div class="faq-item">
+                <h3>How does onboarding work?</h3>
+                <p>After we confirm fit and sign the service agreement and Business Associate Agreement, access is set up through the practice's approved source system. Do not upload or email patient rosters, claims, appointment exports, or other patient information through this public website.</p>
+            </div>
+            <div class="faq-item">
+                <h3>Do you work with my EHR?</h3>
+                <p>I work with most major EHR and practice management systems used by psychiatric providers. If you're unsure, just ask—I'm happy to check compatibility.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="trust">
+        <div class="floating-shape floating-shape-1"></div>
+        <div class="floating-shape floating-shape-2"></div>
+        <div class="floating-shape floating-shape-3"></div>
+        <div class="floating-shape floating-shape-4"></div>
+        <div class="section-header fade-in">
+            <div class="section-label">Why work with me</div>
+            <h2 class="section-title">Built for psychiatric practices</h2>
+        </div>
+        <div class="trust-grid">
+            <div class="trust-item fade-in">
+                <div class="trust-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5"/></svg></div>
+                <h3>PMHNP Focused</h3>
+                <p>Specialized knowledge of psychiatric billing codes and requirements</p>
+            </div>
+            <div class="trust-item fade-in">
+                <div class="trust-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155"/></svg></div>
+                <h3>Direct Communication</h3>
+                <p>You work with me directly—no call centers or ticket systems</p>
+            </div>
+            <div class="trust-item fade-in">
+                <div class="trust-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
+                <h3>Quick Turnaround</h3>
+                <p>Claims submitted within 24–48 hours of service</p>
+            </div>
+            <div class="trust-item fade-in">
+                <div class="trust-item-icon"><svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/></svg></div>
+                <h3>Privacy-Focused Workflow</h3>
+                <p>Your patient data is handled securely</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="testimonial">
+        <div class="section-header fade-in">
+            <div class="section-label">Testimonial</div>
+            <h2 class="section-title">What clients say</h2>
+        </div>
+        <div class="testimonial-content fade-in">
+            <p class="testimonial-quote">Working with Jake has been a game-changer. I used to dread the billing side of things—hours lost to claims and phone calls with insurance. Now I just focus on my patients and trust that Jake's got the rest. He's responsive, thorough, and actually cares about getting it right.</p>
+            <div class="testimonial-author">
+                <span class="testimonial-author-name">Kate</span>
+                <span class="testimonial-author-title">Katie's Hope</span>
+            </div>
+        </div>
+    </section>
+
+    <section id="contact" class="contact">
+        <div class="contact-wrapper">
+            <div class="contact-info fade-in">
+                <h2>Let's talk</h2>
+                <p>Interested in working together? Fill out the form and I'll respond within one business day to discuss your practice's needs.</p>
+            </div>
+            <form class="contact-form fade-in" action="https://formspree.io/f/xkorlzor" method="POST">
+                <div class="form-row">
+                    <div class="form-group"><label for="name">Name</label><input type="text" id="name" name="name" required></div>
+                    <div class="form-group"><label for="email">Email</label><input type="email" id="email" name="email" required></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label for="phone">Phone</label><input type="tel" id="phone" name="phone"></div>
+                    <div class="form-group"><label for="practice">Practice Name</label><input type="text" id="practice" name="practice"></div>
+                </div>
+                <div class="form-group full">
+                    <label for="services">Services interested in</label>
+                    <select id="services" name="services">
+                        <option value="">Select an option</option>
+                        <option value="full-service">Full service billing</option>
+                        <option value="claims-only">Claims management</option>
+                        <option value="prior-auth">Prior authorizations</option>
+                        <option value="other">Other / Not sure yet</option>
+                    </select>
+                </div>
+                <div class="form-group full"><label for="message">Message</label><textarea id="message" name="message" placeholder="Tell me about your practice..."></textarea></div>
+                <button type="submit" class="submit-btn">Send message</button>
+            </form>
+        </div>
+    </section>
+
+    <footer><p>&copy; 2026 PMHNP Billing. All rights reserved.</p></footer>
+
+    <script>
+        function toggleMenu() {
+            document.querySelector('.menu-toggle').classList.toggle('active');
+            document.getElementById('mobileMenu').classList.toggle('active');
+        }
+        
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => { if (entry.isIntersecting) entry.target.classList.add('visible'); });
+        }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+        document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+        
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        });
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"d35f945cec834f5b91de3b20c79f3c6b","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>

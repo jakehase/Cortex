@@ -1,0 +1,28 @@
+URL: https://pmhnpbilling.com/client/snapshot
+STATUS: 401
+HEADERS:
+Date: Mon, 16 Mar 2026 06:12:53 GMT
+Content-Type: application/json
+Content-Length: 101
+Connection: close
+CF-Ray: 9dd19bd9f8d9c6f1-ORD
+CF-Cache-Status: DYNAMIC
+Access-Control-Allow-Origin: *
+Cache-Control: no-store
+Server: cloudflare
+Vary: origin
+access-control-allow-headers: authorization,content-type
+access-control-allow-methods: GET,HEAD,OPTIONS
+access-control-max-age: 86400
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-pmhnp-client-proxy: cloudflare-worker
+x-request-id: req_1d5c5d38-8674-4902-a82f-6c08dfe66c0a
+Server-Timing: cfEdge;dur=39,cfOrigin;dur=0,cfWorker;dur=71
+Report-To: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=grPKENBGYypFPZIOyonuurdRH0yV9ChZFuJnhePGbSFT%2FDde6TbfTD8HtvpKh4rmH5wO03OIxAzdIF7BnpTNhE8WRIZQ46pwW8SFSryHY4M6Pmg6KJEu5i5W09A%3D"}]}
+Nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+alt-svc: h3=":443"; ma=86400
+
+BODY:
+{"error":"CLIENT_PORTAL_AUTH_REQUIRED","message":"Bearer token is required for client portal routes"}

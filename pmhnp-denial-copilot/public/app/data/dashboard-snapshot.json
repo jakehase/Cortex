@@ -1,0 +1,60 @@
+{
+  "generated_at": "2026-03-20T00:00:00.000Z",
+  "source": {
+    "type": "app-shell",
+    "run_id": "secure_access_required",
+    "finding_count": 0
+  },
+  "truths": {
+    "live_tebra_oauth": false,
+    "live_client_auth_provisioning": false,
+    "claim_auto_submission": false,
+    "pilot_manual_connection_request": true,
+    "local_onboarding_packet_builder": true,
+    "tebra_export_upload": true,
+    "tebra_admin_assisted_sync": true
+  },
+  "dashboard": {
+    "today_priorities": [],
+    "claims_at_risk": [],
+    "needs_review": []
+  },
+  "automation": {
+    "approvals": {
+      "pending_count": 0,
+      "approved_count": 0,
+      "rejected_count": 0,
+      "pending_items": []
+    },
+    "pilot_roi": {
+      "baseline_count": 0,
+      "tracked_practices": []
+    },
+    "denial_intelligence": {
+      "taxonomy_count": 0,
+      "taxonomy_preview": []
+    }
+  },
+  "onboarding": {
+    "sessions": []
+  },
+  "ask_worklist": {
+    "suggested_prompts": [
+      "What will appear here after secure access is connected?",
+      "How do we prove ROI from this Claim Guard pilot?",
+      "Should this practice use upload-first or live sync first?",
+      "What export uploads are ready for review?"
+    ],
+    "top_finding_preview": {
+      "what_happened": "No live claim-risk or recovery worklist is loaded in this public shell.",
+      "why_it_matters": "This page is intentionally empty until secure access is connected so it does not show preview claim data.",
+      "recommended_next_steps": [
+        "Connect secure access to load live worklists",
+        "Or start with upload-first Tebra intake",
+        "Keep claim-facing actions human-reviewed"
+      ],
+      "confidence": "high",
+      "main_uncertainty": "Live worklist content depends on authenticated practice data, not public preview data."
+    }
+  }
+}

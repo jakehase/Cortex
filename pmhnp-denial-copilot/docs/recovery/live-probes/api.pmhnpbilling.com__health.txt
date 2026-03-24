@@ -1,0 +1,22 @@
+URL: https://api.pmhnpbilling.com/health
+STATUS: 200
+HEADERS:
+Date: Mon, 16 Mar 2026 06:12:53 GMT
+Content-Type: application/json
+Content-Length: 11
+Connection: close
+Cache-Control: no-store
+referrer-policy: no-referrer
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-request-id: req_7ad39349-7201-414e-b442-9009c41508a7
+cf-cache-status: DYNAMIC
+Nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+Server-Timing: cfEdge;dur=9,cfOrigin;dur=19
+Report-To: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=P86jx1xTz8wrPIAaBDit%2FP5FFQ0kUzW%2FlJ5IZdq92E8aacKpWMxhLSEm5O0lOa9RE%2BeXzQJniJKeSmkbJ2ZJ3CA%2FFipQUXd0qU%2Bi7eNa8bt%2F7hI914XAMnHYN0U1Oj7O"}]}
+Server: cloudflare
+CF-RAY: 9dd19bdcada60d7b-ORD
+alt-svc: h3=":443"; ma=86400
+
+BODY:
+{"ok":true}

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PMHNP Claim Guard | Claim Risk + Recovery Dashboard</title>
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="description" content="Tebra-first PMHNP Claim Guard dashboard: pre-submit risk queues, denial recovery worklists, review queue, onboarding, and pilot ROI tracking.">
+  <link rel="canonical" href="https://pmhnpbilling.com/app/">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "PMHNP Billing Client App (Pilot)",
+    "description": "Client app dashboard for PMHNP Billing pilot workflows and human-review operations.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "url": "https://pmhnpbilling.com/app/",
+    "publisher": {"@type": "Organization", "name": "PMHNP Billing", "url": "https://pmhnpbilling.com"}
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {"@type": "ListItem", "position": 1, "name": "Home", "item": "https://pmhnpbilling.com/"},
+      {"@type": "ListItem", "position": 2, "name": "Client App", "item": "https://pmhnpbilling.com/app/"}
+    ]
+  }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a href="/" class="brand">PMHNP Billing</a>
+      <nav class="topnav">
+        <a href="/">Home</a>
+        <a href="/claim-guard-pilot.html">Claim Guard Pilot</a>
+        <a href="/app/intake.html">Onboarding Intake</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container app-layout">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">PMHNP Claim Guard pilot</p>
+        <h1>Tebra-first PMHNP claim risk + recovery dashboard</h1>
+        <p class="hero-copy">Use this dashboard to turn Tebra data into pre-submit risk checks, denial priorities, recovery worklists, reviewer queues, and pilot ROI proof without auto-submitting claims.</p>
+      </div>
+      <div class="status-badges">
+        <span class="badge ok">Works now: dashboard + upload-first Tebra intake</span>
+        <span class="badge ok">Works now: admin-assisted live SOAP sync onboarding</span>
+        <span class="badge warn">Not live: self-serve OAuth click-attach + claim auto-submission</span>
+      </div>
+    </section>
+
+    <section class="grid-two">
+      <section class="card">
+        <h2>Secure Access (Live Dashboard)</h2>
+        <p class="subtle">
+          If your PMHNP Billing team shared a secure access token, paste it here to load live dashboard data.
+          If not, this app will stay on local pilot snapshot mode.
+        </p>
+        <form id="clientAccessForm" class="ask-form">
+          <label for="clientApiBase">Dashboard API URL (optional)</label>
+          <input id="clientApiBase" type="url" placeholder="Default: same origin /client/snapshot" />
+
+          <label for="clientAccessToken">Secure access token</label>
+          <textarea id="clientAccessToken" rows="3" placeholder="Paste signed token from PMHNP Billing team"></textarea>
+
+          <label for="clientAccessKey">Client access key (optional)</label>
+          <input id="clientAccessKey" type="password" placeholder="Exchange a client access key for a signed token" />
+
+          <div class="flow-actions">
+            <button type="submit" class="btn-primary">Save secure access</button>
+            <button id="exchangeClientKeyBtn" type="button" class="btn-secondary">Exchange client key</button>
+            <button id="clearClientAccessBtn" type="button" class="btn-secondary">Clear token</button>
+          </div>
+        </form>
+        <p id="clientAccessStatus" class="fine-print">No secure token saved yet. Connect secure access to load live Claim Guard data.</p>
+      </section>
+
+      <section class="card">
+        <h2>Review Operations (Optional)</h2>
+        <p class="subtle">
+          Save a reviewer/admin operations token here to approve or reject queue items in the dashboard.
+          This is separate from the client dashboard token and is intended for operational staff only.
+        </p>
+        <form id="opsAccessForm" class="ask-form">
+          <label for="opsApiBase">Operations API URL (optional)</label>
+          <input id="opsApiBase" type="url" placeholder="Default: same origin /v1/approvals" />
+
+          <label for="opsAccessToken">Operations token</label>
+          <textarea id="opsAccessToken" rows="2" placeholder="Paste signed reviewer/admin token"></textarea>
+
+          <label for="opsAccessKey">Operations access key (optional)</label>
+          <input id="opsAccessKey" type="password" placeholder="Exchange a reviewer/admin access key for a signed token" />
+
+          <label for="opsActorId">Actor ID</label>
+          <input id="opsActorId" type="text" placeholder="reviewer@example.com or internal user id" />
+
+          <label for="opsActorRole">Actor role</label>
+          <input id="opsActorRole" type="text" placeholder="reviewer" />
+
+          <div class="flow-actions">
+            <button type="submit" class="btn-primary">Save reviewer access</button>
+            <button id="exchangeOpsKeyBtn" type="button" class="btn-secondary">Exchange reviewer key</button>
+            <button id="clearOpsAccessBtn" type="button" class="btn-secondary">Clear reviewer access</button>
+          </div>
+        </form>
+        <p id="opsAccessStatus" class="fine-print">No reviewer access saved yet. Approval operations stay read-only.</p>
+      </section>
+    </section>
+
+    <section class="snapshot-meta card">
+      <div>
+        <h2>Data Source</h2>
+        <p id="dataSourceLine">Loading dashboard snapshot...</p>
+      </div>
+      <button id="reloadSnapshotBtn" class="btn-secondary" type="button">Reload snapshot</button>
+    </section>
+
+    <section class="grid-two">
+      <article class="card">
+        <h2>Today’s Priorities</h2>
+        <ul id="prioritiesList" class="stack-list"></ul>
+      </article>
+
+      <article class="card">
+        <h2>Needs Review</h2>
+        <p class="subtle">High-impact items that still require human approval.</p>
+        <ul id="needsReviewList" class="stack-list"></ul>
+      </article>
+    </section>
+
+    <section class="grid-two">
+      <article class="card">
+        <h2>Approval Queue</h2>
+        <p id="approvalQueueSummary" class="subtle">Loading approval queue...</p>
+        <p id="approvalOpsStatus" class="fine-print">Approval operations will appear here when reviewer access is configured.</p>
+        <ul id="approvalQueueList" class="stack-list"></ul>
+      </article>
+
+      <article class="card">
+        <h2>Onboarding Status</h2>
+        <p class="subtle">Upload-first gets you moving immediately. Admin-assisted live sync stays human-gated before read-only access opens.</p>
+        <ul id="onboardingStatusList" class="stack-list"></ul>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Claim Risk + Recovery Worklist</h2>
+      <p class="subtle">This public shell does not show preview claims. Connect secure access to view live claim-risk and recovery worklists.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Claim</th>
+              <th>Severity</th>
+              <th>Findings</th>
+              <th>Categories</th>
+              <th>Recommended Next Step</th>
+            </tr>
+          </thead>
+          <tbody id="claimsTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid-two">
+      <article class="card">
+        <h2>Ask the Worklist</h2>
+        <p class="subtle">Guided office-language help over current PMHNP claim-risk, recovery, onboarding, and ROI context.</p>
+        <div id="suggestedPrompts" class="prompt-chips"></div>
+        <form id="askWorkbenchForm" class="ask-form">
+          <label for="workbenchQuestion">Question</label>
+          <textarea id="workbenchQuestion" rows="4" placeholder="Example: What should my biller do first this morning?"></textarea>
+          <button type="submit" class="btn-primary">Get guidance</button>
+        </form>
+        <div id="workbenchResponse" class="agent-response">Ask a question to get a grounded response.</div>
+      </article>
+
+      <article class="card">
+        <h2>Connect Tebra (Hybrid)</h2>
+        <ol class="onboarding-steps">
+          <li><strong>Start here:</strong> upload your Tebra exports so PMHNP Billing can review them immediately.</li>
+          <li><strong>Best starter set:</strong> patient roster, claims / A/R report, and appointments export.</li>
+          <li><strong>Later if needed:</strong> choose guided setup for ongoing read-only sync.</li>
+          <li><strong>Not live:</strong> self-serve OAuth click-attach and automatic claim submission.</li>
+        </ol>
+
+        <div class="flow-actions">
+          <a class="btn-primary" href="/app/intake.html?lane=upload">Upload Tebra Exports</a>
+          <a class="btn-secondary" href="/app/intake.html?lane=live">Set Up Live Sync</a>
+          <a class="btn-secondary" href="/cdn-cgi/l/email-protection#e8988184879ca898858086988a81848481868fc68b8785d79b9d8a828d8b9cd5b8a5a0a6b8cddad8a9a1cddad8a98f8d869ccddad8b88184879ccddad8ab8786868d8b9c818786cddad8ba8d999d8d9b9c">Email Pilot Team</a>
+        </div>
+
+        <p class="fine-print">Safety boundary: this app does not submit, edit, or transmit claims to payers. Recommendations remain draft-only and human-reviewed. If you only have one export file right now, upload it anyway and we can still begin.</p>
+      </article>
+    </section>
+  </main>
+
+  <script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script src="./app.js" defer></script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"d35f945cec834f5b91de3b20c79f3c6b","r":1,"server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
