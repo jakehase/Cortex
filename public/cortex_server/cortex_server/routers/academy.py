@@ -11,6 +11,8 @@ from datetime import datetime
 import httpx
 import re
 
+from cortex_server.modules.route_health import ROUTE_HEALTH
+
 router = APIRouter()
 
 # Module-level state
@@ -74,10 +76,12 @@ async def _oracle_chat(prompt: str, timeout: float = 90.0) -> tuple[Optional[str
     global _oracle_calls, _oracle_consecutive_failures, _oracle_breaker_open_until
     _oracle_calls += 1
 
-    now = time.time()
-    if now < _oracle_breaker_open_until:
-        return None, f"Oracle circuit open for {int(_oracle_breaker_open_until - now)}s"
+    gate = ROUTE_HEALTH.allow("oracle")
+    if not gate.get("allowed"):
+        _oracle_breaker_open_until = time.time() + float(gate.get("seconds_remaining", 0))
+        return None, f"Oracle circuit open for {int(gate.get('seconds_remaining', 0))}s"
 
+    started = time.time()
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
@@ -86,17 +90,19 @@ async def _oracle_chat(prompt: str, timeout: float = 90.0) -> tuple[Optional[str
             )
             if resp.status_code != 200:
                 _oracle_consecutive_failures += 1
-                if _oracle_consecutive_failures >= ORACLE_BREAKER_THRESHOLD:
-                    _oracle_breaker_open_until = time.time() + ORACLE_BREAKER_COOLDOWN_SECONDS
+                snap = ROUTE_HEALTH.record_failure("oracle", error=f"http_{resp.status_code}", latency_ms=(time.time() - started) * 1000)
+                _oracle_breaker_open_until = time.time() + float(snap.get("seconds_remaining", 0))
                 return None, f"Oracle returned {resp.status_code}"
             data = resp.json()
             txt = data.get("response") or data.get("message") or data.get("content") or str(data)
             _oracle_consecutive_failures = 0
+            ROUTE_HEALTH.record_success("oracle", latency_ms=(time.time() - started) * 1000)
+            _oracle_breaker_open_until = 0.0
             return txt, None
     except Exception as e:
         _oracle_consecutive_failures += 1
-        if _oracle_consecutive_failures >= ORACLE_BREAKER_THRESHOLD:
-            _oracle_breaker_open_until = time.time() + ORACLE_BREAKER_COOLDOWN_SECONDS
+        snap = ROUTE_HEALTH.record_failure("oracle", error=f"unreachable:{str(e)}", latency_ms=(time.time() - started) * 1000)
+        _oracle_breaker_open_until = time.time() + float(snap.get("seconds_remaining", 0))
         return None, f"Oracle unreachable: {str(e)}"
 
 
@@ -136,6 +142,7 @@ async def _validate_with_l34(payload: Dict[str, Any], schema: str) -> tuple[bool
 async def academy_status():
     """L16: Academy status with real metrics and observability."""
     success_rate = round((_oracle_successes / max(1, _oracle_successes + _oracle_failures)) * 100, 1)
+    oracle_health = ROUTE_HEALTH.snapshot("oracle")
     return {
         "success": True,
         "level": 16,
@@ -149,15 +156,16 @@ async def academy_status():
         "oracle_successes": _oracle_successes,
         "oracle_failures": _oracle_failures,
         "oracle_success_rate_pct": success_rate,
-        "oracle_consecutive_failures": _oracle_consecutive_failures,
-        "oracle_breaker_open": (time.time() < _oracle_breaker_open_until),
-        "oracle_breaker_seconds_remaining": max(0, int(_oracle_breaker_open_until - time.time())),
-        "last_oracle_error": _last_oracle_error,
+        "oracle_consecutive_failures": int(oracle_health.get("consecutive_failures", _oracle_consecutive_failures)),
+        "oracle_breaker_open": str(oracle_health.get("state", "closed")) == "open",
+        "oracle_breaker_seconds_remaining": int(oracle_health.get("seconds_remaining", 0)),
+        "oracle_health": oracle_health,
+        "last_oracle_error": oracle_health.get("last_error") or _last_oracle_error,
         "cache_hits": _cache_hits,
         "cache_misses": _cache_misses,
         "avg_learn_latency_ms": _mean(_learn_latency_ms[-50:]),
         "avg_teach_latency_ms": _mean(_teach_latency_ms[-50:]),
-        "degraded": (_oracle_failures > _oracle_successes and _oracle_failures > 0),
+        "degraded": (_oracle_failures > _oracle_successes and _oracle_failures > 0) or str(oracle_health.get("state", "closed")) != "closed",
         "capabilities": [
             "oracle_learning_modules",
             "knowledge_ingestion",

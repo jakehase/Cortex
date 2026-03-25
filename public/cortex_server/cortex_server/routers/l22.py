@@ -22,6 +22,20 @@ from cortex_server.routers.librarian import (
 router = APIRouter()
 
 
+def store_memory_record(*, content: str, memory_type: Optional[str] = "memory", tags: Optional[List[str]] = None, metadata: Optional[dict] = None) -> dict:
+    if not (content or "").strip():
+        raise HTTPException(status_code=400, detail="Content cannot be empty")
+
+    memory_id = str(uuid.uuid4())
+    record_metadata = dict(metadata or {})
+    record_metadata.setdefault("type", memory_type or "memory")
+    if tags:
+        record_metadata.setdefault("tags", tags)
+
+    collection.add(ids=[memory_id], documents=[content], metadatas=[record_metadata])
+    return {"id": memory_id, "status": "stored", "metadata": record_metadata}
+
+
 class L22StoreRequest(BaseModel):
     type: Optional[str] = "memory"
     content: str
@@ -78,17 +92,12 @@ async def l22_status():
 
 @router.post("/store")
 async def l22_store(request: L22StoreRequest):
-    if not request.content.strip():
-        raise HTTPException(status_code=400, detail="Content cannot be empty")
-
-    memory_id = str(uuid.uuid4())
-    metadata = request.metadata or {}
-    metadata.setdefault("type", request.type or "memory")
-    if request.tags:
-        metadata.setdefault("tags", request.tags)
-
-    collection.add(ids=[memory_id], documents=[request.content], metadatas=[metadata])
-    return {"id": memory_id, "status": "stored"}
+    return store_memory_record(
+        content=request.content,
+        memory_type=request.type,
+        tags=request.tags,
+        metadata=request.metadata,
+    )
 
 
 @router.post("/store_novel")

@@ -3,7 +3,7 @@ from pathlib import Path
 from cortex_server.modules.outcome_tuner import OutcomeTuner
 
 
-def _record(query: str, policy: str, latency_ms: int, ok: bool = True):
+def _record(query: str, policy: str, latency_ms: int, ok: bool = True, assurance_verdict: str = "pass"):
     return {
         "query": query,
         "task_archetype": "simple_qa",
@@ -14,6 +14,7 @@ def _record(query: str, policy: str, latency_ms: int, ok: bool = True):
         "latency_ms": latency_ms,
         "user_correction": False,
         "recovery_needed": False,
+        "assurance_verdict": assurance_verdict,
     }
 
 
@@ -49,3 +50,11 @@ def test_outcome_tuner_rolls_back_on_regression(tmp_path: Path):
     hint = tuner.get_policy_hint(archetype="simple_qa", query="rollback probe")
     assert hint["stage"] == "shadow"
     assert hint["recommended_policy"] is None
+
+
+def test_outcome_tuner_penalizes_degraded_assurance(tmp_path: Path):
+    tuner = OutcomeTuner(artifact_dir=tmp_path)
+    good = tuner._compute_reward(_record("good", "fastlane_memory", latency_ms=700, ok=True, assurance_verdict="pass"))
+    degraded = tuner._compute_reward(_record("degraded", "fastlane_memory", latency_ms=700, ok=True, assurance_verdict="degraded"))
+    blocked = tuner._compute_reward(_record("blocked", "fastlane_memory", latency_ms=700, ok=True, assurance_verdict="block"))
+    assert good > degraded > blocked

@@ -120,9 +120,16 @@ class OutcomeTuner:
         validator = 1.0 if record.get("validator_result", {}).get("pass") else 0.0
         correction_penalty = 0.2 if record.get("user_correction") else 0.0
         recovery_penalty = 0.15 if record.get("recovery_needed") else 0.0
+        assurance_verdict = str(record.get("assurance_verdict") or "pass")
+        assurance_penalty = {
+            "pass": 0.0,
+            "warn": 0.05,
+            "degraded": 0.12,
+            "block": 0.30,
+        }.get(assurance_verdict, 0.0)
         latency_ms = float(record.get("latency_ms") or 0.0)
         latency_bonus = 0.15 if latency_ms <= 1200 else 0.08 if latency_ms <= 2200 else 0.0
-        return round(max(0.0, min(1.0, (0.45 * success) + (0.30 * validator) + latency_bonus - correction_penalty - recovery_penalty)), 4)
+        return round(max(0.0, min(1.0, (0.45 * success) + (0.30 * validator) + latency_bonus - correction_penalty - recovery_penalty - assurance_penalty)), 4)
 
     def _recompute_decision(self, archetype: str) -> Dict[str, Any]:
         arch = self.state.setdefault(

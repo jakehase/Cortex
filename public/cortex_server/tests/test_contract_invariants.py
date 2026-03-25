@@ -41,6 +41,8 @@ def test_orchestrated_response_has_contract_and_routing_method(monkeypatch):
     assert "contract" in body
     assert body["contract"]["activation_metadata_available"] is True
     assert body["contract"]["identity_phrase"]
+    assert "assurance" in body
+    assert body["contract"]["assurance_version"] == body["assurance"]["version"]
 
 
 def test_404_has_no_hud_attribution(monkeypatch):

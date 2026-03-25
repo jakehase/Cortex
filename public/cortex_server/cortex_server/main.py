@@ -16,12 +16,10 @@ from cortex_server.middleware.error_handler import register_exception_handlers, 
 from cortex_server.middleware.request_timeout import RequestTimeoutMiddleware
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.middleware.event_ledger_middleware import EventLedgerMiddleware
+from cortex_server.middleware.observability import ObservabilityMiddleware
 from cortex_server.routers import websockets
-from cortex_server.scheduler import start_scheduler
-from cortex_server.modules.chronos import get_chronos
 import asyncio
 import subprocess
-from cortex_server.routers.awareness import start_awareness
 
 SAFE_MODE = os.getenv("CORTEX_SAFE_MODE", "true").lower() in {"1", "true", "yes", "on"}
 DANGEROUS_ROUTERS = {
@@ -48,7 +46,11 @@ def load_dynamic_routers(app: FastAPI) -> None:
         if SAFE_MODE and module_name in DANGEROUS_ROUTERS:
             logger.warning("SAFE_MODE: skipping dangerous router '%s'", module_name)
             continue
-        module = importlib.import_module(f"cortex_server.routers.{module_name}")
+        try:
+            module = importlib.import_module(f"cortex_server.routers.{module_name}")
+        except Exception as e:
+            logger.warning("Skipping router '%s' due to import error: %s", module_name, e)
+            continue
         router = getattr(module, "router", None)
         if router is not None:
             app.include_router(router, prefix=f"/{module_name}", tags=[module_name.title()])
@@ -86,6 +88,7 @@ def create_app() -> FastAPI:
 
     # Custom middleware
     app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(ObservabilityMiddleware)
     app.add_middleware(RequestTimeoutMiddleware, timeout_seconds=30, exclude_paths=["/health", "/", "/oracle/chat", "/oracle/status", "/oracle/ledger", "/augmenter/chat", "/bard/speak", "/homeassistant/voice/assist_tts"])
     app.add_middleware(EventLedgerMiddleware)
     app.add_middleware(HUDMiddleware)
@@ -113,12 +116,21 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.warning(f"Redis startup warning: {e}")
 
-        start_scheduler()
         try:
+            from cortex_server.scheduler import start_scheduler
+            start_scheduler()
+        except Exception as e:
+            logger.warning(f"Scheduler startup skipped: {e}")
+        try:
+            from cortex_server.modules.chronos import get_chronos
             asyncio.create_task(get_chronos().start_scheduler())
         except Exception as e:
             logger.warning(f"Chronos scheduler startup skipped: {e}")
-        asyncio.create_task(start_awareness())
+        try:
+            from cortex_server.routers.awareness import start_awareness
+            asyncio.create_task(start_awareness())
+        except Exception as e:
+            logger.warning(f"Awareness startup skipped: {e}")
 
     @app.get("/health")
     async def health_check():

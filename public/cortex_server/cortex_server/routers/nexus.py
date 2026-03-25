@@ -32,6 +32,8 @@ from cortex_server.modules.execution_transaction import ExecutionTransaction, Re
 from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor, classify_task_archetype
 from cortex_server.modules.outcome_tuner import OutcomeTuner
 from cortex_server.modules.world_grounding import gather_live_evidence
+from cortex_server.modules.route_health import ROUTE_HEALTH
+from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
 
 router = APIRouter()
@@ -399,7 +401,18 @@ def _requires_tradeoff_deliberation(query: str) -> bool:
 
 def _is_brainstorm_intent(query: str) -> bool:
     q = (query or "").strip().lower()
-    return q.startswith("brainstorm:") or " brainstorm:" in q or "brainstorm " in q or q == "brainstorm"
+    explicit = q.startswith("brainstorm:") or " brainstorm:" in q or "brainstorm " in q or q == "brainstorm"
+    natural_markers = [
+        "creative ideas",
+        "launch ideas",
+        "ideas for launching",
+        "brainstorm ideas",
+        "campaign ideas",
+        "creative concepts",
+        "marketing ideas",
+    ]
+    request_markers = ["give me", "help me", "come up with", "generate", "need"]
+    return explicit or (any(m in q for m in natural_markers) and any(r in q for r in request_markers))
 
 
 def _is_coding_intent(query: str) -> bool:
@@ -717,20 +730,24 @@ def analyze_intent_with_oracle(query: str) -> Dict[str, Any]:
     """Use L5 Oracle for semantic intent analysis."""
     if not OPENROUTER_API_KEY:
         return {"intents": [], "confidence": 0, "method": "fallback"}
-    
+
+    gate = ROUTE_HEALTH.allow("oracle")
+    if not gate.get("allowed"):
+        return {"intents": [], "confidence": 0, "method": "breaker_open", "reasoning": gate.get("reason")}
+
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "HTTP-Referer": "http://localhost:8000",
         "Content-Type": "application/json"
     }
-    
+
     # Build level descriptions for context
     level_descriptions = "\n".join([
         f"L{lvl}: {info['name']} - {info['purpose']}"
         for lvl, info in sorted(LEVEL_MAP.items())
         if lvl not in ALWAYS_ON_LEVELS  # Only non-always-on levels
     ])
-    
+
     system_prompt = f"""You are L5 Oracle, analyzing user intent to route queries to appropriate Cortex levels.
 
 Available levels (besides always-on):
@@ -755,7 +772,7 @@ Intents to detect:
 - translation: Language conversion
 - prediction: Forecasting
 - optimization: Improving efficiency"""
-    
+
     payload = {
         "model": "openrouter/moonshotai/kimi-k2.5",
         "messages": [
@@ -765,16 +782,19 @@ Intents to detect:
         "temperature": 0.3,
         "max_tokens": 500
     }
-    
+
+    started = datetime.utcnow()
     try:
         response = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
         response.raise_for_status()
         data = response.json()
         content = data["choices"][0]["message"]["content"]
-        
+        latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
+
         # Parse JSON from response
         try:
             result = json.loads(content)
+            ROUTE_HEALTH.record_success("oracle", latency_ms=latency_ms)
             return {
                 "intents": result.get("intents", []),
                 "levels": result.get("levels", []),
@@ -783,9 +803,11 @@ Intents to detect:
                 "method": "oracle_semantic"
             }
         except json.JSONDecodeError:
-            # Fallback if Oracle doesn't return valid JSON
+            ROUTE_HEALTH.record_failure("oracle", error="parse_error", latency_ms=latency_ms)
             return {"intents": [], "confidence": 0, "method": "parse_error"}
     except Exception as e:
+        latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
+        ROUTE_HEALTH.record_failure("oracle", error=str(e), latency_ms=latency_ms)
         return {"intents": [], "confidence": 0, "method": f"error: {str(e)}"}
 
 
@@ -818,20 +840,33 @@ def _architect_healthy() -> bool:
     if str(os.getenv("CORTEX_SAFE_MODE", "")).lower() in {"1", "true", "yes", "on"}:
         return True
 
+    gate = ROUTE_HEALTH.allow("architect")
+    if not gate.get("allowed"):
+        return False
+
+    started = datetime.utcnow()
     for path in ["/meta_conductor/status", "/architect_expanded/status", "/architect/status"]:
         try:
             resp = requests.get(f"http://localhost:8888{path}", timeout=1.2)
+            latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
             if resp.status_code != 200:
+                ROUTE_HEALTH.record_failure("architect", error=f"http_{resp.status_code}", latency_ms=latency_ms)
                 continue
             data = resp.json()
             if not isinstance(data, dict):
+                ROUTE_HEALTH.record_failure("architect", error="invalid_json", latency_ms=latency_ms)
                 continue
             if data.get("success") is True:
+                ROUTE_HEALTH.record_success("architect", latency_ms=latency_ms)
                 return True
             status = str(((data.get("data") or {}).get("status") if isinstance(data.get("data"), dict) else data.get("status", ""))).lower()
             if status in {"active", "healthy", "online", "ok", ""}:
+                ROUTE_HEALTH.record_success("architect", latency_ms=latency_ms)
                 return True
-        except Exception:
+            ROUTE_HEALTH.record_failure("architect", error=f"status_{status or 'unknown'}", latency_ms=latency_ms)
+        except Exception as exc:
+            latency_ms = (datetime.utcnow() - started).total_seconds() * 1000
+            ROUTE_HEALTH.record_failure("architect", error=str(exc), latency_ms=latency_ms)
             continue
     return False
 
@@ -984,6 +1019,11 @@ async def orchestrate_query(query: str, request: Request = None):
             "evidence_count": int(world_grounding.get("evidence_count", 0)),
             "degraded": bool(world_grounding.get("degraded", False)),
         }
+        if bool(world_grounding.get("required", False)):
+            if bool(world_grounding.get("degraded", False)):
+                ROUTE_HEALTH.record_failure("world_grounding", error="degraded")
+            else:
+                ROUTE_HEALTH.record_success("world_grounding")
         tx.preflight({
             "query_present": lambda: {"ok": bool((query or "").strip()), "chars": len(query or "")},
             "latency_budget": lambda: {"ok": int(latency_plan.get("max_latency_ms", 0)) >= 500, "max_latency_ms": latency_plan.get("max_latency_ms")},
@@ -1482,6 +1522,37 @@ async def orchestrate_query(query: str, request: Request = None):
             "checks": checks,
         }
         quality_score = min(1.0, max(0.0, (0.4 * float(cognitive_quality.get("confidence", 0.0))) + (0.3 * float(cognitive_quality.get("evidence", 0.0))) + (0.3 * (1.0 if validator_result["pass"] else 0.0))))
+        route_health_dependencies: Dict[str, Any] = {}
+        for dep in ["oracle", "architect", "l22", "world_grounding"]:
+            snap = ROUTE_HEALTH.snapshot(dep)
+            if isinstance(snap, dict) and (snap.get("successes") or snap.get("failures") or dep in {"architect"}):
+                route_health_dependencies[dep] = snap
+        if bool(world_grounding.get("required", False)) and "world_grounding" not in route_health_dependencies:
+            route_health_dependencies["world_grounding"] = {
+                "state": "closed" if not bool(world_grounding.get("degraded", False)) else "open",
+                "healthy": not bool(world_grounding.get("degraded", False)),
+                "evidence_count": int(world_grounding.get("evidence_count", 0)),
+                "mode": world_grounding.get("mode", "not_required"),
+            }
+        route_health_snapshot = {"version": "route_health.v1", "dependencies": route_health_dependencies}
+        assurance = build_orchestration_assurance(
+            query=query,
+            routing_method=routing_method,
+            risk_flags=risk_flags,
+            checks=checks,
+            validator_result=validator_result,
+            cognitive_quality=cognitive_quality,
+            world_grounding=world_grounding,
+            execution_transaction=execution_tx,
+            route_health=route_health_snapshot,
+            fastlane=fastlane,
+            policy_hint=policy_hint,
+            tool_path_observability=tool_path_observability,
+            routing_markers=routing_markers,
+            latency_budget=latency_plan,
+            recommended_levels=recommended,
+            quality_score=quality_score,
+        )
         autotune_policy = observe_outcome(
             routing_method,
             quality_score,
@@ -1511,6 +1582,8 @@ async def orchestrate_query(query: str, request: Request = None):
             "execution_success": True,
             "user_correction": False,
             "recovery_needed": bool(isinstance(fastlane, dict) and fastlane.get("escalated")),
+            "assurance_verdict": assurance.get("verdict"),
+            "assurance_reason_codes": assurance.get("reason_codes", []),
             "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
         })
         latency_artifact = _LATENCY_GOVERNOR.observe({
@@ -1539,7 +1612,12 @@ async def orchestrate_query(query: str, request: Request = None):
                 "activation_metadata_source": "router",
                 "consistency_guard": "kernel_levels_filtered" if kernel_online is not None else "best_effort",
                 "canary_first": True,
+                "assurance_version": assurance.get("version"),
+                "assurance_verdict": assurance.get("verdict"),
+                "assurance_release_decision": assurance.get("release_decision"),
+                "memory_write_eligible": bool((assurance.get("memory_commit") or {}).get("eligible", False)),
             },
+            "assurance": assurance,
             "referent_context": referent_info,
             "world_grounding": world_grounding,
             "fastlane": fastlane,
@@ -1552,6 +1630,7 @@ async def orchestrate_query(query: str, request: Request = None):
             "policy_hint": policy_hint,
             "autotune_policy": autotune_policy,
             "execution_transaction": execution_tx,
+            "validator_result": validator_result,
             "artifact_paths": {
                 "outcome_tuner": outcome_artifact,
                 "latency_governor": latency_artifact,
@@ -1589,12 +1668,85 @@ async def replay_level_policy(payload: PolicyReplayRequest):
 
 @router.post("/commit")
 async def commit_memory(interaction: InteractionData):
-    """Commit memory"""
+    """Commit memory through the canonical L22 durable store with assurance gating."""
+    metadata = dict(interaction.metadata or {})
+    risk_flags = metadata.get("risk_flags") if isinstance(metadata.get("risk_flags"), list) else _detect_risk_flags(interaction.query)
+    validator_result = metadata.get("validator_result") if isinstance(metadata.get("validator_result"), dict) else {"pass": True, "checks": {}}
+    checks = validator_result.get("checks") if isinstance(validator_result.get("checks"), dict) else {}
+    validator_summary = build_validator_summary(
+        checks=checks,
+        validator_result=validator_result,
+        cognitive_quality=metadata.get("cognitive_quality") if isinstance(metadata.get("cognitive_quality"), dict) else {},
+        execution_transaction={"status": "completed"},
+    )
+    memory_decision = build_memory_commit_decision(
+        query=interaction.query,
+        response=interaction.response,
+        risk_flags=risk_flags,
+        validator_summary=validator_summary,
+        world_grounding=metadata.get("world_grounding") if isinstance(metadata.get("world_grounding"), dict) else {},
+    )
+
+    durable_write = None
+    if memory_decision.get("eligible"):
+        try:
+            from cortex_server.routers.l22 import store_memory_record
+
+            durable_write = store_memory_record(
+                content=interaction.response,
+                memory_type="memory",
+                tags=["nexus_commit", "durable_memory"],
+                metadata={
+                    "query": interaction.query,
+                    "levels_used": interaction.levels_used,
+                    "source": "nexus.commit",
+                    "assurance": {
+                        "validator_pass": bool(validator_summary.get("pass")),
+                        "validator_reason_codes": validator_summary.get("reason_codes", []),
+                        "risk_flags": risk_flags,
+                    },
+                    **metadata,
+                },
+            )
+            ROUTE_HEALTH.record_success("l22")
+        except Exception as exc:
+            durable_write = {"status": "write_failed", "error": str(exc)}
+            ROUTE_HEALTH.record_failure("l22", error=str(exc))
+    else:
+        durable_write = {"status": "skipped", "reason": "assurance_gate"}
+
+    memory_decision = build_memory_commit_decision(
+        query=interaction.query,
+        response=interaction.response,
+        risk_flags=risk_flags,
+        validator_summary=validator_summary,
+        world_grounding=metadata.get("world_grounding") if isinstance(metadata.get("world_grounding"), dict) else {},
+        durable_store_result=durable_write,
+    )
+
+    assurance = {
+        "version": "nexus.assurance.v1",
+        "verdict": "pass" if memory_decision.get("eligible") and durable_write and durable_write.get("status") == "stored" else ("degraded" if memory_decision.get("eligible") else "warn"),
+        "memory_commit": memory_decision,
+        "validators": validator_summary,
+        "route_health": {"version": "route_health.v1", "dependencies": {"l22": ROUTE_HEALTH.snapshot("l22")}},
+    }
+
     return {
-        "success": True,
-        "committed": True,
+        "success": bool(memory_decision.get("eligible")) and durable_write and durable_write.get("status") == "stored",
+        "committed": bool(durable_write and durable_write.get("status") == "stored"),
         "levels": [7, 22],
         "query_preview": interaction.query[:50] if interaction.query else "",
+        "durable_write": durable_write,
+        "assurance": assurance,
+        "contract": {
+            "identity_phrase": "Cortex-first orchestration active",
+            "activation_metadata_available": True,
+            "activation_metadata_source": "router",
+            "assurance_version": assurance.get("version"),
+            "assurance_verdict": assurance.get("verdict"),
+            "memory_write_eligible": bool(memory_decision.get("eligible")),
+        },
     }
 
 
