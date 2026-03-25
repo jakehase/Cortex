@@ -41,6 +41,10 @@ Current functions:
   - updates state from observed success/failure outcomes
 - `compress_codec_for_prompt(state, max_chars=1200)`
   - renders a compact prompt packet from state
+- session helpers in `cortex_codec.py`
+  - maintain shared per-session Codec state
+  - persist updated snapshots into L22/Mnemosyne
+  - lazily hydrate the latest snapshot back from L22 when in-memory state is cold
 
 ## Near-term roadmap
 
