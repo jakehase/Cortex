@@ -3207,7 +3207,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:35:51.211Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-25T04:53:22.175Z",
+      "updatedAt": "2026-03-25T04:58:08.135Z",
       "history": [
         {
           "from": null,
@@ -3225,9 +3225,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 141,
+        "runs": 142,
         "failures": [],
-        "lastRunAt": "2026-03-25T04:53:22.182Z",
+        "lastRunAt": "2026-03-25T04:58:08.142Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5028,6 +5028,56 @@
       "failedAt": "2026-03-25T04:54:17.425Z",
       "failureReason": "tAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/). @router.on_event(\"startup\") cortex_server/routers/validator.py:40 /root/clawd/public/cortex_server/cortex_server/routers/validator.py:40: UserWarning: Field name \"schema\" in \"ValidateRequest\" shadows an attribute in parent \"BaseModel\" class ValidateRequest(BaseModel): cortex_server/routers/sentinel.py:288 /root/clawd/pu",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774414895379:2131e5c4d040a3f8",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-25T05:01:35.379Z",
+      "updatedAt": "2026-03-25T05:01:50.940Z",
+      "prompt": "[Queued messages while agent was busy] --- Queued #1 Replied message (untrusted, for context): ```json { \"sender_label\": \"136704681865420@lid\", \"body\": \"Pushed.\\n\\n- remote: `origin`\\n- repo: `jakehase/Cortex`\\n- branch updated: `main`\\n- c",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "? ? 🦞 OpenClaw 2026.3.13 (61d171a) 🕒 Time: Tuesday, March 24th, 2026 — 9:41 PM (America/Chicago) 🧠 Model: openai-codex/gpt-5.4 · 🔑 oauth (openai-codex:default) 🧮 Tokens: 11k in / 514 out 📚 Context: 11k/272k (4%) · 🧹 Compactions: 0 📊 Usage: 5h 100% left ⏱4h 58m · Week 100%",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-25T05:01:35.379Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-25T05:01:35.383Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-25T05:01:50.940Z",
+          "completedAt": "2026-03-25T05:01:50.940Z",
+          "completionSummary": "? ? 🦞 OpenClaw 2026.3.13 (61d171a) 🕒 Time: Tuesday, March 24th, 2026 — 9:41 PM (America/Chicago) 🧠 Model: openai-codex/gpt-5.4 · 🔑 oauth (openai-codex:default) 🧮 Tokens: 11k in / 514 out 📚 Context: 11k/272k (4%) · 🧹 Compactions: 0 📊 Usage: 5h 100% left ⏱4h 58m · Week 100%",
+          "completionSource": "agent_end"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-25T05:01:50.942Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-25T05:01:50.940Z",
+      "completionSource": "agent_end"
     }
   ]
 }
