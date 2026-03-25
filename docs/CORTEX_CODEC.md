@@ -45,6 +45,8 @@ Current functions:
   - maintain shared per-session Codec state
   - persist updated snapshots into L22/Mnemosyne
   - lazily hydrate the latest snapshot back from L22 when in-memory state is cold
+  - dedupe by meaningful state fingerprint (not just timestamps)
+  - prune older per-session snapshots with a bounded retention window
 
 ## Near-term roadmap
 
