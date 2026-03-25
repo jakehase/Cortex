@@ -65,6 +65,19 @@ Current functions:
 - maintain explicit failure-pattern memory
 - add task-type scorecards for which reasoning strategies work best
 
+## Debug / visibility
+
+Current visibility surface:
+
+- `GET /nexus/codec/status`
+  - resolves the current session via `x-session-id` / `x-chat-id` or accepts `session_key`
+  - returns:
+    - current Codec packet
+    - summary and fingerprint
+    - compression stats / prompt-size savings
+    - recent persisted L22 snapshots
+    - latest retention action metadata
+
 ## Success criteria
 
 Codec is working if it measurably improves:
