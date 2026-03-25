@@ -3207,7 +3207,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:35:51.211Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-25T15:39:05.289Z",
+      "updatedAt": "2026-03-25T17:18:55.435Z",
       "history": [
         {
           "from": null,
@@ -3225,9 +3225,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 246,
+        "runs": 253,
         "failures": [],
-        "lastRunAt": "2026-03-25T15:39:05.296Z",
+        "lastRunAt": "2026-03-25T17:18:55.439Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5033,7 +5033,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774414895379:2131e5c4d040a3f8",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-25T05:01:35.379Z",
-      "updatedAt": "2026-03-25T15:40:15.245Z",
+      "updatedAt": "2026-03-25T15:49:41.144Z",
       "prompt": "[Queued messages while agent was busy] --- Queued #1 Replied message (untrusted, for context): ```json { \"sender_label\": \"136704681865420@lid\", \"body\": \"Pushed.\\n\\n- remote: `origin`\\n- repo: `jakehase/Cortex`\\n- branch updated: `main`\\n- c",
       "kind": "user_visible",
       "trustTier": "normal",
@@ -5068,9 +5068,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 45,
+        "runs": 50,
         "failures": [],
-        "lastRunAt": "2026-03-25T15:40:15.247Z",
+        "lastRunAt": "2026-03-25T15:49:41.147Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
