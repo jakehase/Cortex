@@ -78,6 +78,14 @@ Current visibility surface:
     - recent persisted L22 snapshots
     - latest retention action metadata
 
+- `GET /nexus/codec/benchmark`
+  - compares, for a given session/query:
+    - raw state-source character count
+    - Codec packet size
+    - referent-only prompt size
+    - referent+Codec prompt size
+    - recent snapshot timeline with packet/raw sizes
+
 ## Success criteria
 
 Codec is working if it measurably improves:
