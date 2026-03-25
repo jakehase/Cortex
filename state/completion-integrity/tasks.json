@@ -3207,7 +3207,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:35:51.211Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-24T02:42:11.854Z",
+      "updatedAt": "2026-03-25T02:27:24.375Z",
       "history": [
         {
           "from": null,
@@ -3225,9 +3225,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 94,
+        "runs": 123,
         "failures": [],
-        "lastRunAt": "2026-03-24T02:42:11.864Z",
+        "lastRunAt": "2026-03-25T02:27:24.382Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4861,12 +4861,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774238627390:3f86fb2ee096bd52",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-23T04:03:47.390Z",
-      "updatedAt": "2026-03-24T00:54:15.487Z",
+      "updatedAt": "2026-03-25T03:17:07.339Z",
       "prompt": "Fix it",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
-      "completionSummary": "How’s this going? results:,provider:cortex-http,mode:semantic,memoryMode:fast,queryType:simple-recall,resolvedFacts:,conflicts:,fallback:from:memory,reason:clean_but_empty,suggestion:No relevant durable memory was found after noise suppression; fall back to workspace/filesystem o",
+      "status": "failed",
+      "completionSummary": "? ? 🦞 OpenClaw 2026.3.13 (61d171a) 🕒 Time: Tuesday, March 24th, 2026 — 9:41 PM (America/Chicago) 🧠 Model: openai-codex/gpt-5.4 · 🔑 oauth (openai-codex:default) 🧮 Tokens: 11k in / 514 out 📚 Context: 11k/272k (4%) · 🧹 Compactions: 0 📊 Usage: 5h 100% left ⏱4h 58m · Week 100%",
       "history": [
         {
           "from": null,
@@ -4885,6 +4885,14 @@
           "completedAt": "2026-03-23T06:31:03.973Z",
           "completionSummary": "https://x.com/hero_ui/status/2035353810181251490?s=46 Would this help us any? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just he",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-25T03:17:07.339Z",
+          "failedAt": "2026-03-25T03:17:07.339Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -4896,15 +4904,68 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 21,
+        "runs": 29,
         "failures": [],
-        "lastRunAt": "2026-03-24T00:54:15.494Z",
+        "lastRunAt": "2026-03-25T03:02:34.954Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
         }
       },
       "completedAt": "2026-03-23T06:31:03.973Z",
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-25T03:17:07.339Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
+    },
+    {
+      "id": "agent:main:subagent:0db9b886-c607-4d9f-ad02-e8600d7104b0:1774407748614:297a623cf40d19fd",
+      "sessionKey": "agent:main:subagent:0db9b886-c607-4d9f-ad02-e8600d7104b0",
+      "createdAt": "2026-03-25T03:02:28.614Z",
+      "updatedAt": "2026-03-25T03:07:07.004Z",
+      "prompt": "[Tue 2026-03-24 22:02 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Survey /root/clawd/public/cortex_server for the best integration",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "internal_complete",
+      "completionSummary": "Tue 2026-03-24 22:02 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Survey /root/clawd/public/cortex_server for the best integration points to implement a unified assurance/trust",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-25T03:02:28.614Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-25T03:02:28.619Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-25T03:07:07.004Z",
+          "completedAt": "2026-03-25T03:07:07.004Z",
+          "completionSummary": "Tue 2026-03-24 22:02 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Survey /root/clawd/public/cortex_server for the best integration points to implement a unified assurance/trust",
+          "completionSource": "agent_end"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-25T03:07:07.009Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-25T03:07:07.004Z",
       "completionSource": "agent_end"
     }
   ]
