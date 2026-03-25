@@ -3207,7 +3207,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:35:51.211Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-25T20:11:50.926Z",
+      "updatedAt": "2026-03-25T20:16:42.253Z",
       "history": [
         {
           "from": null,
@@ -3225,9 +3225,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 276,
+        "runs": 277,
         "failures": [],
-        "lastRunAt": "2026-03-25T20:11:50.930Z",
+        "lastRunAt": "2026-03-25T20:16:42.256Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5033,11 +5033,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774414895379:2131e5c4d040a3f8",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-25T05:01:35.379Z",
-      "updatedAt": "2026-03-25T20:05:01.186Z",
+      "updatedAt": "2026-03-25T20:16:09.509Z",
       "prompt": "[Queued messages while agent was busy] --- Queued #1 Replied message (untrusted, for context): ```json { \"sender_label\": \"136704681865420@lid\", \"body\": \"Pushed.\\n\\n- remote: `origin`\\n- repo: `jakehase/Cortex`\\n- branch updated: `main`\\n- c",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: What happened to the JavaScript on pmhnpbilling? ``` ? results:path:cortex:25256957-b0d1-4d3f-8b73-d144a28039c6,startLine:1,endLine:1,score:0.7314533462411466,snippet:Question: Where is the",
       "history": [
         {
@@ -5057,6 +5057,14 @@
           "completedAt": "2026-03-25T05:01:50.940Z",
           "completionSummary": "? ? 🦞 OpenClaw 2026.3.13 (61d171a) 🕒 Time: Tuesday, March 24th, 2026 — 9:41 PM (America/Chicago) 🧠 Model: openai-codex/gpt-5.4 · 🔑 oauth (openai-codex:default) 🧮 Tokens: 11k in / 514 out 📚 Context: 11k/272k (4%) · 🧹 Compactions: 0 📊 Usage: 5h 100% left ⏱4h 58m · Week 100%",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-25T20:16:09.509Z",
+          "failedAt": "2026-03-25T20:16:09.509Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -5077,7 +5085,10 @@
         }
       },
       "completedAt": "2026-03-25T05:01:50.940Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-25T20:16:09.509Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     }
   ]
 }
