@@ -1,8 +1,8 @@
-# Cortex Codex
+# Cortex Codec
 
 ## What it is
 
-Cortex Codex is the layer that compresses raw interaction history into reusable **state**, not just shorter text.
+Cortex Codec is the layer that compresses raw interaction history into reusable **state**, not just shorter text.
 
 Instead of replaying whole transcripts, Codex tries to preserve the pieces of history that should still change behavior now:
 
@@ -31,26 +31,26 @@ Codex is meant to be different:
 
 ## First implemented primitive
 
-`public/cortex_server/cortex_server/modules/cortex_codex.py`
+`public/cortex_server/cortex_server/modules/cortex_codec.py`
 
 Current functions:
 
-- `build_codex_state(events, previous_state=None)`
-  - compiles raw events into a Codex state packet
-- `apply_codex_outcome_feedback(state, outcome_event)`
+- `build_codec_state(events, previous_state=None)`
+  - compiles raw events into a Codec state packet
+- `apply_codec_outcome_feedback(state, outcome_event)`
   - updates state from observed success/failure outcomes
-- `compress_codex_for_prompt(state, max_chars=1200)`
+- `compress_codec_for_prompt(state, max_chars=1200)`
   - renders a compact prompt packet from state
 
 ## Near-term roadmap
 
 ### Phase 1 — useful now
 - compile state from session events / memory recalls
-- prepend compact Codex packet to selected prompts
+- prepend compact Codec packet to selected prompts
 - benchmark against plain transcript replay
 
 ### Phase 2 — stronger memory
-- persist Codex state to durable store
+- persist Codec state to durable store
 - align fields to neuro-symbolic memory schema
 - add utility scoring and retention policy
 
@@ -61,7 +61,7 @@ Current functions:
 
 ## Success criteria
 
-Codex is working if it measurably improves:
+Codec is working if it measurably improves:
 
 - response coherence across sessions
 - lower prompt size for same or better quality
