@@ -3207,7 +3207,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T12:35:51.211Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-25T04:48:05.693Z",
+      "updatedAt": "2026-03-25T04:53:22.175Z",
       "history": [
         {
           "from": null,
@@ -3225,9 +3225,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 140,
+        "runs": 141,
         "failures": [],
-        "lastRunAt": "2026-03-25T04:48:05.696Z",
+        "lastRunAt": "2026-03-25T04:53:22.182Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4967,6 +4967,67 @@
       },
       "completedAt": "2026-03-25T03:07:07.004Z",
       "completionSource": "agent_end"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774414369308:b9af20b4d6a65f91",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-25T04:52:49.308Z",
+      "updatedAt": "2026-03-25T04:54:17.425Z",
+      "prompt": "[Queued messages while agent was busy] --- Queued #1 Replied message (untrusted, for context): ```json { \"sender_label\": \"136704681865420@lid\", \"body\": \"Nice — that worked.\\n\\nStatus now:\\n- installed the missing validation deps:\\n- `pytest",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "et-client, uvloop, tqdm, tenacity, sympy, shellingham, rpds-py, python-dotenv, python-dateutil, pyproject_hooks, pybase64, protobuf, overrides, orjson, oauthlib, numpy, mmh3, mdurl, importlib-resources, httptools, hf-xet, grpcio, fsspec, filelock, bcrypt, attrs, watchfiles, reque",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-25T04:52:49.308Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-25T04:52:49.311Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-25T04:54:05.443Z",
+          "completedAt": "2026-03-25T04:54:05.443Z",
+          "completionSummary": "et-client, uvloop, tqdm, tenacity, sympy, shellingham, rpds-py, python-dotenv, python-dateutil, pyproject_hooks, pybase64, protobuf, overrides, orjson, oauthlib, numpy, mmh3, mdurl, importlib-resources, httptools, hf-xet, grpcio, fsspec, filelock, bcrypt, attrs, watchfiles, reque",
+          "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-25T04:54:17.425Z",
+          "failedAt": "2026-03-25T04:54:17.425Z",
+          "failureReason": "tAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/). @router.on_event(\"startup\") cortex_server/routers/validator.py:40 /root/clawd/public/cortex_server/cortex_server/routers/validator.py:40: UserWarning: Field name \"schema\" in \"ValidateRequest\" shadows an attribute in parent \"BaseModel\" class ValidateRequest(BaseModel): cortex_server/routers/sentinel.py:288 /root/clawd/pu",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-25T04:54:05.447Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "completedAt": "2026-03-25T04:54:05.443Z",
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-25T04:54:17.425Z",
+      "failureReason": "tAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/). @router.on_event(\"startup\") cortex_server/routers/validator.py:40 /root/clawd/public/cortex_server/cortex_server/routers/validator.py:40: UserWarning: Field name \"schema\" in \"ValidateRequest\" shadows an attribute in parent \"BaseModel\" class ValidateRequest(BaseModel): cortex_server/routers/sentinel.py:288 /root/clawd/pu",
+      "failureSource": "runtime_message"
     }
   ]
 }
