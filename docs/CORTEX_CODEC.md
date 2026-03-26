@@ -114,6 +114,10 @@ Current visibility surface:
   - the next user turn in the same session can automatically score the prior served variant when it clearly looks like:
     - correction / retry (`actually`, `that was wrong`, `try again`, etc.)
     - success confirmation (`that worked`, `fixed it`, `thanks`, etc.)
+  - passive signals are now **confidence-scored** instead of binary
+  - weak signals are ignored below a minimum confidence threshold
+  - stale prior turns expire and are not auto-attributed once they age out
+  - session telemetry now exposes the last served variant, age, expiry state, and last passive signal
 
 ## Adaptive rollout
 
