@@ -171,3 +171,64 @@ Codec is working if it measurably improves:
 - lower prompt size for same or better quality
 - fewer repeated mistakes
 - better retention of active goals and user preferences
+
+
+## Current Contract Snapshot (2026-03-26)
+
+### Codec state contract
+- `version`: `cortex.codec.v1`
+- `schema_version`: `cortex.codec.schema.v1`
+- stable domains:
+  - `identity_state` / `schema.identity`
+  - `project_state` / `schema.projects`
+  - `world_state` / `schema.world`
+  - `failure_state` / `schema.failure`
+  - `outcome_state` / `schema.outcomes`
+  - `utility_state` / `schema.utility`
+  - `promotion_state` / `schema.promotion`
+
+### Replay / evaluation surfaces
+- `/nexus/codec/evaluate`
+  - variant evaluation
+  - acceptance gates
+  - trend history
+  - autotune / rollup autotune
+- `/nexus/codec/corpus-replay`
+  - versioned replay report artifact
+- `/nexus/codec/corpus-replay/reports`
+  - persisted replay report listing
+- `/nexus/codec/corpus-replay/diff`
+  - report-to-report diffing
+- `/nexus/codec/corpus-replay/export`
+  - versioned benchmark corpus export
+- `/nexus/codec/corpus-replay/live-reexecute`
+  - live/current-path prompt re-execution
+- `/nexus/codec/corpus-replay/live-reexecute/compare`
+  - multi-backend re-execution comparison
+- `/nexus/codec/corpus-replay/live-reexecute/backends`
+  - backend registry / capability surface
+- `/nexus/codec/corpus-replay/plans`
+  - replay plan listing
+- `/nexus/codec/corpus-replay/plan`
+  - replay plan creation
+- `/nexus/codec/corpus-replay/plan/run`
+  - execute one replay plan now
+- `/nexus/codec/corpus-replay/plans/run-due`
+  - execute due replay plans
+- `/nexus/codec/corpus-replay/scheduler`
+  - in-process scheduler status
+- `/nexus/codec/corpus-replay/scheduler/tick`
+  - deterministic due-plan tick
+
+### Benchmark corpus export
+Current export artifact shape:
+- `export_version`: `cortex.codec.benchmark_corpus.v1`
+- `export_id`
+- `generated_at`
+- `session_key`
+- `corpus_version`
+- `manifest`
+- `history`
+- `recommendations`
+
+This export is the current frozen handoff format for offline benchmark/corpus work.
