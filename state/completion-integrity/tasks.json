@@ -3003,7 +3003,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:05:51.223Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-26T16:11:32.553Z",
+      "updatedAt": "2026-03-26T16:16:43.703Z",
       "history": [
         {
           "from": null,
@@ -3021,9 +3021,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 16,
+        "runs": 17,
         "failures": [],
-        "lastRunAt": "2026-03-26T16:11:32.556Z",
+        "lastRunAt": "2026-03-26T16:16:43.710Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5196,7 +5196,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774473466985:edde7371df00fb20",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-25T21:17:46.985Z",
-      "updatedAt": "2026-03-26T15:54:24.416Z",
+      "updatedAt": "2026-03-26T16:19:03.507Z",
       "prompt": "Fix swipe too",
       "kind": "user_visible",
       "trustTier": "important",
@@ -5231,9 +5231,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 54,
+        "runs": 55,
         "failures": [],
-        "lastRunAt": "2026-03-26T15:54:24.425Z",
+        "lastRunAt": "2026-03-26T16:19:03.514Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
