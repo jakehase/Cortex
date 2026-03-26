@@ -86,6 +86,14 @@ Current visibility surface:
     - referent+Codec prompt size
     - recent snapshot timeline with packet/raw sizes
 
+- `GET /nexus/codec/evaluate`
+  - builds three prompt variants for a query:
+    - query only
+    - referents only
+    - referents + Codec
+  - can optionally run all variants through the Oracle lane (`run_oracle=true`)
+  - returns side-by-side prompt hashes, excerpts, sizes, and Oracle outputs/backend labels
+
 ## Success criteria
 
 Codec is working if it measurably improves:
