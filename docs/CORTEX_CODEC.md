@@ -94,7 +94,12 @@ Current visibility surface:
   - always returns a heuristic judge verdict with per-variant scores + winner
   - can optionally run all variants through the Oracle lane (`run_oracle=true`)
   - can optionally ask an Oracle judge for a model-based winner (`judge_with_oracle=true`)
-  - returns side-by-side prompt hashes, excerpts, sizes, Oracle outputs/backend labels, and judge results
+  - records the winning variant into Codec policy learning
+  - returns side-by-side prompt hashes, excerpts, sizes, Oracle outputs/backend labels, judge results, and updated policy state
+
+- `GET /nexus/codec/policy`
+  - shows learned Codec injection recommendations by task archetype
+  - can also return the current recommendation for a specific query
 
 ## Success criteria
 
