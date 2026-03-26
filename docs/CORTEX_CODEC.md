@@ -100,6 +100,18 @@ Current visibility surface:
 - `GET /nexus/codec/policy`
   - shows learned Codec injection recommendations by task archetype
   - can also return the current recommendation for a specific query
+  - includes rollout stage / rollout percent / query-level rollout decision data
+
+## Adaptive rollout
+
+Codec policy learning now supports closed-loop rollout tuning:
+
+- evaluation winners are logged by task archetype
+- Oracle-judge wins can carry more weight than heuristic-only wins
+- learned policy can:
+  - gradually **skip Codec** for archetypes where it loses
+  - **boost Codec packet budget** for archetypes where it keeps winning
+- rollout is deterministic per query, so behavior is stable for the same prompt class while evidence accumulates
 
 ## Success criteria
 
