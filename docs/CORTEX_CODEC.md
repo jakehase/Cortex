@@ -128,6 +128,10 @@ Current visibility surface:
     - fallback reason
     - contract success/failure
     - response presence
+  - Codec policy now also learns **step-type attribution** by archetype, surfacing:
+    - helpful execution patterns
+    - risky execution patterns
+    - step/lane/backend/fallback motifs correlated with success or recovery
 
 - passive follow-up capture in Oracle
   - the next user turn in the same session can automatically score the prior served variant when it clearly looks like:
