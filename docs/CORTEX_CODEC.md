@@ -102,12 +102,21 @@ Current visibility surface:
   - can also return the current recommendation for a specific query
   - includes rollout stage / rollout percent / query-level rollout decision data
 
+- `POST /nexus/outcome/feedback`
+  - now feeds real user/outcome signals back into Codec policy as well as the broader outcome tuner
+  - supports `policy_label` / `codec_variant`, `user_correction`, `recovery_needed`, and optional `validator_pass`
+
+- `POST /nexus/codec/outcome`
+  - direct Codec-specific real-outcome feedback hook
+  - records actual success/correction/recovery signals into Codec policy learning
+
 ## Adaptive rollout
 
 Codec policy learning now supports closed-loop rollout tuning:
 
 - evaluation winners are logged by task archetype
 - Oracle-judge wins can carry more weight than heuristic-only wins
+- real production outcomes can now contribute reward signals too
 - learned policy can:
   - gradually **skip Codec** for archetypes where it loses
   - **boost Codec packet budget** for archetypes where it keeps winning
