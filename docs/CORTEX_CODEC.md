@@ -110,6 +110,11 @@ Current visibility surface:
   - direct Codec-specific real-outcome feedback hook
   - records actual success/correction/recovery signals into Codec policy learning
 
+- passive follow-up capture in Oracle
+  - the next user turn in the same session can automatically score the prior served variant when it clearly looks like:
+    - correction / retry (`actually`, `that was wrong`, `try again`, etc.)
+    - success confirmation (`that worked`, `fixed it`, `thanks`, etc.)
+
 ## Adaptive rollout
 
 Codec policy learning now supports closed-loop rollout tuning:
