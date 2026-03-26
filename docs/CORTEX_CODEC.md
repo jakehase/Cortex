@@ -132,6 +132,10 @@ Current visibility surface:
     - helpful execution patterns
     - risky execution patterns
     - step/lane/backend/fallback motifs correlated with success or recovery
+  - those learned step patterns now also feed **routing priors**, which can:
+    - prefer stronger orchestrated lanes for archetypes where they historically win
+    - avoid fallback-heavy behavior for archetypes where fallback motifs are risky
+    - deepen quality mode when the learned execution priors indicate cheap paths underperform
 
 - passive follow-up capture in Oracle
   - the next user turn in the same session can automatically score the prior served variant when it clearly looks like:
