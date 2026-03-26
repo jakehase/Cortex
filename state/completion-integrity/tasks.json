@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-26T23:06:20.687Z",
+      "updatedAt": "2026-03-26T23:11:39.510Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 48,
+        "runs": 49,
         "failures": [],
-        "lastRunAt": "2026-03-26T23:06:20.694Z",
+        "lastRunAt": "2026-03-26T23:11:39.517Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5230,12 +5230,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774473466985:edde7371df00fb20",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-25T21:17:46.985Z",
-      "updatedAt": "2026-03-26T23:06:37.332Z",
+      "updatedAt": "2026-03-26T23:15:18.706Z",
       "prompt": "Fix swipe too",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Is the codec still compression? 🦞 OpenClaw 2026.3.13 (61d171a) 🕒 Time: Thursday, March 26th, 2026 — 5:43 AM (America/Chicago) 🧠 Model: openai-codex/gpt-5.4 · 🔑 oauth (openai-codex:default) 🧮 Tokens: 10k in / 464 out 📚 Context: 10k/272k (4%) · 🧹 Compactions: 0 📊 Usage: 5h ",
+      "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your ",
       "history": [
         {
           "from": null,
@@ -5265,9 +5265,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 84,
+        "runs": 86,
         "failures": [],
-        "lastRunAt": "2026-03-26T23:06:37.339Z",
+        "lastRunAt": "2026-03-26T23:15:18.717Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
