@@ -8,6 +8,8 @@ from collections import deque
 from datetime import datetime, timezone
 
 from cortex_server.modules.alive_cortex import get_alive_mode
+from cortex_server.modules.codec_policy import get_codec_backend_policy, get_codec_policy_for_query, get_codec_routing_priors, infer_served_variant, observe_codec_outcome, observe_passive_codec_feedback, register_codec_session_turn
+from cortex_server.modules.cortex_codec import get_codec_packet_for_session, update_codec_state_for_session
 from cortex_server.routers.openclaw import load_config
 
 router = APIRouter()
@@ -106,6 +108,8 @@ def _bridge_cb_record_failure() -> None:
 _REFERENT_MEMORY: Dict[str, Dict[str, str]] = {}
 _REFERENT_LOCK = threading.Lock()
 _REFERENT_MAX_KEYS = 32
+ORACLE_CODEC_ENABLED = os.getenv("ORACLE_CODEC_ENABLED", "true").strip().lower() in ("1", "true", "yes", "on")
+ORACLE_CODEC_MAX_CHARS = max(120, min(int(os.getenv("ORACLE_CODEC_MAX_CHARS", "520")), 2400))
 
 def _session_key(http_request: Request) -> str:
     hdr = (http_request.headers.get("x-session-id") or http_request.headers.get("x-chat-id") or "").strip()
@@ -211,6 +215,229 @@ def _get_session_memory(session_key: str) -> Dict[str, str]:
         return {}
     with _REFERENT_LOCK:
         return dict(_REFERENT_MEMORY.get(session_key) or {})
+
+
+def _codec_packet_with_query(session_key: str, prompt: str, *, max_chars: int) -> Dict[str, Any]:
+    try:
+        return get_codec_packet_for_session(session_key, max_chars=max_chars, query=prompt)
+    except TypeError:
+        return get_codec_packet_for_session(session_key, max_chars=max_chars)
+
+
+def _codec_prefix(session_key: str, prompt: str) -> str:
+    if not ORACLE_CODEC_ENABLED or not session_key or not (prompt or "").strip():
+        return ""
+    if _is_ultra_basic_prompt(prompt) or _is_strict_contract_prompt(prompt):
+        return ""
+
+    policy = get_codec_policy_for_query(prompt)
+    if policy.get("should_inject") is False:
+        return ""
+    if str(policy.get("action") or "") == "skip_codec" and float(policy.get("confidence", 0.0) or 0.0) >= 0.55:
+        return ""
+
+    max_chars = ORACLE_CODEC_MAX_CHARS
+    try:
+        boost = float(policy.get("boost_factor", 1.0) or 1.0)
+        if boost > 1.0:
+            max_chars = max(120, min(int(ORACLE_CODEC_MAX_CHARS * boost), 2400))
+    except Exception:
+        max_chars = ORACLE_CODEC_MAX_CHARS
+
+    packet = _codec_packet_with_query(session_key, prompt, max_chars=max_chars)
+    if not packet.get("available"):
+        return ""
+
+    return (
+        "Cortex Codec state (compressed behavioral context; use only if relevant):\n"
+        f"{packet.get('packet', '').strip()}\n\n"
+    )
+
+
+def _update_codec_turn(session_key: str, prompt: str, response: Optional[str] = None, *, priority: str = "", lane: str = "") -> Dict[str, Any]:
+    if not ORACLE_CODEC_ENABLED or not session_key:
+        return {}
+
+    events: List[Dict[str, Any]] = []
+    if (prompt or "").strip():
+        events.append({
+            "text": prompt,
+            "tags": ["oracle_user_prompt"],
+            "metadata": {"source": "oracle.chat", "priority": priority, "lane": lane or "pending"},
+        })
+    if (response or "").strip():
+        events.append({
+            "text": response,
+            "tags": ["oracle_response"],
+            "metadata": {"source": "oracle.chat", "priority": priority, "lane": lane or "response"},
+        })
+    if not events:
+        return _codec_packet_with_query(session_key, prompt, max_chars=ORACLE_CODEC_MAX_CHARS)
+
+    state = update_codec_state_for_session(session_key, events)
+    packet = _codec_packet_with_query(session_key, prompt, max_chars=ORACLE_CODEC_MAX_CHARS)
+    packet["state"] = state
+    return packet
+
+
+def _oracle_execution_metrics(*, lane: str, used_backend: str = "", fallback_reason: Optional[str] = None, contract_ok: Optional[bool] = None, response: str = "") -> Dict[str, Any]:
+    text = (response or "").strip()
+    response_present = bool(text)
+    fallback = str(fallback_reason or "")
+    backend = str(used_backend or "")
+
+    confidence = 0.92 if response_present else 0.25
+    confidence -= 0.28 if contract_ok is False else 0.0
+    if "tinyllama" in backend.lower() or "tinyllama" in fallback.lower():
+        confidence -= 0.16
+    if "bridge" in fallback.lower():
+        confidence -= 0.12
+    if "last_resort" in fallback.lower():
+        confidence -= 0.14
+    if "fallback" in lane.lower() or "fallback" in fallback.lower():
+        confidence -= 0.10
+    if lane in {"alive_orchestrated", "strict_contract", "gated_direct"}:
+        confidence += 0.03
+    if lane in {"strict_contract_micro_fastpath", "semantic_guardrail"}:
+        confidence += 0.01
+    confidence = round(max(0.2, min(1.0, confidence)), 3)
+
+    recovery_needed = bool(contract_ok is False) or (not response_present) or ("last_resort" in fallback.lower()) or ("after_openclaw_error" in fallback.lower()) or ("fallback" in lane.lower())
+    execution_success = response_present and contract_ok is not False
+    step_attribution: Dict[str, float] = {
+        f"lane:{lane or 'unknown'}": 1.0,
+        "pattern:response_present" if response_present else "pattern:response_missing": 1.0,
+        "pattern:contract_ok" if contract_ok is not False else "pattern:contract_failed": 1.0,
+    }
+    if backend:
+        step_attribution[f"backend:{backend.lower()[:40]}"] = 0.8
+    if fallback:
+        step_attribution[f"fallback:{fallback.lower()[:40]}"] = 0.85
+    return {
+        "lane": lane,
+        "used_backend": backend,
+        "fallback_reason": fallback,
+        "contract_ok": contract_ok,
+        "response_present": response_present,
+        "execution_success": bool(execution_success),
+        "recovery_needed": bool(recovery_needed),
+        "confidence": confidence,
+        "step_attribution": step_attribution,
+    }
+
+
+
+def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], *, priority: str = "", lane: str = "", codec_applied: bool = False, referents_applied: bool = False, used_backend: str = "", fallback_reason: Optional[str] = None, contract_ok: Optional[bool] = None) -> Dict[str, Any]:
+    if (response or "").strip():
+        _remember_referents(session_key, response or "")
+    packet = _update_codec_turn(session_key, prompt, response, priority=priority, lane=lane)
+    durable = packet.get("durable") if isinstance(packet.get("durable"), dict) else {}
+    variant = infer_served_variant(codec_applied=bool(codec_applied), referents_applied=bool(referents_applied))
+    registration = register_codec_session_turn(
+        session_key,
+        query=prompt,
+        response=response or "",
+        variant=variant,
+        codec_applied=bool(codec_applied),
+        referents_applied=bool(referents_applied),
+        lane=lane,
+    )
+    execution_metrics = _oracle_execution_metrics(
+        lane=lane,
+        used_backend=used_backend,
+        fallback_reason=fallback_reason,
+        contract_ok=contract_ok,
+        response=response or "",
+    )
+    execution_artifact = observe_codec_outcome(
+        query=prompt,
+        policy_label=variant,
+        execution_success=bool(execution_metrics.get("execution_success")),
+        user_correction=False,
+        recovery_needed=bool(execution_metrics.get("recovery_needed")),
+        validator_pass=(contract_ok is not False),
+        session_key=session_key or None,
+        note=f"oracle_execution:{lane}|backend={used_backend}|fallback={fallback_reason}|contract={contract_ok}",
+        outcome_confidence=float(execution_metrics.get("confidence", 1.0) or 1.0),
+        source="oracle_execution_flow",
+        step_attribution=execution_metrics.get("step_attribution") if isinstance(execution_metrics.get("step_attribution"), dict) else None,
+    )
+    execution_artifact["execution_metrics"] = execution_metrics
+    execution_artifact["source"] = "oracle_execution_flow"
+    return {
+        "enabled": bool(ORACLE_CODEC_ENABLED),
+        "applied": bool(codec_applied),
+        "referents_applied": bool(referents_applied),
+        "variant": variant,
+        "available": bool(packet.get("available")),
+        "summary": packet.get("summary", ""),
+        "max_chars": ORACLE_CODEC_MAX_CHARS,
+        "packet_chars": len(packet.get("packet", "")) if isinstance(packet.get("packet"), str) else 0,
+        "durable_status": durable.get("stored_id") and "stored" or ("loaded" if durable.get("loaded_from_l22") else None),
+        "durable_store_id": durable.get("stored_id"),
+        "durable_fingerprint": durable.get("fingerprint"),
+        "policy_turn_registered": bool(registration.get("recorded")),
+        "execution": execution_artifact,
+    }
+
+
+
+def _parse_small_json_object(text: str) -> Dict[str, Any]:
+    raw = (text or "").strip()
+    if not raw:
+        return {}
+    candidates = [raw]
+    if "```" in raw:
+        candidates.extend([block.strip() for block in re.findall(r"```(?:json)?\s*(.*?)```", raw, flags=re.DOTALL | re.IGNORECASE)])
+    for candidate in candidates:
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+    m = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            return {}
+    return {}
+
+
+
+def _passive_followup_verifier(payload: Dict[str, Any]) -> Dict[str, Any]:
+    followup_query = str(payload.get("followup_query") or "")
+    prior_query = str(payload.get("prior_query") or "")
+    prior_response = str(payload.get("prior_response") or "")
+    signal = payload.get("signal") if isinstance(payload.get("signal"), dict) else {}
+    judge_prompt = (
+        "Return JSON only with keys decision, confidence, reason. "
+        "decision must be one of: success, correction, recovery, none. "
+        "Judge whether the user's follow-up means the previous answer worked, needs correction, needs retry/recovery, or is still ambiguous. "
+        "Be conservative: use none if unclear.\n\n"
+        f"PRIOR_QUERY:\n{prior_query}\n\n"
+        f"PRIOR_RESPONSE_EXCERPT:\n{prior_response}\n\n"
+        f"FOLLOWUP_QUERY:\n{followup_query}\n\n"
+        f"LOCAL_SIGNAL:\n{json.dumps(signal, ensure_ascii=False)}"
+    )
+    text, _model_label, _fallback_reason = _best_effort_answer(judge_prompt, None, "low", "shallow", None)
+    parsed = _parse_small_json_object(text)
+    decision = str(parsed.get("decision") or "none").strip().lower()
+    confidence = parsed.get("confidence", 0.0)
+    try:
+        confidence = float(confidence)
+    except Exception:
+        confidence = 0.0
+    if decision not in {"success", "correction", "recovery", "none"}:
+        decision = "none"
+    return {
+        "decision": decision,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "reason": str(parsed.get("reason") or "")[:240],
+    }
 
 
 def _extract_autopilot_status_mode(prompt: str) -> Optional[bool]:
@@ -569,6 +796,40 @@ def _quality_depth_controller(prompt: str, priority: str = "") -> Dict[str, Any]
         mode = "shallow"
 
     return {"mode": mode, "score": score, "reasons": reasons}
+
+
+def _apply_codec_routing_priors(
+    query: str,
+    *,
+    use_bridge: bool,
+    quality_mode: Dict[str, Any],
+    strict_contract: bool,
+) -> Dict[str, Any]:
+    priors = get_codec_routing_priors(query)
+    adjusted = dict(quality_mode or {})
+    force_orchestrate = False
+    effective_use_bridge = bool(use_bridge)
+
+    if not strict_contract and (priors.get("prefer_orchestrated") or priors.get("avoid_fallback") or priors.get("avoid_tinyllama")):
+        effective_use_bridge = True
+        force_orchestrate = bool(priors.get("prefer_orchestrated") or priors.get("avoid_fallback"))
+
+    if priors.get("quality_bias") == "deeper":
+        mode = str(adjusted.get("mode") or "shallow")
+        if mode == "shallow":
+            adjusted["mode"] = "medium"
+            adjusted["codec_policy_reason"] = "step_pattern_bias"
+        elif mode == "medium" and float(priors.get("confidence", 0.0) or 0.0) >= 0.65:
+            adjusted["mode"] = "deep"
+            adjusted["codec_policy_reason"] = "step_pattern_bias"
+
+    return {
+        "priors": priors,
+        "use_bridge": effective_use_bridge,
+        "quality_mode": adjusted,
+        "force_orchestrate": force_orchestrate,
+    }
+
 
 
 def _build_epistemic_contract(prompt: str, response: str, depth: Dict[str, Any]) -> Dict[str, Any]:
@@ -2053,7 +2314,7 @@ def _hedge_delay_for_prompt(prompt: str) -> float:
     return max(0.05, ORACLE_HEDGE_DELAY_S)
 
 
-def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[str] = None, depth_mode: Optional[str] = None) -> Tuple[str, str, str]:
+def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[Dict[str, Any]] = None) -> Tuple[str, str, str]:
     """Return (text, model_label, fallback_reason)."""
     # Frontend fast-path: keep UX stable and low-latency during backend turbulence.
     if _is_frontend_prompt((prompt or "") + "\n" + (system or "")):
@@ -2063,14 +2324,28 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
             pass
         return _deterministic_frontend_fallback(prompt), "deterministic-frontend-fallback", "frontend_direct_fastpath"
 
+    priors = routing_priors if isinstance(routing_priors, dict) else {}
+    backend_policy = get_codec_backend_policy(
+        prompt,
+        runtime_state={
+            "fallbacks_enabled": ORACLE_FALLBACKS_ENABLED,
+            "bridge_available": bool(BRIDGE_URL),
+            "bridge_cb_allows": bool(_bridge_cb_allows()),
+            "openclaw_rate_limited": bool(_openclaw_rate_limited_active()),
+        },
+        priors_override=priors,
+    )
+    prefer_bridge_first = bool(backend_policy.get("prefer_bridge_first"))
+    prefer_openclaw_primary = bool(backend_policy.get("prefer_openclaw_primary"))
+
     # Prefer bridge first to avoid Oracle->OpenClaw->Cortex->Oracle recursion stalls.
     # Controlled by env to allow fast rollback.
-    if os.getenv("ORACLE_PREFER_BRIDGE_FIRST", "false").lower() == "true" and BRIDGE_URL and _bridge_cb_allows():
+    if (prefer_bridge_first or os.getenv("ORACLE_PREFER_BRIDGE_FIRST", "false").lower() == "true") and BRIDGE_URL and _bridge_cb_allows():
         try:
             text = call_bridge(prompt)
             _bridge_cb_record_success()
             ROUTE_STATS["bridge"] += 1
-            return text, BRIDGE_MODEL_LABEL, "bridge_first"
+            return text, BRIDGE_MODEL_LABEL, ("codec_policy_bridge_first" if prefer_bridge_first else "bridge_first")
         except Exception:
             _bridge_cb_record_failure()
             pass
@@ -2085,12 +2360,15 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
             raise HTTPException(status_code=503, detail=f"OpenClaw invoke failed (fallbacks disabled): {e}")
 
     last_err = None
+    avoid_tinyllama = not bool(backend_policy.get("allow_tinyllama", True))
+    avoid_fallback = bool(priors.get("avoid_fallback"))
+    avoid_bridge_fallback = not bool(backend_policy.get("allow_bridge_fallback", True))
 
     # Degraded fast-path: if OpenClaw is on cooldown or bridge circuit is open,
     # avoid slow upstream waits and fail over quickly to local bounded fallback.
-    degraded_fastpath = (os.getenv("ORACLE_DEGRADED_FASTPATH") or "true").strip().lower() == "true"
+    degraded_fastpath = bool(backend_policy.get("degraded_fastpath_enabled", True)) and ((os.getenv("ORACLE_DEGRADED_FASTPATH") or "true").strip().lower() == "true")
     if degraded_fastpath and _openclaw_rate_limited_active():
-        if _tinyllama_allowed(prompt, system=system, priority=priority):
+        if (not avoid_tinyllama) and _tinyllama_allowed(prompt, system=system, priority=priority):
             try:
                 ensure_ollama_ready()
                 local = _generate_local_sync(
@@ -2105,7 +2383,8 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
             last_err = RuntimeError('degraded_fastpath_no_safe_local_fallback')
 
     # Hedged mode: start OpenClaw; if not done quickly, race bridge.
-    if _should_hedge_bridge(prompt, system, priority=priority):
+    should_hedge = bool(backend_policy.get("hedge_bridge")) and _should_hedge_bridge(prompt, system, priority=priority)
+    if should_hedge:
         ex = concurrent.futures.ThreadPoolExecutor(max_workers=2)
         try:
             oc_f = ex.submit(_solve_with_self_consistency, prompt, system, depth_mode)
@@ -2178,16 +2457,18 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
         return _deterministic_frontend_fallback(prompt), "deterministic-frontend-fallback", "frontend_contract_fallback_no_backend"
 
     # 2) bridge (if we didn't already hedge it)
-    if not _should_hedge_bridge(prompt, system, priority=priority):
+    if (not should_hedge) and (not avoid_bridge_fallback):
         try:
             text = call_bridge(prompt)
             ROUTE_STATS['bridge'] += 1
             return text, BRIDGE_MODEL_LABEL, "bridge_fallback_after_openclaw_error"
         except Exception as e:
             last_err = e
+    elif avoid_bridge_fallback:
+        last_err = RuntimeError('bridge_fallback_disabled_by_codec_policy')
 
     # 3) local tinyllama (restricted to basic/read-only prompts; last resort only)
-    if _tinyllama_allowed(prompt, system=system):
+    if (not avoid_tinyllama) and _tinyllama_allowed(prompt, system=system):
         try:
             ensure_ollama_ready()
             local = _generate_local_sync(
@@ -2199,7 +2480,7 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
         except Exception as e:
             last_err = e
     else:
-        last_err = RuntimeError('tinyllama_disabled_for_nonbasic_or_sensitive_prompt')
+        last_err = RuntimeError('tinyllama_disabled_by_codec_policy_or_prompt_safety')
 
     raise HTTPException(
         status_code=503,
@@ -2210,12 +2491,14 @@ def _best_effort_answer(prompt: str, system: Optional[str], priority: Optional[s
 @router.post('/chat', response_model=ChatResponse)
 async def oracle_chat(request: ChatRequest, http_request: Request):
     global IS_BUSY
-    prompt = (request.prompt or '').strip()
-    if not prompt:
+    raw_prompt = (request.prompt or '').strip()
+    if not raw_prompt:
         raise HTTPException(status_code=400, detail='Prompt cannot be empty')
 
+    prompt = raw_prompt
     session_key = _session_key(http_request)
     priority = (request.priority or '').lower().strip()
+    passive_codec_feedback = await run_in_threadpool(observe_passive_codec_feedback, session_key, raw_prompt, _passive_followup_verifier)
 
     # Explicit activation for all Oracle chat turns (required by hard send-time gate).
     track_level(http_request, 5, "Oracle", always_on=False)
@@ -2259,10 +2542,13 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             routing_trace={"path": "local_autopilot_status", "json_mode": bool(status_mode)},
         )
 
-    _remember_referents(session_key, prompt)
-    prefix = _continuity_prefix(session_key, prompt)
-    if prefix:
-        prompt = prefix + prompt
+    _remember_referents(session_key, raw_prompt)
+    continuity_prefix = _continuity_prefix(session_key, raw_prompt)
+    codec_prefix = _codec_prefix(session_key, raw_prompt)
+    referents_applied = bool(continuity_prefix)
+    codec_applied = bool(codec_prefix)
+    if continuity_prefix or codec_prefix:
+        prompt = f"{continuity_prefix}{codec_prefix}{raw_prompt}".strip()
 
     request_system, frontend_contract_applied = _apply_frontend_contract(prompt, request.system)
     if frontend_contract_applied:
@@ -2307,7 +2593,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
     # To prevent infinite recursion (Augmenter -> Oracle -> Augmenter), Augmenter
     # must call Oracle with header: x-augmenter-bypass: 1
     if os.getenv("ORACLE_ROUTE_TO_AUGMENTER", "true").lower() == "true":
-        if http_request.headers.get("x-augmenter-bypass", "") != "1" and _should_use_augmenter(prompt, request):
+        if http_request.headers.get("x-augmenter-bypass", "") != "1" and _should_use_augmenter(raw_prompt, request):
             try:
                 async with httpx.AsyncClient(timeout=65.0) as client:
                     r = await client.post(
@@ -2329,7 +2615,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     # Ensure HUD/_activated reflects that Augmenter was involved.
                     track_level(http_request, 38, "Augmenter", always_on=False)
                     # Return in Oracle's ChatResponse envelope for compatibility.
-                    _remember_referents(session_key, resp_text)
+                    codec_trace = _record_oracle_turn(session_key, raw_prompt, resp_text, priority=priority, lane="augmenter", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=_openclaw_model_label(), fallback_reason="augmenter_path")
                     return _mk_chat_response(
                         prompt=prompt,
                         session_key=session_key,
@@ -2345,6 +2631,13 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                         routing_trace={
                             "path": "augmenter",
                             "augmenter": data.get("augmenter"),
+                            "codec": codec_trace,
+                    "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
+                            "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
                         },
                     )
             except Exception as e:
@@ -2354,13 +2647,28 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
     requested_model = (request.model or '').strip().lower()
     priority = (request.priority or '').lower().strip()
     final_only = (request.response_mode or 'default').lower() == 'final_only'
-    strict_contract = _is_strict_contract_prompt(prompt) or _is_strict_contract_prompt(request_system or '')
-    contract_basis = (prompt + "\n\n" + (request_system or ''))
-    quality_mode = _quality_depth_controller(prompt, priority=priority)
+    strict_contract = _is_strict_contract_prompt(raw_prompt) or _is_strict_contract_prompt(request_system or '')
+    contract_basis = (raw_prompt + "\n\n" + (request_system or ''))
+    quality_mode = _quality_depth_controller(raw_prompt, priority=priority)
+    use_bridge = (priority == 'high') or ('codex' in requested_model) or (not _is_ultra_basic_prompt(raw_prompt))
+    codec_routing = _apply_codec_routing_priors(raw_prompt, use_bridge=use_bridge, quality_mode=quality_mode, strict_contract=strict_contract)
+    codec_step_priors = codec_routing.get("priors", {}) if isinstance(codec_routing.get("priors", {}), dict) else {}
+    codec_backend_policy = get_codec_backend_policy(
+        raw_prompt,
+        runtime_state={
+            "fallbacks_enabled": ORACLE_FALLBACKS_ENABLED,
+            "bridge_available": bool(BRIDGE_URL),
+            "bridge_cb_allows": bool(_bridge_cb_allows()),
+            "openclaw_rate_limited": bool(_openclaw_rate_limited_active()),
+        },
+        priors_override=codec_step_priors,
+    )
+    quality_mode = codec_routing.get("quality_mode", quality_mode) if isinstance(codec_routing.get("quality_mode", quality_mode), dict) else quality_mode
     depth_mode = quality_mode.get("mode", "medium")
-    use_bridge = (priority == 'high') or ('codex' in requested_model) or (not _is_ultra_basic_prompt(prompt))
+    use_bridge = bool(codec_routing.get("use_bridge", use_bridge))
+    force_orchestrate = bool(codec_routing.get("force_orchestrate", False))
 
-    if (not use_bridge) and _is_code_change_prompt(prompt):
+    if (not use_bridge) and _is_code_change_prompt(raw_prompt):
         raise HTTPException(status_code=400, detail='tinyllama policy: code changes are disabled.')
 
     if strict_contract and final_only:
@@ -2374,7 +2682,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "contract_ok": True,
                 "fallback_reason": "micro_fastpath",
             })
-            _remember_referents(session_key, micro)
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, micro, priority=priority, lane="strict_contract_micro_fastpath", codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-fastpath", fallback_reason="micro_fastpath", contract_ok=True)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2393,10 +2701,17 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "used_backend": "deterministic-fastpath",
                     "contract_ok": True,
                     "fallback_reason": "micro_fastpath",
+                    "codec": codec_trace,
+                    "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
+                            "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
                 },
             )
 
-    semantic_guardrail = _semantic_guardrail_response(prompt, session_key=session_key)
+    semantic_guardrail = _semantic_guardrail_response(raw_prompt, session_key=session_key)
     if semantic_guardrail is not None:
         lane = semantic_guardrail.get("lane") or "semantic_guardrail"
         response_text = semantic_guardrail.get("response") or ""
@@ -2407,7 +2722,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             "used_backend": "deterministic-semantic-guardrail",
             "fallback_reason": "semantic_guardrail_fastpath",
         })
-        _remember_referents(session_key, response_text)
+        codec_trace = _record_oracle_turn(session_key, raw_prompt, response_text, priority=priority, lane=lane, codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-semantic-guardrail", fallback_reason="semantic_guardrail_fastpath")
         return _mk_chat_response(
             prompt=prompt,
             session_key=session_key,
@@ -2425,6 +2740,13 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "priority": priority,
                 "used_backend": "deterministic-semantic-guardrail",
                 "fallback_reason": "semantic_guardrail_fastpath",
+                "codec": codec_trace,
+                    "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
+                            "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
             },
         )
 
@@ -2435,7 +2757,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         if alive.enabled() and os.getenv("ORACLE_DISABLE_ALIVE", "true").lower() != "true":
             # Benchmark-safe strict contract lane: keep exact output shape and skip HUD.
             if strict_contract:
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode)
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
                 text = _enforce_contract_output(contract_basis, text)
                 # Verifier lane: if contract still not satisfied, attempt repair.
                 if not _verify_contract(contract_basis, text):
@@ -2458,7 +2780,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "contract_ok": contract_ok,
                     "fallback_reason": fallback_reason,
                 })
-                _remember_referents(session_key, text)
+                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="strict_contract", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok)
                 return _mk_chat_response(
                     prompt=prompt,
                     session_key=session_key,
@@ -2477,11 +2799,18 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                         "used_backend": model_label,
                         "contract_ok": contract_ok,
                         "fallback_reason": fallback_reason,
+                        "codec": codec_trace,
+                    "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
+                            "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
                     },
                 )
 
-            if not _should_orchestrate(prompt, priority=priority, strict_contract=strict_contract):
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode)
+            if not (force_orchestrate or _should_orchestrate(raw_prompt, priority=priority, strict_contract=strict_contract)):
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
                 _ledger_append({
                     "lane": "gated_direct",
                     "alive": True,
@@ -2489,7 +2818,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "used_backend": model_label,
                     "fallback_reason": fallback_reason,
                 })
-                _remember_referents(session_key, text)
+                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="gated_direct", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason)
                 return _mk_chat_response(
                     prompt=prompt,
                     session_key=session_key,
@@ -2507,6 +2836,13 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                         "priority": priority,
                         "used_backend": model_label,
                         "fallback_reason": fallback_reason,
+                        "codec": codec_trace,
+                    "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
+                            "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
                     },
                 )
 
@@ -2523,9 +2859,9 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             fallback_reason = "alive_orchestration"
 
             if _looks_like_hud_only(text):
-                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode)
+                text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
 
-            hide_sig = final_only or alive.should_hide_hud_signature(prompt)
+            hide_sig = final_only or alive.should_hide_hud_signature(raw_prompt)
             if not hide_sig:
                 text = (text + "\n\n" + alive.hud_signature(
                     orchestration.get('active_levels', []),
@@ -2543,6 +2879,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "fallback_reason": fallback_reason,
             })
 
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="alive_orchestrated", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2562,11 +2899,18 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "active_levels": active_levels,
                     "hud_hidden": bool(hide_sig),
                     "fallback_reason": fallback_reason,
+                    "codec": codec_trace,
+                    "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
+                            "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
                 },
             )
 
         if use_bridge:
-            text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode)
+            text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
             if strict_contract:
                 text = _enforce_contract_output(contract_basis, text)
                 if not _verify_contract(contract_basis, text):
@@ -2590,6 +2934,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "contract_ok": contract_ok,
                 "fallback_reason": fallback_reason,
             })
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2609,12 +2954,19 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "strict_contract": bool(strict_contract),
                     "contract_ok": contract_ok,
                     "fallback_reason": fallback_reason,
+                    "codec": codec_trace,
+                    "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
+                            "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
                 },
             )
 
         # Non-bridge/basic path: still use unified best-effort router so tinyllama
         # only appears as true last-resort fallback (never first-choice).
-        text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode)
+        text, model_label, fallback_reason = await run_in_threadpool(_best_effort_answer, prompt, request_system, priority, depth_mode, codec_step_priors)
         if strict_contract:
             text = _enforce_contract_output(contract_basis, text)
             if not _verify_contract(contract_basis, text):
@@ -2638,6 +2990,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             "contract_ok": contract_ok,
             "fallback_reason": fallback_reason,
         })
+        codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="fallback_best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok)
         return _mk_chat_response(
             prompt=prompt,
             session_key=session_key,
@@ -2657,9 +3010,52 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "strict_contract": bool(strict_contract),
                 "contract_ok": contract_ok,
                 "fallback_reason": fallback_reason,
+                "codec": codec_trace,
+                    "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
+                            "codec_routing_priors": codec_step_priors,
+                    "codec_backend_policy": codec_backend_policy,
+                            "codec_backend_policy": codec_backend_policy,
             },
         )
 
+    except HTTPException as e:
+        variant = infer_served_variant(codec_applied=bool(locals().get("codec_applied", False)), referents_applied=bool(locals().get("referents_applied", False)))
+        try:
+            observe_codec_outcome(
+                query=raw_prompt,
+                policy_label=variant,
+                execution_success=False,
+                user_correction=False,
+                recovery_needed=True,
+                validator_pass=False,
+                session_key=session_key or None,
+                note=f"oracle_exception:http_{getattr(e, 'status_code', 500)}",
+                outcome_confidence=0.72,
+                source="oracle_execution_flow",
+            )
+        except Exception:
+            pass
+        raise
+    except Exception as e:
+        variant = infer_served_variant(codec_applied=bool(locals().get("codec_applied", False)), referents_applied=bool(locals().get("referents_applied", False)))
+        try:
+            observe_codec_outcome(
+                query=raw_prompt,
+                policy_label=variant,
+                execution_success=False,
+                user_correction=False,
+                recovery_needed=True,
+                validator_pass=False,
+                session_key=session_key or None,
+                note=f"oracle_exception:{type(e).__name__}",
+                outcome_confidence=0.76,
+                source="oracle_execution_flow",
+            )
+        except Exception:
+            pass
+        raise
     finally:
         IS_BUSY = False
 

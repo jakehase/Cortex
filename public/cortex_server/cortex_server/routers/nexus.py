@@ -4,6 +4,7 @@ Nexus Router - Semantic Orchestration using L5 Oracle
 Replaces keyword matching with true semantic understanding.
 """
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 import os
@@ -11,6 +12,7 @@ import json
 import hashlib
 import re
 import threading
+import time
 from collections import deque
 from datetime import datetime
 import requests
@@ -33,6 +35,8 @@ from cortex_server.modules.latency_budget_governor import LatencyBudgetGovernor,
 from cortex_server.modules.outcome_tuner import OutcomeTuner
 from cortex_server.modules.world_grounding import gather_live_evidence
 from cortex_server.modules.route_health import ROUTE_HEALTH
+from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
+from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
 
@@ -57,6 +61,15 @@ def _load_openrouter_key() -> str:
     return ""
 
 OPENROUTER_API_KEY = _load_openrouter_key()
+
+CODEC_EVAL_MIN_RATIO = float(os.getenv("CODEC_EVAL_MIN_RATIO", "1.05"))
+CODEC_EVAL_MAX_INCREMENTAL_CHARS = int(os.getenv("CODEC_EVAL_MAX_INCREMENTAL_CHARS", "900"))
+CODEC_EVAL_MIN_JUDGE_MARGIN = float(os.getenv("CODEC_EVAL_MIN_JUDGE_MARGIN", "0.02"))
+CODEC_EVAL_CODEC_MARGIN_FLOOR = float(os.getenv("CODEC_EVAL_CODEC_MARGIN_FLOOR", "-0.05"))
+CODEC_EVAL_MIN_VARIANTS = int(os.getenv("CODEC_EVAL_MIN_VARIANTS", "3"))
+CODEC_EVAL_MIN_ORACLE_COVERAGE = float(os.getenv("CODEC_EVAL_MIN_ORACLE_COVERAGE", "1.0"))
+CODEC_REPLAY_SCHEDULER_ENABLED = os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_ENABLED", "1").lower() not in {"0", "false", "no", "off"}
+CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS = max(5, int(os.getenv("NEXUS_CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS", "60")))
 
 # Level definitions
 LEVEL_MAP = {
@@ -101,6 +114,19 @@ LEVEL_MAP = {
 
 ALWAYS_ON_LEVELS = [5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36]
 
+_CODEC_REPLAY_SCHEDULER_LOCK = threading.Lock()
+_CODEC_REPLAY_SCHEDULER_THREAD: Optional[threading.Thread] = None
+_CODEC_REPLAY_SCHEDULER_STATE: Dict[str, Any] = {
+    "enabled": bool(CODEC_REPLAY_SCHEDULER_ENABLED),
+    "interval_seconds": int(CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS),
+    "started": False,
+    "thread_alive": False,
+    "last_tick_at": "",
+    "last_due_count": 0,
+    "last_executed_count": 0,
+    "last_error": "",
+}
+
 _CONTEXT_LOCK = threading.Lock()
 _CONTEXT_TTL_SECONDS = 1800
 _RECENT_TURNS_MAX = 24
@@ -112,6 +138,12 @@ _CONTEXT_STATE: Dict[str, Any] = {
 }
 _REFERENT_STATE_PATH = Path(os.getenv("NEXUS_REFERENT_STATE_PATH", "/opt/clawdbot/state/nexus_referent_state.json"))
 _CHECKPOINT_STORE_PATH = Path(os.getenv("NEXUS_CHECKPOINT_STORE_PATH", "/opt/clawdbot/state/nexus_checkpoints.jsonl"))
+_CODEC_EVAL_HISTORY_PATH = Path(os.getenv("NEXUS_CODEC_EVAL_HISTORY_PATH", "/opt/clawdbot/state/nexus_codec_eval_history.jsonl"))
+_CODEC_REPLAY_REPORTS_PATH = Path(os.getenv("NEXUS_CODEC_REPLAY_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_replay_reports.jsonl"))
+_CODEC_LIVE_REEXEC_REPORTS_PATH = Path(os.getenv("NEXUS_CODEC_LIVE_REEXEC_REPORTS_PATH", "/opt/clawdbot/state/nexus_codec_live_reexec_reports.jsonl"))
+_CODEC_CORPUS_EXPORTS_PATH = Path(os.getenv("NEXUS_CODEC_CORPUS_EXPORTS_PATH", "/opt/clawdbot/state/nexus_codec_corpus_exports.jsonl"))
+_CODEC_ACTIVE_POLICY_PATH = Path(os.getenv("NEXUS_CODEC_ACTIVE_POLICY_PATH", "/opt/clawdbot/state/nexus_codec_active_policy.json"))
+_CODEC_REPLAY_PLANS_PATH = Path(os.getenv("NEXUS_CODEC_REPLAY_PLANS_PATH", "/opt/clawdbot/state/nexus_codec_replay_plans.jsonl"))
 _BANDIT_STATE_PATH = Path(os.getenv("NEXUS_BANDIT_STATE_PATH", "/opt/clawdbot/state/nexus_bandit_state.json"))
 _DELTA_CACHE_STATE_PATH = Path(os.getenv("NEXUS_DELTA_CACHE_STATE_PATH", "/opt/clawdbot/state/nexus_semantic_delta_cache.json"))
 
@@ -120,6 +152,8 @@ _TOKEN_PLANNER = TokenBudgetPlanner()
 _DELTA_CACHE = SemanticDeltaCache(state_path=_DELTA_CACHE_STATE_PATH)
 _LATENCY_GOVERNOR = LatencyBudgetGovernor()
 _OUTCOME_TUNER = OutcomeTuner()
+NEXUS_CODEC_ENABLED = os.getenv("NEXUS_CODEC_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+NEXUS_CODEC_MAX_CHARS = max(120, min(int(os.getenv("NEXUS_CODEC_MAX_CHARS", "420")), 2400))
 
 
 def _context_for_disk() -> Dict[str, Any]:
@@ -169,6 +203,533 @@ _REFERENT_PATTERNS = [
 
 def _now_iso() -> str:
     return datetime.utcnow().isoformat() + "Z"
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+        return dt.replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _codec_session_key(request: Optional[Request]) -> str:
+    if request is None:
+        return ""
+    hdr = (request.headers.get("x-session-id") or request.headers.get("x-chat-id") or "").strip()
+    if hdr:
+        return hdr[:128]
+    client_host = (request.client.host if getattr(request, "client", None) else "anon") or "anon"
+    user_agent = (request.headers.get("user-agent") or "ua")[:80]
+    return f"{client_host}|{user_agent}"
+
+
+def _codec_context_packet(session_key: str, query: str = "") -> Dict[str, Any]:
+    if not NEXUS_CODEC_ENABLED or not session_key:
+        return {"enabled": bool(NEXUS_CODEC_ENABLED), "available": False, "packet": "", "summary": "", "durable": {}, "session_telemetry": {}}
+    packet = get_codec_packet_for_session(session_key, max_chars=NEXUS_CODEC_MAX_CHARS, query=query)
+    return {
+        "enabled": True,
+        "available": bool(packet.get("available")),
+        "packet": packet.get("packet", ""),
+        "summary": packet.get("summary", ""),
+        "max_chars": NEXUS_CODEC_MAX_CHARS,
+        "durable": packet.get("durable", {}),
+        "session_telemetry": get_codec_session_telemetry(session_key),
+    }
+
+
+def _codec_variant_prompts(session_key: str, query: str) -> Dict[str, Any]:
+    resolved_query = (query or "What should I remember from this conversation?").strip()
+    try:
+        from cortex_server.routers.oracle import _codec_prefix, _continuity_prefix, _get_session_memory
+
+        referent_packet = _continuity_prefix(session_key, resolved_query) or ""
+        oracle_codec_packet = _codec_prefix(session_key, resolved_query) or ""
+        memory_bucket = _get_session_memory(session_key) or {}
+    except Exception as exc:
+        return {
+            "query": resolved_query,
+            "referent_packet": "",
+            "codec_packet": "",
+            "memory_bucket": {},
+            "error": str(exc)[:200],
+            "variants": [
+                {
+                    "name": "query_only",
+                    "prompt": resolved_query,
+                    "prompt_chars": len(resolved_query),
+                    "referent_prefix_chars": 0,
+                    "codec_prefix_chars": 0,
+                }
+            ],
+        }
+
+    variants = [
+        {
+            "name": "query_only",
+            "prompt": resolved_query,
+            "prompt_chars": len(resolved_query),
+            "referent_prefix_chars": 0,
+            "codec_prefix_chars": 0,
+        },
+        {
+            "name": "referents_only",
+            "prompt": f"{referent_packet}{resolved_query}".strip(),
+            "prompt_chars": len(f"{referent_packet}{resolved_query}".strip()),
+            "referent_prefix_chars": len(referent_packet),
+            "codec_prefix_chars": 0,
+        },
+        {
+            "name": "referents_plus_codec",
+            "prompt": f"{referent_packet}{oracle_codec_packet}{resolved_query}".strip(),
+            "prompt_chars": len(f"{referent_packet}{oracle_codec_packet}{resolved_query}".strip()),
+            "referent_prefix_chars": len(referent_packet),
+            "codec_prefix_chars": len(oracle_codec_packet),
+        },
+    ]
+    return {
+        "query": resolved_query,
+        "referent_packet": referent_packet,
+        "codec_packet": oracle_codec_packet,
+        "memory_bucket": memory_bucket,
+        "variants": variants,
+    }
+
+
+
+def _infer_codec_execution_variant(query: str, codec_context: Dict[str, Any], referent_info: Dict[str, Any]) -> str:
+    policy = get_codec_policy_for_query(query)
+    codec_available = bool((codec_context or {}).get("available"))
+    referents_available = bool((referent_info or {}).get("resolved")) or bool((referent_info or {}).get("referent_memory"))
+    if codec_available and (bool(policy.get("should_inject", True)) or str(policy.get("action") or "") == "prefer_codec"):
+        return "referents_plus_codec"
+    if referents_available:
+        return "referents_only"
+    return "query_only"
+
+
+
+def _execution_flow_metrics(execution_transaction: Dict[str, Any], validator_result: Dict[str, Any], fastlane: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    tx = execution_transaction or {}
+    steps = tx.get("steps") if isinstance(tx.get("steps"), list) else []
+    completed_steps = sum(1 for step in steps if str((step or {}).get("status") or "") == "completed")
+    failed_steps = sum(1 for step in steps if str((step or {}).get("status") or "") in {"failed", "retrying"})
+    retry_count = max(0, int(tx.get("step_attempts_total", 0) or 0) - len(steps))
+    rollback_count = int(tx.get("rollback_attempts_total", 0) or 0)
+    validator_pass = bool((validator_result or {}).get("pass"))
+    tx_completed = str(tx.get("status") or "") == "completed"
+    escalated = bool((fastlane or {}).get("escalated"))
+
+    confidence = 1.0
+    confidence -= 0.22 if not tx_completed else 0.0
+    confidence -= 0.18 if not validator_pass else 0.0
+    confidence -= min(0.18, 0.06 * failed_steps)
+    confidence -= min(0.16, 0.04 * retry_count)
+    confidence -= min(0.12, 0.06 * rollback_count)
+    confidence -= 0.08 if escalated else 0.0
+    if completed_steps > 0 and tx_completed and validator_pass:
+        confidence += min(0.08, 0.01 * completed_steps)
+    confidence = round(max(0.2, min(1.0, confidence)), 3)
+
+    step_attribution: Dict[str, float] = {
+        "pattern:tx_completed" if tx_completed else "pattern:tx_failed": 1.0,
+        "pattern:validator_pass" if validator_pass else "pattern:validator_fail": 1.0,
+    }
+    if escalated:
+        step_attribution["pattern:fastlane_escalated"] = 1.0
+    if retry_count > 0:
+        step_attribution["pattern:retries"] = min(1.0, 0.35 + (0.1 * retry_count))
+    if rollback_count > 0:
+        step_attribution["pattern:rollbacks"] = min(1.0, 0.4 + (0.15 * rollback_count))
+    if failed_steps > 0:
+        step_attribution["pattern:failed_steps"] = min(1.0, 0.35 + (0.1 * failed_steps))
+    if completed_steps > 0:
+        step_attribution["pattern:completed_steps"] = min(1.0, 0.25 + (0.05 * completed_steps))
+    for step in steps:
+        name = str((step or {}).get("name") or "").strip().lower()
+        status = str((step or {}).get("status") or "").strip().lower()
+        if name:
+            step_attribution[f"step:{name}"] = max(float(step_attribution.get(f"step:{name}", 0.0) or 0.0), 0.6)
+        if status:
+            step_attribution[f"step_status:{status}"] = max(float(step_attribution.get(f"step_status:{status}", 0.0) or 0.0), 0.45)
+
+    return {
+        "tx_completed": tx_completed,
+        "validator_pass": validator_pass,
+        "completed_steps": completed_steps,
+        "failed_steps": failed_steps,
+        "retry_count": retry_count,
+        "rollback_count": rollback_count,
+        "escalated": escalated,
+        "confidence": confidence,
+        "step_attribution": step_attribution,
+    }
+
+
+
+def _observe_codec_execution_outcome(
+    *,
+    query: str,
+    session_key: str,
+    codec_context: Dict[str, Any],
+    referent_info: Dict[str, Any],
+    execution_transaction: Dict[str, Any],
+    validator_result: Dict[str, Any],
+    fastlane: Optional[Dict[str, Any]],
+    note: str = "",
+    explicit_success: Optional[bool] = None,
+) -> Dict[str, Any]:
+    variant = _infer_codec_execution_variant(query, codec_context or {}, referent_info or {})
+    metrics = _execution_flow_metrics(execution_transaction or {}, validator_result or {}, fastlane)
+    recovery_needed = bool(metrics.get("escalated")) or not bool(metrics.get("validator_pass")) or not bool(metrics.get("tx_completed")) or int(metrics.get("failed_steps", 0)) > 0 or int(metrics.get("rollback_count", 0)) > 0
+    execution_success = bool(explicit_success) if explicit_success is not None else bool(metrics.get("tx_completed") and metrics.get("validator_pass") and not recovery_needed)
+    artifact = observe_codec_outcome(
+        query=query,
+        policy_label=variant,
+        execution_success=execution_success,
+        user_correction=False,
+        recovery_needed=recovery_needed,
+        validator_pass=bool(metrics.get("validator_pass")),
+        session_key=session_key or None,
+        note=(note + f" | steps={metrics['completed_steps']}/{len((execution_transaction or {}).get('steps') or [])} retries={metrics['retry_count']} rollbacks={metrics['rollback_count']} escalated={metrics['escalated']}").strip(),
+        outcome_confidence=float(metrics.get("confidence", 1.0) or 1.0),
+        source="execution_flow",
+        step_attribution=metrics.get("step_attribution") if isinstance(metrics.get("step_attribution"), dict) else None,
+    )
+    artifact["execution_metrics"] = metrics
+    artifact["source"] = "execution_flow"
+    return artifact
+
+
+
+def _codec_acceptance_policy() -> Dict[str, Any]:
+    return {
+        "min_ratio_vs_raw_state": round(float(CODEC_EVAL_MIN_RATIO), 3),
+        "max_incremental_codec_chars": max(0, int(CODEC_EVAL_MAX_INCREMENTAL_CHARS)),
+        "min_judge_margin": round(float(CODEC_EVAL_MIN_JUDGE_MARGIN), 3),
+        "codec_margin_floor": round(float(CODEC_EVAL_CODEC_MARGIN_FLOOR), 3),
+        "min_variants": max(1, int(CODEC_EVAL_MIN_VARIANTS)),
+        "min_oracle_coverage": round(float(CODEC_EVAL_MIN_ORACLE_COVERAGE), 3),
+    }
+
+
+def _codec_benchmark_gates(benchmark: Dict[str, Any]) -> Dict[str, Any]:
+    policy = _codec_acceptance_policy()
+    prompt_comparison = benchmark.get("prompt_comparison") if isinstance(benchmark.get("prompt_comparison"), dict) else {}
+    ratio = float(benchmark.get("codec_ratio_vs_raw_state") or 0.0)
+    incremental_chars = int(prompt_comparison.get("incremental_codec_chars", 0) or 0)
+    gates = [
+        {
+            "name": "compression_gain",
+            "required": True,
+            "passed": ratio >= float(policy.get("min_ratio_vs_raw_state", 1.0)),
+            "observed": round(ratio, 3),
+            "threshold": float(policy.get("min_ratio_vs_raw_state", 1.0)),
+        },
+        {
+            "name": "incremental_packet_budget",
+            "required": True,
+            "passed": incremental_chars <= int(policy.get("max_incremental_codec_chars", 0)),
+            "observed": incremental_chars,
+            "threshold": int(policy.get("max_incremental_codec_chars", 0)),
+        },
+    ]
+    required = [gate for gate in gates if gate.get("required")]
+    passed = [gate for gate in required if gate.get("passed")]
+    return {
+        "policy": policy,
+        "gates": gates,
+        "summary": {
+            "required_total": len(required),
+            "required_passed": len(passed),
+            "overall_pass": len(required) == len(passed),
+        },
+    }
+
+
+def _codec_evaluation_gates(evaluation: Dict[str, Any]) -> Dict[str, Any]:
+    policy = _codec_acceptance_policy()
+    variants = evaluation.get("variants") if isinstance(evaluation.get("variants"), list) else []
+    judge = evaluation.get("judge") if isinstance(evaluation.get("judge"), dict) else {}
+    scores = judge.get("scores") if isinstance(judge.get("scores"), list) else []
+    sorted_scores = sorted([row for row in scores if isinstance(row, dict)], key=lambda row: float(row.get("score") or 0.0), reverse=True)
+    top_score = float(sorted_scores[0].get("score") or 0.0) if sorted_scores else 0.0
+    second_score = float(sorted_scores[1].get("score") or 0.0) if len(sorted_scores) > 1 else 0.0
+    judge_margin = round(top_score - second_score, 3)
+
+    codec_row = next((row for row in sorted_scores if str(row.get("name") or "") == "referents_plus_codec"), {})
+    non_codec_best = max([
+        float(row.get("score") or 0.0)
+        for row in sorted_scores
+        if str(row.get("name") or "") in {"query_only", "referents_only"}
+    ] or [0.0])
+    codec_margin = round(float(codec_row.get("score") or 0.0) - non_codec_best, 3)
+
+    oracle_run = evaluation.get("oracle_run") if isinstance(evaluation.get("oracle_run"), dict) else {}
+    oracle_requested = bool(oracle_run.get("requested"))
+    oracle_completed = bool(oracle_run.get("completed"))
+    oracle_coverage = 0.0
+    if variants:
+        oracle_ready = [variant for variant in variants if str(variant.get("oracle_output") or "").strip()]
+        oracle_coverage = round(len(oracle_ready) / max(1, len(variants)), 3)
+
+    gates = [
+        {
+            "name": "variant_coverage",
+            "required": True,
+            "passed": len(variants) >= int(policy.get("min_variants", 1)),
+            "observed": len(variants),
+            "threshold": int(policy.get("min_variants", 1)),
+        },
+        {
+            "name": "judge_decisiveness",
+            "required": True,
+            "passed": judge_margin >= float(policy.get("min_judge_margin", 0.0)),
+            "observed": judge_margin,
+            "threshold": float(policy.get("min_judge_margin", 0.0)),
+        },
+        {
+            "name": "codec_competitiveness",
+            "required": True,
+            "passed": codec_margin >= float(policy.get("codec_margin_floor", -1.0)),
+            "observed": codec_margin,
+            "threshold": float(policy.get("codec_margin_floor", -1.0)),
+        },
+    ]
+    if oracle_requested:
+        gates.append({
+            "name": "oracle_variant_coverage",
+            "required": True,
+            "passed": oracle_completed and oracle_coverage >= float(policy.get("min_oracle_coverage", 1.0)),
+            "observed": oracle_coverage,
+            "threshold": float(policy.get("min_oracle_coverage", 1.0)),
+        })
+
+    required = [gate for gate in gates if gate.get("required")]
+    passed = [gate for gate in required if gate.get("passed")]
+    return {
+        "policy": policy,
+        "judge_margin": judge_margin,
+        "codec_margin_vs_best_non_codec": codec_margin,
+        "oracle_coverage": oracle_coverage,
+        "gates": gates,
+        "summary": {
+            "required_total": len(required),
+            "required_passed": len(passed),
+            "overall_pass": len(required) == len(passed),
+        },
+    }
+
+
+def _codec_benchmark_view(session_key: str, *, benchmark_query: str = "", max_chars: int = 420, history_limit: int = 8) -> Dict[str, Any]:
+    resolved_query = (benchmark_query or "What should I remember from this conversation?").strip()
+    debug = get_codec_debug_view(
+        session_key,
+        max_chars=max(120, min(int(max_chars), 2400)),
+        history_limit=max(1, min(int(history_limit), 50)),
+        query=resolved_query,
+    )
+
+    raw_state_chars = int(((debug.get("compression") or {}).get("raw_characters", 0)) or 0)
+    codec_packet_chars = int(debug.get("packet_chars", 0) or 0)
+    benchmark: Dict[str, Any] = {
+        "query": resolved_query,
+        "query_chars": len(resolved_query),
+        "raw_state_source_chars": raw_state_chars,
+        "codec_packet_chars": codec_packet_chars,
+        "codec_saved_vs_raw_state_chars": max(0, raw_state_chars - codec_packet_chars),
+        "codec_ratio_vs_raw_state": round(raw_state_chars / max(1, codec_packet_chars), 3) if raw_state_chars and codec_packet_chars else None,
+        "timeline": (debug.get("persisted_snapshots") or {}).get("recent", []),
+    }
+
+    variant_view = _codec_variant_prompts(session_key, resolved_query)
+    if variant_view.get("error"):
+        benchmark["prompt_comparison"] = {"error": variant_view.get("error")}
+    else:
+        benchmark["prompt_comparison"] = {
+            "referent_memory_keys": len(variant_view.get("memory_bucket") or {}),
+            "referent_prefix_chars": len(variant_view.get("referent_packet") or ""),
+            "oracle_codec_prefix_chars": len(variant_view.get("codec_packet") or ""),
+            "referents_only_prompt_chars": int((variant_view.get("variants") or [{}, {}])[1].get("prompt_chars", len(resolved_query))),
+            "referents_plus_codec_prompt_chars": int((variant_view.get("variants") or [{}, {}, {}])[2].get("prompt_chars", len(resolved_query))),
+            "incremental_codec_chars": len(variant_view.get("codec_packet") or ""),
+        }
+
+    benchmark["acceptance_gates"] = _codec_benchmark_gates(benchmark)
+    debug["benchmark"] = benchmark
+    return debug
+
+
+
+def _token_overlap_score(query: str, text: str) -> float:
+    q_tokens = set(re.findall(r"[a-z0-9_]{3,}", (query or "").lower()))
+    t_tokens = set(re.findall(r"[a-z0-9_]{3,}", (text or "").lower()))
+    if not q_tokens:
+        return 0.0
+    return round(len(q_tokens.intersection(t_tokens)) / max(1, len(q_tokens)), 3)
+
+
+
+def _heuristic_judge_codec_variants(query: str, variants: List[Dict[str, Any]]) -> Dict[str, Any]:
+    scored: List[Dict[str, Any]] = []
+    best_name = ""
+    best_score = -1.0
+    for variant in variants:
+        basis_text = str(variant.get("oracle_output") or variant.get("prompt") or "")
+        prompt_chars = int(variant.get("prompt_chars", len(str(variant.get("prompt") or ""))) or 0)
+        output_chars = len(str(variant.get("oracle_output") or ""))
+        overlap = _token_overlap_score(query, basis_text)
+        prompt_budget_penalty = min(0.25, max(0.0, (prompt_chars - 800) / 4000.0))
+        empty_penalty = 0.35 if (variant.get("oracle_output") is not None and not str(variant.get("oracle_output") or "").strip()) else 0.0
+        memory_bonus = 0.08 if variant.get("name") == "referents_plus_codec" else (0.03 if variant.get("name") == "referents_only" else 0.0)
+        output_bonus = min(0.2, output_chars / 1200.0) if output_chars else 0.0
+        score = max(0.0, round((0.62 * overlap) + memory_bonus + output_bonus - prompt_budget_penalty - empty_penalty, 3))
+        row = {
+            "name": variant.get("name"),
+            "score": score,
+            "overlap": overlap,
+            "prompt_chars": prompt_chars,
+            "output_chars": output_chars,
+            "prompt_budget_penalty": round(prompt_budget_penalty, 3),
+            "empty_penalty": round(empty_penalty, 3),
+            "memory_bonus": round(memory_bonus, 3),
+            "basis": "oracle_output" if variant.get("oracle_output") is not None else "prompt",
+        }
+        scored.append(row)
+        if score > best_score:
+            best_score = score
+            best_name = str(variant.get("name") or "")
+
+    return {
+        "method": "heuristic",
+        "winner": best_name,
+        "scores": scored,
+        "rationale": "Picks the variant with the best balance of query overlap, useful memory context, and prompt efficiency.",
+    }
+
+
+
+def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    candidates = [raw]
+    if "```" in raw:
+        for block in re.findall(r"```(?:json)?\s*(.*?)```", raw, flags=re.DOTALL | re.IGNORECASE):
+            candidates.append(block.strip())
+    for candidate in candidates:
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            pass
+    m = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            if isinstance(obj, dict):
+                return obj
+        except Exception:
+            return None
+    return None
+
+
+
+def _oracle_judge_codec_variants(query: str, variants: List[Dict[str, Any]], *, priority: str = "normal") -> Dict[str, Any]:
+    from cortex_server.routers.oracle import _best_effort_answer, _quality_depth_controller
+
+    rows = []
+    for variant in variants:
+        basis = str(variant.get("oracle_output") or variant.get("prompt") or "")
+        rows.append(
+            f"VARIANT {variant.get('name')}\nPROMPT_CHARS: {variant.get('prompt_chars')}\nCONTENT:\n{basis}\n"
+        )
+    judge_prompt = (
+        "Compare the candidate variants for the user's query. Choose the single best variant. "
+        "Prefer correctness, relevance, useful retained context, and low hallucination risk. "
+        "Return JSON only with keys: winner, rationale, confidence.\n\n"
+        f"USER QUERY:\n{query}\n\n"
+        "CANDIDATES:\n" + "\n".join(rows)
+    )
+    depth = _quality_depth_controller(query, priority=priority or "")
+    depth_mode = str(depth.get("mode") or "medium")
+    raw = _best_effort_answer(judge_prompt, None, priority, depth_mode)[0]
+    parsed = _parse_json_object(raw)
+    if not parsed:
+        return {
+            "method": "oracle_judge",
+            "completed": False,
+            "error": "judge_parse_failed",
+            "raw": raw[:400],
+        }
+    return {
+        "method": "oracle_judge",
+        "completed": True,
+        "winner": str(parsed.get("winner") or ""),
+        "rationale": str(parsed.get("rationale") or ""),
+        "confidence": parsed.get("confidence"),
+        "raw": raw[:400],
+    }
+
+
+
+def _codec_evaluation_view(session_key: str, *, eval_query: str = "", max_chars: int = 420, history_limit: int = 8) -> Dict[str, Any]:
+    resolved_query = (eval_query or "What should I remember from this conversation?").strip()
+    debug = get_codec_debug_view(
+        session_key,
+        max_chars=max(120, min(int(max_chars), 2400)),
+        history_limit=max(1, min(int(history_limit), 50)),
+        query=resolved_query,
+    )
+    variants_view = _codec_variant_prompts(session_key, resolved_query)
+    variants = []
+    for item in variants_view.get("variants", []):
+        prompt = item.get("prompt", "")
+        variants.append({
+            **item,
+            "prompt_excerpt": prompt[:280],
+            "prompt_hash": hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16] if prompt else "",
+        })
+
+    debug["evaluation"] = {
+        "query": resolved_query,
+        "variants": variants,
+        "variant_count": len(variants),
+        "referent_memory_keys": len(variants_view.get("memory_bucket") or {}),
+        "error": variants_view.get("error"),
+        "timeline": (debug.get("persisted_snapshots") or {}).get("recent", []),
+        "judge": _heuristic_judge_codec_variants(resolved_query, variants),
+        "policy": get_codec_policy_for_query(resolved_query),
+    }
+    return debug
+
+
+def _update_codec_context(session_key: str, query: str, response: str = "", *, routing_method: str = "") -> Dict[str, Any]:
+    if not NEXUS_CODEC_ENABLED or not session_key:
+        return {"enabled": bool(NEXUS_CODEC_ENABLED), "available": False, "packet": "", "summary": ""}
+    events = []
+    if (query or "").strip():
+        events.append({
+            "text": query,
+            "tags": ["nexus_query"],
+            "metadata": {"source": "nexus.orchestrate", "routing_method": routing_method or "pending"},
+        })
+    if (response or "").strip():
+        events.append({
+            "text": response,
+            "tags": ["nexus_response"],
+            "metadata": {"source": "nexus.orchestrate", "routing_method": routing_method or "response"},
+        })
+    if events:
+        update_codec_state_for_session(session_key, events)
+    return _codec_context_packet(session_key, query=query)
 
 
 def _is_referent_query(query: str) -> bool:
@@ -665,6 +1226,1390 @@ def _persist_checkpoint(record: Dict[str, Any]) -> None:
         pass
 
 
+def _persist_codec_eval_run(record: Dict[str, Any]) -> None:
+    try:
+        _CODEC_EVAL_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _CODEC_EVAL_HISTORY_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _persist_codec_replay_report(record: Dict[str, Any]) -> None:
+    try:
+        _CODEC_REPLAY_REPORTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _CODEC_REPLAY_REPORTS_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _persist_codec_live_reexec_report(record: Dict[str, Any]) -> None:
+    try:
+        _CODEC_LIVE_REEXEC_REPORTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _CODEC_LIVE_REEXEC_REPORTS_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _persist_codec_corpus_export(record: Dict[str, Any]) -> None:
+    try:
+        _CODEC_CORPUS_EXPORTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _CODEC_CORPUS_EXPORTS_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _load_codec_replay_reports(*, session_key: str = "", limit: int = 20) -> List[Dict[str, Any]]:
+    try:
+        if not _CODEC_REPLAY_REPORTS_PATH.exists():
+            return []
+        rows: List[Dict[str, Any]] = []
+        with _CODEC_REPLAY_REPORTS_PATH.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = (line or "").strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                if session_key and str(row.get("session_key") or "") != session_key:
+                    continue
+                rows.append(row)
+        rows.sort(key=lambda row: str(row.get("generated_at") or row.get("recorded_at") or ""), reverse=True)
+        return rows[: max(1, min(int(limit), 100))]
+    except Exception:
+        return []
+
+
+def _find_codec_replay_report(*, session_key: str, report_id: str = "") -> Dict[str, Any]:
+    reports = _load_codec_replay_reports(session_key=session_key, limit=200)
+    if not reports:
+        return {}
+    if report_id:
+        for report in reports:
+            if str(report.get("report_id") or "") == str(report_id or ""):
+                return report
+        return {}
+    return reports[0] if reports else {}
+
+
+
+def _load_codec_active_policy() -> Dict[str, Any]:
+    try:
+        if not _CODEC_ACTIVE_POLICY_PATH.exists():
+            return {}
+        raw = json.loads(_CODEC_ACTIVE_POLICY_PATH.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+
+def _save_codec_active_policy(state: Dict[str, Any]) -> None:
+    try:
+        _CODEC_ACTIVE_POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _CODEC_ACTIVE_POLICY_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+
+def _persist_codec_replay_plan(record: Dict[str, Any]) -> None:
+    try:
+        _CODEC_REPLAY_PLANS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _CODEC_REPLAY_PLANS_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+
+def _load_codec_replay_plans(*, session_key: str = "", limit: int = 20) -> List[Dict[str, Any]]:
+    try:
+        if not _CODEC_REPLAY_PLANS_PATH.exists():
+            return []
+        rows: List[Dict[str, Any]] = []
+        with _CODEC_REPLAY_PLANS_PATH.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = (line or "").strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                if session_key and str(row.get("session_key") or "") != session_key:
+                    continue
+                rows.append(row)
+        rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
+        return rows[: max(1, min(int(limit), 100))]
+    except Exception:
+        return []
+
+
+
+def _load_codec_replay_plan_states(*, session_key: str = "", limit: int = 20) -> List[Dict[str, Any]]:
+    latest: Dict[str, Dict[str, Any]] = {}
+    for row in _load_codec_replay_plans(session_key=session_key, limit=200):
+        plan_id = str(row.get("plan_id") or "")
+        if not plan_id:
+            continue
+        current = latest.get(plan_id)
+        row_ts = str(row.get("updated_at") or row.get("created_at") or "")
+        current_ts = str((current or {}).get("updated_at") or (current or {}).get("created_at") or "")
+        if current is None or row_ts >= current_ts:
+            latest[plan_id] = row
+    rows = list(latest.values())
+    rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
+    return rows[: max(1, min(int(limit), 100))]
+
+
+
+def _compute_replay_plan_next_run(*, from_time: Optional[datetime], cadence_minutes: int) -> str:
+    base = from_time or datetime.utcnow()
+    next_dt = base.timestamp() + (60 * max(5, int(cadence_minutes)))
+    return datetime.utcfromtimestamp(next_dt).isoformat() + "Z"
+
+
+
+def _plan_due(plan: Dict[str, Any], *, now: Optional[datetime] = None) -> bool:
+    if not bool(plan.get("enabled", True)):
+        return False
+    now = now or datetime.utcnow()
+    next_run_at = _parse_iso_datetime(plan.get("next_run_at")) or _parse_iso_datetime(plan.get("created_at"))
+    if next_run_at is None:
+        return True
+    return next_run_at <= now
+
+
+
+def _execute_replay_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
+    session_key = str(plan.get("session_key") or "")
+    if not session_key:
+        return {"executed": False, "reason": "missing_session_key"}
+    report = _codec_replay_report(session_key, limit=50)
+    _persist_codec_replay_report(report)
+    promoted = False
+    active_policy = {}
+    if bool(plan.get("auto_promote_on_success", False)) and isinstance(report.get("recommendations"), dict) and report.get("recommendations"):
+        active_policy = {
+            "version": "cortex.codec.active_benchmark_policy.v1",
+            "updated_at": _now_iso(),
+            "session_key": session_key,
+            "source": "scheduled_replay_autopromote",
+            "report_id": str(report.get("report_id") or ""),
+            "corpus_version": str(report.get("corpus_version") or ""),
+            "policies": report.get("recommendations") if isinstance(report.get("recommendations"), dict) else {},
+        }
+        _save_codec_active_policy(active_policy)
+        promoted = True
+    now_iso = _now_iso()
+    update = {
+        **plan,
+        "updated_at": now_iso,
+        "last_run_at": now_iso,
+        "last_report_id": str(report.get("report_id") or ""),
+        "run_count": int(plan.get("run_count", 0) or 0) + 1,
+        "last_autopromote": promoted,
+        "next_run_at": _compute_replay_plan_next_run(from_time=_parse_iso_datetime(now_iso), cadence_minutes=int(plan.get("cadence_minutes", 1440) or 1440)),
+    }
+    _persist_codec_replay_plan(update)
+    return {
+        "executed": True,
+        "plan": update,
+        "report": {
+            "report_id": str(report.get("report_id") or ""),
+            "corpus_version": str(report.get("corpus_version") or ""),
+        },
+        "autopromoted": promoted,
+        "active_policy": active_policy,
+    }
+
+
+
+def _run_due_replay_plans_once(*, session_key: str = "", limit: int = 100) -> Dict[str, Any]:
+    plans = _load_codec_replay_plan_states(session_key=session_key, limit=max(1, min(int(limit), 200)))
+    due = [plan for plan in plans if _plan_due(plan)]
+    results = [_execute_replay_plan(plan) for plan in due]
+    _CODEC_REPLAY_SCHEDULER_STATE["last_tick_at"] = _now_iso()
+    _CODEC_REPLAY_SCHEDULER_STATE["last_due_count"] = len(due)
+    _CODEC_REPLAY_SCHEDULER_STATE["last_executed_count"] = len([item for item in results if bool(item.get("executed"))])
+    _CODEC_REPLAY_SCHEDULER_STATE["last_error"] = ""
+    return {
+        "due_count": len(due),
+        "executed_count": len([item for item in results if bool(item.get("executed"))]),
+        "items": results,
+    }
+
+
+
+def _codec_replay_scheduler_loop() -> None:
+    global _CODEC_REPLAY_SCHEDULER_THREAD
+    while bool(CODEC_REPLAY_SCHEDULER_ENABLED):
+        try:
+            _run_due_replay_plans_once(limit=200)
+            _CODEC_REPLAY_SCHEDULER_STATE["thread_alive"] = True
+        except Exception as exc:
+            _CODEC_REPLAY_SCHEDULER_STATE["last_tick_at"] = _now_iso()
+            _CODEC_REPLAY_SCHEDULER_STATE["last_error"] = str(exc)
+        time.sleep(max(5, int(CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS)))
+    _CODEC_REPLAY_SCHEDULER_STATE["thread_alive"] = False
+    _CODEC_REPLAY_SCHEDULER_THREAD = None
+
+
+
+def _ensure_codec_replay_scheduler_started() -> Dict[str, Any]:
+    global _CODEC_REPLAY_SCHEDULER_THREAD
+    with _CODEC_REPLAY_SCHEDULER_LOCK:
+        _CODEC_REPLAY_SCHEDULER_STATE["enabled"] = bool(CODEC_REPLAY_SCHEDULER_ENABLED)
+        _CODEC_REPLAY_SCHEDULER_STATE["interval_seconds"] = int(CODEC_REPLAY_SCHEDULER_INTERVAL_SECONDS)
+        if not bool(CODEC_REPLAY_SCHEDULER_ENABLED):
+            return dict(_CODEC_REPLAY_SCHEDULER_STATE)
+        if _CODEC_REPLAY_SCHEDULER_THREAD and _CODEC_REPLAY_SCHEDULER_THREAD.is_alive():
+            _CODEC_REPLAY_SCHEDULER_STATE["started"] = True
+            _CODEC_REPLAY_SCHEDULER_STATE["thread_alive"] = True
+            return dict(_CODEC_REPLAY_SCHEDULER_STATE)
+        thread = threading.Thread(target=_codec_replay_scheduler_loop, name="nexus-codec-replay-scheduler", daemon=True)
+        thread.start()
+        _CODEC_REPLAY_SCHEDULER_THREAD = thread
+        _CODEC_REPLAY_SCHEDULER_STATE["started"] = True
+        _CODEC_REPLAY_SCHEDULER_STATE["thread_alive"] = True
+        return dict(_CODEC_REPLAY_SCHEDULER_STATE)
+
+
+
+def _codec_replay_report_versions(*, session_key: str = "", limit: int = 100) -> Dict[str, Any]:
+    reports = _load_codec_replay_reports(session_key=session_key, limit=limit)
+    versions: Dict[str, Dict[str, Any]] = {}
+    for report in reports:
+        version = str(report.get("corpus_version") or "unknown")
+        row = versions.setdefault(version, {
+            "corpus_version": version,
+            "report_count": 0,
+            "latest_report_id": "",
+            "latest_generated_at": "",
+            "session_keys": set(),
+        })
+        row["report_count"] += 1
+        row["session_keys"].add(str(report.get("session_key") or ""))
+        generated_at = str(report.get("generated_at") or "")
+        if generated_at >= str(row.get("latest_generated_at") or ""):
+            row["latest_generated_at"] = generated_at
+            row["latest_report_id"] = str(report.get("report_id") or "")
+    items = []
+    for row in versions.values():
+        items.append({
+            "corpus_version": str(row.get("corpus_version") or ""),
+            "report_count": int(row.get("report_count", 0) or 0),
+            "latest_report_id": str(row.get("latest_report_id") or ""),
+            "latest_generated_at": str(row.get("latest_generated_at") or ""),
+            "session_count": len([x for x in row.get("session_keys", set()) if x]),
+        })
+    items.sort(key=lambda item: (int(item.get("report_count", 0) or 0), str(item.get("latest_generated_at") or "")), reverse=True)
+    return {
+        "available": bool(items),
+        "count": len(items),
+        "items": items,
+    }
+
+
+
+def _codec_replay_retention_summary(*, session_key: str = "", limit: int = 100) -> Dict[str, Any]:
+    reports = _load_codec_replay_reports(session_key=session_key, limit=limit)
+    if not reports:
+        return {
+            "available": False,
+            "keep_count": 0,
+            "prune_candidate_count": 0,
+            "keep": [],
+            "prune_candidates": [],
+        }
+    latest_per_version: Dict[str, Dict[str, Any]] = {}
+    for report in reports:
+        version = str(report.get("corpus_version") or "unknown")
+        current = latest_per_version.get(version)
+        generated_at = str(report.get("generated_at") or "")
+        if current is None or generated_at >= str(current.get("generated_at") or ""):
+            latest_per_version[version] = report
+    keep_ids = {str(report.get("report_id") or "") for report in latest_per_version.values()}
+    keep = []
+    prune = []
+    for report in reports:
+        item = {
+            "report_id": str(report.get("report_id") or ""),
+            "generated_at": str(report.get("generated_at") or ""),
+            "corpus_version": str(report.get("corpus_version") or ""),
+            "session_key": str(report.get("session_key") or ""),
+        }
+        if item["report_id"] in keep_ids:
+            keep.append(item)
+        else:
+            prune.append({**item, "reason": "superseded_by_newer_same_corpus_version"})
+    return {
+        "available": True,
+        "keep_count": len(keep),
+        "prune_candidate_count": len(prune),
+        "keep": keep[:20],
+        "prune_candidates": prune[:50],
+    }
+
+
+def _codec_replay_report_diff(newer: Dict[str, Any], older: Dict[str, Any]) -> Dict[str, Any]:
+    if not newer or not older:
+        return {"available": False, "reason": "missing_report"}
+    newer_corpus = ((newer.get("corpus") or {}).get("summary") or {}) if isinstance((newer.get("corpus") or {}).get("summary"), dict) else {}
+    older_corpus = ((older.get("corpus") or {}).get("summary") or {}) if isinstance((older.get("corpus") or {}).get("summary"), dict) else {}
+    newer_hist = ((newer.get("history") or {}).get("summary") or {}) if isinstance((newer.get("history") or {}).get("summary"), dict) else {}
+    older_hist = ((older.get("history") or {}).get("summary") or {}) if isinstance((older.get("history") or {}).get("summary"), dict) else {}
+    return {
+        "available": True,
+        "newer_report_id": str(newer.get("report_id") or ""),
+        "older_report_id": str(older.get("report_id") or ""),
+        "corpus_version_changed": str(newer.get("corpus_version") or "") != str(older.get("corpus_version") or ""),
+        "summary": {
+            "total_runs_delta": int(newer_corpus.get("total_runs", 0) or 0) - int(older_corpus.get("total_runs", 0) or 0),
+            "replay_ready_runs_delta": int(newer_corpus.get("replay_ready_runs", 0) or 0) - int(older_corpus.get("replay_ready_runs", 0) or 0),
+            "overall_pass_rate_delta": round(float(newer_hist.get("overall_pass_rate", 0.0) or 0.0) - float(older_hist.get("overall_pass_rate", 0.0) or 0.0), 3),
+            "codec_win_rate_delta": round(float(newer_hist.get("codec_win_rate", 0.0) or 0.0) - float(older_hist.get("codec_win_rate", 0.0) or 0.0), 3),
+            "avg_codec_margin_delta": round(float(newer_hist.get("avg_codec_margin", 0.0) or 0.0) - float(older_hist.get("avg_codec_margin", 0.0) or 0.0), 3),
+        },
+        "recommendations": {
+            "newer": newer.get("recommendations") if isinstance(newer.get("recommendations"), dict) else {},
+            "older": older.get("recommendations") if isinstance(older.get("recommendations"), dict) else {},
+        },
+    }
+
+
+
+def _load_codec_eval_runs(*, session_key: str = "", limit: int = 20) -> List[Dict[str, Any]]:
+    try:
+        if not _CODEC_EVAL_HISTORY_PATH.exists():
+            return []
+        rows: List[Dict[str, Any]] = []
+        with _CODEC_EVAL_HISTORY_PATH.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = (line or "").strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                if session_key and str(row.get("session_key") or "") != session_key:
+                    continue
+                rows.append(row)
+        rows.sort(key=lambda row: str(row.get("recorded_at") or ""), reverse=True)
+        return rows[: max(1, min(int(limit), 100))]
+    except Exception:
+        return []
+
+
+def _codec_eval_trend_summary(session_key: str, *, limit: int = 20) -> Dict[str, Any]:
+    runs = _load_codec_eval_runs(session_key=session_key, limit=limit)
+    if not runs:
+        return {
+            "history_available": False,
+            "window_size": 0,
+            "runs": [],
+            "summary": {
+                "total_runs": 0,
+                "overall_pass_rate": 0.0,
+                "codec_win_rate": 0.0,
+                "avg_judge_margin": 0.0,
+                "avg_codec_margin": 0.0,
+            },
+        }
+
+    total = len(runs)
+    overall_passes = sum(1 for run in runs if bool(((run.get("acceptance_gates") or {}).get("summary") or {}).get("overall_pass")))
+    codec_wins = sum(1 for run in runs if str(run.get("winner") or "") == "referents_plus_codec")
+    avg_judge_margin = round(sum(float((run.get("acceptance_gates") or {}).get("judge_margin") or 0.0) for run in runs) / max(1, total), 3)
+    avg_codec_margin = round(sum(float((run.get("acceptance_gates") or {}).get("codec_margin_vs_best_non_codec") or 0.0) for run in runs) / max(1, total), 3)
+    return {
+        "history_available": True,
+        "window_size": total,
+        "runs": [
+            {
+                "recorded_at": str(run.get("recorded_at") or ""),
+                "winner": str(run.get("winner") or ""),
+                "judge_method": str(run.get("judge_method") or ""),
+                "overall_pass": bool(((run.get("acceptance_gates") or {}).get("summary") or {}).get("overall_pass")),
+                "judge_margin": float((run.get("acceptance_gates") or {}).get("judge_margin") or 0.0),
+                "codec_margin_vs_best_non_codec": float((run.get("acceptance_gates") or {}).get("codec_margin_vs_best_non_codec") or 0.0),
+            }
+            for run in runs[:10]
+        ],
+        "summary": {
+            "total_runs": total,
+            "overall_pass_rate": round(overall_passes / max(1, total), 3),
+            "codec_win_rate": round(codec_wins / max(1, total), 3),
+            "avg_judge_margin": avg_judge_margin,
+            "avg_codec_margin": avg_codec_margin,
+        },
+    }
+
+
+def _codec_eval_policy_candidates() -> List[Dict[str, Any]]:
+    base = _codec_acceptance_policy()
+    candidates: List[Dict[str, Any]] = []
+    judge_values = sorted({round(max(0.0, float(base.get("min_judge_margin", 0.0)) + delta), 3) for delta in (-0.01, 0.0, 0.03)})
+    codec_values = sorted({round(float(base.get("codec_margin_floor", -0.05)) + delta, 3) for delta in (-0.03, 0.0, 0.05)})
+    oracle_values = sorted({round(max(0.5, float(base.get("min_oracle_coverage", 1.0)) + delta), 3) for delta in (-0.33, 0.0)})
+    seen = set()
+    for judge_margin in judge_values:
+        for codec_floor in codec_values:
+            for oracle_cov in oracle_values:
+                candidate = {
+                    **base,
+                    "min_judge_margin": judge_margin,
+                    "codec_margin_floor": codec_floor,
+                    "min_oracle_coverage": oracle_cov,
+                }
+                key = json.dumps(candidate, sort_keys=True)
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append(candidate)
+    return candidates
+
+
+
+def _codec_eval_replay_passes(candidate: Dict[str, Any], run: Dict[str, Any]) -> Dict[str, Any]:
+    oracle_run = run.get("oracle_run") if isinstance(run.get("oracle_run"), dict) else {}
+    oracle_requested = bool(oracle_run.get("requested"))
+    oracle_completed = bool(oracle_run.get("completed"))
+    acceptance = run.get("acceptance_gates") if isinstance(run.get("acceptance_gates"), dict) else {}
+    judge_margin = float(acceptance.get("judge_margin") or 0.0)
+    codec_margin = float(acceptance.get("codec_margin_vs_best_non_codec") or 0.0)
+    oracle_coverage = float(acceptance.get("oracle_coverage") or 0.0)
+    variant_count = int(run.get("variant_count", 0) or 0)
+    passes = {
+        "variant_coverage": variant_count >= int(candidate.get("min_variants", 1)),
+        "judge_decisiveness": judge_margin >= float(candidate.get("min_judge_margin", 0.0)),
+        "codec_competitiveness": codec_margin >= float(candidate.get("codec_margin_floor", -1.0)),
+    }
+    if oracle_requested:
+        passes["oracle_variant_coverage"] = oracle_completed and oracle_coverage >= float(candidate.get("min_oracle_coverage", 1.0))
+    return {
+        "passes": passes,
+        "overall_pass": all(bool(value) for value in passes.values()),
+        "judge_margin": judge_margin,
+        "codec_margin": codec_margin,
+    }
+
+
+
+def _codec_eval_policy_distance(candidate: Dict[str, Any], base: Dict[str, Any]) -> float:
+    return round(
+        abs(float(candidate.get("min_judge_margin", 0.0)) - float(base.get("min_judge_margin", 0.0)))
+        + abs(float(candidate.get("codec_margin_floor", 0.0)) - float(base.get("codec_margin_floor", 0.0)))
+        + abs(float(candidate.get("min_oracle_coverage", 1.0)) - float(base.get("min_oracle_coverage", 1.0))),
+        3,
+    )
+
+
+
+def _codec_eval_sweep_summary(session_key: str, *, limit: int = 50) -> Dict[str, Any]:
+    runs = _load_codec_eval_runs(session_key=session_key, limit=limit)
+    if not runs:
+        return {
+            "available": False,
+            "candidate_count": 0,
+            "best_candidate": {},
+            "ranked_candidates": [],
+        }
+
+    base = _codec_acceptance_policy()
+    ranked: List[Dict[str, Any]] = []
+    total = len(runs)
+    codec_wins_total = sum(1 for run in runs if str(run.get("winner") or "") == "referents_plus_codec")
+    for candidate in _codec_eval_policy_candidates():
+        replayed = [_codec_eval_replay_passes(candidate, run) for run in runs]
+        overall_passes = sum(1 for row in replayed if bool(row.get("overall_pass")))
+        avg_judge_margin = round(sum(float(row.get("judge_margin") or 0.0) for row in replayed) / max(1, total), 3)
+        avg_codec_margin = round(sum(float(row.get("codec_margin") or 0.0) for row in replayed) / max(1, total), 3)
+        pass_rate = overall_passes / max(1, total)
+        codec_win_rate = codec_wins_total / max(1, total)
+        distance = _codec_eval_policy_distance(candidate, base)
+        score = round((0.58 * pass_rate) + (0.22 * codec_win_rate) + (0.12 * max(0.0, avg_codec_margin + 0.1)) + (0.08 * min(1.0, avg_judge_margin / 0.1)) - (0.08 * distance), 3)
+        ranked.append({
+            "policy": candidate,
+            "score": score,
+            "pass_rate": round(pass_rate, 3),
+            "avg_judge_margin": avg_judge_margin,
+            "avg_codec_margin": avg_codec_margin,
+            "distance_from_base": distance,
+        })
+
+    ranked.sort(key=lambda row: (float(row.get("score") or 0.0), float(row.get("pass_rate") or 0.0), float(row.get("avg_codec_margin") or 0.0)), reverse=True)
+    return {
+        "available": True,
+        "candidate_count": len(ranked),
+        "best_candidate": ranked[0] if ranked else {},
+        "ranked_candidates": ranked[:5],
+        "base_policy": base,
+    }
+
+
+def _codec_rollup_policy_base_from_runs(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    for run in runs:
+        policy = run.get("rollup_policy") if isinstance(run.get("rollup_policy"), dict) else {}
+        if isinstance(policy.get("base"), dict) and policy.get("base"):
+            return dict(policy.get("base") or {})
+        if policy:
+            return {
+                "match_min_overlap": float(policy.get("match_min_overlap", 0.84) or 0.84),
+                "confidence_blend": float(policy.get("confidence_blend", 0.30) or 0.30),
+                "cross_session_score_per_session": float(policy.get("cross_session_score_per_session", 0.03) or 0.03),
+            }
+    return {
+        "match_min_overlap": 0.84,
+        "confidence_blend": 0.30,
+        "cross_session_score_per_session": 0.03,
+    }
+
+
+
+def _codec_rollup_policy_candidates(base: Dict[str, Any]) -> List[Dict[str, Any]]:
+    overlap_base = float(base.get("match_min_overlap", 0.84) or 0.84)
+    blend_base = float(base.get("confidence_blend", 0.30) or 0.30)
+    score_base = float(base.get("cross_session_score_per_session", 0.03) or 0.03)
+    seen = set()
+    candidates: List[Dict[str, Any]] = []
+    for overlap_delta in (-0.04, 0.0, 0.04):
+        for blend_delta in (-0.08, 0.0, 0.08):
+            for score_delta in (-0.015, 0.0, 0.015):
+                candidate = {
+                    "match_min_overlap": round(max(0.65, min(0.98, overlap_base + overlap_delta)), 3),
+                    "confidence_blend": round(max(0.0, min(1.0, blend_base + blend_delta)), 3),
+                    "cross_session_score_per_session": round(max(0.0, score_base + score_delta), 3),
+                }
+                key = json.dumps(candidate, sort_keys=True)
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append(candidate)
+    return candidates
+
+
+
+def _codec_rollup_policy_distance(candidate: Dict[str, Any], base: Dict[str, Any]) -> float:
+    return round(
+        abs(float(candidate.get("match_min_overlap", 0.0)) - float(base.get("match_min_overlap", 0.0)))
+        + abs(float(candidate.get("confidence_blend", 0.0)) - float(base.get("confidence_blend", 0.0)))
+        + abs(float(candidate.get("cross_session_score_per_session", 0.0)) - float(base.get("cross_session_score_per_session", 0.0))),
+        3,
+    )
+
+
+
+def _codec_rollup_candidate_bias(candidate: Dict[str, Any], base: Dict[str, Any]) -> float:
+    loosen_overlap = (float(base.get("match_min_overlap", 0.84)) - float(candidate.get("match_min_overlap", 0.84))) / 0.04
+    loosen_blend = (float(candidate.get("confidence_blend", 0.30)) - float(base.get("confidence_blend", 0.30))) / 0.08
+    loosen_score = (float(candidate.get("cross_session_score_per_session", 0.03)) - float(base.get("cross_session_score_per_session", 0.03))) / 0.015
+    return round((loosen_overlap + loosen_blend + loosen_score) / 3.0, 3)
+
+
+
+def _codec_rollup_sweep_summary(session_key: str, *, limit: int = 50) -> Dict[str, Any]:
+    runs = _load_codec_eval_runs(session_key=session_key, limit=limit)
+    if not runs:
+        return {
+            "available": False,
+            "candidate_count": 0,
+            "best_candidate": {},
+            "ranked_candidates": [],
+        }
+
+    base = _codec_rollup_policy_base_from_runs(runs)
+    total = len(runs)
+    ranked: List[Dict[str, Any]] = []
+    for candidate in _codec_rollup_policy_candidates(base):
+        bias = _codec_rollup_candidate_bias(candidate, base)
+        score = 0.0
+        codec_helpful = 0
+        for run in runs:
+            acceptance = run.get("acceptance_gates") if isinstance(run.get("acceptance_gates"), dict) else {}
+            overall_pass = bool(((acceptance.get("summary") or {}).get("overall_pass")) if isinstance(acceptance.get("summary"), dict) else False)
+            winner = str(run.get("winner") or "")
+            codec_margin = float(acceptance.get("codec_margin_vs_best_non_codec") or 0.0)
+            preferred_direction = 0.0
+            if winner == "referents_plus_codec" and overall_pass and codec_margin >= 0.03:
+                preferred_direction = 1.0
+                codec_helpful += 1
+            elif winner != "referents_plus_codec" or codec_margin <= -0.03 or not overall_pass:
+                preferred_direction = -1.0
+            score += preferred_direction * bias
+            score += 0.15 * max(0.0, codec_margin + 0.1)
+        distance = _codec_rollup_policy_distance(candidate, base)
+        final_score = round((score / max(1, total)) + (0.08 * (codec_helpful / max(1, total))) - (0.10 * distance), 3)
+        ranked.append({
+            "policy": candidate,
+            "score": final_score,
+            "distance_from_base": distance,
+            "candidate_bias": bias,
+        })
+
+    ranked.sort(key=lambda row: (float(row.get("score") or 0.0), -float(row.get("distance_from_base") or 0.0)), reverse=True)
+    return {
+        "available": True,
+        "candidate_count": len(ranked),
+        "best_candidate": ranked[0] if ranked else {},
+        "ranked_candidates": ranked[:5],
+        "base_policy": base,
+    }
+
+
+def _judge_scores_by_name(judge: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    rows = judge.get("scores") if isinstance(judge.get("scores"), list) else []
+    out: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "")
+        if not name:
+            continue
+        out[name] = row
+    return out
+
+
+
+def _compact_variant_snapshot(variant: Dict[str, Any], judge_row: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    judge_row = judge_row or {}
+    output_chars = int(variant.get("oracle_output_chars", 0) or 0)
+    output_bonus = min(0.2, output_chars / 1200.0) if output_chars else 0.0
+    prompt_text = str(variant.get("prompt") or "")
+    oracle_output = str(variant.get("oracle_output") or "")
+    return {
+        "name": str(variant.get("name") or ""),
+        "prompt_hash": str(variant.get("prompt_hash") or ""),
+        "prompt_chars": int(variant.get("prompt_chars", 0) or 0),
+        "referent_prefix_chars": int(variant.get("referent_prefix_chars", 0) or 0),
+        "codec_prefix_chars": int(variant.get("codec_prefix_chars", 0) or 0),
+        "oracle_output_chars": output_chars,
+        "oracle_model": str(variant.get("oracle_model") or ""),
+        "prompt_excerpt": _compact_text_excerpt(variant.get("prompt_excerpt") or prompt_text, limit=120),
+        "oracle_excerpt": _compact_text_excerpt(oracle_output, limit=120),
+        "prompt_text": prompt_text,
+        "oracle_output": oracle_output,
+        "overlap": float(judge_row.get("overlap", 0.0) or 0.0),
+        "prompt_budget_penalty": float(judge_row.get("prompt_budget_penalty", 0.0) or 0.0),
+        "empty_penalty": float(judge_row.get("empty_penalty", 0.0) or 0.0),
+        "memory_bonus": float(judge_row.get("memory_bonus", 0.0) or 0.0),
+        "output_bonus": round(output_bonus, 3),
+        "heuristic_score": float(judge_row.get("score", 0.0) or 0.0),
+        "basis": str(judge_row.get("basis") or ""),
+    }
+
+
+
+def _codec_corpus_policy_candidates() -> List[Dict[str, Any]]:
+    seen = set()
+    out: List[Dict[str, Any]] = []
+    for overlap_weight in (0.5, 0.62, 0.72):
+        for memory_weight in (0.7, 1.0, 1.3):
+            for output_weight in (0.8, 1.0, 1.2):
+                for penalty_weight in (0.85, 1.0, 1.15):
+                    candidate = {
+                        "overlap_weight": round(overlap_weight, 3),
+                        "memory_weight": round(memory_weight, 3),
+                        "output_weight": round(output_weight, 3),
+                        "penalty_weight": round(penalty_weight, 3),
+                    }
+                    key = json.dumps(candidate, sort_keys=True)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append(candidate)
+    return out
+
+
+
+def _codec_corpus_policy_distance(candidate: Dict[str, Any]) -> float:
+    base = {"overlap_weight": 0.62, "memory_weight": 1.0, "output_weight": 1.0, "penalty_weight": 1.0}
+    return round(sum(abs(float(candidate.get(k, 0.0) or 0.0) - float(base[k])) for k in base), 3)
+
+
+
+def _codec_replay_variant_winner(variant_snapshots: List[Dict[str, Any]], candidate: Dict[str, Any]) -> Dict[str, Any]:
+    best_name = ""
+    best_score = -999.0
+    ranked: List[Dict[str, Any]] = []
+    for row in variant_snapshots:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "")
+        if not name:
+            continue
+        score = (
+            float(candidate.get("overlap_weight", 0.62) or 0.62) * float(row.get("overlap", 0.0) or 0.0)
+            + float(candidate.get("memory_weight", 1.0) or 1.0) * float(row.get("memory_bonus", 0.0) or 0.0)
+            + float(candidate.get("output_weight", 1.0) or 1.0) * float(row.get("output_bonus", 0.0) or 0.0)
+            - float(candidate.get("penalty_weight", 1.0) or 1.0) * (float(row.get("prompt_budget_penalty", 0.0) or 0.0) + float(row.get("empty_penalty", 0.0) or 0.0))
+        )
+        scored = {"name": name, "score": round(max(0.0, score), 3)}
+        ranked.append(scored)
+        if score > best_score:
+            best_score = score
+            best_name = name
+    ranked.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    return {"winner": best_name, "scores": ranked}
+
+
+
+def _codec_eval_corpus_replay_sweep_summary_for_runs(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    replay_runs = [run for run in runs if isinstance(run.get("variant_snapshots"), list) and run.get("variant_snapshots")]
+    if not replay_runs:
+        return {
+            "available": False,
+            "candidate_count": 0,
+            "best_candidate": {},
+            "ranked_candidates": [],
+        }
+
+    total = len(replay_runs)
+    ranked: List[Dict[str, Any]] = []
+    for candidate in _codec_corpus_policy_candidates():
+        winner_matches = 0
+        codec_helpful = 0
+        score_total = 0.0
+        for run in replay_runs:
+            replay = _codec_replay_variant_winner(run.get("variant_snapshots") or [], candidate)
+            replay_winner = str(replay.get("winner") or "")
+            actual_winner = str(run.get("winner") or "")
+            acceptance = run.get("acceptance_gates") if isinstance(run.get("acceptance_gates"), dict) else {}
+            overall_pass = bool(((acceptance.get("summary") or {}).get("overall_pass")) if isinstance(acceptance.get("summary"), dict) else False)
+            codec_margin = float(acceptance.get("codec_margin_vs_best_non_codec") or 0.0)
+            if replay_winner == actual_winner and replay_winner:
+                winner_matches += 1
+                score_total += 0.7
+            if replay_winner == "referents_plus_codec" and overall_pass and codec_margin >= 0.03:
+                codec_helpful += 1
+                score_total += 0.35
+            elif replay_winner == "referents_plus_codec" and (codec_margin <= -0.03 or not overall_pass):
+                score_total -= 0.35
+            score_total += 0.12 * max(0.0, codec_margin + 0.1)
+        distance = _codec_corpus_policy_distance(candidate)
+        ranked.append({
+            "policy": candidate,
+            "score": round((score_total / max(1, total)) - (0.08 * distance), 3),
+            "winner_match_rate": round(winner_matches / max(1, total), 3),
+            "codec_helpful_rate": round(codec_helpful / max(1, total), 3),
+            "distance_from_base": distance,
+        })
+
+    ranked.sort(key=lambda row: (float(row.get("score") or 0.0), float(row.get("winner_match_rate") or 0.0), float(row.get("codec_helpful_rate") or 0.0)), reverse=True)
+    return {
+        "available": True,
+        "candidate_count": len(ranked),
+        "best_candidate": ranked[0] if ranked else {},
+        "ranked_candidates": ranked[:5],
+        "base_policy": {"overlap_weight": 0.62, "memory_weight": 1.0, "output_weight": 1.0, "penalty_weight": 1.0},
+    }
+
+
+
+def _compact_text_excerpt(value: Any, *, limit: int = 160) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)] + "…"
+
+
+
+def _codec_bucket_snapshot(view: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    schema = view.get("schema") if isinstance(view.get("schema"), dict) else {}
+    promotion = view.get("promotion") if isinstance(view.get("promotion"), dict) else {}
+    promoted = promotion.get("promoted") if isinstance(promotion.get("promoted"), dict) else {}
+    buckets = {
+        "preferences": int((((schema.get("identity") or {}).get("preferences") or {}).get("count") or 0)),
+        "active_goals": int((((schema.get("projects") or {}).get("active_goals") or {}).get("count") or 0)),
+        "open_loops": int((((schema.get("projects") or {}).get("open_loops") or {}).get("count") or 0)),
+        "durable_facts": int((((schema.get("world") or {}).get("durable_facts") or {}).get("count") or 0)),
+        "patterns": int((((schema.get("failure") or {}).get("patterns") or {}).get("count") or 0)),
+        "lessons": int((((schema.get("failure") or {}).get("lessons") or {}).get("count") or 0)),
+    }
+    return {
+        bucket: {
+            "count": count,
+            "promoted_count": len(promoted.get(bucket) or []) if isinstance(promoted.get(bucket), list) else 0,
+        }
+        for bucket, count in buckets.items()
+    }
+
+
+
+def _codec_bucket_policy_candidates() -> List[Dict[str, Any]]:
+    return [{"bucket_weight": round(value, 2)} for value in (0.85, 1.0, 1.15)]
+
+
+
+def _replayable_variants_from_snapshots(snapshots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    variants: List[Dict[str, Any]] = []
+    for snapshot in snapshots or []:
+        if not isinstance(snapshot, dict):
+            continue
+        name = str(snapshot.get("name") or "")
+        prompt_text = str(snapshot.get("prompt_text") or "")
+        if not name or not prompt_text:
+            continue
+        variants.append({
+            "name": name,
+            "prompt": prompt_text,
+            "prompt_chars": int(snapshot.get("prompt_chars", len(prompt_text)) or len(prompt_text)),
+            "oracle_output": str(snapshot.get("oracle_output") or "") or None,
+            "oracle_output_chars": int(snapshot.get("oracle_output_chars", 0) or 0),
+            "oracle_model": str(snapshot.get("oracle_model") or ""),
+            "referent_prefix_chars": int(snapshot.get("referent_prefix_chars", 0) or 0),
+            "codec_prefix_chars": int(snapshot.get("codec_prefix_chars", 0) or 0),
+            "prompt_hash": str(snapshot.get("prompt_hash") or ""),
+        })
+    return variants
+
+
+
+def _codec_true_reexecute_run(run: Dict[str, Any]) -> Dict[str, Any]:
+    query = str(run.get("query") or "")
+    variants = _replayable_variants_from_snapshots(run.get("variant_snapshots") if isinstance(run.get("variant_snapshots"), list) else [])
+    if not query or not variants:
+        return {"available": False, "reason": "missing_query_or_variants"}
+    judge = _heuristic_judge_codec_variants(query, variants)
+    current_winner = str(judge.get("winner") or "")
+    recorded_winner = str(run.get("winner") or "")
+    return {
+        "available": True,
+        "query": _compact_text_excerpt(query, limit=120),
+        "recorded_winner": recorded_winner,
+        "reexecuted_winner": current_winner,
+        "winner_changed": bool(recorded_winner and current_winner and recorded_winner != current_winner),
+        "judge": judge,
+        "variant_count": len(variants),
+    }
+
+
+
+def _codec_true_reexecute_summary(session_key: str, *, limit: int = 20) -> Dict[str, Any]:
+    runs = _load_codec_eval_runs(session_key=session_key, limit=limit)
+    results = [_codec_true_reexecute_run(run) for run in runs]
+    available = [row for row in results if bool(row.get("available"))]
+    changed = [row for row in available if bool(row.get("winner_changed"))]
+    return {
+        "available": bool(available),
+        "summary": {
+            "total_runs": len(runs),
+            "reexecuted_runs": len(available),
+            "winner_changed_runs": len(changed),
+            "winner_change_rate": round(len(changed) / max(1, len(available)), 3) if available else 0.0,
+        },
+        "runs": available[:10],
+    }
+
+
+
+def _token_set(value: Any) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]{3,}", str(value or "").lower())}
+
+
+
+def _semantic_similarity(a: Any, b: Any) -> float:
+    a_tokens = _token_set(a)
+    b_tokens = _token_set(b)
+    if not a_tokens or not b_tokens:
+        return 0.0
+    return round(len(a_tokens & b_tokens) / max(1, len(a_tokens | b_tokens)), 3)
+
+
+
+def _semantic_precision(a: Any, b: Any) -> float:
+    a_tokens = _token_set(a)
+    b_tokens = _token_set(b)
+    if not b_tokens:
+        return 0.0
+    return round(len(a_tokens & b_tokens) / max(1, len(b_tokens)), 3)
+
+
+
+def _semantic_recall(a: Any, b: Any) -> float:
+    a_tokens = _token_set(a)
+    b_tokens = _token_set(b)
+    if not a_tokens:
+        return 0.0
+    return round(len(a_tokens & b_tokens) / max(1, len(a_tokens)), 3)
+
+
+
+def _semantic_f1(a: Any, b: Any) -> float:
+    precision = _semantic_precision(a, b)
+    recall = _semantic_recall(a, b)
+    if precision <= 0.0 or recall <= 0.0:
+        return 0.0
+    return round((2 * precision * recall) / max(0.001, precision + recall), 3)
+
+
+
+def _length_ratio(a: Any, b: Any) -> float:
+    a_len = len(str(a or ""))
+    b_len = len(str(b or ""))
+    if a_len <= 0 and b_len <= 0:
+        return 1.0
+    return round(min(a_len, b_len) / max(1, max(a_len, b_len)), 3)
+
+
+
+def _semantic_drift_metrics(recorded: Any, current: Any) -> Dict[str, Any]:
+    similarity = _semantic_similarity(recorded, current)
+    precision = _semantic_precision(recorded, current)
+    recall = _semantic_recall(recorded, current)
+    f1 = _semantic_f1(recorded, current)
+    length_ratio = _length_ratio(recorded, current)
+    drift = round(1.0 - ((0.55 * similarity) + (0.25 * f1) + (0.20 * length_ratio)), 3)
+    return {
+        "similarity": similarity,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "length_ratio": length_ratio,
+        "drift": max(0.0, min(1.0, drift)),
+    }
+
+
+
+def _live_reexecute_backend_registry() -> Dict[str, Dict[str, Any]]:
+    return {
+        "recorded": {
+            "backend": "recorded",
+            "kind": "stored_output",
+            "available": True,
+            "requires_runtime": False,
+            "description": "Use the recorded historical output as the replay backend baseline.",
+        },
+        "stored": {
+            "backend": "stored",
+            "kind": "stored_output",
+            "available": True,
+            "requires_runtime": False,
+            "description": "Alias for the recorded historical output backend.",
+        },
+        "openclaw_local": {
+            "backend": "openclaw_local",
+            "kind": "local_runtime",
+            "available": True,
+            "requires_runtime": True,
+            "description": "Re-execute the saved prompt through Oracle's current local OpenClaw path.",
+        },
+    }
+
+
+
+def _live_reexecute_backend_status() -> Dict[str, Any]:
+    registry = _live_reexecute_backend_registry()
+    items = []
+    for backend, row in registry.items():
+        payload = dict(row)
+        payload["backend"] = backend
+        items.append(payload)
+    return {
+        "available": True,
+        "count": len(items),
+        "items": items,
+    }
+
+
+
+def _live_reexecute_output(prompt: str, *, backend: str = "openclaw_local", recorded_output: str = "") -> Dict[str, Any]:
+    backend_name = str(backend or "openclaw_local")
+    registry = _live_reexecute_backend_registry()
+    backend_row = registry.get(backend_name) or {}
+    if not backend_row:
+        return {"backend": backend_name, "output": f"ERROR::unknown_backend::{backend_name}", "error": f"unknown_backend::{backend_name}"}
+    if str(backend_row.get("kind") or "") == "stored_output":
+        return {"backend": backend_name, "output": str(recorded_output or ""), "error": ""}
+    try:
+        from cortex_server.routers.oracle import call_openclaw_local
+        output = call_openclaw_local(prompt)
+        return {"backend": backend_name, "output": output, "error": ""}
+    except Exception as exc:
+        return {"backend": backend_name, "output": f"ERROR::{str(exc)[:160]}", "error": str(exc)[:160]}
+
+
+
+def _codec_live_reexecute_run(run: Dict[str, Any], *, max_variants: int = 3, backend: str = "openclaw_local") -> Dict[str, Any]:
+    query = str(run.get("query") or "")
+    variants = _replayable_variants_from_snapshots(run.get("variant_snapshots") if isinstance(run.get("variant_snapshots"), list) else [])[: max(1, min(int(max_variants), 10))]
+    if not query or not variants:
+        return {"available": False, "reason": "missing_query_or_variants"}
+    try:
+        from cortex_server.routers.oracle import call_openclaw_local
+    except Exception as exc:
+        return {"available": False, "reason": f"oracle_import_failed:{str(exc)[:120]}"}
+
+    live_variants: List[Dict[str, Any]] = []
+    for variant in variants:
+        prompt = str(variant.get("prompt") or "")
+        try:
+            output = call_openclaw_local(prompt)
+        except Exception as exc:
+            output = f"ERROR::{str(exc)[:160]}"
+        live_variants.append({
+            **variant,
+            "oracle_output": output,
+            "oracle_output_chars": len(output),
+            "oracle_model": "openclaw_local_reexecute",
+        })
+
+    judge = _heuristic_judge_codec_variants(query, live_variants)
+    current_winner = str(judge.get("winner") or "")
+    recorded_winner = str(run.get("winner") or "")
+    return {
+        "available": True,
+        "query": _compact_text_excerpt(query, limit=120),
+        "recorded_winner": recorded_winner,
+        "reexecuted_winner": current_winner,
+        "winner_changed": bool(recorded_winner and current_winner and recorded_winner != current_winner),
+        "judge": judge,
+        "variant_count": len(live_variants),
+        "variants": [
+            {
+                "name": str(item.get("name") or ""),
+                "oracle_output_chars": int(item.get("oracle_output_chars", 0) or 0),
+                "oracle_excerpt": _compact_text_excerpt(item.get("oracle_output") or "", limit=120),
+            }
+            for item in live_variants
+        ],
+    }
+
+
+
+def _codec_live_reexecute_summary(session_key: str, *, limit: int = 5, max_variants: int = 3, backend: str = "openclaw_local") -> Dict[str, Any]:
+    runs = _load_codec_eval_runs(session_key=session_key, limit=limit)
+    results = [_codec_live_reexecute_run(run, max_variants=max_variants, backend=backend) for run in runs]
+    available = [row for row in results if bool(row.get("available"))]
+    changed = [row for row in available if bool(row.get("winner_changed"))]
+    avg_similarity = round(sum(float(row.get("semantic_similarity", 0.0) or 0.0) for row in available) / max(1, len(available)), 3) if available else 0.0
+    return {
+        "available": bool(available),
+        "backend": str(backend or "openclaw_local"),
+        "summary": {
+            "total_runs": len(runs),
+            "reexecuted_runs": len(available),
+            "winner_changed_runs": len(changed),
+            "winner_change_rate": round(len(changed) / max(1, len(available)), 3) if available else 0.0,
+            "avg_semantic_similarity": avg_similarity,
+            "avg_semantic_drift": round(1.0 - avg_similarity, 3) if available else 0.0,
+        },
+        "runs": available[: max(1, min(int(limit), 10))],
+    }
+
+
+
+def _codec_bucket_replay_summary_for_runs(runs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    replay_runs = [run for run in runs if isinstance(run.get("bucket_snapshot"), dict) and run.get("bucket_snapshot")]
+    if not replay_runs:
+        return {"available": False, "bucket_count": 0, "buckets": {}}
+
+    bucket_names = sorted({bucket for run in replay_runs for bucket in (run.get("bucket_snapshot") or {}).keys()})
+    buckets_out: Dict[str, Any] = {}
+    for bucket in bucket_names:
+        bucket_runs = [run for run in replay_runs if int((((run.get("bucket_snapshot") or {}).get(bucket) or {}).get("count") or 0)) > 0]
+        if not bucket_runs:
+            continue
+        ranked = []
+        total = len(bucket_runs)
+        for candidate in _codec_bucket_policy_candidates():
+            weight = float(candidate.get("bucket_weight", 1.0) or 1.0)
+            score_total = 0.0
+            codec_helpful = 0
+            for run in bucket_runs:
+                acceptance = run.get("acceptance_gates") if isinstance(run.get("acceptance_gates"), dict) else {}
+                codec_margin = float(acceptance.get("codec_margin_vs_best_non_codec") or 0.0)
+                overall_pass = bool(((acceptance.get("summary") or {}).get("overall_pass")) if isinstance(acceptance.get("summary"), dict) else False)
+                snap = ((run.get("bucket_snapshot") or {}).get(bucket) or {}) if isinstance((run.get("bucket_snapshot") or {}).get(bucket), dict) else {}
+                promoted_count = int(snap.get("promoted_count", 0) or 0)
+                if overall_pass and codec_margin >= 0.03:
+                    codec_helpful += 1
+                    score_total += (weight - 1.0) * (0.35 + (0.08 * promoted_count))
+                elif codec_margin <= -0.03 or not overall_pass:
+                    score_total -= (weight - 1.0) * (0.35 + (0.08 * promoted_count))
+                score_total += 0.10 * max(0.0, codec_margin + 0.1)
+            distance = abs(weight - 1.0)
+            ranked.append({
+                "policy": candidate,
+                "score": round((score_total / max(1, total)) - (0.08 * distance), 3),
+                "codec_helpful_rate": round(codec_helpful / max(1, total), 3),
+                "distance_from_base": round(distance, 3),
+                "run_count": total,
+            })
+        ranked.sort(key=lambda row: (float(row.get("score") or 0.0), float(row.get("codec_helpful_rate") or 0.0)), reverse=True)
+        buckets_out[bucket] = {
+            "available": True,
+            "run_count": total,
+            "best_candidate": ranked[0] if ranked else {},
+            "ranked_candidates": ranked[:3],
+            "base_policy": {"bucket_weight": 1.0},
+        }
+    return {"available": bool(buckets_out), "bucket_count": len(buckets_out), "buckets": buckets_out}
+
+
+
+def _codec_history_recommendations(history: Dict[str, Any]) -> Dict[str, Any]:
+    sweep = history.get("sweep") if isinstance(history.get("sweep"), dict) else {}
+    rollup_sweep = history.get("rollup_sweep") if isinstance(history.get("rollup_sweep"), dict) else {}
+    corpus = history.get("corpus_replay") if isinstance(history.get("corpus_replay"), dict) else {}
+    bucket_sweeps = (corpus.get("bucket_sweeps") or {}).get("buckets") if isinstance((corpus.get("bucket_sweeps") or {}), dict) else {}
+    return {
+        "acceptance_policy": sweep.get("best_candidate", {}) if isinstance(sweep, dict) else {},
+        "rollup_policy": rollup_sweep.get("best_candidate", {}) if isinstance(rollup_sweep, dict) else {},
+        "corpus_policy": (corpus.get("sweep") or {}).get("best_candidate", {}) if isinstance(corpus.get("sweep"), dict) else {},
+        "bucket_policies": {
+            bucket: value.get("best_candidate", {})
+            for bucket, value in (bucket_sweeps or {}).items()
+            if isinstance(value, dict) and value.get("best_candidate")
+        },
+    }
+
+
+
+def _codec_corpus_fingerprint(rows: List[Dict[str, Any]]) -> str:
+    payload = [
+        {
+            "recorded_at": str(row.get("recorded_at") or ""),
+            "query": str(row.get("query") or ""),
+            "query_archetype": str(row.get("query_archetype") or ""),
+            "winner": str(row.get("winner") or ""),
+            "variant_count": int(row.get("variant_count", 0) or 0),
+            "variant_snapshots": [
+                {
+                    "name": str(item.get("name") or ""),
+                    "prompt_hash": str(item.get("prompt_hash") or ""),
+                    "prompt_chars": int(item.get("prompt_chars", 0) or 0),
+                }
+                for item in (row.get("variant_snapshots") or []) if isinstance(item, dict)
+            ],
+        }
+        for row in rows
+    ]
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+
+def _codec_replay_report_id(session_key: str, corpus_version: str) -> str:
+    seed = f"{session_key}|{corpus_version}|{_now_iso()}"
+    return hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+
+
+
+def _codec_benchmark_corpus_export(session_key: str, *, limit: int = 100) -> Dict[str, Any]:
+    manifest = _codec_benchmark_corpus_manifest(session_key, limit=limit)
+    history = _codec_eval_trend_summary(session_key, limit=min(limit, 20))
+    history["sweep"] = _codec_eval_sweep_summary(session_key, limit=limit)
+    history["rollup_sweep"] = _codec_rollup_sweep_summary(session_key, limit=limit)
+    history["corpus_replay"] = _codec_eval_corpus_replay_summary(session_key, limit=limit)
+    history["true_reexecution"] = _codec_true_reexecute_summary(session_key, limit=min(limit, 20))
+    history["recommendations"] = _codec_history_recommendations(history)
+    corpus_version = str(manifest.get("corpus_version") or "empty")
+    export_id = hashlib.sha256(f"{session_key}|{corpus_version}|{_now_iso()}".encode("utf-8")).hexdigest()[:16]
+    return {
+        "export_version": "cortex.codec.benchmark_corpus.v1",
+        "export_id": export_id,
+        "generated_at": _now_iso(),
+        "session_key": session_key,
+        "corpus_version": corpus_version,
+        "manifest": manifest,
+        "history": history,
+        "recommendations": history.get("recommendations") if isinstance(history.get("recommendations"), dict) else {},
+    }
+
+
+def _codec_benchmark_corpus_manifest(session_key: str, *, limit: int = 50) -> Dict[str, Any]:
+    runs = _load_codec_eval_runs(session_key=session_key, limit=limit)
+    if not runs:
+        return {
+            "available": False,
+            "corpus_version": "empty",
+            "summary": {
+                "total_runs": 0,
+                "replay_ready_runs": 0,
+                "variant_snapshot_count": 0,
+            },
+            "runs": [],
+        }
+
+    replay_ready_runs = 0
+    variant_snapshot_count = 0
+    manifest_runs = []
+    for run in runs:
+        snapshots = run.get("variant_snapshots") if isinstance(run.get("variant_snapshots"), list) else []
+        if snapshots:
+            replay_ready_runs += 1
+            variant_snapshot_count += len(snapshots)
+        manifest_runs.append({
+            "recorded_at": str(run.get("recorded_at") or ""),
+            "query": _compact_text_excerpt(run.get("query") or "", limit=120),
+            "query_archetype": str(run.get("query_archetype") or ""),
+            "winner": str(run.get("winner") or ""),
+            "variant_count": int(run.get("variant_count", 0) or 0),
+            "replay_ready": bool(snapshots),
+            "has_rollup_policy": bool(run.get("rollup_policy")),
+            "has_bucket_snapshot": bool(run.get("bucket_snapshot")),
+            "has_recommendations": bool(run.get("recommended_policies")),
+        })
+    return {
+        "available": True,
+        "corpus_version": _codec_corpus_fingerprint(runs),
+        "summary": {
+            "total_runs": len(runs),
+            "replay_ready_runs": replay_ready_runs,
+            "variant_snapshot_count": variant_snapshot_count,
+        },
+        "runs": manifest_runs,
+    }
+
+
+
+def _codec_replay_report(session_key: str, *, limit: int = 50) -> Dict[str, Any]:
+    corpus = _codec_benchmark_corpus_manifest(session_key, limit=limit)
+    history = _codec_eval_trend_summary(session_key, limit=min(limit, 20))
+    history["sweep"] = _codec_eval_sweep_summary(session_key, limit=limit)
+    history["rollup_sweep"] = _codec_rollup_sweep_summary(session_key, limit=limit)
+    history["corpus_replay"] = _codec_eval_corpus_replay_summary(session_key, limit=limit)
+    history["recommendations"] = _codec_history_recommendations(history)
+    corpus_version = str(corpus.get("corpus_version") or "empty")
+    return {
+        "report_id": _codec_replay_report_id(session_key, corpus_version),
+        "generated_at": _now_iso(),
+        "session_key": session_key,
+        "corpus_version": corpus_version,
+        "corpus": corpus,
+        "history": history,
+        "recommendations": history.get("recommendations", {}) if isinstance(history.get("recommendations"), dict) else {},
+    }
+
+
+
+def _codec_eval_corpus_replay_summary(session_key: str, *, limit: int = 50) -> Dict[str, Any]:
+    runs = _load_codec_eval_runs(session_key=session_key, limit=limit)
+    if not runs:
+        return {
+            "available": False,
+            "summary": {
+                "total_runs": 0,
+                "replay_ready_runs": 0,
+                "variant_snapshot_count": 0,
+            },
+            "variants": {},
+            "ranked_queries": [],
+        }
+
+    variant_rows: Dict[str, Dict[str, Any]] = {}
+    ranked_queries: List[Dict[str, Any]] = []
+    replay_ready_runs = 0
+    total_variants = 0
+    for run in runs:
+        snapshots = run.get("variant_snapshots") if isinstance(run.get("variant_snapshots"), list) else []
+        if snapshots:
+            replay_ready_runs += 1
+        acceptance = run.get("acceptance_gates") if isinstance(run.get("acceptance_gates"), dict) else {}
+        codec_margin = float(acceptance.get("codec_margin_vs_best_non_codec") or 0.0)
+        ranked_queries.append({
+            "query": str(run.get("query") or "")[:160],
+            "query_archetype": str(run.get("query_archetype") or ""),
+            "winner": str(run.get("winner") or ""),
+            "codec_margin_vs_best_non_codec": round(codec_margin, 3),
+            "overall_pass": bool(((acceptance.get("summary") or {}).get("overall_pass")) if isinstance(acceptance.get("summary"), dict) else False),
+        })
+        for snapshot in snapshots:
+            if not isinstance(snapshot, dict):
+                continue
+            name = str(snapshot.get("name") or "")
+            if not name:
+                continue
+            total_variants += 1
+            row = variant_rows.setdefault(name, {
+                "runs": 0,
+                "total_prompt_chars": 0,
+                "total_referent_prefix_chars": 0,
+                "total_codec_prefix_chars": 0,
+                "total_oracle_output_chars": 0,
+                "prompt_hashes": set(),
+            })
+            row["runs"] += 1
+            row["total_prompt_chars"] += int(snapshot.get("prompt_chars", 0) or 0)
+            row["total_referent_prefix_chars"] += int(snapshot.get("referent_prefix_chars", 0) or 0)
+            row["total_codec_prefix_chars"] += int(snapshot.get("codec_prefix_chars", 0) or 0)
+            row["total_oracle_output_chars"] += int(snapshot.get("oracle_output_chars", 0) or 0)
+            if snapshot.get("prompt_hash"):
+                row["prompt_hashes"].add(str(snapshot.get("prompt_hash") or ""))
+
+    variants = {}
+    for name, row in variant_rows.items():
+        runs_count = max(1, int(row.get("runs", 0) or 0))
+        variants[name] = {
+            "runs": runs_count,
+            "avg_prompt_chars": round(int(row.get("total_prompt_chars", 0) or 0) / runs_count, 3),
+            "avg_referent_prefix_chars": round(int(row.get("total_referent_prefix_chars", 0) or 0) / runs_count, 3),
+            "avg_codec_prefix_chars": round(int(row.get("total_codec_prefix_chars", 0) or 0) / runs_count, 3),
+            "avg_oracle_output_chars": round(int(row.get("total_oracle_output_chars", 0) or 0) / runs_count, 3),
+            "unique_prompt_hashes": len(row.get("prompt_hashes", set())),
+        }
+
+    ranked_queries.sort(key=lambda row: float(row.get("codec_margin_vs_best_non_codec") or 0.0), reverse=True)
+    archetype_groups: Dict[str, List[Dict[str, Any]]] = {}
+    for run in runs:
+        archetype = str(run.get("query_archetype") or "")
+        if not archetype:
+            continue
+        archetype_groups.setdefault(archetype, []).append(run)
+    archetype_sweeps = {
+        archetype: {
+            "run_count": len(group_runs),
+            "sweep": _codec_eval_corpus_replay_sweep_summary_for_runs(group_runs),
+        }
+        for archetype, group_runs in archetype_groups.items()
+    }
+    sample_excerpts = []
+    for run in runs:
+        for snapshot in (run.get("variant_snapshots") or []):
+            if not isinstance(snapshot, dict):
+                continue
+            if snapshot.get("prompt_excerpt") or snapshot.get("oracle_excerpt"):
+                sample_excerpts.append({
+                    "query": _compact_text_excerpt(run.get("query") or "", limit=100),
+                    "query_archetype": str(run.get("query_archetype") or ""),
+                    "variant": str(snapshot.get("name") or ""),
+                    "prompt_excerpt": str(snapshot.get("prompt_excerpt") or ""),
+                    "oracle_excerpt": str(snapshot.get("oracle_excerpt") or ""),
+                })
+            if len(sample_excerpts) >= 6:
+                break
+        if len(sample_excerpts) >= 6:
+            break
+    return {
+        "available": replay_ready_runs > 0,
+        "summary": {
+            "total_runs": len(runs),
+            "replay_ready_runs": replay_ready_runs,
+            "variant_snapshot_count": total_variants,
+            "archetype_count": len(archetype_sweeps),
+        },
+        "variants": variants,
+        "ranked_queries": ranked_queries[:5],
+        "sample_excerpts": sample_excerpts,
+        "sweep": _codec_eval_corpus_replay_sweep_summary_for_runs(runs),
+        "archetype_sweeps": archetype_sweeps,
+        "bucket_sweeps": _codec_bucket_replay_summary_for_runs(runs),
+    }
+
+
 def _build_workflow_checkpoint(query: str, routing_method: str, recommended: List[Dict[str, Any]]) -> Dict[str, Any]:
     checkpoint_id = hashlib.sha256(f"{query}|{routing_method}".encode("utf-8")).hexdigest()[:16]
     state = {
@@ -721,8 +2666,10 @@ class OutcomeFeedbackRequest(BaseModel):
     query: str
     task_archetype: Optional[str] = None
     policy_label: Optional[str] = None
+    codec_variant: Optional[str] = None
     user_correction: bool = False
     recovery_needed: bool = False
+    validator_pass: Optional[bool] = None
     note: str = ""
 
 
@@ -888,6 +2835,673 @@ async def get_nexus_context():
     }
 
 
+@router.get("/codec/status")
+async def get_nexus_codec_status(request: Request, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+
+    view = get_codec_debug_view(
+        resolved_session_key,
+        max_chars=max(120, min(int(max_chars), 2400)),
+        history_limit=max(1, min(int(history_limit), 50)),
+    )
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": view,
+    }
+
+
+@router.get("/codec/benchmark")
+async def get_nexus_codec_benchmark(request: Request, session_key: Optional[str] = None, benchmark_query: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+
+    view = _codec_benchmark_view(
+        resolved_session_key,
+        benchmark_query=benchmark_query or "",
+        max_chars=max(120, min(int(max_chars), 2400)),
+        history_limit=max(1, min(int(history_limit), 50)),
+    )
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": view,
+    }
+
+
+@router.get("/codec/policy")
+async def get_nexus_codec_policy(request: Request, query: Optional[str] = None, session_key: Optional[str] = None):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec_policy": get_codec_policy_status(query=query, session_key=resolved_session_key or None),
+    }
+
+
+@router.get("/codec/corpus-replay")
+async def get_nexus_codec_corpus_replay(request: Request, session_key: Optional[str] = None, limit: int = 50, persist_report: bool = False):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+
+    report = _codec_replay_report(resolved_session_key, limit=max(1, min(int(limit), 100)))
+    if persist_report:
+        _persist_codec_replay_report(report)
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "corpus_replay": report,
+            "report_persisted": bool(persist_report),
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/reexecute")
+async def get_nexus_codec_corpus_replay_reexecute(request: Request, session_key: Optional[str] = None, limit: int = 20):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    report = _codec_true_reexecute_summary(resolved_session_key, limit=max(1, min(int(limit), 100)))
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "true_reexecution": report,
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/live-reexecute")
+async def get_nexus_codec_corpus_replay_live_reexecute(request: Request, session_key: Optional[str] = None, limit: int = 5, max_variants: int = 3, backend: str = "openclaw_local", persist_report: bool = False):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    report = _codec_live_reexecute_summary(
+        resolved_session_key,
+        limit=max(1, min(int(limit), 20)),
+        max_variants=max(1, min(int(max_variants), 10)),
+        backend=backend,
+    )
+    persisted = False
+    if persist_report:
+        payload = {
+            "report_id": hashlib.sha256(f"{resolved_session_key}|{backend}|{_now_iso()}".encode("utf-8")).hexdigest()[:16],
+            "generated_at": _now_iso(),
+            "session_key": resolved_session_key,
+            "backend": backend,
+            "live_reexecution": report,
+        }
+        _persist_codec_live_reexec_report(payload)
+        persisted = True
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "live_reexecution": report,
+            "report_persisted": persisted,
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/live-reexecute/backends")
+async def get_nexus_codec_corpus_replay_live_reexecute_backends():
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "live_reexecution_backends": _live_reexecute_backend_status(),
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/live-reexecute/compare")
+async def get_nexus_codec_corpus_replay_live_reexecute_compare(request: Request, session_key: Optional[str] = None, limit: int = 5, max_variants: int = 3, backends: str = "recorded,openclaw_local"):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    available_backends = {item.get("backend") for item in (_live_reexecute_backend_status().get("items") or []) if isinstance(item, dict)}
+    backend_list = [item.strip() for item in str(backends or "recorded,openclaw_local").split(",") if item.strip() and item.strip() in available_backends]
+    reports = {
+        backend: _codec_live_reexecute_summary(
+            resolved_session_key,
+            limit=max(1, min(int(limit), 20)),
+            max_variants=max(1, min(int(max_variants), 10)),
+            backend=backend,
+        )
+        for backend in backend_list[:5]
+    }
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "live_reexecution_compare": {
+                "backends": reports,
+                "backend_registry": _live_reexecute_backend_status(),
+            },
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/live-reexecute/reports")
+async def get_nexus_codec_corpus_replay_live_reexecute_reports(request: Request, session_key: Optional[str] = None, limit: int = 20):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    rows: List[Dict[str, Any]] = []
+    try:
+        if _CODEC_LIVE_REEXEC_REPORTS_PATH.exists():
+            with _CODEC_LIVE_REEXEC_REPORTS_PATH.open("r", encoding="utf-8") as f:
+                for line in f:
+                    line = (line or "").strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except Exception:
+                        continue
+                    if not isinstance(row, dict):
+                        continue
+                    if resolved_session_key and str(row.get("session_key") or "") != resolved_session_key:
+                        continue
+                    rows.append(row)
+    except Exception:
+        rows = []
+    rows.sort(key=lambda row: str(row.get("generated_at") or ""), reverse=True)
+    rows = rows[: max(1, min(int(limit), 100))]
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "live_reexecution_reports": {
+                "available": bool(rows),
+                "count": len(rows),
+                "items": [
+                    {
+                        "report_id": str(row.get("report_id") or ""),
+                        "generated_at": str(row.get("generated_at") or ""),
+                        "session_key": str(row.get("session_key") or ""),
+                        "backend": str(row.get("backend") or ""),
+                        "reexecuted_runs": int((((row.get("live_reexecution") or {}).get("summary") or {}).get("reexecuted_runs") or 0)),
+                        "winner_changed_runs": int((((row.get("live_reexecution") or {}).get("summary") or {}).get("winner_changed_runs") or 0)),
+                    }
+                    for row in rows
+                ],
+            }
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/reports")
+async def get_nexus_codec_corpus_replay_reports(request: Request, session_key: Optional[str] = None, limit: int = 20):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+
+    reports = _load_codec_replay_reports(session_key=resolved_session_key, limit=max(1, min(int(limit), 100)))
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "reports": {
+                "available": bool(reports),
+                "count": len(reports),
+                "items": [
+                    {
+                        "report_id": str(report.get("report_id") or ""),
+                        "generated_at": str(report.get("generated_at") or ""),
+                        "session_key": str(report.get("session_key") or ""),
+                        "corpus_version": str(report.get("corpus_version") or ""),
+                        "total_runs": int((((report.get("corpus") or {}).get("summary") or {}).get("total_runs") or 0)),
+                        "replay_ready_runs": int((((report.get("corpus") or {}).get("summary") or {}).get("replay_ready_runs") or 0)),
+                    }
+                    for report in reports
+                ],
+            }
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/diff")
+async def get_nexus_codec_corpus_replay_diff(request: Request, session_key: Optional[str] = None, newer_report_id: Optional[str] = None, older_report_id: Optional[str] = None):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+
+    reports = _load_codec_replay_reports(session_key=resolved_session_key, limit=20)
+    if not reports:
+        raise HTTPException(status_code=404, detail="no replay reports found")
+    newer = _find_codec_replay_report(session_key=resolved_session_key, report_id=(newer_report_id or "").strip()) if newer_report_id else reports[0]
+    if older_report_id:
+        older = _find_codec_replay_report(session_key=resolved_session_key, report_id=older_report_id.strip())
+    else:
+        older = reports[1] if len(reports) > 1 else {}
+    diff = _codec_replay_report_diff(newer, older)
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "report_diff": diff,
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/active-policy")
+async def get_nexus_codec_corpus_replay_active_policy():
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "active_policy": _load_codec_active_policy(),
+        },
+    }
+
+
+@router.post("/codec/corpus-replay/promote-best")
+async def post_nexus_codec_corpus_replay_promote_best(request: Request, session_key: Optional[str] = None, report_id: Optional[str] = None, source: str = "recommendations"):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+
+    report = _find_codec_replay_report(session_key=resolved_session_key, report_id=(report_id or "").strip()) if report_id else _find_codec_replay_report(session_key=resolved_session_key)
+    if not report:
+        raise HTTPException(status_code=404, detail="replay report not found")
+    recommended = report.get("recommendations") if isinstance(report.get("recommendations"), dict) else {}
+    payload = {
+        "version": "cortex.codec.active_benchmark_policy.v1",
+        "updated_at": _now_iso(),
+        "session_key": resolved_session_key,
+        "source": source,
+        "report_id": str(report.get("report_id") or ""),
+        "corpus_version": str(report.get("corpus_version") or ""),
+        "policies": recommended,
+    }
+    _save_codec_active_policy(payload)
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "active_policy": payload,
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/plans")
+async def get_nexus_codec_corpus_replay_plans(request: Request, session_key: Optional[str] = None, limit: int = 20):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=max(1, min(int(limit), 100)))
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "replay_plans": {
+                "available": bool(plans),
+                "count": len(plans),
+                "items": plans,
+            }
+        },
+    }
+
+
+@router.post("/codec/corpus-replay/plan")
+async def post_nexus_codec_corpus_replay_plan(request: Request, session_key: Optional[str] = None, cadence_minutes: int = 1440, enabled: bool = True, note: str = "", start_immediately: bool = True, auto_promote_on_success: bool = False):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    created_at = _now_iso()
+    next_run_at = created_at if bool(start_immediately) else _compute_replay_plan_next_run(from_time=_parse_iso_datetime(created_at), cadence_minutes=max(5, int(cadence_minutes)))
+    plan = {
+        "plan_id": hashlib.sha256(f"{resolved_session_key}|{cadence_minutes}|{created_at}".encode("utf-8")).hexdigest()[:16],
+        "created_at": created_at,
+        "updated_at": created_at,
+        "session_key": resolved_session_key,
+        "cadence_minutes": max(5, int(cadence_minutes)),
+        "enabled": bool(enabled),
+        "note": _compact_text_excerpt(note or "", limit=160),
+        "start_immediately": bool(start_immediately),
+        "auto_promote_on_success": bool(auto_promote_on_success),
+        "run_count": 0,
+        "next_run_at": next_run_at,
+        "suggested_endpoint": "/nexus/codec/corpus-replay?persist_report=true",
+    }
+    _persist_codec_replay_plan(plan)
+    scheduler = _ensure_codec_replay_scheduler_started()
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "replay_plan": plan,
+            "scheduler": scheduler,
+        },
+    }
+
+
+@router.post("/codec/corpus-replay/plan/run")
+async def post_nexus_codec_corpus_replay_plan_run(request: Request, session_key: Optional[str] = None, plan_id: Optional[str] = None):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=200)
+    if not plans:
+        raise HTTPException(status_code=404, detail="no replay plans found")
+    plan = next((row for row in plans if str(row.get("plan_id") or "") == str(plan_id or "")), None) if plan_id else plans[0]
+    if not isinstance(plan, dict):
+        raise HTTPException(status_code=404, detail="replay plan not found")
+    result = _execute_replay_plan(plan)
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "replay_plan_run": result,
+        },
+    }
+
+
+@router.post("/codec/corpus-replay/plans/run-due")
+async def post_nexus_codec_corpus_replay_plans_run_due(request: Request, session_key: Optional[str] = None, limit: int = 20):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    plans = _load_codec_replay_plan_states(session_key=resolved_session_key, limit=max(1, min(int(limit), 100)))
+    due = [plan for plan in plans if _plan_due(plan)]
+    results = [_execute_replay_plan(plan) for plan in due]
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "due_replay_runs": {
+                "count": len(results),
+                "items": results,
+            }
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/scheduler")
+async def get_nexus_codec_corpus_replay_scheduler():
+    scheduler = _ensure_codec_replay_scheduler_started()
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "scheduler": scheduler,
+        },
+    }
+
+
+@router.post("/codec/corpus-replay/scheduler/tick")
+async def post_nexus_codec_corpus_replay_scheduler_tick(request: Request, session_key: Optional[str] = None, limit: int = 100):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    result = _run_due_replay_plans_once(session_key=resolved_session_key or "", limit=max(1, min(int(limit), 200)))
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "scheduler_tick": result,
+            "scheduler": dict(_CODEC_REPLAY_SCHEDULER_STATE),
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/corpus-versions")
+async def get_nexus_codec_corpus_replay_corpus_versions(request: Request, session_key: Optional[str] = None, limit: int = 100):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "corpus_versions": _codec_replay_report_versions(session_key=resolved_session_key, limit=max(1, min(int(limit), 200))),
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/retention")
+async def get_nexus_codec_corpus_replay_retention(request: Request, session_key: Optional[str] = None, limit: int = 100):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "retention": _codec_replay_retention_summary(session_key=resolved_session_key, limit=max(1, min(int(limit), 200))),
+        },
+    }
+
+
+@router.get("/codec/corpus-replay/export")
+async def get_nexus_codec_corpus_replay_export(request: Request, session_key: Optional[str] = None, limit: int = 100, persist_export: bool = False):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    export = _codec_benchmark_corpus_export(resolved_session_key, limit=max(1, min(int(limit), 200)))
+    if persist_export:
+        _persist_codec_corpus_export(export)
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": {
+            "corpus_export": export,
+            "export_persisted": bool(persist_export),
+        },
+    }
+
+
+@router.post("/codec/outcome")
+async def post_nexus_codec_outcome(payload: OutcomeFeedbackRequest):
+    validator_pass = bool(payload.validator_pass) if payload.validator_pass is not None else (not bool(payload.user_correction or payload.recovery_needed))
+    codec_out = observe_codec_outcome(
+        query=payload.query,
+        policy_label=payload.codec_variant or payload.policy_label,
+        execution_success=not bool(payload.recovery_needed),
+        user_correction=bool(payload.user_correction),
+        recovery_needed=bool(payload.recovery_needed),
+        validator_pass=validator_pass,
+        note=payload.note,
+    )
+    return {
+        "success": True,
+        "recorded": bool(codec_out.get("recorded")),
+        "codec_policy": codec_out,
+    }
+
+
+@router.get("/codec/evaluate")
+async def get_nexus_codec_evaluate(
+    request: Request,
+    session_key: Optional[str] = None,
+    eval_query: Optional[str] = None,
+    max_chars: int = 420,
+    history_limit: int = 8,
+    run_oracle: bool = False,
+    judge_with_oracle: bool = False,
+    priority: str = "normal",
+):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+
+    view = _codec_evaluation_view(
+        resolved_session_key,
+        eval_query=eval_query or "",
+        max_chars=max(120, min(int(max_chars), 2400)),
+        history_limit=max(1, min(int(history_limit), 50)),
+    )
+
+    evaluation = view.get("evaluation") if isinstance(view.get("evaluation"), dict) else {}
+    variants = evaluation.get("variants") if isinstance(evaluation.get("variants"), list) else []
+    evaluation["oracle_run"] = {"requested": bool(run_oracle), "completed": False, "priority": priority}
+    evaluation["oracle_judge"] = {"requested": bool(judge_with_oracle), "completed": False, "priority": priority}
+
+    if run_oracle and variants:
+        try:
+            from cortex_server.routers.oracle import _best_effort_answer, _quality_depth_controller
+
+            depth = _quality_depth_controller(str(evaluation.get("query") or ""), priority=priority or "")
+            depth_mode = str(depth.get("mode") or "medium")
+            for variant in variants:
+                prompt = str(variant.get("prompt") or "")
+                text, model_label, fallback_reason = await run_in_threadpool(
+                    _best_effort_answer,
+                    prompt,
+                    None,
+                    priority,
+                    depth_mode,
+                )
+                variant["oracle_output"] = text
+                variant["oracle_output_chars"] = len(text or "")
+                variant["oracle_model"] = model_label
+                variant["oracle_fallback_reason"] = fallback_reason
+            evaluation["oracle_run"] = {
+                "requested": True,
+                "completed": True,
+                "priority": priority,
+                "depth_mode": depth_mode,
+            }
+        except Exception as exc:
+            evaluation["oracle_run"] = {
+                "requested": True,
+                "completed": False,
+                "priority": priority,
+                "error": str(exc)[:240],
+            }
+
+    evaluation["judge"] = _heuristic_judge_codec_variants(str(evaluation.get("query") or ""), variants)
+    evaluation["acceptance_gates"] = _codec_evaluation_gates(evaluation)
+    if judge_with_oracle and variants:
+        try:
+            oracle_judge = await run_in_threadpool(
+                _oracle_judge_codec_variants,
+                str(evaluation.get("query") or ""),
+                variants,
+                priority=priority,
+            )
+            evaluation["oracle_judge"] = {
+                "requested": True,
+                **oracle_judge,
+            }
+        except Exception as exc:
+            evaluation["oracle_judge"] = {
+                "requested": True,
+                "completed": False,
+                "priority": priority,
+                "error": str(exc)[:240],
+            }
+
+    winning_variant = ""
+    judge_method = "heuristic"
+    if bool((evaluation.get("oracle_judge") or {}).get("completed")) and str((evaluation.get("oracle_judge") or {}).get("winner") or ""):
+        winning_variant = str((evaluation.get("oracle_judge") or {}).get("winner") or "")
+        judge_method = "oracle_judge"
+    elif str((evaluation.get("judge") or {}).get("winner") or ""):
+        winning_variant = str((evaluation.get("judge") or {}).get("winner") or "")
+        judge_method = "heuristic"
+
+    if winning_variant:
+        judge_confidence = None
+        if judge_method == "oracle_judge":
+            try:
+                judge_confidence = float((evaluation.get("oracle_judge") or {}).get("confidence"))
+            except Exception:
+                judge_confidence = None
+        evaluation["policy_learning"] = observe_codec_evaluation(
+            query=str(evaluation.get("query") or ""),
+            winner=winning_variant,
+            judge_method=judge_method,
+            session_key=resolved_session_key,
+            judge_confidence=judge_confidence,
+        )
+        evaluation["policy"] = get_codec_policy_for_query(str(evaluation.get("query") or ""))
+    else:
+        evaluation["policy_learning"] = {"recorded": False, "reason": "no_winner"}
+        evaluation["policy"] = get_codec_policy_for_query(str(evaluation.get("query") or ""))
+
+    evaluation["autotune"] = observe_codec_eval_history(
+        query=str(evaluation.get("query") or ""),
+        acceptance_gates=evaluation.get("acceptance_gates") if isinstance(evaluation.get("acceptance_gates"), dict) else {},
+        winner=winning_variant,
+        session_key=resolved_session_key,
+    )
+    evaluation["rollup_autotune"] = observe_codec_rollup_eval_history(
+        acceptance_gates=evaluation.get("acceptance_gates") if isinstance(evaluation.get("acceptance_gates"), dict) else {},
+        winner=winning_variant,
+        session_key=resolved_session_key,
+        query=str(evaluation.get("query") or ""),
+    )
+    evaluation["policy"] = get_codec_policy_for_query(str(evaluation.get("query") or ""))
+    heuristic_rows = _judge_scores_by_name(evaluation.get("judge") if isinstance(evaluation.get("judge"), dict) else {})
+    eval_record = {
+        "recorded_at": _now_iso(),
+        "session_key": resolved_session_key,
+        "query": str(evaluation.get("query") or ""),
+        "query_archetype": classify_task_archetype(str(evaluation.get("query") or "")),
+        "winner": winning_variant,
+        "judge_method": judge_method,
+        "judge": evaluation.get("judge") if isinstance(evaluation.get("judge"), dict) else {},
+        "oracle_run": evaluation.get("oracle_run") if isinstance(evaluation.get("oracle_run"), dict) else {},
+        "oracle_judge": evaluation.get("oracle_judge") if isinstance(evaluation.get("oracle_judge"), dict) else {},
+        "acceptance_gates": evaluation.get("acceptance_gates") if isinstance(evaluation.get("acceptance_gates"), dict) else {},
+        "variant_count": int(evaluation.get("variant_count", 0) or 0),
+        "variant_snapshots": [
+            _compact_variant_snapshot(variant, heuristic_rows.get(str(variant.get("name") or ""), {}))
+            for variant in variants if isinstance(variant, dict)
+        ],
+        "policy_learning": evaluation.get("policy_learning") if isinstance(evaluation.get("policy_learning"), dict) else {},
+        "autotune": evaluation.get("autotune") if isinstance(evaluation.get("autotune"), dict) else {},
+        "rollup_autotune": evaluation.get("rollup_autotune") if isinstance(evaluation.get("rollup_autotune"), dict) else {},
+        "rollup_policy": (view.get("rollups") or {}).get("policy", {}) if isinstance(view.get("rollups"), dict) else {},
+        "bucket_snapshot": _codec_bucket_snapshot(view),
+        "recommended_policies": evaluation.get("recommendations") if isinstance(evaluation.get("recommendations"), dict) else {},
+    }
+    _persist_codec_eval_run(eval_record)
+    history = _codec_eval_trend_summary(resolved_session_key, limit=20)
+    history["sweep"] = _codec_eval_sweep_summary(resolved_session_key, limit=50)
+    history["rollup_sweep"] = _codec_rollup_sweep_summary(resolved_session_key, limit=50)
+    history["corpus_replay"] = _codec_eval_corpus_replay_summary(resolved_session_key, limit=50)
+    history["true_reexecution"] = _codec_true_reexecute_summary(resolved_session_key, limit=20)
+    history["recommendations"] = _codec_history_recommendations(history)
+    evaluation["recommendations"] = history.get("recommendations", {}) if isinstance(history.get("recommendations"), dict) else {}
+    evaluation["history"] = history
+
+    view["evaluation"] = evaluation
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "codec": view,
+    }
+
+
 @router.get("/full")
 async def get_nexus_full():
     """Full Cortex state"""
@@ -931,19 +3545,29 @@ async def autotune_status():
 
 @router.post("/outcome/feedback")
 async def outcome_feedback(payload: OutcomeFeedbackRequest):
+    validator_pass = bool(payload.validator_pass) if payload.validator_pass is not None else (not bool(payload.user_correction or payload.recovery_needed))
     record = {
         "query": payload.query,
         "task_archetype": payload.task_archetype or classify_task_archetype(payload.query),
         "policy_label": payload.policy_label or "feedback",
         "execution_success": not bool(payload.recovery_needed),
-        "validator_result": {"pass": not bool(payload.user_correction or payload.recovery_needed)},
+        "validator_result": {"pass": validator_pass},
         "latency_ms": 0,
         "user_correction": bool(payload.user_correction),
         "recovery_needed": bool(payload.recovery_needed),
         "note": payload.note,
     }
     out = _OUTCOME_TUNER.observe(record)
-    return {"success": True, "recorded": True, "artifact": out}
+    codec_out = observe_codec_outcome(
+        query=payload.query,
+        policy_label=payload.codec_variant or payload.policy_label,
+        execution_success=not bool(payload.recovery_needed),
+        user_correction=bool(payload.user_correction),
+        recovery_needed=bool(payload.recovery_needed),
+        validator_pass=validator_pass,
+        note=payload.note,
+    )
+    return {"success": True, "recorded": True, "artifact": out, "codec_policy": codec_out}
 
 
 @router.get("/orchestrate")
@@ -952,12 +3576,14 @@ async def orchestrate_query(query: str, request: Request = None):
     """Semantic query orchestration with Q&A fastlane option."""
     started = datetime.utcnow()
     request_id = getattr(getattr(request, "state", None), "request_id", "") if request is not None else ""
+    session_key = _codec_session_key(request)
     tx_id = (request_id or hashlib.sha256(f"{query}|{started.isoformat()}".encode("utf-8")).hexdigest()[:16])
     tx = ExecutionTransaction(tx_id=tx_id, tx_type="nexus_orchestrate", metadata={"query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16]})
     try:
         recommended = []
         reasoning = []
         routing_method = "semantic_orchestration"
+        codec_context = _codec_context_packet(session_key, query=query)
         routing_markers = {
             "cortex_first": True,
             "brainstorm_triggered": False,
@@ -990,6 +3616,8 @@ async def orchestrate_query(query: str, request: Request = None):
         optimizer_telemetry: Dict[str, Any] = {}
         token_plan: Dict[str, Any] = {}
         delta_info: Dict[str, Any] = {}
+        if bool(codec_context.get("available")):
+            reasoning.append("Cortex Codec session state available for downstream prompt packing.")
         fastlane_cfg = _load_fastlane_config()
         cognitive_cfg = _load_cognitive_wave_config()
         optimizer_cfg = _load_level_optimizer_config()
@@ -1508,6 +4136,12 @@ async def orchestrate_query(query: str, request: Request = None):
         }
 
         _refresh_context(query, fastlane.get("answer") if isinstance(fastlane, dict) else None)
+        codec_context = _update_codec_context(
+            session_key,
+            query,
+            (fastlane.get("answer") if isinstance(fastlane, dict) and isinstance(fastlane.get("answer"), str) else ""),
+            routing_method=routing_method,
+        )
 
         if request is not None:
             for item in recommended:
@@ -1586,6 +4220,16 @@ async def orchestrate_query(query: str, request: Request = None):
             "assurance_reason_codes": assurance.get("reason_codes", []),
             "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
         })
+        codec_execution_artifact = _observe_codec_execution_outcome(
+            query=query,
+            session_key=session_key,
+            codec_context=codec_context,
+            referent_info=referent_info,
+            execution_transaction=execution_tx,
+            validator_result=validator_result,
+            fastlane=fastlane,
+            note=f"nexus_orchestrate:{routing_method}",
+        )
         latency_artifact = _LATENCY_GOVERNOR.observe({
             "query_hash": hashlib.sha256((query or '').encode('utf-8')).hexdigest()[:16],
             "archetype": archetype,
@@ -1628,12 +4272,14 @@ async def orchestrate_query(query: str, request: Request = None):
             "semantic_delta": delta_info,
             "latency_budget": latency_plan,
             "policy_hint": policy_hint,
+            "codec_context": codec_context,
             "autotune_policy": autotune_policy,
             "execution_transaction": execution_tx,
             "validator_result": validator_result,
             "artifact_paths": {
                 "outcome_tuner": outcome_artifact,
                 "latency_governor": latency_artifact,
+                "codec_execution": codec_execution_artifact,
             },
             "_activated": activated,
             "hud": hud_line,
@@ -1641,7 +4287,21 @@ async def orchestrate_query(query: str, request: Request = None):
         }
     except Exception as e:
         tx.rollback()
-        tx.fail(e)
+        failed_tx = tx.fail(e)
+        try:
+            _observe_codec_execution_outcome(
+                query=query,
+                session_key=locals().get("session_key", ""),
+                codec_context=locals().get("codec_context", {}) if isinstance(locals().get("codec_context", {}), dict) else {},
+                referent_info=locals().get("referent_info", {}) if isinstance(locals().get("referent_info", {}), dict) else {},
+                execution_transaction=failed_tx if isinstance(failed_tx, dict) else {"status": "failed"},
+                validator_result=locals().get("validator_result", {"pass": False}) if isinstance(locals().get("validator_result", {"pass": False}), dict) else {"pass": False},
+                fastlane=locals().get("fastlane") if isinstance(locals().get("fastlane"), dict) else None,
+                note=f"nexus_orchestrate_exception:{type(e).__name__}",
+                explicit_success=False,
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Orchestration error: {str(e)}")
 
 
