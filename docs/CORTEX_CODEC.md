@@ -91,8 +91,10 @@ Current visibility surface:
     - query only
     - referents only
     - referents + Codec
+  - always returns a heuristic judge verdict with per-variant scores + winner
   - can optionally run all variants through the Oracle lane (`run_oracle=true`)
-  - returns side-by-side prompt hashes, excerpts, sizes, and Oracle outputs/backend labels
+  - can optionally ask an Oracle judge for a model-based winner (`judge_with_oracle=true`)
+  - returns side-by-side prompt hashes, excerpts, sizes, Oracle outputs/backend labels, and judge results
 
 ## Success criteria
 
