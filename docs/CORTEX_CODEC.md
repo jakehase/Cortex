@@ -116,7 +116,9 @@ Current visibility surface:
     - success confirmation (`that worked`, `fixed it`, `thanks`, etc.)
   - passive signals are now **confidence-scored** instead of binary
   - scoring is now **contextual**, using overlap with the prior query and prior answer excerpt
-  - completion/failure markers like `tests passed`, `deploy works`, `still broken`, and `same issue` raise confidence beyond simple phrase matching
+  - a lightweight local **semantic verifier** now blends token overlap with trigram similarity for prior query/answer matching
+  - explicit completion/failure markers like `tests passed`, `deploy works`, `still broken`, and `same issue` raise confidence beyond simple phrase matching
+  - positive/negative resolution verbs like `solved`, `resolved`, `broken`, and `failing` can promote ambiguous follow-ups when semantic alignment is strong
   - weak signals are ignored below a minimum confidence threshold
   - stale prior turns expire and are not auto-attributed once they age out
   - session telemetry now exposes the last served variant, stored query/answer hashes, answer excerpt size, age, expiry state, and last passive signal
