@@ -110,6 +110,11 @@ Current visibility surface:
   - direct Codec-specific real-outcome feedback hook
   - records actual success/correction/recovery signals into Codec policy learning
 
+- automatic execution-flow learning in Nexus
+  - successful `/nexus/orchestrate` runs now emit Codec outcome artifacts automatically
+  - failed `/nexus/orchestrate` runs also emit Codec failure outcomes automatically
+  - execution reality now contributes to Codec policy even without explicit user feedback
+
 - passive follow-up capture in Oracle
   - the next user turn in the same session can automatically score the prior served variant when it clearly looks like:
     - correction / retry (`actually`, `that was wrong`, `try again`, etc.)
