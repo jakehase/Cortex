@@ -110,16 +110,24 @@ Current visibility surface:
   - direct Codec-specific real-outcome feedback hook
   - records actual success/correction/recovery signals into Codec policy learning
 
-- automatic execution-flow learning in Nexus
+- automatic execution-flow learning in Nexus and Oracle
   - successful `/nexus/orchestrate` runs now emit Codec outcome artifacts automatically
   - failed `/nexus/orchestrate` runs also emit Codec failure outcomes automatically
+  - Oracle served turns now emit Codec execution artifacts automatically too
+  - Oracle exception paths also emit Codec failure outcomes automatically
   - execution reality now contributes to Codec policy even without explicit user feedback
-  - execution outcomes are now **step-shaped**, factoring in:
+  - Nexus execution outcomes are **step-shaped**, factoring in:
     - completed vs failed steps
     - retries
     - rollbacks
     - validator pass/fail
     - fastlane escalation / recovery state
+  - Oracle execution outcomes are graded from:
+    - lane quality
+    - backend used
+    - fallback reason
+    - contract success/failure
+    - response presence
 
 - passive follow-up capture in Oracle
   - the next user turn in the same session can automatically score the prior served variant when it clearly looks like:
