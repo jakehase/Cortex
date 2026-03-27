@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T14:56:42.074Z",
+      "updatedAt": "2026-03-27T15:01:31.414Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 238,
+        "runs": 239,
         "failures": [],
-        "lastRunAt": "2026-03-27T14:56:42.081Z",
+        "lastRunAt": "2026-03-27T15:01:31.421Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5286,6 +5286,56 @@
       "failedAt": "2026-03-27T13:47:12.725Z",
       "failureReason": "agent_end reported failure",
       "failureSource": "runtime"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774623931127:1edd702e0531a332",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-27T15:05:31.127Z",
+      "updatedAt": "2026-03-27T15:05:32.427Z",
+      "prompt": "System: [2026-03-27 09:47:54 CDT] Exec completed (tide-emb, code 0) :: ........................................................................ [ 75%] ........................ [100%] 96 passed in 3.20s Do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "System: 2026-03-27 09:47:54 CDT Exec completed (tide-emb, code 0) :: ........................................................................ 75% ........................ 100% 96 passed in 3.20s Sender (untrusted metadata): ```json label: Jake (+17",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-27T15:05:31.127Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-27T15:05:31.130Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-27T15:05:32.427Z",
+          "completedAt": "2026-03-27T15:05:32.427Z",
+          "completionSummary": "System: 2026-03-27 09:47:54 CDT Exec completed (tide-emb, code 0) :: ........................................................................ 75% ........................ 100% 96 passed in 3.20s Sender (untrusted metadata): ```json label: Jake (+17",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-27T15:05:32.430Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "completedAt": "2026-03-27T15:05:32.427Z",
+      "completionSource": "runtime_message"
     }
   ]
 }
