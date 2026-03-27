@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T22:06:31.310Z",
+      "updatedAt": "2026-03-27T22:11:32.465Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 54,
+        "runs": 55,
         "failures": [],
-        "lastRunAt": "2026-03-27T22:06:31.319Z",
+        "lastRunAt": "2026-03-27T22:11:32.472Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5607,6 +5607,52 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-27T22:01:23.206Z",
       "failureReason": "kflows.clear() async def fake_execute_single_step(client, step, *, step_index, results_by_node, workflow_metadata=None): return { \"step\": step_index, \"node_id\": step.get(\"node_id\"), \"title\": step.get(\"title\"), \"endpoint\": step.get(\"endpoint\"), \"method\": step.get(\"method\"), \"request\": {\"payload\": step.get(\"payload\"), \"headers\": {}, \"timeout_s\": 1}, \"status_code\": None, \"response\": None, \"elapsed_ms",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774649478909:027a432d8f3589cc",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-27T22:11:18.909Z",
+      "updatedAt": "2026-03-27T22:11:23.819Z",
+      "prompt": "System: [2026-03-27 17:01:21 CDT] Exec completed (grand-ti, code 1) :: ked E + execution_failed tests/test_orchestrator_runtime.py:1565: AssertionError =========================== short test summary info ============================ FAILED ",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-27T22:11:18.909Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-27T22:11:18.912Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-03-27T22:11:23.819Z",
+          "failedAt": "2026-03-27T22:11:23.819Z",
+          "failureReason": "System: [2026-03-27 17:01:21 CDT] Exec completed (grand-ti, code 1) :: ked E + execution_failed tests/test_orchestrator_runtime.py:1565: AssertionError =========================== short test summary info ============================ FAILED tests/test… System: [2026-03-27 17:02:11 CDT] Exec completed (quick-sl, code 0) :: ..................................................... [100%] 53 passed in 2.7",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "failedAt": "2026-03-27T22:11:23.819Z",
+      "failureReason": "System: [2026-03-27 17:01:21 CDT] Exec completed (grand-ti, code 1) :: ked E + execution_failed tests/test_orchestrator_runtime.py:1565: AssertionError =========================== short test summary info ============================ FAILED tests/test… System: [2026-03-27 17:02:11 CDT] Exec completed (quick-sl, code 0) :: ..................................................... [100%] 53 passed in 2.7",
       "failureSource": "runtime_message"
     }
   ]
