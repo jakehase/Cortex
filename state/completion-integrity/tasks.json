@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T04:21:20.699Z",
+      "updatedAt": "2026-03-27T04:26:17.550Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 111,
+        "runs": 112,
         "failures": [],
-        "lastRunAt": "2026-03-27T04:21:20.706Z",
+        "lastRunAt": "2026-03-27T04:26:17.552Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5230,12 +5230,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774473466985:edde7371df00fb20",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-25T21:17:46.985Z",
-      "updatedAt": "2026-03-27T04:24:44.110Z",
+      "updatedAt": "2026-03-27T04:30:09.110Z",
       "prompt": "Fix swipe too",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "System: 2026-03-26 23:18:48 CDT Exec completed (fresh-pi, code 0) :: ........................................................................ 91% ....... 100% 79 passed in 2.79s Sender (untrusted metadata): ```json label: Jake (+17855410986), id",
+      "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your ",
       "history": [
         {
           "from": null,
@@ -5265,16 +5265,16 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 101,
+        "runs": 103,
         "failures": [],
-        "lastRunAt": "2026-03-27T04:24:44.112Z",
+        "lastRunAt": "2026-03-27T04:30:09.112Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "completedAt": "2026-03-25T21:18:25.089Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
