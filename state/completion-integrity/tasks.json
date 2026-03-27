@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T21:56:33.465Z",
+      "updatedAt": "2026-03-27T22:01:24.127Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 52,
+        "runs": 53,
         "failures": [],
-        "lastRunAt": "2026-03-27T21:56:33.472Z",
+        "lastRunAt": "2026-03-27T22:01:24.130Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5552,11 +5552,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774646773786:2392a435fdd01b70",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T21:26:13.786Z",
-      "updatedAt": "2026-03-27T21:51:08.744Z",
+      "updatedAt": "2026-03-27T22:01:23.206Z",
       "prompt": "System: [2026-03-27 16:15:41 CDT] Exec completed (cool-gul, code 0) :: ........................................................................ [ 46%] ........................................................................ [ 93%] .........",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
       "history": [
         {
@@ -5576,6 +5576,14 @@
           "completedAt": "2026-03-27T21:26:18.715Z",
           "completionSummary": "System: 2026-03-27 16:15:41 CDT Exec completed (cool-gul, code 0) :: ........................................................................ 46% ........................................................................ 93% .......... 100% 1… Sender (",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-27T22:01:23.206Z",
+          "failedAt": "2026-03-27T22:01:23.206Z",
+          "failureReason": "kflows.clear() async def fake_execute_single_step(client, step, *, step_index, results_by_node, workflow_metadata=None): return { \"step\": step_index, \"node_id\": step.get(\"node_id\"), \"title\": step.get(\"title\"), \"endpoint\": step.get(\"endpoint\"), \"method\": step.get(\"method\"), \"request\": {\"payload\": step.get(\"payload\"), \"headers\": {}, \"timeout_s\": 1}, \"status_code\": None, \"response\": None, \"elapsed_ms",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -5596,7 +5604,10 @@
         }
       },
       "completedAt": "2026-03-27T21:26:18.715Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-27T22:01:23.206Z",
+      "failureReason": "kflows.clear() async def fake_execute_single_step(client, step, *, step_index, results_by_node, workflow_metadata=None): return { \"step\": step_index, \"node_id\": step.get(\"node_id\"), \"title\": step.get(\"title\"), \"endpoint\": step.get(\"endpoint\"), \"method\": step.get(\"method\"), \"request\": {\"payload\": step.get(\"payload\"), \"headers\": {}, \"timeout_s\": 1}, \"status_code\": None, \"response\": None, \"elapsed_ms",
+      "failureSource": "runtime_message"
     }
   ]
 }
