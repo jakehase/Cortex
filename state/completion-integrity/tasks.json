@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T15:11:57.416Z",
+      "updatedAt": "2026-03-27T15:16:55.505Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 241,
+        "runs": 242,
         "failures": [],
-        "lastRunAt": "2026-03-27T15:11:57.421Z",
+        "lastRunAt": "2026-03-27T15:16:55.508Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5291,12 +5291,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774623931127:1edd702e0531a332",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T15:05:31.127Z",
-      "updatedAt": "2026-03-27T15:13:16.920Z",
+      "updatedAt": "2026-03-27T15:16:31.017Z",
       "prompt": "System: [2026-03-27 09:47:54 CDT] Exec completed (tide-emb, code 0) :: ........................................................................ [ 75%] ........................ [100%] 96 passed in 3.20s Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "System: 2026-03-27 10:07:44 CDT Exec completed (quick-oc, code 0) :: ........................................................................ 72% ........................... 100% 99 passed in 3.26s Sender (untrusted metadata): ```json label: Jake (",
+      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
       "history": [
         {
           "from": null,
@@ -5326,16 +5326,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 4,
+        "runs": 6,
         "failures": [],
-        "lastRunAt": "2026-03-27T15:13:16.923Z",
+        "lastRunAt": "2026-03-27T15:16:31.019Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "completedAt": "2026-03-27T15:05:32.427Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
