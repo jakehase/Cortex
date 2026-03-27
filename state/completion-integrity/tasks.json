@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T15:31:34.309Z",
+      "updatedAt": "2026-03-27T15:36:24.145Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 245,
+        "runs": 246,
         "failures": [],
-        "lastRunAt": "2026-03-27T15:31:34.316Z",
+        "lastRunAt": "2026-03-27T15:36:24.153Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5291,11 +5291,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774623931127:1edd702e0531a332",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T15:05:31.127Z",
-      "updatedAt": "2026-03-27T15:32:56.495Z",
+      "updatedAt": "2026-03-27T15:37:40.607Z",
       "prompt": "System: [2026-03-27 09:47:54 CDT] Exec completed (tide-emb, code 0) :: ........................................................................ [ 75%] ........................ [100%] 96 passed in 3.20s Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "System: 2026-03-27 10:27:57 CDT Exec completed (glow-bas, code 0) :: ........................................................................ 68% ................................. 100% 105 passed in 3.83s Sender (untrusted metadata): ```json label:",
       "history": [
         {
@@ -5315,6 +5315,14 @@
           "completedAt": "2026-03-27T15:05:32.427Z",
           "completionSummary": "System: 2026-03-27 09:47:54 CDT Exec completed (tide-emb, code 0) :: ........................................................................ 75% ........................ 100% 96 passed in 3.20s Sender (untrusted metadata): ```json label: Jake (+17",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-27T15:37:40.607Z",
+          "failedAt": "2026-03-27T15:37:40.607Z",
+          "failureReason": "(scheduler, \"DEFAULT_STATE_PATH\", scheduler_json) monkeypatch.setattr(scheduler, \"ENABLE_LEGACY_JSON_FALLBACK\", False) > assert scheduler.get_process(\"proc_legacy\") is None E AssertionError: assert {'nodes': {}, 'process_id': 'proc_legacy', 'results_by_node': {}, 'status': 'empty', ...} is None E + where {'nodes': {}, 'process_id': 'proc_legacy', 'results_by_node': {}, 'status': 'empty', ...} = <f",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -5335,7 +5343,10 @@
         }
       },
       "completedAt": "2026-03-27T15:05:32.427Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-27T15:37:40.607Z",
+      "failureReason": "(scheduler, \"DEFAULT_STATE_PATH\", scheduler_json) monkeypatch.setattr(scheduler, \"ENABLE_LEGACY_JSON_FALLBACK\", False) > assert scheduler.get_process(\"proc_legacy\") is None E AssertionError: assert {'nodes': {}, 'process_id': 'proc_legacy', 'results_by_node': {}, 'status': 'empty', ...} is None E + where {'nodes': {}, 'process_id': 'proc_legacy', 'results_by_node': {}, 'status': 'empty', ...} = <f",
+      "failureSource": "runtime_message"
     }
   ]
 }
