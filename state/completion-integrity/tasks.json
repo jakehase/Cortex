@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T12:32:09.656Z",
+      "updatedAt": "2026-03-27T12:36:42.298Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 209,
+        "runs": 210,
         "failures": [],
-        "lastRunAt": "2026-03-27T12:32:09.658Z",
+        "lastRunAt": "2026-03-27T12:36:42.301Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5230,12 +5230,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774473466985:edde7371df00fb20",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-25T21:17:46.985Z",
-      "updatedAt": "2026-03-27T05:19:27.584Z",
+      "updatedAt": "2026-03-27T12:39:40.124Z",
       "prompt": "Fix swipe too",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your ",
+      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
       "history": [
         {
           "from": null,
@@ -5265,9 +5265,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 112,
+        "runs": 113,
         "failures": [],
-        "lastRunAt": "2026-03-27T05:19:27.590Z",
+        "lastRunAt": "2026-03-27T12:39:40.127Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
