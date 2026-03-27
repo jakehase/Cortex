@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T21:21:14.561Z",
+      "updatedAt": "2026-03-27T21:26:31.304Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 45,
+        "runs": 46,
         "failures": [],
-        "lastRunAt": "2026-03-27T21:21:14.567Z",
+        "lastRunAt": "2026-03-27T21:26:31.311Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5547,6 +5547,56 @@
       "failedAt": "2026-03-27T21:05:45.029Z",
       "failureReason": "py:148: _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ /usr/lib/python3.11/concurrent/futures/_base.py:619: in result_iterator yield _result_or_cancel(fs.pop()) ^^^^^^^^^^^^^^^^^^^^^^^^^^^ /usr/lib/python3.11/concurrent/futures/_base.py:317: in _result_or_cancel return fut.result(timeout) ^^^^^^^^^^^^^^^^^^^ /usr/lib/python3.11/concurrent/futures/_base.py:449: in r",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774646773786:2392a435fdd01b70",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-27T21:26:13.786Z",
+      "updatedAt": "2026-03-27T21:27:05.027Z",
+      "prompt": "System: [2026-03-27 16:15:41 CDT] Exec completed (cool-gul, code 0) :: ........................................................................ [ 46%] ........................................................................ [ 93%] .........",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "internal_complete",
+      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-27T21:26:13.786Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-27T21:26:13.790Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-27T21:26:18.715Z",
+          "completedAt": "2026-03-27T21:26:18.715Z",
+          "completionSummary": "System: 2026-03-27 16:15:41 CDT Exec completed (cool-gul, code 0) :: ........................................................................ 46% ........................................................................ 93% .......... 100% 1… Sender (",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": true,
+        "runs": 3,
+        "failures": [],
+        "lastRunAt": "2026-03-27T21:27:05.034Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-27T21:26:18.715Z",
+      "completionSource": "agent_end"
     }
   ]
 }
