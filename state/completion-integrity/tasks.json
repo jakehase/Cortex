@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T20:56:23.748Z",
+      "updatedAt": "2026-03-27T21:01:43.144Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 40,
+        "runs": 41,
         "failures": [],
-        "lastRunAt": "2026-03-27T20:56:23.755Z",
+        "lastRunAt": "2026-03-27T21:01:43.151Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5491,12 +5491,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774643355844:d130cf6ae0aabe41",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T20:29:15.844Z",
-      "updatedAt": "2026-03-27T21:00:26.037Z",
+      "updatedAt": "2026-03-27T21:05:45.030Z",
       "prompt": "System: [2026-03-27 14:22:12 CDT] Exec completed (briny-co, code 0) :: ................................... [100%] 35 passed in 1.40s System: [2026-03-27 14:22:29 CDT] Exec completed (sharp-gl, code 0) :: ....................................",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
-      "completionSummary": "System: 2026-03-27 15:55:36 CDT Exec completed (mellow-f, code 0) :: ....................................... 100% 39 passed in 1.72s System: 2026-03-27 15:55:54 CDT Exec completed (wild-orb, code 0) :: ........................................................................ 49% .",
+      "status": "failed",
+      "completionSummary": "............................................. 100% 45 passed in 1.92s Process exited with code 0.",
       "history": [
         {
           "from": null,
@@ -5515,6 +5515,14 @@
           "completedAt": "2026-03-27T20:29:17.151Z",
           "completionSummary": "System: 2026-03-27 14:22:12 CDT Exec completed (briny-co, code 0) :: ................................... 100% 35 passed in 1.40s System: 2026-03-27 14:22:29 CDT Exec completed (sharp-gl, code 0) :: ........................................................................ 51% .....",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-27T21:05:45.030Z",
+          "failedAt": "2026-03-27T21:05:45.029Z",
+          "failureReason": "py:148: _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ /usr/lib/python3.11/concurrent/futures/_base.py:619: in result_iterator yield _result_or_cancel(fs.pop()) ^^^^^^^^^^^^^^^^^^^^^^^^^^^ /usr/lib/python3.11/concurrent/futures/_base.py:317: in _result_or_cancel return fut.result(timeout) ^^^^^^^^^^^^^^^^^^^ /usr/lib/python3.11/concurrent/futures/_base.py:449: in r",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -5526,16 +5534,19 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 9,
+        "runs": 14,
         "failures": [],
-        "lastRunAt": "2026-03-27T21:00:26.042Z",
+        "lastRunAt": "2026-03-27T21:05:23.530Z",
         "lastDetails": {
           "source": "runtime_message",
           "signal": "completed"
         }
       },
       "completedAt": "2026-03-27T20:29:17.151Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-27T21:05:45.029Z",
+      "failureReason": "py:148: _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ /usr/lib/python3.11/concurrent/futures/_base.py:619: in result_iterator yield _result_or_cancel(fs.pop()) ^^^^^^^^^^^^^^^^^^^^^^^^^^^ /usr/lib/python3.11/concurrent/futures/_base.py:317: in _result_or_cancel return fut.result(timeout) ^^^^^^^^^^^^^^^^^^^ /usr/lib/python3.11/concurrent/futures/_base.py:449: in r",
+      "failureSource": "runtime_message"
     }
   ]
 }
