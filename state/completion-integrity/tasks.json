@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T21:31:42.718Z",
+      "updatedAt": "2026-03-27T21:36:17.737Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 47,
+        "runs": 48,
         "failures": [],
-        "lastRunAt": "2026-03-27T21:31:42.725Z",
+        "lastRunAt": "2026-03-27T21:36:17.744Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5552,7 +5552,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774646773786:2392a435fdd01b70",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T21:26:13.786Z",
-      "updatedAt": "2026-03-27T21:27:05.027Z",
+      "updatedAt": "2026-03-27T21:40:42.412Z",
       "prompt": "System: [2026-03-27 16:15:41 CDT] Exec completed (cool-gul, code 0) :: ........................................................................ [ 46%] ........................................................................ [ 93%] .........",
       "kind": "user_visible",
       "trustTier": "important",
@@ -5587,9 +5587,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 3,
+        "runs": 4,
         "failures": [],
-        "lastRunAt": "2026-03-27T21:27:05.034Z",
+        "lastRunAt": "2026-03-27T21:40:42.419Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
