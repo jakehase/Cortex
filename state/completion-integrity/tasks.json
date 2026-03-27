@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T16:11:36.722Z",
+      "updatedAt": "2026-03-27T16:16:40.713Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 253,
+        "runs": 254,
         "failures": [],
-        "lastRunAt": "2026-03-27T16:11:36.729Z",
+        "lastRunAt": "2026-03-27T16:16:40.720Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5347,6 +5347,56 @@
       "failedAt": "2026-03-27T15:37:40.607Z",
       "failureReason": "(scheduler, \"DEFAULT_STATE_PATH\", scheduler_json) monkeypatch.setattr(scheduler, \"ENABLE_LEGACY_JSON_FALLBACK\", False) > assert scheduler.get_process(\"proc_legacy\") is None E AssertionError: assert {'nodes': {}, 'process_id': 'proc_legacy', 'results_by_node': {}, 'status': 'empty', ...} is None E + where {'nodes': {}, 'process_id': 'proc_legacy', 'results_by_node': {}, 'status': 'empty', ...} = <f",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774628164358:2515782d3f5f58be",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-27T16:16:04.358Z",
+      "updatedAt": "2026-03-27T16:18:43.379Z",
+      "prompt": "Start implementing this.",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "internal_complete",
+      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-27T16:16:04.358Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-27T16:16:04.361Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-27T16:18:27.719Z",
+          "completedAt": "2026-03-27T16:18:27.719Z",
+          "completionSummary": "........................................................................ 63% .......................................... 100% 114 passed in 4.57s Process exited with code 0.",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": true,
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-03-27T16:18:43.392Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-27T16:18:27.719Z",
+      "completionSource": "agent_end"
     }
   ]
 }
