@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T18:02:14.480Z",
+      "updatedAt": "2026-03-27T18:06:28.585Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 5,
+        "runs": 6,
         "failures": [],
-        "lastRunAt": "2026-03-27T18:02:14.487Z",
+        "lastRunAt": "2026-03-27T18:06:28.592Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5425,6 +5425,56 @@
       "failedAt": "2026-03-27T16:32:37.348Z",
       "failureReason": "yload\": step.get(\"payload\"), \"headers\": {}, \"timeout_s\": 1}, \"status_code\": 200, \"response\": {\"ok\": True}, \"elapsed_ms\": 1.0, \"success\": True, } monkeypatch.setattr(orchestrator, \"_execute_single_step\", fake_execute_single_step) > graph = ReasoningPlanGraph( name=\"compensate_plan\", metadata={\"owner\": \"cortex\", \"session_key\": \"session:compensate\", \"archetype\": \"coding\"}, nodes=[ { \"node_id\": \"main\"",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774634760435:4cff5bff06481a04",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-27T18:06:00.435Z",
+      "updatedAt": "2026-03-27T18:09:06.188Z",
+      "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-03-27.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this flush; never",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-27T18:06:00.435Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-27T18:06:00.439Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-27T18:06:33.256Z",
+          "completedAt": "2026-03-27T18:06:33.256Z",
+          "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+          "completionSource": "agent_end"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 5,
+        "failures": [],
+        "lastRunAt": "2026-03-27T18:09:06.191Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-27T18:06:33.256Z",
+      "completionSource": "agent_end"
     }
   ]
 }
