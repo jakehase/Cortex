@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T15:16:55.505Z",
+      "updatedAt": "2026-03-27T15:21:21.975Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 242,
+        "runs": 243,
         "failures": [],
-        "lastRunAt": "2026-03-27T15:16:55.508Z",
+        "lastRunAt": "2026-03-27T15:21:21.982Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5291,12 +5291,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774623931127:1edd702e0531a332",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T15:05:31.127Z",
-      "updatedAt": "2026-03-27T15:16:31.017Z",
+      "updatedAt": "2026-03-27T15:24:40.620Z",
       "prompt": "System: [2026-03-27 09:47:54 CDT] Exec completed (tide-emb, code 0) :: ........................................................................ [ 75%] ........................ [100%] 96 passed in 3.20s Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+      "completionSummary": "System: 2026-03-27 10:16:16 CDT Exec completed (nova-dai, code 0) :: ........................................................................ 71% ............................. 100% 101 passed in 3.57s Sender (untrusted metadata): ```json label: Jak",
       "history": [
         {
           "from": null,
@@ -5326,16 +5326,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 6,
+        "runs": 7,
         "failures": [],
-        "lastRunAt": "2026-03-27T15:16:31.019Z",
+        "lastRunAt": "2026-03-27T15:24:40.622Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-27T15:05:32.427Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
