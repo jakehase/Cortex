@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T13:41:39.708Z",
+      "updatedAt": "2026-03-27T13:47:00.092Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 223,
+        "runs": 224,
         "failures": [],
-        "lastRunAt": "2026-03-27T13:41:39.715Z",
+        "lastRunAt": "2026-03-27T13:47:00.099Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5230,12 +5230,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774473466985:edde7371df00fb20",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-25T21:17:46.985Z",
-      "updatedAt": "2026-03-27T13:34:37.679Z",
+      "updatedAt": "2026-03-27T13:47:12.725Z",
       "prompt": "Fix swipe too",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
-      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+      "status": "failed",
+      "completionSummary": "........................................................................ 78% .................... 100% 92 passed in 2.92s Process exited with code 0.",
       "history": [
         {
           "from": null,
@@ -5254,6 +5254,14 @@
           "completedAt": "2026-03-25T21:18:25.089Z",
           "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: What happened to the JavaScript on pmhnpbilling? ``` ? results:path:cortex:25256957-b0d1-4d3f-8b73-d144a28039c6,startLine:1,endLine:1,score:0.7314533462411466,snippet:Question: Where is the",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-27T13:47:12.725Z",
+          "failedAt": "2026-03-27T13:47:12.725Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -5265,16 +5273,19 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 120,
+        "runs": 121,
         "failures": [],
-        "lastRunAt": "2026-03-27T13:34:37.686Z",
+        "lastRunAt": "2026-03-27T13:46:55.095Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-25T21:18:25.089Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-27T13:47:12.725Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     }
   ]
 }
