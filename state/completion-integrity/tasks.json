@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T20:46:32.940Z",
+      "updatedAt": "2026-03-27T20:51:57.571Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 38,
+        "runs": 39,
         "failures": [],
-        "lastRunAt": "2026-03-27T20:46:32.947Z",
+        "lastRunAt": "2026-03-27T20:51:57.578Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5491,12 +5491,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774643355844:d130cf6ae0aabe41",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T20:29:15.844Z",
-      "updatedAt": "2026-03-27T20:32:08.828Z",
+      "updatedAt": "2026-03-27T20:55:54.297Z",
       "prompt": "System: [2026-03-27 14:22:12 CDT] Exec completed (briny-co, code 0) :: ................................... [100%] 35 passed in 1.40s System: [2026-03-27 14:22:29 CDT] Exec completed (sharp-gl, code 0) :: ....................................",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+      "completionSummary": "........................................................................ 49% ........................................................................ 99% . 100% 145 passed in 5.71s Process exited with code 0.",
       "history": [
         {
           "from": null,
@@ -5526,16 +5526,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 4,
+        "runs": 7,
         "failures": [],
-        "lastRunAt": "2026-03-27T20:32:08.830Z",
+        "lastRunAt": "2026-03-27T20:55:54.304Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-27T20:29:17.151Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
