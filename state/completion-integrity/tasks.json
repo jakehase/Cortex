@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T20:21:31.472Z",
+      "updatedAt": "2026-03-27T20:26:33.894Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 33,
+        "runs": 34,
         "failures": [],
-        "lastRunAt": "2026-03-27T20:21:31.481Z",
+        "lastRunAt": "2026-03-27T20:26:33.907Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5486,6 +5486,56 @@
       "failedAt": "2026-03-27T18:56:49.744Z",
       "failureReason": "assert influence[\"captured_at_execution\"] is True E assert False is True tests/test_orchestrator_runtime.py:956: AssertionError ______________ test_workflow_policy_carries_belief_influence_ids _______________ tmp_path = PosixPath('/tmp/pytest-of-root/pytest-82/test_workflow_policy_carries_b0') monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x71d87c984150> def test_workflow_policy_carries",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774643355844:d130cf6ae0aabe41",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-27T20:29:15.844Z",
+      "updatedAt": "2026-03-27T20:29:17.151Z",
+      "prompt": "System: [2026-03-27 14:22:12 CDT] Exec completed (briny-co, code 0) :: ................................... [100%] 35 passed in 1.40s System: [2026-03-27 14:22:29 CDT] Exec completed (sharp-gl, code 0) :: ....................................",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "System: 2026-03-27 14:22:12 CDT Exec completed (briny-co, code 0) :: ................................... 100% 35 passed in 1.40s System: 2026-03-27 14:22:29 CDT Exec completed (sharp-gl, code 0) :: ........................................................................ 51% .....",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-27T20:29:15.844Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-27T20:29:15.847Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-27T20:29:17.151Z",
+          "completedAt": "2026-03-27T20:29:17.151Z",
+          "completionSummary": "System: 2026-03-27 14:22:12 CDT Exec completed (briny-co, code 0) :: ................................... 100% 35 passed in 1.40s System: 2026-03-27 14:22:29 CDT Exec completed (sharp-gl, code 0) :: ........................................................................ 51% .....",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-27T20:29:17.154Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "completedAt": "2026-03-27T20:29:17.151Z",
+      "completionSource": "runtime_message"
     }
   ]
 }
