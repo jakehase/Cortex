@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T04:36:18.583Z",
+      "updatedAt": "2026-03-27T04:41:40.860Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 114,
+        "runs": 115,
         "failures": [],
-        "lastRunAt": "2026-03-27T04:36:18.590Z",
+        "lastRunAt": "2026-03-27T04:41:40.867Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5230,12 +5230,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774473466985:edde7371df00fb20",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-25T21:17:46.985Z",
-      "updatedAt": "2026-03-27T04:35:39.618Z",
+      "updatedAt": "2026-03-27T04:45:46.476Z",
       "prompt": "Fix swipe too",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your ",
+      "completionSummary": "Queued messages while agent was busy --- Queued #1 System: 2026-03-26 23:45:03 CDT Exec completed (quick-ca, code 0) :: ........................................................................ 82% ............... 100% 87 passed in 2.57s Sender (untrus",
       "history": [
         {
           "from": null,
@@ -5265,16 +5265,16 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 105,
+        "runs": 108,
         "failures": [],
-        "lastRunAt": "2026-03-27T04:35:39.625Z",
+        "lastRunAt": "2026-03-27T04:45:46.478Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-25T21:18:25.089Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
