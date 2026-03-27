@@ -86,3 +86,4 @@
 {"at":"2026-03-27T17:41:16.154Z","type":"state_transition","taskId":"agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915951125","sessionKey":"agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69","from":"internal_complete","to":"failed"}
 {"at":"2026-03-27T18:06:00.439Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1774634760435:4cff5bff06481a04","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"pending","to":"running"}
 {"at":"2026-03-27T18:06:33.256Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1774634760435:4cff5bff06481a04","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"running","to":"internal_complete"}
+{"at":"2026-03-27T18:56:49.744Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1774634760435:4cff5bff06481a04","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"internal_complete","to":"failed"}

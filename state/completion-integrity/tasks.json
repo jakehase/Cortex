@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T18:51:35.682Z",
+      "updatedAt": "2026-03-27T18:56:37.179Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 15,
+        "runs": 16,
         "failures": [],
-        "lastRunAt": "2026-03-27T18:51:35.689Z",
+        "lastRunAt": "2026-03-27T18:56:37.186Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5430,11 +5430,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774634760435:4cff5bff06481a04",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T18:06:00.435Z",
-      "updatedAt": "2026-03-27T18:54:20.880Z",
+      "updatedAt": "2026-03-27T18:56:49.744Z",
       "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-03-27.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this flush; never",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "System: 2026-03-27 13:50:17 CDT Exec completed (nova-mea, code 0) :: ............................... 100% 31 passed in 1.24s System: 2026-03-27 13:50:35 CDT Exec completed (crisp-tr, code 0) :: ........................................................................ 52% .........",
       "history": [
         {
@@ -5454,6 +5454,14 @@
           "completedAt": "2026-03-27T18:06:33.256Z",
           "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-27T18:56:49.744Z",
+          "failedAt": "2026-03-27T18:56:49.744Z",
+          "failureReason": "assert influence[\"captured_at_execution\"] is True E assert False is True tests/test_orchestrator_runtime.py:956: AssertionError ______________ test_workflow_policy_carries_belief_influence_ids _______________ tmp_path = PosixPath('/tmp/pytest-of-root/pytest-82/test_workflow_policy_carries_b0') monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x71d87c984150> def test_workflow_policy_carries",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -5474,7 +5482,10 @@
         }
       },
       "completedAt": "2026-03-27T18:06:33.256Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-27T18:56:49.744Z",
+      "failureReason": "assert influence[\"captured_at_execution\"] is True E assert False is True tests/test_orchestrator_runtime.py:956: AssertionError ______________ test_workflow_policy_carries_belief_influence_ids _______________ tmp_path = PosixPath('/tmp/pytest-of-root/pytest-82/test_workflow_policy_carries_b0') monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x71d87c984150> def test_workflow_policy_carries",
+      "failureSource": "runtime_message"
     }
   ]
 }
