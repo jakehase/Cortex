@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T18:46:24.293Z",
+      "updatedAt": "2026-03-27T18:51:35.682Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 14,
+        "runs": 15,
         "failures": [],
-        "lastRunAt": "2026-03-27T18:46:24.300Z",
+        "lastRunAt": "2026-03-27T18:51:35.689Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5430,12 +5430,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774634760435:4cff5bff06481a04",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T18:06:00.435Z",
-      "updatedAt": "2026-03-27T18:50:47.698Z",
+      "updatedAt": "2026-03-27T18:54:20.880Z",
       "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-03-27.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this flush; never",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+      "completionSummary": "System: 2026-03-27 13:50:17 CDT Exec completed (nova-mea, code 0) :: ............................... 100% 31 passed in 1.24s System: 2026-03-27 13:50:35 CDT Exec completed (crisp-tr, code 0) :: ........................................................................ 52% .........",
       "history": [
         {
           "from": null,
@@ -5465,16 +5465,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 13,
+        "runs": 14,
         "failures": [],
-        "lastRunAt": "2026-03-27T18:50:47.705Z",
+        "lastRunAt": "2026-03-27T18:54:20.882Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-27T18:06:33.256Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
