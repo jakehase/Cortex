@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T16:16:40.713Z",
+      "updatedAt": "2026-03-27T16:21:47.426Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 254,
+        "runs": 255,
         "failures": [],
-        "lastRunAt": "2026-03-27T16:16:40.720Z",
+        "lastRunAt": "2026-03-27T16:21:47.433Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5352,12 +5352,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774628164358:2515782d3f5f58be",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T16:16:04.358Z",
-      "updatedAt": "2026-03-27T16:18:43.379Z",
+      "updatedAt": "2026-03-27T16:23:43.455Z",
       "prompt": "Start implementing this.",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "? You didn’t finish? ## Durable notes — Cortex/OpenClaw trust hardening + PMHNP product/deploy - Implemented a stronger completion-integrity / trust-hardening system in `/root/clawd/plugins/completion-integrity/`, including a real task state machine (`pending -> running -> intern",
+      "completionSummary": "System: 2026-03-27 11:18:15 CDT Exec completed (wild-pin, code 0) :: ........................................................................ 63% .......................................... 100% 114 passed in 4.57s Sender (untrusted metadata): ```json",
       "history": [
         {
           "from": null,
@@ -5387,16 +5387,16 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-03-27T16:18:43.392Z",
+        "lastRunAt": "2026-03-27T16:23:43.457Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-27T16:18:27.719Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
