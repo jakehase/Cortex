@@ -2935,7 +2935,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:15:51.232Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-27T16:26:10.398Z",
+      "updatedAt": "2026-03-27T16:31:42.238Z",
       "history": [
         {
           "from": null,
@@ -2953,9 +2953,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 256,
+        "runs": 257,
         "failures": [],
-        "lastRunAt": "2026-03-27T16:26:10.405Z",
+        "lastRunAt": "2026-03-27T16:31:42.241Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5352,11 +5352,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774628164358:2515782d3f5f58be",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-27T16:16:04.358Z",
-      "updatedAt": "2026-03-27T16:29:12.120Z",
+      "updatedAt": "2026-03-27T16:32:37.348Z",
       "prompt": "Start implementing this.",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "System: 2026-03-27 11:27:25 CDT Exec completed (lucky-ti, code 0) :: ............... 100% 15 passed in 0.78s System: 2026-03-27 11:27:43 CDT Exec completed (calm-fal, code 0) :: ........................................................................ 61% .........................",
       "history": [
         {
@@ -5376,6 +5376,14 @@
           "completedAt": "2026-03-27T16:18:27.719Z",
           "completionSummary": "........................................................................ 63% .......................................... 100% 114 passed in 4.57s Process exited with code 0.",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-27T16:32:37.348Z",
+          "failedAt": "2026-03-27T16:32:37.348Z",
+          "failureReason": "yload\": step.get(\"payload\"), \"headers\": {}, \"timeout_s\": 1}, \"status_code\": 200, \"response\": {\"ok\": True}, \"elapsed_ms\": 1.0, \"success\": True, } monkeypatch.setattr(orchestrator, \"_execute_single_step\", fake_execute_single_step) > graph = ReasoningPlanGraph( name=\"compensate_plan\", metadata={\"owner\": \"cortex\", \"session_key\": \"session:compensate\", \"archetype\": \"coding\"}, nodes=[ { \"node_id\": \"main\"",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -5396,7 +5404,10 @@
         }
       },
       "completedAt": "2026-03-27T16:18:27.719Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-27T16:32:37.348Z",
+      "failureReason": "yload\": step.get(\"payload\"), \"headers\": {}, \"timeout_s\": 1}, \"status_code\": 200, \"response\": {\"ok\": True}, \"elapsed_ms\": 1.0, \"success\": True, } monkeypatch.setattr(orchestrator, \"_execute_single_step\", fake_execute_single_step) > graph = ReasoningPlanGraph( name=\"compensate_plan\", metadata={\"owner\": \"cortex\", \"session_key\": \"session:compensate\", \"archetype\": \"coding\"}, nodes=[ { \"node_id\": \"main\"",
+      "failureSource": "runtime_message"
     }
   ]
 }
