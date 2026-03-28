@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-28T22:36:16.730Z",
+      "updatedAt": "2026-03-28T22:41:30.014Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 347,
+        "runs": 348,
         "failures": [],
-        "lastRunAt": "2026-03-28T22:36:16.737Z",
+        "lastRunAt": "2026-03-28T22:41:30.021Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5659,11 +5659,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774706682797:52b3e850df5a376e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-28T14:04:42.797Z",
-      "updatedAt": "2026-03-28T22:38:57.557Z",
+      "updatedAt": "2026-03-28T22:43:18.922Z",
       "prompt": "System: [2026-03-28 08:46:57 CDT] Exec completed (swift-nu, code 0) :: tions.py:4599: DeprecationWarning: on_event is deprecated, use lifespan event handlers instead. Read more about it in the [FastAPI docs for Lifespan Events](https://fast",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "System: 2026-03-28 00:13:32 CDT Exec completed (nimble-s, code 0) :: tions.py:4599: DeprecationWarning: on_event is deprecated, use lifespan event handlers instead. Read more about it in the FastAPI docs for Lifespan Events(https://fastapi.tiango… System: 2026-03-28 00:16:04 CDT ",
       "history": [
         {
@@ -5683,6 +5683,14 @@
           "completedAt": "2026-03-28T14:04:44.103Z",
           "completionSummary": "System: 2026-03-28 08:46:57 CDT Exec completed (swift-nu, code 0) :: tions.py:4599: DeprecationWarning: on_event is deprecated, use lifespan event handlers instead. Read more about it in the FastAPI docs for Lifespan Events(https://fastapi.tiango… Sender (",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-28T22:43:18.922Z",
+          "failedAt": "2026-03-28T22:43:18.922Z",
+          "failureReason": "ifespan Events](https://fastapi.tiangolo.com/advanced/events/). @router.on_event(\"startup\") cortex_server/routers/validator.py:40 /root/clawd/public/cortex_server/cortex_server/routers/validator.py:40: UserWarning: Field name \"schema\" in \"ValidateRequest\" shadows an attribute in parent \"BaseModel\" class ValidateRequest(BaseModel): cortex_server/routers/sentinel.py:288 /root/clawd/public/cortex_ser",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -5703,7 +5711,10 @@
         }
       },
       "completedAt": "2026-03-28T14:04:44.103Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-28T22:43:18.922Z",
+      "failureReason": "ifespan Events](https://fastapi.tiangolo.com/advanced/events/). @router.on_event(\"startup\") cortex_server/routers/validator.py:40 /root/clawd/public/cortex_server/cortex_server/routers/validator.py:40: UserWarning: Field name \"schema\" in \"ValidateRequest\" shadows an attribute in parent \"BaseModel\" class ValidateRequest(BaseModel): cortex_server/routers/sentinel.py:288 /root/clawd/public/cortex_ser",
+      "failureSource": "runtime_message"
     }
   ]
 }
