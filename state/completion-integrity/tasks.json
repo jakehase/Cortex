@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-28T18:16:24.642Z",
+      "updatedAt": "2026-03-28T18:21:20.296Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 295,
+        "runs": 296,
         "failures": [],
-        "lastRunAt": "2026-03-28T18:16:24.645Z",
+        "lastRunAt": "2026-03-28T18:21:20.300Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5659,12 +5659,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774706682797:52b3e850df5a376e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-28T14:04:42.797Z",
-      "updatedAt": "2026-03-28T18:08:10.468Z",
+      "updatedAt": "2026-03-28T18:25:16.042Z",
       "prompt": "System: [2026-03-28 08:46:57 CDT] Exec completed (swift-nu, code 0) :: tions.py:4599: DeprecationWarning: on_event is deprecated, use lifespan event handlers instead. Read more about it in the [FastAPI docs for Lifespan Events](https://fast",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "System: 2026-03-28 00:13:32 CDT Exec completed (nimble-s, code 0) :: tions.py:4599: DeprecationWarning: on_event is deprecated, use lifespan event handlers instead. Read more about it in the FastAPI docs for Lifespan Events(https://fastapi.tiango… System: 2026-03-28 00:16:04 CDT ",
+      "completionSummary": "System: 2026-03-28 13:07:48 CDT Exec completed (tidal-br, code 0) :: tions.py:4599: DeprecationWarning: on_event is deprecated, use lifespan event handlers instead. Read more about it in the FastAPI docs for Lifespan Events(https://fastapi.tiango… Sender (",
       "history": [
         {
           "from": null,
@@ -5694,16 +5694,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 27,
+        "runs": 28,
         "failures": [],
-        "lastRunAt": "2026-03-28T18:08:10.472Z",
+        "lastRunAt": "2026-03-28T18:25:16.045Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-28T14:04:44.103Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
