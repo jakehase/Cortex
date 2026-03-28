@@ -2901,7 +2901,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-28T21:01:12.085Z",
+      "updatedAt": "2026-03-28T21:06:23.653Z",
       "history": [
         {
           "from": null,
@@ -2919,9 +2919,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 328,
+        "runs": 329,
         "failures": [],
-        "lastRunAt": "2026-03-28T21:01:12.092Z",
+        "lastRunAt": "2026-03-28T21:06:23.660Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5659,7 +5659,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774706682797:52b3e850df5a376e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-28T14:04:42.797Z",
-      "updatedAt": "2026-03-28T20:58:33.240Z",
+      "updatedAt": "2026-03-28T21:10:30.902Z",
       "prompt": "System: [2026-03-28 08:46:57 CDT] Exec completed (swift-nu, code 0) :: tions.py:4599: DeprecationWarning: on_event is deprecated, use lifespan event handlers instead. Read more about it in the [FastAPI docs for Lifespan Events](https://fast",
       "kind": "user_visible",
       "trustTier": "normal",
@@ -5694,9 +5694,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 52,
+        "runs": 55,
         "failures": [],
-        "lastRunAt": "2026-03-28T20:58:33.243Z",
+        "lastRunAt": "2026-03-28T21:10:30.905Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
