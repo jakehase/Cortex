@@ -290,3 +290,59 @@ class ExecutionTransaction:
             "journal_path": str(self.journal_path),
             "error": self.state["error"],
         }
+
+    def to_reasoning_task(
+        self,
+        *,
+        title: Optional[str] = None,
+        description: str = "",
+        owner: Optional[str] = None,
+        session_key: Optional[str] = None,
+        archetype: Optional[str] = None,
+        success_criteria: Optional[List[str]] = None,
+        constraints: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        from cortex_server.modules.reasoning_kernel import build_reasoning_task_from_transaction, model_dump_compat
+
+        payload = dict(self.state)
+        payload.setdefault("tx_id", self.tx_id)
+        payload.setdefault("tx_type", self.tx_type)
+        payload.setdefault("journal_path", str(self.journal_path))
+        task = build_reasoning_task_from_transaction(
+            payload,
+            title=title,
+            description=description,
+            owner=owner,
+            session_key=session_key,
+            archetype=archetype,
+            success_criteria=success_criteria,
+            constraints=constraints,
+        )
+        return model_dump_compat(task)
+
+    def to_reasoning_outcome(
+        self,
+        *,
+        task_id: Optional[str] = None,
+        summary: str = "",
+        reward: Optional[float] = None,
+        validator_pass: Optional[bool] = None,
+        user_correction: bool = False,
+        recovery_needed: bool = False,
+    ) -> Dict[str, Any]:
+        from cortex_server.modules.reasoning_kernel import build_outcome_from_transaction, model_dump_compat
+
+        payload = dict(self.state)
+        payload.setdefault("tx_id", self.tx_id)
+        payload.setdefault("tx_type", self.tx_type)
+        payload.setdefault("journal_path", str(self.journal_path))
+        outcome = build_outcome_from_transaction(
+            payload,
+            task_id=task_id,
+            summary=summary,
+            reward=reward,
+            validator_pass=validator_pass,
+            user_correction=user_correction,
+            recovery_needed=recovery_needed,
+        )
+        return model_dump_compat(outcome)
