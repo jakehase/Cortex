@@ -93,3 +93,27 @@ def test_step7_rollback_drill_gate_passes_under_sla():
     assert drill["all_expectations_met"] is True
     assert drill["sla_met"] is True
     assert drill["gate_pass"] is True
+
+
+from services.routing.chain_candidate_generator import generate_candidates, required_core_levels, validate_candidate_constraints
+
+
+def test_step5_candidate_generator_enforces_allowed_chains_for_high_risk_case():
+    features = build_route_features("Implement a security change in production auth flow", risk_flags=["security_change"])
+    candidates = generate_candidates(features)
+    chain_ids = [row["chain_id"] for row in candidates]
+    assert chain_ids == ["deliberate_council"]
+    validation = validate_candidate_constraints(features, candidates)
+    assert validation["valid"] is True
+
+
+def test_step5_candidate_generator_enforces_core_levels_and_default_chain():
+    features = build_route_features("Research the latest outage status with sources", risk_flags=["live_state"])
+    candidates = generate_candidates(features)
+    validation = validate_candidate_constraints(features, candidates)
+    assert validation["valid"] is True
+    assert features["default_chain"] in [row["chain_id"] for row in candidates]
+    for row in candidates:
+        required = required_core_levels(row["chain_id"])
+        for level in required:
+            assert level in row["levels"]

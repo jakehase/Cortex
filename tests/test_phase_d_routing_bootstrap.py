@@ -16,10 +16,13 @@ def test_route_features_use_cortex_classifier_for_coding_prompt():
 
 
 def test_candidate_generator_reuses_real_arm_library_levels():
-    features = build_route_features("Brainstorm novel ideas", risk_flags=[])
-    candidates = {row["chain_id"]: row for row in generate_candidates(features)}
-    assert candidates["fastlane_memory"]["levels"] == [5, 34, 7, 22]
-    assert candidates["creative_fractal"]["levels"] == [13, 29, 32, 34]
+    qa_features = build_route_features("Explain TCP in one paragraph", risk_flags=[])
+    creative_features = build_route_features("Brainstorm novel ideas", risk_flags=[])
+    qa_candidates = {row["chain_id"]: row for row in generate_candidates(qa_features)}
+    creative_candidates = {row["chain_id"]: row for row in generate_candidates(creative_features)}
+    assert qa_candidates["fastlane_memory"]["levels"] == [5, 34, 7, 22]
+    assert creative_candidates["creative_fractal"]["levels"] == [13, 29, 32, 34]
+    assert "fastlane_memory" not in creative_candidates
 
 
 def test_choose_route_prefers_deliberate_for_coding_and_research_for_live_research():

@@ -34,6 +34,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `scripts/cortex_r9_step1_baseline_telemetry.py`
 - `scripts/cortex_r9_step2_route_taxonomy.py`
 - `scripts/cortex_r9_step3_feature_pipeline.py`
+- `scripts/cortex_r9_step5_candidate_generator.py`
 - `scripts/cortex_r9_step6_counterfactual_replay.py`
 - `scripts/cortex_r9_step7_safety_rollback.py`
 - `scripts/cortex_r9_step8_shadow_mode.py`
@@ -44,6 +45,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step3/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step5/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step7/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/*`
@@ -109,6 +111,7 @@ Read the remainder of this document as a target architecture plus execution plan
 ### Step 5 — Candidate chain generator
 - Generate top-K candidate level-chains per request.
 - Enforce hard constraints: required always-on/core levels and safety/risk gates.
+- **Status in this checkout:** landed as a taxonomy-constrained candidate generator with explicit core-level validation and a compliance probe.
 - **Gate:** 100% constraint compliance in simulation runs.
 - Execution artifacts:
   - `services/routing/chain_candidate_generator.py`

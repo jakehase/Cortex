@@ -5,6 +5,15 @@ from typing import Any, Dict, List
 from services.routing._compat import optional_import
 
 
+_CORE_LEVEL_REQUIREMENTS = {
+    "fastlane_memory": [34],
+    "deliberate_council": [5, 34],
+    "creative_fractal": [32, 34],
+    "research_grounded": [2, 34],
+    "safe_reminder": [5, 34],
+}
+
+
 def _arm_library() -> Dict[str, Dict[str, Any]]:
     module = optional_import("cortex_server.modules.level_optimizer")
     library = getattr(module, "ARM_LIBRARY", None) if module else None
@@ -26,6 +35,10 @@ _CHAIN_METRICS = {
 }
 
 
+def required_core_levels(chain_id: str) -> List[int]:
+    return list(_CORE_LEVEL_REQUIREMENTS.get(str(chain_id), []))
+
+
 def _base_candidate(chain_id: str, *, levels: List[int], policy: str, description: str) -> Dict[str, Any]:
     metrics = _CHAIN_METRICS.get(chain_id, {"latency": 2.0, "cost": 1.5, "risk": 0.1})
     return {
@@ -36,6 +49,66 @@ def _base_candidate(chain_id: str, *, levels: List[int], policy: str, descriptio
         "latency": metrics["latency"],
         "cost": metrics["cost"],
         "risk": metrics["risk"],
+        "required_core_levels": required_core_levels(chain_id),
+    }
+
+
+def _dedupe_candidates(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    unique: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        unique[row["chain_id"]] = row
+    return list(unique.values())
+
+
+def _restrict_to_allowed(rows: List[Dict[str, Any]], allowed_chain_ids: List[str], default_chain: str | None = None) -> List[Dict[str, Any]]:
+    if not allowed_chain_ids:
+        return rows
+    by_id = {row["chain_id"]: row for row in rows}
+    ordered = [by_id[chain_id] for chain_id in allowed_chain_ids if chain_id in by_id]
+    if default_chain and default_chain in by_id and default_chain not in [row["chain_id"] for row in ordered]:
+        ordered.insert(0, by_id[default_chain])
+    return ordered
+
+
+def validate_candidate_constraints(features: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    allowed = list(features.get("allowed_chain_ids") or [])
+    default_chain = str(features.get("default_chain") or "").strip()
+    violations = []
+    chain_ids = [str(row.get("chain_id") or "") for row in candidates]
+    if len(chain_ids) != len(set(chain_ids)):
+        violations.append("duplicate_chain_ids")
+    if allowed:
+        invalid = [chain_id for chain_id in chain_ids if chain_id not in allowed]
+        if invalid:
+            violations.append(f"disallowed_chains:{','.join(sorted(invalid))}")
+    if default_chain and default_chain not in chain_ids:
+        violations.append("missing_default_chain")
+    candidate_reports = []
+    for row in candidates:
+        chain_id = str(row.get("chain_id") or "")
+        levels = list(row.get("levels") or [])
+        required = required_core_levels(chain_id)
+        missing_core = [level for level in required if level not in levels]
+        if missing_core:
+            violations.append(f"missing_core_levels:{chain_id}:{','.join(str(level) for level in missing_core)}")
+        candidate_reports.append(
+            {
+                "chain_id": chain_id,
+                "levels": levels,
+                "required_core_levels": required,
+                "missing_core_levels": missing_core,
+                "allowed": (not allowed) or chain_id in allowed,
+            }
+        )
+    return {
+        "intent": features.get("intent"),
+        "risk_tier": features.get("risk_tier"),
+        "default_chain": default_chain,
+        "allowed_chain_ids": allowed,
+        "candidate_count": len(candidates),
+        "candidate_reports": candidate_reports,
+        "valid": not violations,
+        "violations": violations,
     }
 
 
@@ -76,5 +149,5 @@ def generate_candidates(features: Dict[str, Any]) -> List[Dict[str, Any]]:
                 description="Low-risk reminder path",
             )
         )
-    unique: Dict[str, Dict[str, Any]] = {row["chain_id"]: row for row in out}
-    return list(unique.values())
+    deduped = _dedupe_candidates(out)
+    return _restrict_to_allowed(deduped, list(features.get("allowed_chain_ids") or []), default_chain=str(features.get("default_chain") or "").strip())
