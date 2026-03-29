@@ -68,3 +68,28 @@ def test_step6_replay_fixture_can_show_positive_significant_lift(tmp_path: Path)
     significance = significance_from_delta(result["quality_delta"], result["rows"])
     assert result["quality_delta"] > 0
     assert significance["significant"] is True
+
+
+from services.routing.safety_rollback_guard import evaluate_rollback, run_rollback_drill
+
+
+def test_step7_rollback_guard_trips_for_quality_latency_and_risk():
+    quality = evaluate_rollback({"quality_non_regression_rate": 0.95, "p95_latency_delta": 0.01, "risk_policy_violation_count": 0}, recovery_seconds=15)
+    latency = evaluate_rollback({"quality_non_regression_rate": 1.0, "p95_latency_delta": 0.09, "risk_policy_violation_count": 0}, recovery_seconds=12)
+    risk = evaluate_rollback({"quality_non_regression_rate": 1.0, "p95_latency_delta": 0.01, "risk_policy_violation_count": 1}, recovery_seconds=6)
+    healthy = evaluate_rollback({"quality_non_regression_rate": 1.0, "p95_latency_delta": 0.01, "risk_policy_violation_count": 0}, recovery_seconds=0)
+    assert quality["rollback_required"] is True and "quality_regression" in quality["reasons"]
+    assert latency["rollback_required"] is True and "latency_spike" in latency["reasons"]
+    assert risk["rollback_required"] is True and "risk_violation" in risk["reasons"]
+    assert healthy["rollback_required"] is False
+
+
+def test_step7_rollback_drill_gate_passes_under_sla():
+    drill = run_rollback_drill([
+        {"name": "quality", "metrics": {"quality_non_regression_rate": 0.95, "p95_latency_delta": 0.01, "risk_policy_violation_count": 0}, "expect_rollback": True, "recovery_seconds": 15},
+        {"name": "latency", "metrics": {"quality_non_regression_rate": 1.0, "p95_latency_delta": 0.08, "risk_policy_violation_count": 0}, "expect_rollback": True, "recovery_seconds": 10},
+        {"name": "control", "metrics": {"quality_non_regression_rate": 1.0, "p95_latency_delta": 0.01, "risk_policy_violation_count": 0}, "expect_rollback": False, "recovery_seconds": 0},
+    ])
+    assert drill["all_expectations_met"] is True
+    assert drill["sla_met"] is True
+    assert drill["gate_pass"] is True

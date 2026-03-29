@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-29T16:48:33.737194+00:00",
+  "generated_at": "2026-03-29T16:52:30.151339+00:00",
   "replay": {
     "success": true,
     "rows": 4,
@@ -116,7 +116,7 @@
       "candidate_count": 180,
       "baseline_count": 180
     },
-    "updated_at": "2026-03-29T16:42:47.593537+00:00"
+    "updated_at": "2026-03-29T16:48:36.262497+00:00"
   },
   "runtime_health": {
     "version": "route_health.v1",
@@ -127,6 +127,10 @@
   },
   "rollback": {
     "rollback_required": false,
-    "reasons": []
+    "reasons": [],
+    "reason_count": 0,
+    "max_allowed_recovery_seconds": 60.0,
+    "recovery_seconds": null,
+    "sla_breached": false
   }
 }

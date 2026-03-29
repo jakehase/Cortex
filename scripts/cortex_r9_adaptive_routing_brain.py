@@ -18,10 +18,11 @@ def main() -> int:
     taxonomy = run_json("scripts/cortex_r9_step2_route_taxonomy.py")
     features = run_json("scripts/cortex_r9_step3_feature_pipeline.py")
     replay = run_json("scripts/cortex_r9_step6_counterfactual_replay.py")
+    rollback = run_json("scripts/cortex_r9_step7_safety_rollback.py")
     shadow = run_json("scripts/cortex_r9_step8_shadow_mode.py")
     canary = run_json("scripts/cortex_r9_step9_canary_rollout.py")
     full_rollout = run_json("scripts/cortex_r9_step10_full_rollout_autotune.py")
-    print(json.dumps({"success": True, "baseline": baseline, "taxonomy": taxonomy, "features": features, "replay": replay, "shadow": shadow, "canary": canary, "full_rollout": full_rollout}, indent=2))
+    print(json.dumps({"success": True, "baseline": baseline, "taxonomy": taxonomy, "features": features, "replay": replay, "rollback": rollback, "shadow": shadow, "canary": canary, "full_rollout": full_rollout}, indent=2))
     return 0
 
 

@@ -1,0 +1,94 @@
+{
+  "generated_at": "2026-03-29T16:52:30.071211+00:00",
+  "drill": {
+    "scenario_count": 5,
+    "scenarios": [
+      {
+        "name": "quality_collapse",
+        "expect_rollback": true,
+        "matched_expectation": true,
+        "result": {
+          "rollback_required": true,
+          "reasons": [
+            "quality_regression"
+          ],
+          "reason_count": 1,
+          "max_allowed_recovery_seconds": 60.0,
+          "recovery_seconds": 18.0,
+          "sla_breached": false
+        }
+      },
+      {
+        "name": "latency_spike",
+        "expect_rollback": true,
+        "matched_expectation": true,
+        "result": {
+          "rollback_required": true,
+          "reasons": [
+            "latency_spike"
+          ],
+          "reason_count": 1,
+          "max_allowed_recovery_seconds": 60.0,
+          "recovery_seconds": 12.0,
+          "sla_breached": false
+        }
+      },
+      {
+        "name": "risk_violation",
+        "expect_rollback": true,
+        "matched_expectation": true,
+        "result": {
+          "rollback_required": true,
+          "reasons": [
+            "risk_violation"
+          ],
+          "reason_count": 1,
+          "max_allowed_recovery_seconds": 60.0,
+          "recovery_seconds": 4.0,
+          "sla_breached": false
+        }
+      },
+      {
+        "name": "combined_failure",
+        "expect_rollback": true,
+        "matched_expectation": true,
+        "result": {
+          "rollback_required": true,
+          "reasons": [
+            "quality_regression",
+            "latency_spike",
+            "risk_violation"
+          ],
+          "reason_count": 3,
+          "max_allowed_recovery_seconds": 60.0,
+          "recovery_seconds": 27.0,
+          "sla_breached": false
+        }
+      },
+      {
+        "name": "healthy_control",
+        "expect_rollback": false,
+        "matched_expectation": true,
+        "result": {
+          "rollback_required": false,
+          "reasons": [],
+          "reason_count": 0,
+          "max_allowed_recovery_seconds": 60.0,
+          "recovery_seconds": 0.0,
+          "sla_breached": false
+        }
+      }
+    ],
+    "all_expectations_met": true,
+    "max_recovery_seconds": 27.0,
+    "sla_seconds": 60.0,
+    "sla_met": true,
+    "gate_pass": true
+  },
+  "summary": {
+    "scenario_count": 5,
+    "gate_pass": true,
+    "sla_met": true,
+    "max_recovery_seconds": 27.0
+  }
+}

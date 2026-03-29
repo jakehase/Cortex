@@ -7,6 +7,7 @@ Generate/update them with:
 - `python3 scripts/cortex_r9_step2_route_taxonomy.py`
 - `python3 scripts/cortex_r9_step3_feature_pipeline.py`
 - `python3 scripts/cortex_r9_step6_counterfactual_replay.py`
+- `python3 scripts/cortex_r9_step7_safety_rollback.py`
 - `python3 scripts/cortex_r9_step8_shadow_mode.py`
 - `python3 scripts/cortex_r9_step9_canary_rollout.py`
 - `python3 scripts/cortex_r9_step10_full_rollout_autotune.py`

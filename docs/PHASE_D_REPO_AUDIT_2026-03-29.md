@@ -136,6 +136,7 @@ The following doc exists:
 - `scripts/cortex_r9_step2_route_taxonomy.py`
 - `scripts/cortex_r9_step3_feature_pipeline.py`
 - `scripts/cortex_r9_step6_counterfactual_replay.py`
+- `scripts/cortex_r9_step7_safety_rollback.py`
 - `scripts/cortex_r9_step8_shadow_mode.py`
 - `scripts/cortex_r9_step9_canary_rollout.py`
 - `scripts/cortex_r9_step10_full_rollout_autotune.py`
@@ -145,6 +146,7 @@ The following doc exists:
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step3/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step7/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/*`
