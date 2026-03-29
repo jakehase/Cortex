@@ -1,0 +1,60 @@
+{
+  "generated_at": "2026-03-29T19:19:56.236098+00:00",
+  "artifact_root": "/root/clawd/artifacts/cortex_roadmap/r9_adaptive_routing_brain",
+  "scripts": [
+    "scripts/cortex_r9_step1_baseline_telemetry.py",
+    "scripts/cortex_r9_step2_route_taxonomy.py",
+    "scripts/cortex_r9_step3_feature_pipeline.py",
+    "scripts/cortex_r9_step4_scoring_policy.py",
+    "scripts/cortex_r9_step5_candidate_generator.py",
+    "scripts/cortex_r9_step6_counterfactual_replay.py",
+    "scripts/cortex_r9_step7_safety_rollback.py",
+    "scripts/cortex_r9_step8_shadow_mode.py",
+    "scripts/cortex_r9_step9_canary_rollout.py",
+    "scripts/cortex_r9_step10_full_rollout_autotune.py",
+    "scripts/cortex_r9_step11_operator_dashboard.py",
+    "scripts/cortex_r9_step12_novelty_packaging.py",
+    "scripts/cortex_r9_adaptive_routing_brain.py"
+  ],
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/README.md",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/baseline_telemetry_dataset_latest.jsonl",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/baseline_telemetry_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/full_rollout_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_live_local.html",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/claim_map_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/novelty_brief_latest.md",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/novelty_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/reproducibility_pack_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/route_taxonomy_schema_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/route_taxonomy_validation_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step3/feature_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step4/replay_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step5/chain_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/replay_dataset_latest.jsonl",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/replay_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step7/rollback_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/shadow_probe_latest.json",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/canary_probe_latest.json"
+  ],
+  "commands": [
+    "python3 scripts/cortex_r9_step1_baseline_telemetry.py",
+    "python3 scripts/cortex_r9_step2_route_taxonomy.py",
+    "python3 scripts/cortex_r9_step3_feature_pipeline.py",
+    "python3 scripts/cortex_r9_step4_scoring_policy.py",
+    "python3 scripts/cortex_r9_step5_candidate_generator.py",
+    "python3 scripts/cortex_r9_step6_counterfactual_replay.py",
+    "python3 scripts/cortex_r9_step7_safety_rollback.py",
+    "python3 scripts/cortex_r9_step8_shadow_mode.py",
+    "python3 scripts/cortex_r9_step9_canary_rollout.py",
+    "python3 scripts/cortex_r9_step10_full_rollout_autotune.py",
+    "python3 scripts/cortex_r9_step11_operator_dashboard.py",
+    "python3 scripts/cortex_r9_step12_novelty_packaging.py",
+    "python3 scripts/cortex_r9_adaptive_routing_brain.py"
+  ],
+  "notes": [
+    "Artifacts are locally reproducible from committed scripts.",
+    "Several probes operate on synthetic or fixture data; claims should be phrased accordingly."
+  ]
+}

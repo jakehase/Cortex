@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-29T19:03:42.024220+00:00",
+  "generated_at": "2026-03-29T19:19:56.219339+00:00",
   "dashboard_path": "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_live_local.html",
   "headline": {
     "quality_delta": 0.0575,
@@ -20,7 +20,7 @@
     }
   },
   "runbook_drill": {
-    "generated_at": "2026-03-29T19:03:42.024057+00:00",
+    "generated_at": "2026-03-29T19:19:56.219178+00:00",
     "success": true,
     "steps": {
       "freeze_policy": {

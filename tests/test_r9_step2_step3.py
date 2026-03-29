@@ -133,3 +133,17 @@ def test_step11_dashboard_model_and_runbook_are_present():
     assert "R9 Operator Dashboard" in html
     assert "Freeze policy" in html
     assert "Rollback to baseline" in html
+
+
+from services.routing.novelty_packager import build_claim_map, build_reproducibility_pack, render_novelty_brief
+
+
+def test_step12_novelty_packager_has_claim_discipline_and_brief():
+    claim_map = build_claim_map()
+    repro = build_reproducibility_pack()
+    brief = render_novelty_brief(claim_map, repro)
+    assert claim_map["summary"]["supported"] >= 4
+    assert claim_map["summary"]["not_supported"] >= 1
+    assert "scripts/cortex_r9_step12_novelty_packaging.py" in repro["scripts"]
+    assert "Novelty Brief" in brief
+    assert "Do not overclaim" in brief

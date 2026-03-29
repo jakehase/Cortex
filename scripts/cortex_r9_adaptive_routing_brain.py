@@ -25,7 +25,8 @@ def main() -> int:
     canary = run_json("scripts/cortex_r9_step9_canary_rollout.py")
     full_rollout = run_json("scripts/cortex_r9_step10_full_rollout_autotune.py")
     dashboard = run_json("scripts/cortex_r9_step11_operator_dashboard.py")
-    print(json.dumps({"success": True, "baseline": baseline, "taxonomy": taxonomy, "features": features, "scoring": scoring, "candidates": candidates, "replay": replay, "rollback": rollback, "shadow": shadow, "canary": canary, "full_rollout": full_rollout, "dashboard": dashboard}, indent=2))
+    novelty = run_json("scripts/cortex_r9_step12_novelty_packaging.py")
+    print(json.dumps({"success": True, "baseline": baseline, "taxonomy": taxonomy, "features": features, "scoring": scoring, "candidates": candidates, "replay": replay, "rollback": rollback, "shadow": shadow, "canary": canary, "full_rollout": full_rollout, "dashboard": dashboard, "novelty": novelty}, indent=2))
     return 0
 
 
