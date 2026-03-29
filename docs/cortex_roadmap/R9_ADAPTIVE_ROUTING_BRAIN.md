@@ -34,6 +34,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `scripts/cortex_r9_step1_baseline_telemetry.py`
 - `scripts/cortex_r9_step2_route_taxonomy.py`
 - `scripts/cortex_r9_step3_feature_pipeline.py`
+- `scripts/cortex_r9_step4_scoring_policy.py`
 - `scripts/cortex_r9_step5_candidate_generator.py`
 - `scripts/cortex_r9_step6_counterfactual_replay.py`
 - `scripts/cortex_r9_step7_safety_rollback.py`
@@ -45,6 +46,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step3/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step4/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step5/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step7/*`
@@ -100,6 +102,7 @@ Read the remainder of this document as a target architecture plus execution plan
   - minimize latency and cost
   - enforce hard risk constraints
 - Start with interpretable weighted policy; keep model-switch option open.
+- **Status in this checkout:** landed as an explicit weighted scoring policy with per-candidate utility breakdowns and a replay-backed offline gate.
 - **Gate:** offline replay beats baseline on composite utility.
 - Execution artifacts:
   - `services/routing/adaptive_router_policy.py`
