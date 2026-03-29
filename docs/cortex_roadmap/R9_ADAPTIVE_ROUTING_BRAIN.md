@@ -31,9 +31,14 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `services/routing/full_rollout_autotuner.py`
 - `services/routing/counterfactual_replay_evaluator.py`
 - `scripts/cortex_r9_step1_baseline_telemetry.py`
+- `scripts/cortex_r9_step8_shadow_mode.py`
+- `scripts/cortex_r9_step9_canary_rollout.py`
 - `scripts/cortex_r9_step10_full_rollout_autotune.py`
 - `scripts/cortex_r9_adaptive_routing_brain.py`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/README.md`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/*`
 
 ### Still missing for full roadmap completion
