@@ -1,5 +1,14 @@
 # R9 — Adaptive Routing Brain (Quality × Latency × Cost × Risk)
 
+## Status in this checkout
+
+**A stable routing bootstrap slice is landed in this checkout, but the full roadmap remains incomplete.**
+
+Audit/update date: `2026-03-29`
+Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
+
+This repo now contains a routing bootstrap under `services/routing/` plus baseline/autotune scripts and artifacts. It also still has adjacent replay-oriented routing logic in `public/cortex_server/cortex_server/routers/nexus.py`.
+
 ## Objective
 Turn Cortex routing into a learned, self-improving decision system that selects the best level-chain per prompt under explicit quality, latency, cost, and risk constraints.
 
@@ -7,7 +16,38 @@ Turn Cortex routing into a learned, self-improving decision system that selects 
 Memory (R8) is implemented and hardened. The fastest multiplier on all capabilities is smarter route selection over existing levels.
 
 ## Phase
-Phase D2 (immediate execution track, 2–6 weeks)
+Phase D2 roadmap with a bootstrap slice now present in this checkout
+
+## Current repo reality
+
+### Present bootstrap files
+- `services/routing/route_feature_pipeline.py`
+- `services/routing/adaptive_router_policy.py`
+- `services/routing/chain_candidate_generator.py`
+- `services/routing/replay_significance.py`
+- `services/routing/safety_rollback_guard.py`
+- `services/routing/shadow_mode_runner.py`
+- `services/routing/canary_rollout_controller.py`
+- `services/routing/full_rollout_autotuner.py`
+- `services/routing/counterfactual_replay_evaluator.py`
+- `scripts/cortex_r9_step1_baseline_telemetry.py`
+- `scripts/cortex_r9_step8_shadow_mode.py`
+- `scripts/cortex_r9_step9_canary_rollout.py`
+- `scripts/cortex_r9_step10_full_rollout_autotune.py`
+- `scripts/cortex_r9_adaptive_routing_brain.py`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/README.md`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/*`
+
+### Still missing for full roadmap completion
+- most step-specific scripts/configs/artifacts from the full 12-step plan
+- operator dashboard and novelty-packaging surfaces
+- larger-scale replay datasets and canary/live rollout evidence
+
+### Practical interpretation
+Read the remainder of this document as a target architecture plus execution plan. The bootstrap slice is real, validated, and landed; the full R9 Phase D2 stack is not complete yet.
 
 ## Step-by-step execution plan
 

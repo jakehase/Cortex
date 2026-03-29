@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_json(script: str):
+    proc = subprocess.run(["python3", str(ROOT / script)], capture_output=True, text=True, check=True)
+    return json.loads(proc.stdout)
+
+
+def main() -> int:
+    baseline = run_json("scripts/cortex_r9_step1_baseline_telemetry.py")
+    shadow = run_json("scripts/cortex_r9_step8_shadow_mode.py")
+    canary = run_json("scripts/cortex_r9_step9_canary_rollout.py")
+    full_rollout = run_json("scripts/cortex_r9_step10_full_rollout_autotune.py")
+    print(json.dumps({"success": True, "baseline": baseline, "shadow": shadow, "canary": canary, "full_rollout": full_rollout}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

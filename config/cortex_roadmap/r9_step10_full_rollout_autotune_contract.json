@@ -1,0 +1,7 @@
+{
+  "version": "cortex.roadmap.r9.step10.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/full_rollout_probe_latest.json"
+  ],
+  "weights": ["quality", "latency", "cost", "risk"]
+}
