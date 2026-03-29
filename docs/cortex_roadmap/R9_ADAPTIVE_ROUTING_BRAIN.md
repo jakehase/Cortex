@@ -47,7 +47,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - larger-scale replay datasets and canary/live rollout evidence
 
 ### Practical interpretation
-Read the remainder of this document as a target architecture plus execution plan. The bootstrap slice is real; the full R9 Phase D2 stack is not complete yet.
+Read the remainder of this document as a target architecture plus execution plan. The bootstrap slice is real, validated, and landed; the full R9 Phase D2 stack is not complete yet.
 
 ## Step-by-step execution plan
 
