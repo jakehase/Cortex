@@ -1,0 +1,307 @@
+{
+  "generated_at": "2026-03-29T16:42:44.905463+00:00",
+  "row_count": 6,
+  "required_fields_present": true,
+  "required_route_context_fields_present": true,
+  "field_missing": [],
+  "route_context_missing": [],
+  "uses_cortex_classifier_ratio": 1.0,
+  "intent_distribution": {
+    "coding": 1,
+    "creative": 1,
+    "planning": 1,
+    "qa": 1,
+    "reminder": 1,
+    "research": 1
+  },
+  "drift_checks": {
+    "complexity_in_range": true,
+    "uncertainty_in_range": true,
+    "urgency_in_range": true,
+    "all_have_allowed_chain_ids": true
+  },
+  "sample_rows": [
+    {
+      "query": "Explain TCP in one paragraph",
+      "intent": "qa",
+      "archetype": "simple_qa",
+      "risk_tier": "low",
+      "route_taxonomy_version": "r9.route_taxonomy.v1",
+      "allowed_chain_ids": [
+        "fastlane_memory",
+        "deliberate_council"
+      ],
+      "default_chain": "fastlane_memory",
+      "token_count": 5,
+      "complexity": 0.125,
+      "complexity_gate": {
+        "score": 0.125,
+        "hard": false
+      },
+      "uncertainty": 0.35,
+      "urgency": 0.2,
+      "risk_flags": [],
+      "risk_count": 0,
+      "historical_success": 0.62,
+      "creativity": 0.0,
+      "coding": 0.0,
+      "research": 0.0,
+      "planning": 0.0,
+      "uses_cortex_classifier": true,
+      "route_context": {
+        "latency_plan": {
+          "archetype": "simple_qa",
+          "cheap_route": "fastlane",
+          "max_latency_ms": 2200,
+          "max_context_tokens": 1200,
+          "prefetch_enabled": true,
+          "prefetch_targets": [
+            "retrieval",
+            "context"
+          ],
+          "escalate_on": {
+            "risk_flags": false,
+            "complexity_hard": false,
+            "low_confidence_below": 0.84,
+            "budget_pressure_after_ms": 1650
+          }
+        },
+        "runtime_policy": {
+          "complexity_hard_threshold": 0.42,
+          "fastlane_escalation_threshold": 0.72,
+          "l9_auto_activation_threshold": 0.3,
+          "autotune_enabled": true
+        },
+        "outcome_hint": {
+          "stage": "shadow",
+          "recommended_policy": null,
+          "decision_confidence": 0.8
+        },
+        "health": {
+          "dependency_count": 4,
+          "unhealthy_dependencies": [
+            "architect"
+          ],
+          "health_degraded": true
+        },
+        "prefetch_enabled": true,
+        "cheap_route": "fastlane",
+        "budget_pressure_after_ms": 1650,
+        "timeout_pressure": true,
+        "recent_level_efficacy": 0.8
+      }
+    },
+    {
+      "query": "Fix this pytest failure in orchestrator runtime analytics",
+      "intent": "coding",
+      "archetype": "risk_sensitive",
+      "risk_tier": "medium",
+      "route_taxonomy_version": "r9.route_taxonomy.v1",
+      "allowed_chain_ids": [
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "default_chain": "deliberate_council",
+      "token_count": 8,
+      "complexity": 0.2,
+      "complexity_gate": {
+        "score": 0.2,
+        "hard": false
+      },
+      "uncertainty": 0.35,
+      "urgency": 0.2,
+      "risk_flags": [
+        "code_change"
+      ],
+      "risk_count": 1,
+      "historical_success": 0.71,
+      "creativity": 0.0,
+      "coding": 1.0,
+      "research": 0.0,
+      "planning": 0.0,
+      "uses_cortex_classifier": true,
+      "route_context": {
+        "latency_plan": {
+          "archetype": "risk_sensitive",
+          "cheap_route": "fastlane",
+          "max_latency_ms": 2200,
+          "max_context_tokens": 1200,
+          "prefetch_enabled": false,
+          "prefetch_targets": [],
+          "escalate_on": {
+            "risk_flags": true,
+            "complexity_hard": false,
+            "low_confidence_below": 0.74,
+            "budget_pressure_after_ms": 1650
+          }
+        },
+        "runtime_policy": {
+          "complexity_hard_threshold": 0.42,
+          "fastlane_escalation_threshold": 0.72,
+          "l9_auto_activation_threshold": 0.3,
+          "autotune_enabled": true
+        },
+        "outcome_hint": {
+          "stage": "shadow",
+          "recommended_policy": null,
+          "decision_confidence": 0.0
+        },
+        "health": {
+          "dependency_count": 4,
+          "unhealthy_dependencies": [
+            "architect"
+          ],
+          "health_degraded": true
+        },
+        "prefetch_enabled": false,
+        "cheap_route": "fastlane",
+        "budget_pressure_after_ms": 1650,
+        "timeout_pressure": true,
+        "recent_level_efficacy": 0.0
+      }
+    },
+    {
+      "query": "Brainstorm novel product ideas unrelated to memory",
+      "intent": "creative",
+      "archetype": "simple_qa",
+      "risk_tier": "low",
+      "route_taxonomy_version": "r9.route_taxonomy.v1",
+      "allowed_chain_ids": [
+        "creative_fractal",
+        "deliberate_council"
+      ],
+      "default_chain": "creative_fractal",
+      "token_count": 7,
+      "complexity": 0.175,
+      "complexity_gate": {
+        "score": 0.175,
+        "hard": false
+      },
+      "uncertainty": 0.35,
+      "urgency": 0.2,
+      "risk_flags": [],
+      "risk_count": 0,
+      "historical_success": 0.58,
+      "creativity": 1.0,
+      "coding": 0.0,
+      "research": 0.0,
+      "planning": 0.0,
+      "uses_cortex_classifier": true,
+      "route_context": {
+        "latency_plan": {
+          "archetype": "simple_qa",
+          "cheap_route": "fastlane",
+          "max_latency_ms": 2200,
+          "max_context_tokens": 1200,
+          "prefetch_enabled": true,
+          "prefetch_targets": [
+            "retrieval",
+            "context"
+          ],
+          "escalate_on": {
+            "risk_flags": false,
+            "complexity_hard": false,
+            "low_confidence_below": 0.84,
+            "budget_pressure_after_ms": 1650
+          }
+        },
+        "runtime_policy": {
+          "complexity_hard_threshold": 0.42,
+          "fastlane_escalation_threshold": 0.72,
+          "l9_auto_activation_threshold": 0.3,
+          "autotune_enabled": true
+        },
+        "outcome_hint": {
+          "stage": "shadow",
+          "recommended_policy": null,
+          "decision_confidence": 0.8
+        },
+        "health": {
+          "dependency_count": 4,
+          "unhealthy_dependencies": [
+            "architect"
+          ],
+          "health_degraded": true
+        },
+        "prefetch_enabled": true,
+        "cheap_route": "fastlane",
+        "budget_pressure_after_ms": 1650,
+        "timeout_pressure": true,
+        "recent_level_efficacy": 0.8
+      }
+    },
+    {
+      "query": "Research current database outage status and likely mitigation",
+      "intent": "research",
+      "archetype": "ops_triage",
+      "risk_tier": "medium",
+      "route_taxonomy_version": "r9.route_taxonomy.v1",
+      "allowed_chain_ids": [
+        "research_grounded",
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "default_chain": "research_grounded",
+      "token_count": 8,
+      "complexity": 0.2,
+      "complexity_gate": {
+        "score": 0.2,
+        "hard": false
+      },
+      "uncertainty": 0.35,
+      "urgency": 0.2,
+      "risk_flags": [
+        "live_state"
+      ],
+      "risk_count": 1,
+      "historical_success": 0.69,
+      "creativity": 0.0,
+      "coding": 0.0,
+      "research": 1.0,
+      "planning": 0.0,
+      "uses_cortex_classifier": true,
+      "route_context": {
+        "latency_plan": {
+          "archetype": "ops_triage",
+          "cheap_route": "fastlane",
+          "max_latency_ms": 2200,
+          "max_context_tokens": 1200,
+          "prefetch_enabled": true,
+          "prefetch_targets": [
+            "retrieval",
+            "context"
+          ],
+          "escalate_on": {
+            "risk_flags": true,
+            "complexity_hard": false,
+            "low_confidence_below": 0.74,
+            "budget_pressure_after_ms": 1650
+          }
+        },
+        "runtime_policy": {
+          "complexity_hard_threshold": 0.42,
+          "fastlane_escalation_threshold": 0.72,
+          "l9_auto_activation_threshold": 0.3,
+          "autotune_enabled": true
+        },
+        "outcome_hint": {
+          "stage": "shadow",
+          "recommended_policy": null,
+          "decision_confidence": 0.8
+        },
+        "health": {
+          "dependency_count": 4,
+          "unhealthy_dependencies": [
+            "architect"
+          ],
+          "health_degraded": true
+        },
+        "prefetch_enabled": true,
+        "cheap_route": "fastlane",
+        "budget_pressure_after_ms": 1650,
+        "timeout_pressure": true,
+        "recent_level_efficacy": 0.8
+      }
+    }
+  ]
+}

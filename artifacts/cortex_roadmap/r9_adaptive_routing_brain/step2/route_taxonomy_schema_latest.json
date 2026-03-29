@@ -1,0 +1,97 @@
+{
+  "version": "r9.route_taxonomy.v1",
+  "risk_tiers": [
+    "low",
+    "medium",
+    "high",
+    "critical"
+  ],
+  "intents": {
+    "qa": {
+      "default_chain": "fastlane_memory",
+      "allowed_chains": [
+        "fastlane_memory",
+        "deliberate_council"
+      ],
+      "high_risk_allowed_chains": [
+        "deliberate_council"
+      ],
+      "critical_risk_allowed_chains": [
+        "deliberate_council"
+      ]
+    },
+    "coding": {
+      "default_chain": "deliberate_council",
+      "allowed_chains": [
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "high_risk_allowed_chains": [
+        "deliberate_council"
+      ],
+      "critical_risk_allowed_chains": [
+        "deliberate_council"
+      ]
+    },
+    "planning": {
+      "default_chain": "deliberate_council",
+      "allowed_chains": [
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "high_risk_allowed_chains": [
+        "deliberate_council"
+      ],
+      "critical_risk_allowed_chains": [
+        "deliberate_council"
+      ]
+    },
+    "research": {
+      "default_chain": "research_grounded",
+      "allowed_chains": [
+        "research_grounded",
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "high_risk_allowed_chains": [
+        "research_grounded",
+        "deliberate_council"
+      ],
+      "critical_risk_allowed_chains": [
+        "research_grounded"
+      ]
+    },
+    "creative": {
+      "default_chain": "creative_fractal",
+      "allowed_chains": [
+        "creative_fractal",
+        "deliberate_council"
+      ],
+      "high_risk_allowed_chains": [
+        "deliberate_council"
+      ],
+      "critical_risk_allowed_chains": [
+        "deliberate_council"
+      ]
+    },
+    "reminder": {
+      "default_chain": "safe_reminder",
+      "allowed_chains": [
+        "safe_reminder",
+        "fastlane_memory"
+      ],
+      "high_risk_allowed_chains": [
+        "safe_reminder",
+        "deliberate_council"
+      ],
+      "critical_risk_allowed_chains": [
+        "deliberate_council"
+      ]
+    }
+  },
+  "notes": [
+    "low-risk intents may use lower-latency chains",
+    "high/critical risk trims candidate space toward deliberate or grounded chains",
+    "creative routing is not allowed under critical risk"
+  ]
+}

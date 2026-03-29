@@ -21,6 +21,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 ## Current repo reality
 
 ### Present bootstrap files
+- `services/routing/route_taxonomy.py`
 - `services/routing/route_feature_pipeline.py`
 - `services/routing/adaptive_router_policy.py`
 - `services/routing/chain_candidate_generator.py`
@@ -31,12 +32,16 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `services/routing/full_rollout_autotuner.py`
 - `services/routing/counterfactual_replay_evaluator.py`
 - `scripts/cortex_r9_step1_baseline_telemetry.py`
+- `scripts/cortex_r9_step2_route_taxonomy.py`
+- `scripts/cortex_r9_step3_feature_pipeline.py`
 - `scripts/cortex_r9_step8_shadow_mode.py`
 - `scripts/cortex_r9_step9_canary_rollout.py`
 - `scripts/cortex_r9_step10_full_rollout_autotune.py`
 - `scripts/cortex_r9_adaptive_routing_brain.py`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/README.md`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step3/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/*`
@@ -64,6 +69,7 @@ Read the remainder of this document as a target architecture plus execution plan
 ### Step 2 — Route taxonomy + intent schema
 - Define canonical intents (qa, coding, planning, incident, research, reminders, etc.).
 - Map allowed level-chains by intent and risk tier.
+- **Status in this checkout:** landed as a lightweight validated schema + sample validation pass.
 - **Gate:** schema validated against live traffic samples.
 - Execution artifacts:
   - `scripts/cortex_r9_step2_route_taxonomy.py`
@@ -74,6 +80,7 @@ Read the remainder of this document as a target architecture plus execution plan
 ### Step 3 — Feature pipeline for routing decisions
 - Build prompt + context feature extraction (complexity, urgency, uncertainty, safety flags, historical success).
 - Add route-context features (recent level efficacy, timeout pressure, budget state).
+- **Status in this checkout:** landed as a richer feature packet with taxonomy, runtime policy, health, latency-budget, and outcome-hint context.
 - **Gate:** feature completeness + drift checks pass.
 - Execution artifacts:
   - `services/routing/route_feature_pipeline.py`

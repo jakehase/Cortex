@@ -1,0 +1,105 @@
+{
+  "generated_at": "2026-03-29T16:42:44.878386+00:00",
+  "taxonomy_version": "r9.route_taxonomy.v1",
+  "case_count": 8,
+  "intents_seen": [
+    "coding",
+    "creative",
+    "planning",
+    "qa",
+    "reminder",
+    "research"
+  ],
+  "all_routes_taxonomy_compliant": true,
+  "validation_rows": [
+    {
+      "query": "Explain TCP in one paragraph",
+      "intent": "qa",
+      "risk_tier": "low",
+      "selected_chain": "fastlane_memory",
+      "allowed_chains": [
+        "fastlane_memory",
+        "deliberate_council"
+      ],
+      "valid": true
+    },
+    {
+      "query": "Fix this pytest failure in orchestrator runtime analytics",
+      "intent": "coding",
+      "risk_tier": "medium",
+      "selected_chain": "deliberate_council",
+      "allowed_chains": [
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "valid": true
+    },
+    {
+      "query": "Brainstorm novel product ideas unrelated to memory",
+      "intent": "creative",
+      "risk_tier": "low",
+      "selected_chain": "creative_fractal",
+      "allowed_chains": [
+        "creative_fractal",
+        "deliberate_council"
+      ],
+      "valid": true
+    },
+    {
+      "query": "Research current database outage status and likely mitigation",
+      "intent": "research",
+      "risk_tier": "medium",
+      "selected_chain": "research_grounded",
+      "allowed_chains": [
+        "research_grounded",
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "valid": true
+    },
+    {
+      "query": "Plan a migration roadmap for the API gateway",
+      "intent": "planning",
+      "risk_tier": "low",
+      "selected_chain": "fastlane_memory",
+      "allowed_chains": [
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "valid": true
+    },
+    {
+      "query": "Remind me in 20 minutes to check the deploy",
+      "intent": "reminder",
+      "risk_tier": "low",
+      "selected_chain": "safe_reminder",
+      "allowed_chains": [
+        "safe_reminder",
+        "fastlane_memory"
+      ],
+      "valid": true
+    },
+    {
+      "query": "Research the latest outage status with sources",
+      "intent": "research",
+      "risk_tier": "medium",
+      "selected_chain": "research_grounded",
+      "allowed_chains": [
+        "research_grounded",
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "valid": true
+    },
+    {
+      "query": "Implement a security change in production auth flow",
+      "intent": "coding",
+      "risk_tier": "high",
+      "selected_chain": "deliberate_council",
+      "allowed_chains": [
+        "deliberate_council"
+      ],
+      "valid": true
+    }
+  ]
+}
