@@ -5,7 +5,7 @@
 **R7 is not fully implemented in this checkout yet.**
 
 Current live status:
-- **Steps 1–9 are landed** as real Phase E starting slices:
+- **Steps 1–10 are landed** as real Phase E starting slices:
   - `services/homeostasis/baseline_regulation.py`
   - `services/homeostasis/state_signal_model.py`
   - `services/homeostasis/value_hierarchy_compiler.py`
@@ -15,6 +15,7 @@ Current live status:
   - `services/homeostasis/safety_envelope_overrides.py`
   - `services/homeostasis/shadow_governor_runner.py`
   - `services/homeostasis/canary_governor_controller.py`
+  - `services/homeostasis/full_rollout_autotuner.py`
   - `services/homeostasis/objective_hierarchy.json`
   - `scripts/cortex_r7_step1_baseline_regulation.py`
   - `scripts/cortex_r7_step2_state_signal_model.py`
@@ -25,6 +26,7 @@ Current live status:
   - `scripts/cortex_r7_step7_safety_envelope_overrides.py`
   - `scripts/cortex_r7_step8_shadow_governor_runner.py`
   - `scripts/cortex_r7_step9_canary_governor_controller.py`
+  - `scripts/cortex_r7_step10_full_rollout_autotuner.py`
   - `config/cortex_roadmap/r7_step1_baseline_regulation_contract.json`
   - `config/cortex_roadmap/r7_step2_state_signal_model_contract.json`
   - `config/cortex_roadmap/r7_step3_value_hierarchy_compiler_contract.json`
@@ -34,6 +36,7 @@ Current live status:
   - `config/cortex_roadmap/r7_step7_safety_envelope_overrides_contract.json`
   - `config/cortex_roadmap/r7_step8_shadow_governor_runner_contract.json`
   - `config/cortex_roadmap/r7_step9_canary_governor_controller_contract.json`
+  - `config/cortex_roadmap/r7_step10_full_rollout_autotuner_contract.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_probe_latest.json`
@@ -43,7 +46,8 @@ Current live status:
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step7/safety_override_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step8/shadow_governor_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step9/canary_governor_probe_latest.json`
-- **Steps 10–12 below remain roadmap targets** unless/until their files/artifacts are actually added.
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_probe_latest.json`
+- **Steps 11–12 below remain roadmap targets** unless/until their files/artifacts are actually added.
 
 ## Objective
 Turn Cortex regulation into an adaptive governor that continuously balances:

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-03-29T22:49:49.413770+00:00",
+  "generated_at": "2026-03-29T22:58:04.826545+00:00",
   "benchmark": {
-    "generated_at": "2026-03-29T22:49:49.413764+00:00",
+    "generated_at": "2026-03-29T22:58:04.826541+00:00",
     "case_count": 6,
     "success_count": 6,
     "success_rate": 1.0,
@@ -10,11 +10,11 @@
       {
         "case_id": "critical_freeze",
         "result": {
-          "generated_at": "2026-03-29T22:49:49.413682+00:00",
+          "generated_at": "2026-03-29T22:58:04.826457+00:00",
           "intent": "coding",
           "risk_tier": "critical",
           "profile": {
-            "generated_at": "2026-03-29T22:49:49.413676+00:00",
+            "generated_at": "2026-03-29T22:58:04.826450+00:00",
             "intent": "coding",
             "risk_tier": "critical",
             "mode": "protective",
@@ -38,7 +38,7 @@
               "block_fastlane": true
             },
             "budget_reference": {
-              "generated_at": "2026-03-29T22:49:49.413662+00:00",
+              "generated_at": "2026-03-29T22:58:04.826431+00:00",
               "intent": "coding",
               "risk_tier": "critical",
               "mode": "protective",
@@ -90,11 +90,11 @@
       {
         "case_id": "explicit_freeze_flag",
         "result": {
-          "generated_at": "2026-03-29T22:49:49.413700+00:00",
+          "generated_at": "2026-03-29T22:58:04.826475+00:00",
           "intent": "research",
           "risk_tier": "high",
           "profile": {
-            "generated_at": "2026-03-29T22:49:49.413697+00:00",
+            "generated_at": "2026-03-29T22:58:04.826472+00:00",
             "intent": "research",
             "risk_tier": "high",
             "mode": "protective",
@@ -118,7 +118,7 @@
               "block_fastlane": true
             },
             "budget_reference": {
-              "generated_at": "2026-03-29T22:49:49.413693+00:00",
+              "generated_at": "2026-03-29T22:58:04.826468+00:00",
               "intent": "research",
               "risk_tier": "high",
               "mode": "protective",
@@ -168,11 +168,11 @@
       {
         "case_id": "fallback_on_timeout_and_dependency",
         "result": {
-          "generated_at": "2026-03-29T22:49:49.413715+00:00",
+          "generated_at": "2026-03-29T22:58:04.826492+00:00",
           "intent": "planning",
           "risk_tier": "high",
           "profile": {
-            "generated_at": "2026-03-29T22:49:49.413712+00:00",
+            "generated_at": "2026-03-29T22:58:04.826489+00:00",
             "intent": "planning",
             "risk_tier": "high",
             "mode": "protective",
@@ -195,7 +195,7 @@
               "block_fastlane": true
             },
             "budget_reference": {
-              "generated_at": "2026-03-29T22:49:49.413708+00:00",
+              "generated_at": "2026-03-29T22:58:04.826484+00:00",
               "intent": "planning",
               "risk_tier": "high",
               "mode": "protective",
@@ -244,11 +244,11 @@
       {
         "case_id": "elevated_review_high_risk",
         "result": {
-          "generated_at": "2026-03-29T22:49:49.413734+00:00",
+          "generated_at": "2026-03-29T22:58:04.826511+00:00",
           "intent": "reminder",
           "risk_tier": "high",
           "profile": {
-            "generated_at": "2026-03-29T22:49:49.413732+00:00",
+            "generated_at": "2026-03-29T22:58:04.826508+00:00",
             "intent": "reminder",
             "risk_tier": "high",
             "mode": "normal",
@@ -271,7 +271,7 @@
               "block_fastlane": true
             },
             "budget_reference": {
-              "generated_at": "2026-03-29T22:49:49.413728+00:00",
+              "generated_at": "2026-03-29T22:58:04.826503+00:00",
               "intent": "reminder",
               "risk_tier": "high",
               "mode": "normal",
@@ -318,11 +318,11 @@
       {
         "case_id": "normal_low_risk",
         "result": {
-          "generated_at": "2026-03-29T22:49:49.413748+00:00",
+          "generated_at": "2026-03-29T22:58:04.826525+00:00",
           "intent": "qa",
           "risk_tier": "low",
           "profile": {
-            "generated_at": "2026-03-29T22:49:49.413745+00:00",
+            "generated_at": "2026-03-29T22:58:04.826522+00:00",
             "intent": "qa",
             "risk_tier": "low",
             "mode": "normal",
@@ -345,7 +345,7 @@
               "block_fastlane": false
             },
             "budget_reference": {
-              "generated_at": "2026-03-29T22:49:49.413742+00:00",
+              "generated_at": "2026-03-29T22:58:04.826519+00:00",
               "intent": "qa",
               "risk_tier": "low",
               "mode": "normal",
@@ -390,11 +390,11 @@
       {
         "case_id": "rollback_flag_forces_fallback",
         "result": {
-          "generated_at": "2026-03-29T22:49:49.413761+00:00",
+          "generated_at": "2026-03-29T22:58:04.826538+00:00",
           "intent": "research",
           "risk_tier": "medium",
           "profile": {
-            "generated_at": "2026-03-29T22:49:49.413758+00:00",
+            "generated_at": "2026-03-29T22:58:04.826535+00:00",
             "intent": "research",
             "risk_tier": "medium",
             "mode": "protective",
@@ -418,7 +418,7 @@
               "block_fastlane": true
             },
             "budget_reference": {
-              "generated_at": "2026-03-29T22:49:49.413755+00:00",
+              "generated_at": "2026-03-29T22:58:04.826532+00:00",
               "intent": "research",
               "risk_tier": "medium",
               "mode": "protective",

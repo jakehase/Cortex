@@ -1,0 +1,13 @@
+{
+  "generated_at": "2026-03-29T22:58:04.883518+00:00",
+  "result_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_latest.json",
+  "validation": {
+    "generated_at": "2026-03-29T22:58:04.883382+00:00",
+    "valid": true,
+    "missing_weights": [],
+    "out_of_bounds_weights": [],
+    "has_intent_kill_switches": true
+  },
+  "rollout_mode": "hold",
+  "gate_pass": true
+}

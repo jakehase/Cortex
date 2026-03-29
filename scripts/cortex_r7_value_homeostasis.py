@@ -23,11 +23,12 @@ def main() -> int:
     step7 = run_json("scripts/cortex_r7_step7_safety_envelope_overrides.py")
     step8 = run_json("scripts/cortex_r7_step8_shadow_governor_runner.py")
     step9 = run_json("scripts/cortex_r7_step9_canary_governor_controller.py")
+    step10 = run_json("scripts/cortex_r7_step10_full_rollout_autotuner.py")
     payload = {
         "success": True,
         "phase": "phase_e_r7",
-        "landed_steps": [1, 2, 3, 4, 5, 6, 7, 8, 9],
-        "remaining_steps": list(range(10, 13)),
+        "landed_steps": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        "remaining_steps": list(range(11, 13)),
         "step1": step1,
         "step2": step2,
         "step3": step3,
@@ -37,6 +38,7 @@ def main() -> int:
         "step7": step7,
         "step8": step8,
         "step9": step9,
+        "step10": step10,
     }
     print(json.dumps(payload, indent=2))
     return 0

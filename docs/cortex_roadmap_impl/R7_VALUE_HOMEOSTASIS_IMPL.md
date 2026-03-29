@@ -15,6 +15,7 @@ Current live state:
   - `services/homeostasis/safety_envelope_overrides.py`
   - `services/homeostasis/shadow_governor_runner.py`
   - `services/homeostasis/canary_governor_controller.py`
+  - `services/homeostasis/full_rollout_autotuner.py`
   - `services/homeostasis/objective_hierarchy.json`
   - `scripts/cortex_r7_step1_baseline_regulation.py`
   - `scripts/cortex_r7_step2_state_signal_model.py`
@@ -25,6 +26,7 @@ Current live state:
   - `scripts/cortex_r7_step7_safety_envelope_overrides.py`
   - `scripts/cortex_r7_step8_shadow_governor_runner.py`
   - `scripts/cortex_r7_step9_canary_governor_controller.py`
+  - `scripts/cortex_r7_step10_full_rollout_autotuner.py`
   - `config/cortex_roadmap/r7_step1_baseline_regulation_contract.json`
   - `config/cortex_roadmap/r7_step2_state_signal_model_contract.json`
   - `config/cortex_roadmap/r7_step3_value_hierarchy_compiler_contract.json`
@@ -34,6 +36,7 @@ Current live state:
   - `config/cortex_roadmap/r7_step7_safety_envelope_overrides_contract.json`
   - `config/cortex_roadmap/r7_step8_shadow_governor_runner_contract.json`
   - `config/cortex_roadmap/r7_step9_canary_governor_controller_contract.json`
+  - `config/cortex_roadmap/r7_step10_full_rollout_autotuner_contract.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_snapshot_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_snapshot_latest.json`
@@ -46,7 +49,9 @@ Current live state:
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step7/safety_override_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step8/shadow_governor_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step9/canary_governor_probe_latest.json`
-- **Not yet landed in this checkout:** the broader Step 10–12 homeostasis surfaces that were previously listed as delivered.
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_latest.json`
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_probe_latest.json`
+- **Not yet landed in this checkout:** the broader Step 11–12 homeostasis surfaces that were previously listed as delivered.
 
 ## Intended scope
 The broader intended scope remains:
