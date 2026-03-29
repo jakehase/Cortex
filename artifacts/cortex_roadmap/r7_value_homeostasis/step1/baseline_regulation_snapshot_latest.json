@@ -1,0 +1,61 @@
+{
+  "generated_at": "2026-03-29T19:40:20.683637+00:00",
+  "phase": "phase_e_r7_step1",
+  "artifact_root": "/root/clawd/artifacts/cortex_roadmap/r7_value_homeostasis",
+  "source_artifacts": {
+    "r9_step6": "/root/clawd/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/replay_probe_latest.json",
+    "r9_step7": "/root/clawd/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step7/rollback_probe_latest.json",
+    "r9_step10": "/root/clawd/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/full_rollout_probe_latest.json",
+    "r9_step11": "/root/clawd/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_probe_latest.json",
+    "r9_step12": "/root/clawd/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/novelty_probe_latest.json"
+  },
+  "baseline_window": {
+    "mode": "artifact_derived_bootstrap_lock",
+    "note": "This is a local baseline lock from current landed R9 artifacts, not a 14-day live telemetry window."
+  },
+  "telemetry": {
+    "quality": {
+      "replay_quality_delta": 0.0575,
+      "scoring_supported_claims": 5,
+      "quality_non_regression_proxy": 1.0
+    },
+    "latency": {
+      "rollback_recovery_sla_met": true,
+      "rollback_max_recovery_seconds": 27.0,
+      "shadow_disagreement_rate": 0.0
+    },
+    "reliability": {
+      "rollback_required": false,
+      "runtime_health_unhealthy_dependencies": [
+        "architect"
+      ],
+      "novelty_gate_pass": true
+    },
+    "cost": {
+      "autotuned_weights": {
+        "quality": 1.35,
+        "latency": 0.08,
+        "cost": 0.06,
+        "risk": 0.23
+      },
+      "runtime_policy": {
+        "complexity_hard_threshold": 0.42,
+        "l9_auto_activation_threshold": 0.3,
+        "fastlane_escalation_threshold": 0.72,
+        "repair_pass_enabled": true,
+        "autotune_enabled": true,
+        "autotune_version": "nexus.autotune.v2"
+      }
+    },
+    "safety": {
+      "rollback_gate_pass": true,
+      "risk_reasons": [],
+      "dashboard_controls_present": true
+    },
+    "operator": {
+      "dashboard_gate_pass": true,
+      "dashboard_path": "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_live_local.html",
+      "runbook_success": true
+    }
+  }
+}
