@@ -1,0 +1,90 @@
+{"query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:0]", "risk_flags": ["code_change"], "quality": 0.81, "historical_success": 0.71, "live_chain": "deliberate_council"}
+{"query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:1]", "risk_flags": ["code_change"], "quality": 0.825, "historical_success": 0.74, "live_chain": "deliberate_council"}
+{"query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:2]", "risk_flags": ["code_change"], "quality": 0.8, "historical_success": 0.69, "live_chain": "deliberate_council"}
+{"query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:3]", "risk_flags": ["code_change"], "quality": 0.83, "historical_success": 0.72, "live_chain": "deliberate_council"}
+{"query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:4]", "risk_flags": ["code_change"], "quality": 0.822, "historical_success": 0.73, "live_chain": "deliberate_council"}
+{"query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:5]", "risk_flags": ["code_change"], "quality": 0.805, "historical_success": 0.7, "live_chain": "deliberate_council"}
+{"query": "Implement a python API bug fix with unit test coverage [fixture:01:0]", "risk_flags": ["code_change"], "quality": 0.8, "historical_success": 0.7, "live_chain": "deliberate_council"}
+{"query": "Implement a python API bug fix with unit test coverage [fixture:01:1]", "risk_flags": ["code_change"], "quality": 0.815, "historical_success": 0.73, "live_chain": "deliberate_council"}
+{"query": "Implement a python API bug fix with unit test coverage [fixture:01:2]", "risk_flags": ["code_change"], "quality": 0.79, "historical_success": 0.68, "live_chain": "deliberate_council"}
+{"query": "Implement a python API bug fix with unit test coverage [fixture:01:3]", "risk_flags": ["code_change"], "quality": 0.82, "historical_success": 0.71, "live_chain": "deliberate_council"}
+{"query": "Implement a python API bug fix with unit test coverage [fixture:01:4]", "risk_flags": ["code_change"], "quality": 0.812, "historical_success": 0.72, "live_chain": "deliberate_council"}
+{"query": "Implement a python API bug fix with unit test coverage [fixture:01:5]", "risk_flags": ["code_change"], "quality": 0.795, "historical_success": 0.69, "live_chain": "deliberate_council"}
+{"query": "Refactor the auth middleware and preserve test coverage [fixture:02:0]", "risk_flags": ["code_change"], "quality": 0.79, "historical_success": 0.68, "live_chain": "deliberate_council"}
+{"query": "Refactor the auth middleware and preserve test coverage [fixture:02:1]", "risk_flags": ["code_change"], "quality": 0.805, "historical_success": 0.71, "live_chain": "deliberate_council"}
+{"query": "Refactor the auth middleware and preserve test coverage [fixture:02:2]", "risk_flags": ["code_change"], "quality": 0.78, "historical_success": 0.66, "live_chain": "deliberate_council"}
+{"query": "Refactor the auth middleware and preserve test coverage [fixture:02:3]", "risk_flags": ["code_change"], "quality": 0.81, "historical_success": 0.69, "live_chain": "deliberate_council"}
+{"query": "Refactor the auth middleware and preserve test coverage [fixture:02:4]", "risk_flags": ["code_change"], "quality": 0.802, "historical_success": 0.7, "live_chain": "deliberate_council"}
+{"query": "Refactor the auth middleware and preserve test coverage [fixture:02:5]", "risk_flags": ["code_change"], "quality": 0.785, "historical_success": 0.67, "live_chain": "deliberate_council"}
+{"query": "Research current database outage status and likely mitigation [fixture:03:0]", "risk_flags": ["live_state"], "quality": 0.79, "historical_success": 0.69, "live_chain": "research_grounded"}
+{"query": "Research current database outage status and likely mitigation [fixture:03:1]", "risk_flags": ["live_state"], "quality": 0.805, "historical_success": 0.72, "live_chain": "research_grounded"}
+{"query": "Research current database outage status and likely mitigation [fixture:03:2]", "risk_flags": ["live_state"], "quality": 0.78, "historical_success": 0.67, "live_chain": "research_grounded"}
+{"query": "Research current database outage status and likely mitigation [fixture:03:3]", "risk_flags": ["live_state"], "quality": 0.81, "historical_success": 0.7, "live_chain": "research_grounded"}
+{"query": "Research current database outage status and likely mitigation [fixture:03:4]", "risk_flags": ["live_state"], "quality": 0.802, "historical_success": 0.71, "live_chain": "research_grounded"}
+{"query": "Research current database outage status and likely mitigation [fixture:03:5]", "risk_flags": ["live_state"], "quality": 0.785, "historical_success": 0.68, "live_chain": "research_grounded"}
+{"query": "Research the latest outage status with sources [fixture:04:0]", "risk_flags": ["live_state"], "quality": 0.8, "historical_success": 0.72, "live_chain": "research_grounded"}
+{"query": "Research the latest outage status with sources [fixture:04:1]", "risk_flags": ["live_state"], "quality": 0.815, "historical_success": 0.75, "live_chain": "research_grounded"}
+{"query": "Research the latest outage status with sources [fixture:04:2]", "risk_flags": ["live_state"], "quality": 0.79, "historical_success": 0.7, "live_chain": "research_grounded"}
+{"query": "Research the latest outage status with sources [fixture:04:3]", "risk_flags": ["live_state"], "quality": 0.82, "historical_success": 0.73, "live_chain": "research_grounded"}
+{"query": "Research the latest outage status with sources [fixture:04:4]", "risk_flags": ["live_state"], "quality": 0.812, "historical_success": 0.74, "live_chain": "research_grounded"}
+{"query": "Research the latest outage status with sources [fixture:04:5]", "risk_flags": ["live_state"], "quality": 0.795, "historical_success": 0.71, "live_chain": "research_grounded"}
+{"query": "Compare current vendor pricing with sources [fixture:05:0]", "risk_flags": ["live_state"], "quality": 0.78, "historical_success": 0.67, "live_chain": "research_grounded"}
+{"query": "Compare current vendor pricing with sources [fixture:05:1]", "risk_flags": ["live_state"], "quality": 0.795, "historical_success": 0.7, "live_chain": "research_grounded"}
+{"query": "Compare current vendor pricing with sources [fixture:05:2]", "risk_flags": ["live_state"], "quality": 0.77, "historical_success": 0.65, "live_chain": "research_grounded"}
+{"query": "Compare current vendor pricing with sources [fixture:05:3]", "risk_flags": ["live_state"], "quality": 0.8, "historical_success": 0.68, "live_chain": "research_grounded"}
+{"query": "Compare current vendor pricing with sources [fixture:05:4]", "risk_flags": ["live_state"], "quality": 0.792, "historical_success": 0.69, "live_chain": "research_grounded"}
+{"query": "Compare current vendor pricing with sources [fixture:05:5]", "risk_flags": ["live_state"], "quality": 0.775, "historical_success": 0.66, "live_chain": "research_grounded"}
+{"query": "Brainstorm novel product ideas unrelated to memory [fixture:06:0]", "risk_flags": [], "quality": 0.75, "historical_success": 0.58, "live_chain": "creative_fractal"}
+{"query": "Brainstorm novel product ideas unrelated to memory [fixture:06:1]", "risk_flags": [], "quality": 0.765, "historical_success": 0.61, "live_chain": "creative_fractal"}
+{"query": "Brainstorm novel product ideas unrelated to memory [fixture:06:2]", "risk_flags": [], "quality": 0.74, "historical_success": 0.56, "live_chain": "creative_fractal"}
+{"query": "Brainstorm novel product ideas unrelated to memory [fixture:06:3]", "risk_flags": [], "quality": 0.77, "historical_success": 0.59, "live_chain": "creative_fractal"}
+{"query": "Brainstorm novel product ideas unrelated to memory [fixture:06:4]", "risk_flags": [], "quality": 0.762, "historical_success": 0.6, "live_chain": "creative_fractal"}
+{"query": "Brainstorm novel product ideas unrelated to memory [fixture:06:5]", "risk_flags": [], "quality": 0.745, "historical_success": 0.57, "live_chain": "creative_fractal"}
+{"query": "Brainstorm three weird but plausible startup concepts [fixture:07:0]", "risk_flags": [], "quality": 0.76, "historical_success": 0.6, "live_chain": "creative_fractal"}
+{"query": "Brainstorm three weird but plausible startup concepts [fixture:07:1]", "risk_flags": [], "quality": 0.775, "historical_success": 0.63, "live_chain": "creative_fractal"}
+{"query": "Brainstorm three weird but plausible startup concepts [fixture:07:2]", "risk_flags": [], "quality": 0.75, "historical_success": 0.58, "live_chain": "creative_fractal"}
+{"query": "Brainstorm three weird but plausible startup concepts [fixture:07:3]", "risk_flags": [], "quality": 0.78, "historical_success": 0.61, "live_chain": "creative_fractal"}
+{"query": "Brainstorm three weird but plausible startup concepts [fixture:07:4]", "risk_flags": [], "quality": 0.772, "historical_success": 0.62, "live_chain": "creative_fractal"}
+{"query": "Brainstorm three weird but plausible startup concepts [fixture:07:5]", "risk_flags": [], "quality": 0.755, "historical_success": 0.59, "live_chain": "creative_fractal"}
+{"query": "Come up with creative names for a devtool [fixture:08:0]", "risk_flags": [], "quality": 0.74, "historical_success": 0.57, "live_chain": "creative_fractal"}
+{"query": "Come up with creative names for a devtool [fixture:08:1]", "risk_flags": [], "quality": 0.755, "historical_success": 0.6, "live_chain": "creative_fractal"}
+{"query": "Come up with creative names for a devtool [fixture:08:2]", "risk_flags": [], "quality": 0.73, "historical_success": 0.55, "live_chain": "creative_fractal"}
+{"query": "Come up with creative names for a devtool [fixture:08:3]", "risk_flags": [], "quality": 0.76, "historical_success": 0.58, "live_chain": "creative_fractal"}
+{"query": "Come up with creative names for a devtool [fixture:08:4]", "risk_flags": [], "quality": 0.752, "historical_success": 0.59, "live_chain": "creative_fractal"}
+{"query": "Come up with creative names for a devtool [fixture:08:5]", "risk_flags": [], "quality": 0.735, "historical_success": 0.56, "live_chain": "creative_fractal"}
+{"query": "Remind me in 20 minutes to check the deploy [fixture:09:0]", "risk_flags": [], "quality": 0.71, "historical_success": 0.66, "live_chain": "safe_reminder"}
+{"query": "Remind me in 20 minutes to check the deploy [fixture:09:1]", "risk_flags": [], "quality": 0.725, "historical_success": 0.69, "live_chain": "safe_reminder"}
+{"query": "Remind me in 20 minutes to check the deploy [fixture:09:2]", "risk_flags": [], "quality": 0.7, "historical_success": 0.64, "live_chain": "safe_reminder"}
+{"query": "Remind me in 20 minutes to check the deploy [fixture:09:3]", "risk_flags": [], "quality": 0.73, "historical_success": 0.67, "live_chain": "safe_reminder"}
+{"query": "Remind me in 20 minutes to check the deploy [fixture:09:4]", "risk_flags": [], "quality": 0.722, "historical_success": 0.68, "live_chain": "safe_reminder"}
+{"query": "Remind me in 20 minutes to check the deploy [fixture:09:5]", "risk_flags": [], "quality": 0.705, "historical_success": 0.65, "live_chain": "safe_reminder"}
+{"query": "Remind me tomorrow morning to email the vendor [fixture:10:0]", "risk_flags": [], "quality": 0.72, "historical_success": 0.67, "live_chain": "safe_reminder"}
+{"query": "Remind me tomorrow morning to email the vendor [fixture:10:1]", "risk_flags": [], "quality": 0.735, "historical_success": 0.7, "live_chain": "safe_reminder"}
+{"query": "Remind me tomorrow morning to email the vendor [fixture:10:2]", "risk_flags": [], "quality": 0.71, "historical_success": 0.65, "live_chain": "safe_reminder"}
+{"query": "Remind me tomorrow morning to email the vendor [fixture:10:3]", "risk_flags": [], "quality": 0.74, "historical_success": 0.68, "live_chain": "safe_reminder"}
+{"query": "Remind me tomorrow morning to email the vendor [fixture:10:4]", "risk_flags": [], "quality": 0.732, "historical_success": 0.69, "live_chain": "safe_reminder"}
+{"query": "Remind me tomorrow morning to email the vendor [fixture:10:5]", "risk_flags": [], "quality": 0.715, "historical_success": 0.66, "live_chain": "safe_reminder"}
+{"query": "Set a reminder for lunch to call the contractor [fixture:11:0]", "risk_flags": [], "quality": 0.7, "historical_success": 0.64, "live_chain": "safe_reminder"}
+{"query": "Set a reminder for lunch to call the contractor [fixture:11:1]", "risk_flags": [], "quality": 0.715, "historical_success": 0.67, "live_chain": "safe_reminder"}
+{"query": "Set a reminder for lunch to call the contractor [fixture:11:2]", "risk_flags": [], "quality": 0.69, "historical_success": 0.62, "live_chain": "safe_reminder"}
+{"query": "Set a reminder for lunch to call the contractor [fixture:11:3]", "risk_flags": [], "quality": 0.72, "historical_success": 0.65, "live_chain": "safe_reminder"}
+{"query": "Set a reminder for lunch to call the contractor [fixture:11:4]", "risk_flags": [], "quality": 0.712, "historical_success": 0.66, "live_chain": "safe_reminder"}
+{"query": "Set a reminder for lunch to call the contractor [fixture:11:5]", "risk_flags": [], "quality": 0.695, "historical_success": 0.63, "live_chain": "safe_reminder"}
+{"query": "Explain TCP in one paragraph [fixture:12:0]", "risk_flags": [], "quality": 0.72, "historical_success": 0.62, "live_chain": "fastlane_memory"}
+{"query": "Explain TCP in one paragraph [fixture:12:1]", "risk_flags": [], "quality": 0.735, "historical_success": 0.65, "live_chain": "fastlane_memory"}
+{"query": "Explain TCP in one paragraph [fixture:12:2]", "risk_flags": [], "quality": 0.71, "historical_success": 0.6, "live_chain": "fastlane_memory"}
+{"query": "Explain TCP in one paragraph [fixture:12:3]", "risk_flags": [], "quality": 0.74, "historical_success": 0.63, "live_chain": "fastlane_memory"}
+{"query": "Explain TCP in one paragraph [fixture:12:4]", "risk_flags": [], "quality": 0.732, "historical_success": 0.64, "live_chain": "fastlane_memory"}
+{"query": "Explain TCP in one paragraph [fixture:12:5]", "risk_flags": [], "quality": 0.715, "historical_success": 0.61, "live_chain": "fastlane_memory"}
+{"query": "Summarize what Redis is for in simple terms [fixture:13:0]", "risk_flags": [], "quality": 0.71, "historical_success": 0.61, "live_chain": "fastlane_memory"}
+{"query": "Summarize what Redis is for in simple terms [fixture:13:1]", "risk_flags": [], "quality": 0.725, "historical_success": 0.64, "live_chain": "fastlane_memory"}
+{"query": "Summarize what Redis is for in simple terms [fixture:13:2]", "risk_flags": [], "quality": 0.7, "historical_success": 0.59, "live_chain": "fastlane_memory"}
+{"query": "Summarize what Redis is for in simple terms [fixture:13:3]", "risk_flags": [], "quality": 0.73, "historical_success": 0.62, "live_chain": "fastlane_memory"}
+{"query": "Summarize what Redis is for in simple terms [fixture:13:4]", "risk_flags": [], "quality": 0.722, "historical_success": 0.63, "live_chain": "fastlane_memory"}
+{"query": "Summarize what Redis is for in simple terms [fixture:13:5]", "risk_flags": [], "quality": 0.705, "historical_success": 0.6, "live_chain": "fastlane_memory"}
+{"query": "What does HTTP 502 mean? [fixture:14:0]", "risk_flags": [], "quality": 0.7, "historical_success": 0.6, "live_chain": "fastlane_memory"}
+{"query": "What does HTTP 502 mean? [fixture:14:1]", "risk_flags": [], "quality": 0.715, "historical_success": 0.63, "live_chain": "fastlane_memory"}
+{"query": "What does HTTP 502 mean? [fixture:14:2]", "risk_flags": [], "quality": 0.69, "historical_success": 0.58, "live_chain": "fastlane_memory"}
+{"query": "What does HTTP 502 mean? [fixture:14:3]", "risk_flags": [], "quality": 0.72, "historical_success": 0.61, "live_chain": "fastlane_memory"}
+{"query": "What does HTTP 502 mean? [fixture:14:4]", "risk_flags": [], "quality": 0.712, "historical_success": 0.62, "live_chain": "fastlane_memory"}
+{"query": "What does HTTP 502 mean? [fixture:14:5]", "risk_flags": [], "quality": 0.695, "historical_success": 0.59, "live_chain": "fastlane_memory"}

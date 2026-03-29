@@ -34,6 +34,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `scripts/cortex_r9_step1_baseline_telemetry.py`
 - `scripts/cortex_r9_step2_route_taxonomy.py`
 - `scripts/cortex_r9_step3_feature_pipeline.py`
+- `scripts/cortex_r9_step6_counterfactual_replay.py`
 - `scripts/cortex_r9_step8_shadow_mode.py`
 - `scripts/cortex_r9_step9_canary_rollout.py`
 - `scripts/cortex_r9_step10_full_rollout_autotune.py`
@@ -42,6 +43,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step2/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step3/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/*`
@@ -115,6 +117,7 @@ Read the remainder of this document as a target architecture plus execution plan
 ### Step 6 — Counterfactual replay evaluator
 - Replay historical turns through candidate chains.
 - Compare predicted utility vs baseline route.
+- **Status in this checkout:** landed as a reproducible fixture replay set with bootstrap-scored replay as the primary measure and native bandit replay reported only as supplemental evidence.
 - **Gate:** statistically significant utility lift on replay set.
 - Execution artifacts:
   - `services/routing/replay_significance.py`

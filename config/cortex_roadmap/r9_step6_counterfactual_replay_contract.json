@@ -1,0 +1,15 @@
+{
+  "version": "cortex.roadmap.r9.step6.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/replay_dataset_latest.jsonl",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/replay_probe_latest.json"
+  ],
+  "gates": {
+    "quality_delta_positive": true,
+    "significance_required": true
+  },
+  "notes": [
+    "Synthetic but reproducible fixture replay is acceptable for this bootstrap milestone.",
+    "Native replay from level_optimizer is supplemental evidence, not the primary score for the bootstrap policy."
+  ]
+}
