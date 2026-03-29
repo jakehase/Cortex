@@ -5,12 +5,16 @@
 **R7 is not fully implemented in this checkout yet.**
 
 Current live status:
-- **Step 1 is landed** as a real Phase E starting slice:
+- **Steps 1–2 are landed** as real Phase E starting slices:
   - `services/homeostasis/baseline_regulation.py`
+  - `services/homeostasis/state_signal_model.py`
   - `scripts/cortex_r7_step1_baseline_regulation.py`
+  - `scripts/cortex_r7_step2_state_signal_model.py`
   - `config/cortex_roadmap/r7_step1_baseline_regulation_contract.json`
+  - `config/cortex_roadmap/r7_step2_state_signal_model_contract.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json`
-- **Steps 2–12 below remain roadmap targets** unless/until their files/artifacts are actually added.
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_probe_latest.json`
+- **Steps 3–12 below remain roadmap targets** unless/until their files/artifacts are actually added.
 
 ## Objective
 Turn Cortex regulation into an adaptive governor that continuously balances:
@@ -42,6 +46,7 @@ Phase B2 (immediate execution track, 2–8 weeks)
 ### Step 2 — Homeostatic state vector + signal model
 - Define canonical state vector (urgency, risk pressure, fatigue, timeout pressure, error pressure, budget pressure, escalation debt).
 - Add health signal smoothing + anomaly tags.
+- **Status in this checkout:** landed as a canonical state vector snapshot with smoothed signals, anomaly tags, and completeness/stability validation.
 - **Gate:** signal completeness and stability checks pass.
 - Execution artifacts:
   - `services/homeostasis/state_signal_model.py`
