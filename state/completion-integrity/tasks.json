@@ -2896,18 +2896,26 @@
       "createdAt": "2026-03-19T10:20:51.124Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T13:16:05.739Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:20:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-29T07:06:15.439Z",
+      "updatedAt": "2026-03-29T07:18:39.714Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T13:16:05.739Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-29T07:18:39.714Z",
+          "failedAt": "2026-03-29T07:18:39.714Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -2919,16 +2927,19 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 449,
+        "runs": 450,
         "failures": [],
-        "lastRunAt": "2026-03-29T07:06:15.442Z",
+        "lastRunAt": "2026-03-29T07:11:13.262Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
         }
       },
       "trustTier": "normal",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-29T07:18:39.714Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915951125",
