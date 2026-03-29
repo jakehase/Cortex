@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-29T13:26:15.396Z",
+      "updatedAt": "2026-03-29T13:31:35.188Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 74,
+        "runs": 75,
         "failures": [],
-        "lastRunAt": "2026-03-29T13:26:15.400Z",
+        "lastRunAt": "2026-03-29T13:31:35.195Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5731,6 +5731,52 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-28T22:43:18.922Z",
       "failureReason": "ifespan Events](https://fastapi.tiangolo.com/advanced/events/). @router.on_event(\"startup\") cortex_server/routers/validator.py:40 /root/clawd/public/cortex_server/cortex_server/routers/validator.py:40: UserWarning: Field name \"schema\" in \"ValidateRequest\" shadows an attribute in parent \"BaseModel\" class ValidateRequest(BaseModel): cortex_server/routers/sentinel.py:288 /root/clawd/public/cortex_ser",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774791165056:715cc982d4a9b620",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-29T13:32:45.056Z",
+      "updatedAt": "2026-03-29T13:32:49.967Z",
+      "prompt": "System: [2026-03-29 08:03:26 CDT] Exec completed (delta-se, code 1) :: = FAILED public/cortex_server/tests/test_orchestrator_runtime.py::test_runtime_analytics_summary_route_returns_time_windowed_snapshot FAILED public/cortex_server/tests/t",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-29T13:32:45.056Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-29T13:32:45.060Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-03-29T13:32:49.967Z",
+          "failedAt": "2026-03-29T13:32:49.967Z",
+          "failureReason": "System: [2026-03-29 08:03:26 CDT] Exec completed (delta-se, code 1) :: = FAILED public/cortex_server/tests/test_orchestrator_runtime.py::test_runtime_analytics_summary_route_returns_time_windowed_snapshot FAILED public/cortex_server/tests/test_orches… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AF4F34C0547AEAE14CF\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "failedAt": "2026-03-29T13:32:49.967Z",
+      "failureReason": "System: [2026-03-29 08:03:26 CDT] Exec completed (delta-se, code 1) :: = FAILED public/cortex_server/tests/test_orchestrator_runtime.py::test_runtime_analytics_summary_route_returns_time_windowed_snapshot FAILED public/cortex_server/tests/test_orches… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AF4F34C0547AEAE14CF\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (",
       "failureSource": "runtime_message"
     }
   ]
