@@ -32,6 +32,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `services/routing/full_rollout_autotuner.py`
 - `services/routing/counterfactual_replay_evaluator.py`
 - `services/routing/operator_dashboard.py`
+- `services/routing/novelty_packager.py`
 - `scripts/cortex_r9_step1_baseline_telemetry.py`
 - `scripts/cortex_r9_step2_route_taxonomy.py`
 - `scripts/cortex_r9_step3_feature_pipeline.py`
@@ -43,6 +44,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `scripts/cortex_r9_step9_canary_rollout.py`
 - `scripts/cortex_r9_step10_full_rollout_autotune.py`
 - `scripts/cortex_r9_step11_operator_dashboard.py`
+- `scripts/cortex_r9_step12_novelty_packaging.py`
 - `scripts/serve_r9_dashboard_local.py`
 - `scripts/cortex_r9_adaptive_routing_brain.py`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/README.md`
@@ -57,6 +59,7 @@ Phase D2 roadmap with a bootstrap slice now present in this checkout
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/*`
 
 ### Still missing for full roadmap completion
 - most step-specific scripts/configs/artifacts from the full 12-step plan
@@ -194,6 +197,7 @@ Read the remainder of this document as a target architecture plus execution plan
 ### Step 12 — Novelty packaging
 - Write claim-oriented technical brief + reproducibility pack.
 - Focus on dynamic multi-objective chain selection under explicit risk constraints + rollback safety envelope.
+- **Status in this checkout:** landed as a claim-disciplined novelty pack with a claim map, reproducibility pack, brief, and explicit not-supported claims to prevent overstatement.
 - **Gate:** internal novelty review complete with claim map.
 - Execution artifacts:
   - `services/routing/novelty_packager.py`
