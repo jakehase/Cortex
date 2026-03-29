@@ -20,17 +20,19 @@ def main() -> int:
     step4 = run_json("scripts/cortex_r7_step4_conflict_arbitration.py")
     step5 = run_json("scripts/cortex_r7_step5_dynamic_budget_allocator.py")
     step6 = run_json("scripts/cortex_r7_step6_adaptive_effort_controller.py")
+    step7 = run_json("scripts/cortex_r7_step7_safety_envelope_overrides.py")
     payload = {
         "success": True,
         "phase": "phase_e_r7",
-        "landed_steps": [1, 2, 3, 4, 5, 6],
-        "remaining_steps": list(range(7, 13)),
+        "landed_steps": [1, 2, 3, 4, 5, 6, 7],
+        "remaining_steps": list(range(8, 13)),
         "step1": step1,
         "step2": step2,
         "step3": step3,
         "step4": step4,
         "step5": step5,
         "step6": step6,
+        "step7": step7,
     }
     print(json.dumps(payload, indent=2))
     return 0

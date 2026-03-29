@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-29T21:55:42.452678+00:00",
+  "generated_at": "2026-03-29T22:12:41.969784+00:00",
   "snapshot_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_snapshot_latest.json",
   "validation": {
-    "generated_at": "2026-03-29T21:55:42.452504+00:00",
+    "generated_at": "2026-03-29T22:12:41.969640+00:00",
     "valid": true,
     "missing_top_level_fields": [],
     "missing_telemetry_sections": [],

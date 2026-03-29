@@ -5,13 +5,14 @@
 **R7 is not fully implemented in this checkout yet.**
 
 Current live status:
-- **Steps 1–6 are landed** as real Phase E starting slices:
+- **Steps 1–7 are landed** as real Phase E starting slices:
   - `services/homeostasis/baseline_regulation.py`
   - `services/homeostasis/state_signal_model.py`
   - `services/homeostasis/value_hierarchy_compiler.py`
   - `services/homeostasis/conflict_arbitration_v2.py`
   - `services/homeostasis/dynamic_budget_allocator.py`
   - `services/homeostasis/adaptive_effort_controller.py`
+  - `services/homeostasis/safety_envelope_overrides.py`
   - `services/homeostasis/objective_hierarchy.json`
   - `scripts/cortex_r7_step1_baseline_regulation.py`
   - `scripts/cortex_r7_step2_state_signal_model.py`
@@ -19,19 +20,22 @@ Current live status:
   - `scripts/cortex_r7_step4_conflict_arbitration.py`
   - `scripts/cortex_r7_step5_dynamic_budget_allocator.py`
   - `scripts/cortex_r7_step6_adaptive_effort_controller.py`
+  - `scripts/cortex_r7_step7_safety_envelope_overrides.py`
   - `config/cortex_roadmap/r7_step1_baseline_regulation_contract.json`
   - `config/cortex_roadmap/r7_step2_state_signal_model_contract.json`
   - `config/cortex_roadmap/r7_step3_value_hierarchy_compiler_contract.json`
   - `config/cortex_roadmap/r7_step4_conflict_arbitration_contract.json`
   - `config/cortex_roadmap/r7_step5_dynamic_budget_allocator_contract.json`
   - `config/cortex_roadmap/r7_step6_adaptive_effort_controller_contract.json`
+  - `config/cortex_roadmap/r7_step7_safety_envelope_overrides_contract.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step4/arbitration_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step5/budget_allocator_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step6/adaptive_effort_probe_latest.json`
-- **Steps 7–12 below remain roadmap targets** unless/until their files/artifacts are actually added.
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step7/safety_override_probe_latest.json`
+- **Steps 8–12 below remain roadmap targets** unless/until their files/artifacts are actually added.
 
 ## Objective
 Turn Cortex regulation into an adaptive governor that continuously balances:
