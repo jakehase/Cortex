@@ -36,11 +36,25 @@ python3 scripts/cortex_phase_c_impl_wave.py
 - `r5_policy_output_within_action_bounds`
 
 ## Current limits
-- Environment is still 2D sim-first (stochastic/fault hardening added in Phase D, but no photorealistic sim-to-real transfer yet).
+- Environment is still 2D sim-first.
 - Recovery policy remains rule-based (not yet learned/adaptive end-to-end).
 - Robotics adapter is documented but not wired to live hardware transport in this slice.
 
-## Phase D extension
-- Orchestrator path now wires embodiment episode outputs into R1 world-state updates, R4 workspace arbitration/signaling, and R7 adaptive regulation hooks.
-- Hardening added: stochastic sweeps, fault-injection scenarios, watchdog timeout controls, and regression invariants.
-- Benchmark pack added with confidence intervals and failure taxonomy under `artifacts/cortex_roadmap/phase_d_wave/benchmark/`.
+## Phase D extension status
+
+**Not repo-verified in this checkout.**
+
+The broader Phase D embodiment extension referenced here is currently documented, but the claimed implementation/scripts/artifacts were not found during the 2026-03-29 repo audit.
+
+Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
+
+### Intended Phase D extension
+If restored or implemented later, this extension is intended to add:
+- orchestrator wiring from embodiment episode outputs into R1 world-state updates, R4 workspace arbitration/signaling, and R7 adaptive regulation hooks
+- hardening: stochastic sweeps, fault-injection scenarios, watchdog timeout controls, and regression invariants
+- benchmark pack outputs under `artifacts/cortex_roadmap/phase_d_wave/benchmark/`
+
+### Current truth in this repo
+- `services/embodiment/*` implementation files for this extension are **missing**
+- the referenced Phase D scripts are **missing**
+- the referenced Phase D artifact tree is **missing**

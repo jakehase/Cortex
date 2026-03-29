@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-29T14:41:20.065Z",
+      "updatedAt": "2026-03-29T14:46:27.704Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 89,
+        "runs": 90,
         "failures": [],
-        "lastRunAt": "2026-03-29T14:41:20.072Z",
+        "lastRunAt": "2026-03-29T14:46:27.711Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5783,7 +5783,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774793788312:9f8ae29484e8d2f6",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-29T14:16:28.312Z",
-      "updatedAt": "2026-03-29T14:40:20.131Z",
+      "updatedAt": "2026-03-29T14:50:05.006Z",
       "prompt": "System: [2026-03-29 08:36:36 CDT] Exec completed (plaid-cr, code 0) :: ............................................... [100%] Yes do it",
       "kind": "user_visible",
       "trustTier": "normal",
@@ -5818,9 +5818,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 15,
+        "runs": 16,
         "failures": [],
-        "lastRunAt": "2026-03-29T14:40:20.138Z",
+        "lastRunAt": "2026-03-29T14:50:05.013Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true

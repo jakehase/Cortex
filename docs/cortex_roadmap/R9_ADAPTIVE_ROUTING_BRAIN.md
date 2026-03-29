@@ -1,5 +1,14 @@
 # R9 — Adaptive Routing Brain (Quality × Latency × Cost × Risk)
 
+## Status in this checkout
+
+**Roadmap / planned work, not a verified shipped feature set in the current repo checkout.**
+
+Audit date: `2026-03-29`
+Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
+
+There is adjacent routing machinery in `public/cortex_server/cortex_server/routers/nexus.py`, including replay-oriented logic, but the specific service files, scripts, and artifacts described below were not found in this repo.
+
 ## Objective
 Turn Cortex routing into a learned, self-improving decision system that selects the best level-chain per prompt under explicit quality, latency, cost, and risk constraints.
 
@@ -7,7 +16,27 @@ Turn Cortex routing into a learned, self-improving decision system that selects 
 Memory (R8) is implemented and hardened. The fastest multiplier on all capabilities is smarter route selection over existing levels.
 
 ## Phase
-Phase D2 (immediate execution track, 2–6 weeks)
+Phase D2 roadmap (planned, not verified shipped in this checkout)
+
+## Current repo reality
+
+### Missing service files named by this roadmap
+- `services/routing/route_feature_pipeline.py`
+- `services/routing/adaptive_router_policy.py`
+- `services/routing/chain_candidate_generator.py`
+- `services/routing/replay_significance.py`
+- `services/routing/safety_rollback_guard.py`
+- `services/routing/shadow_mode_runner.py`
+- `services/routing/canary_rollout_controller.py`
+- `services/routing/full_rollout_autotuner.py`
+
+### Missing scripts/artifacts named by this roadmap
+- `scripts/cortex_r9_step1_baseline_telemetry.py`
+- `scripts/cortex_r9_step10_full_rollout_autotune.py`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/*`
+
+### Practical interpretation
+Read the remainder of this document as an implementation plan / target architecture, not as proof that the full R9 Phase D2 stack is already shipped in this checkout.
 
 ## Step-by-step execution plan
 
