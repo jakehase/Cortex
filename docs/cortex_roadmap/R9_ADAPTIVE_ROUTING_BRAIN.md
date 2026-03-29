@@ -2,7 +2,7 @@
 
 ## Status in this checkout
 
-**Bootstrap implementation is present in this checkout, but the full roadmap remains incomplete.**
+**A stable routing bootstrap slice is landed in this checkout, but the full roadmap remains incomplete.**
 
 Audit/update date: `2026-03-29`
 Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`

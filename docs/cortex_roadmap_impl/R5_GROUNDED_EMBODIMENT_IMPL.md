@@ -42,7 +42,7 @@ python3 scripts/cortex_phase_c_impl_wave.py
 
 ## Phase D extension status
 
-**MVP now repo-verified in this checkout.**
+**Landed and repo-verified in this checkout.**
 
 Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
 
@@ -60,6 +60,6 @@ Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
 - `scripts/cortex_phase_d_impl_wave.py`
 
 ### Remaining limits
-- this extension currently uses local compatibility hook implementations rather than full external R1/R4/R7 subsystem backends
+- this landed extension still uses local compatibility hook implementations rather than full external R1/R4/R7 subsystem backends
 - benchmark scale and confidence interval logic are still lightweight
 - live hardware transport remains out of scope

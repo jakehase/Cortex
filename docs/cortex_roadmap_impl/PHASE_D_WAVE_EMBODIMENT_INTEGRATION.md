@@ -2,7 +2,7 @@
 
 ## Status in this checkout
 
-**Phase D Wave MVP is now implemented in this checkout.**
+**Phase D Wave is landed in this checkout as a validated embodiment slice.**
 
 Audit/update date: `2026-03-29`
 Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
@@ -15,7 +15,7 @@ Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
 - generated artifact tree under `artifacts/cortex_roadmap/phase_d_wave/`
 
 ### Scope caveat
-This is a **real MVP slice**, not proof that every originally imagined embodiment Phase D expansion is finished. It establishes the orchestration/hardening/benchmark surfaces and artifacts in-repo.
+This is a **real landed slice**, not proof that every originally imagined embodiment Phase D expansion is finished. It establishes the orchestration/hardening/benchmark surfaces and artifacts in-repo and has direct validation coverage.
 
 ## Artifact status matrix
 
@@ -55,8 +55,8 @@ This is a **real MVP slice**, not proof that every originally imagined embodimen
 - benchmark pack with reproducibility metadata and failure taxonomy counters
 
 ## Remaining expansion work
-To move from MVP to broader Phase D completion:
+To move from this landed slice to broader Phase D expansion:
 1. add richer world-state / workspace / regulator backends beyond the local compatibility hooks
 2. increase scenario breadth and failure taxonomy depth
-3. add dedicated tests around the hook contracts
+3. deepen test coverage around the hook contracts and probes
 4. extend benchmark scale and confidence interval rigor
