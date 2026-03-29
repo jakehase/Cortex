@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -11,7 +12,24 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter()
+
+@asynccontextmanager
+async def _sentinel_lifespan(_app):
+    try:
+        _load_watchers()
+        await start_scheduler()
+    except Exception:
+        pass
+    try:
+        yield
+    finally:
+        try:
+            await stop_scheduler()
+        except Exception:
+            pass
+
+
+router = APIRouter(lifespan=_sentinel_lifespan)
 
 _scheduler_running: bool = False
 _scheduler_task: Optional[asyncio.Task] = None
@@ -284,11 +302,3 @@ async def self_heal_status(limit: int = 20):
         "auto_normalization": True,
     }
 
-
-@router.on_event("startup")
-async def auto_start_scheduler():
-    try:
-        _load_watchers()
-        await start_scheduler()
-    except Exception:
-        pass

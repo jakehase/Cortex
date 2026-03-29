@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Any
 
 router = APIRouter(tags=["Validator"])
@@ -38,8 +38,10 @@ TYPE_MAP = {
 }
 
 class ValidateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     data: Dict[str, Any]
-    schema: str
+    schema_name: str = Field(alias="schema")
     strict: bool = True
 
 class SchemaRequest(BaseModel):
@@ -57,12 +59,12 @@ async def validate_data(request: ValidateRequest):
     errors = []
     warnings = []
 
-    if request.schema not in SCHEMAS:
+    if request.schema_name not in SCHEMAS:
         validator_state["failures"] += 1
         validator_state["unknown_schema_failures"] += 1
-        return {"valid": False, "errors": [f"Unknown schema: {request.schema}"], "warnings": []}
+        return {"valid": False, "errors": [f"Unknown schema: {request.schema_name}"], "warnings": []}
 
-    schema_def = SCHEMAS[request.schema]
+    schema_def = SCHEMAS[request.schema_name]
 
     # Check required fields
     for field in schema_def.get("required_fields", []):

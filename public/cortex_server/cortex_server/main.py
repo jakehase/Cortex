@@ -5,6 +5,7 @@ Main entry point and FastAPI application factory.
 
 import logging
 logger = logging.getLogger(__name__)
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -58,12 +59,50 @@ def load_dynamic_routers(app: FastAPI) -> None:
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        if FAIL_CLOSED_MEMORY_ENDPOINTS:
+            route_paths = {route.path for route in app.routes}
+            required_paths = {"/l22/store", "/knowledge/search"}
+            missing_paths = sorted(required_paths - route_paths)
+            if missing_paths:
+                raise RuntimeError(
+                    f"Fail-closed startup: missing required memory endpoints: {', '.join(missing_paths)}"
+                )
+
+        try:
+            subprocess.run(["redis-server", "--daemonize", "yes"], check=False)
+            await asyncio.sleep(1)
+            logger.info("Redis started for background task processing")
+        except Exception as e:
+            logger.warning(f"Redis startup warning: {e}")
+
+        try:
+            from cortex_server.scheduler import start_scheduler
+            start_scheduler()
+        except Exception as e:
+            logger.warning(f"Scheduler startup skipped: {e}")
+        try:
+            from cortex_server.modules.chronos import get_chronos
+            asyncio.create_task(get_chronos().start_scheduler())
+        except Exception as e:
+            logger.warning(f"Chronos scheduler startup skipped: {e}")
+        try:
+            from cortex_server.routers.awareness import start_awareness
+            asyncio.create_task(start_awareness())
+        except Exception as e:
+            logger.warning(f"Awareness startup skipped: {e}")
+
+        yield
+
     app = FastAPI(
         title="The Cortex",
         description="Local Knowledge Graph and Tool Server",
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     @app.middleware("http")
@@ -97,40 +136,6 @@ def create_app() -> FastAPI:
     # API Routers
     load_dynamic_routers(app)
     app.include_router(websockets.router, tags=["WebSockets"])
-
-    @app.on_event("startup")
-    async def startup_event():
-        if FAIL_CLOSED_MEMORY_ENDPOINTS:
-            route_paths = {route.path for route in app.routes}
-            required_paths = {"/l22/store", "/knowledge/search"}
-            missing_paths = sorted(required_paths - route_paths)
-            if missing_paths:
-                raise RuntimeError(
-                    f"Fail-closed startup: missing required memory endpoints: {', '.join(missing_paths)}"
-                )
-
-        try:
-            subprocess.run(["redis-server", "--daemonize", "yes"], check=False)
-            await asyncio.sleep(1)
-            logger.info("Redis started for background task processing")
-        except Exception as e:
-            logger.warning(f"Redis startup warning: {e}")
-
-        try:
-            from cortex_server.scheduler import start_scheduler
-            start_scheduler()
-        except Exception as e:
-            logger.warning(f"Scheduler startup skipped: {e}")
-        try:
-            from cortex_server.modules.chronos import get_chronos
-            asyncio.create_task(get_chronos().start_scheduler())
-        except Exception as e:
-            logger.warning(f"Chronos scheduler startup skipped: {e}")
-        try:
-            from cortex_server.routers.awareness import start_awareness
-            asyncio.create_task(start_awareness())
-        except Exception as e:
-            logger.warning(f"Awareness startup skipped: {e}")
 
     @app.get("/health")
     async def health_check():

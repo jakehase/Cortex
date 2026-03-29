@@ -17,6 +17,7 @@ import os
 import json
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -24,7 +25,14 @@ import httpx
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, HttpUrl
 
-router = APIRouter()
+
+@asynccontextmanager
+async def _bridge_lifespan(_app):
+    _persist_load()
+    yield
+
+
+router = APIRouter(lifespan=_bridge_lifespan)
 
 # ---------------------------------------------------------------------------
 # Config (env)
@@ -155,15 +163,6 @@ class RelayResponse(BaseModel):
     response: Optional[Any] = None
     error: Optional[str] = None
     latency_ms: float
-
-
-# ---------------------------------------------------------------------------
-# Startup
-# ---------------------------------------------------------------------------
-
-@router.on_event("startup")
-async def _startup():
-    _persist_load()
 
 
 # ---------------------------------------------------------------------------
