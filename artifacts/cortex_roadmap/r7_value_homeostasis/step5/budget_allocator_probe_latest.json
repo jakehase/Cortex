@@ -1,0 +1,908 @@
+{
+  "generated_at": "2026-03-29T21:26:33.086576+00:00",
+  "sample_allocations": [
+    {
+      "generated_at": "2026-03-29T21:26:33.086563+00:00",
+      "intent": "research",
+      "risk_tier": "high",
+      "mode": "normal",
+      "mode_reasons": [
+        "nominal_window"
+      ],
+      "budgets": {
+        "tokens": 2188,
+        "depth": 5,
+        "latency_ms": 3562
+      },
+      "reserve_pools": {
+        "incident": {
+          "tokens": 462,
+          "depth": 1,
+          "latency_ms": 752
+        },
+        "recovery": {
+          "tokens": 279,
+          "depth": 1,
+          "latency_ms": 455
+        }
+      },
+      "observed_load": {
+        "token_pressure": 0.58,
+        "depth_pressure": 0.44,
+        "latency_pressure": 0.52
+      }
+    },
+    {
+      "generated_at": "2026-03-29T21:26:33.086567+00:00",
+      "intent": "coding",
+      "risk_tier": "medium",
+      "mode": "normal",
+      "mode_reasons": [
+        "nominal_window"
+      ],
+      "budgets": {
+        "tokens": 1930,
+        "depth": 5,
+        "latency_ms": 3113
+      },
+      "reserve_pools": {
+        "incident": {
+          "tokens": 215,
+          "depth": 1,
+          "latency_ms": 346
+        },
+        "recovery": {
+          "tokens": 246,
+          "depth": 1,
+          "latency_ms": 397
+        }
+      },
+      "observed_load": {
+        "token_pressure": 0.5,
+        "depth_pressure": 0.5,
+        "latency_pressure": 0.38
+      }
+    },
+    {
+      "generated_at": "2026-03-29T21:26:33.086571+00:00",
+      "intent": "reminder",
+      "risk_tier": "low",
+      "mode": "normal",
+      "mode_reasons": [
+        "nominal_window"
+      ],
+      "budgets": {
+        "tokens": 1042,
+        "depth": 2,
+        "latency_ms": 1528
+      },
+      "reserve_pools": {
+        "incident": {
+          "tokens": 116,
+          "depth": 1,
+          "latency_ms": 170
+        },
+        "recovery": {
+          "tokens": 133,
+          "depth": 1,
+          "latency_ms": 195
+        }
+      },
+      "observed_load": {
+        "token_pressure": 0.1,
+        "depth_pressure": 0.05,
+        "latency_pressure": 0.08
+      }
+    }
+  ],
+  "simulation": {
+    "generated_at": "2026-03-29T21:26:33.086546+00:00",
+    "turn_count": 100,
+    "overrun_events": 0,
+    "overrun_rate_per_100": 0.0,
+    "gate_pass": true,
+    "results": [
+      {
+        "turn_id": "turn_000",
+        "intent": "qa",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_001",
+        "intent": "coding",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_002",
+        "intent": "planning",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_003",
+        "intent": "research",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_004",
+        "intent": "creative",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_005",
+        "intent": "reminder",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_006",
+        "intent": "qa",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_007",
+        "intent": "coding",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_008",
+        "intent": "planning",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_009",
+        "intent": "research",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_010",
+        "intent": "creative",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_011",
+        "intent": "reminder",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_012",
+        "intent": "qa",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_013",
+        "intent": "coding",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_014",
+        "intent": "planning",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_015",
+        "intent": "research",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_016",
+        "intent": "creative",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_017",
+        "intent": "reminder",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_018",
+        "intent": "qa",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_019",
+        "intent": "coding",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_020",
+        "intent": "planning",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_021",
+        "intent": "research",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_022",
+        "intent": "creative",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_023",
+        "intent": "reminder",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_024",
+        "intent": "qa",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_025",
+        "intent": "coding",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_026",
+        "intent": "planning",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_027",
+        "intent": "research",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_028",
+        "intent": "creative",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_029",
+        "intent": "reminder",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_030",
+        "intent": "qa",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_031",
+        "intent": "coding",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_032",
+        "intent": "planning",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_033",
+        "intent": "research",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_034",
+        "intent": "creative",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_035",
+        "intent": "reminder",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_036",
+        "intent": "qa",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_037",
+        "intent": "coding",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_038",
+        "intent": "planning",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_039",
+        "intent": "research",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_040",
+        "intent": "creative",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_041",
+        "intent": "reminder",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_042",
+        "intent": "qa",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_043",
+        "intent": "coding",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_044",
+        "intent": "planning",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_045",
+        "intent": "research",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_046",
+        "intent": "creative",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_047",
+        "intent": "reminder",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_048",
+        "intent": "qa",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_049",
+        "intent": "coding",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_050",
+        "intent": "planning",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_051",
+        "intent": "research",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_052",
+        "intent": "creative",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_053",
+        "intent": "reminder",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_054",
+        "intent": "qa",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_055",
+        "intent": "coding",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_056",
+        "intent": "planning",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_057",
+        "intent": "research",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_058",
+        "intent": "creative",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_059",
+        "intent": "reminder",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_060",
+        "intent": "qa",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_061",
+        "intent": "coding",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_062",
+        "intent": "planning",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_063",
+        "intent": "research",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_064",
+        "intent": "creative",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_065",
+        "intent": "reminder",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_066",
+        "intent": "qa",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_067",
+        "intent": "coding",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_068",
+        "intent": "planning",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_069",
+        "intent": "research",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_070",
+        "intent": "creative",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_071",
+        "intent": "reminder",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_072",
+        "intent": "qa",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_073",
+        "intent": "coding",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_074",
+        "intent": "planning",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_075",
+        "intent": "research",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_076",
+        "intent": "creative",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_077",
+        "intent": "reminder",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_078",
+        "intent": "qa",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_079",
+        "intent": "coding",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_080",
+        "intent": "planning",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_081",
+        "intent": "research",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_082",
+        "intent": "creative",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_083",
+        "intent": "reminder",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_084",
+        "intent": "qa",
+        "risk_tier": "low",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_085",
+        "intent": "coding",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_086",
+        "intent": "planning",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_087",
+        "intent": "research",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_088",
+        "intent": "creative",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_089",
+        "intent": "reminder",
+        "risk_tier": "medium",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_090",
+        "intent": "qa",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_091",
+        "intent": "coding",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_092",
+        "intent": "planning",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_093",
+        "intent": "research",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_094",
+        "intent": "creative",
+        "risk_tier": "high",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_095",
+        "intent": "reminder",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_096",
+        "intent": "qa",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_097",
+        "intent": "coding",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_098",
+        "intent": "planning",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      },
+      {
+        "turn_id": "turn_099",
+        "intent": "research",
+        "risk_tier": "critical",
+        "mode": "normal",
+        "overrun": false,
+        "overrun_reasons": []
+      }
+    ]
+  },
+  "gate_pass": true
+}

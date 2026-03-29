@@ -1,0 +1,11 @@
+{
+  "version": "cortex.roadmap.r7.step5.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step5/budget_allocator_probe_latest.json"
+  ],
+  "gates": {
+    "budgetOverrunEventsLte": 2,
+    "simulationTurns": 100,
+    "reservePoolsRequired": ["incident", "recovery"]
+  }
+}
