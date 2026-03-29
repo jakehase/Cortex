@@ -1,5 +1,17 @@
 # R7 — Value/Homeostasis Governor (Powerhouse Track)
 
+## Status in this checkout
+
+**R7 is not fully implemented in this checkout yet.**
+
+Current live status:
+- **Step 1 is landed** as a real Phase E starting slice:
+  - `services/homeostasis/baseline_regulation.py`
+  - `scripts/cortex_r7_step1_baseline_regulation.py`
+  - `config/cortex_roadmap/r7_step1_baseline_regulation_contract.json`
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json`
+- **Steps 2–12 below remain roadmap targets** unless/until their files/artifacts are actually added.
+
 ## Objective
 Turn Cortex regulation into an adaptive governor that continuously balances:
 - response quality/depth,
@@ -20,6 +32,7 @@ Phase B2 (immediate execution track, 2–8 weeks)
 ### Step 1 — Baseline regulation telemetry lock
 - Freeze current behavior across alerting, response depth, latency, reliability, and compute burn.
 - Capture at least 14-day baseline windows by intent/risk tier.
+- **Status in this checkout:** landed as an artifact-derived bootstrap baseline lock with drift-stable probe validation.
 - **Gate:** reproducible baseline dataset + drift-stable probes.
 - Execution artifacts:
   - `scripts/cortex_r7_step1_baseline_regulation.py`

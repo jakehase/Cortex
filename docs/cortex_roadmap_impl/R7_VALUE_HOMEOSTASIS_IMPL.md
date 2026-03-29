@@ -1,6 +1,20 @@
 # R7 Value/Homeostasis v2 — Phase B Implementation Slice
 
-## Scope delivered
+## Status in this checkout
+
+**This implementation doc was ahead of the repo.**
+
+Current live state:
+- **Actually landed now:**
+  - `services/homeostasis/baseline_regulation.py`
+  - `scripts/cortex_r7_step1_baseline_regulation.py`
+  - `config/cortex_roadmap/r7_step1_baseline_regulation_contract.json`
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_snapshot_latest.json`
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json`
+- **Not yet landed in this checkout:** the broader Step 2–12 homeostasis surfaces that were previously listed as delivered.
+
+## Intended scope
+The broader intended scope remains:
 - `services/homeostasis/objective_hierarchy.json` — explicit value hierarchy contract.
 - `services/homeostasis/resource_budget_manager.py` — soft/hard resource budget evaluation and allocation.
 - `services/homeostasis/conflict_resolver.py` — baseline conflict arbitration aligned with hierarchy.
