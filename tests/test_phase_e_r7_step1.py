@@ -28,4 +28,4 @@ def test_r7_phase_e_aggregate_entrypoint_reports_step1_landed():
     payload = json.loads(proc.stdout)
     assert payload["success"] is True
     assert payload["phase"] == "phase_e_r7"
-    assert payload["landed_steps"] == [1, 2, 3, 4, 5, 6, 7]
+    assert payload["landed_steps"] == [1, 2, 3, 4, 5, 6, 7, 8]

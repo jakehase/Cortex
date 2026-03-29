@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-29T22:12:42.004992+00:00",
+  "generated_at": "2026-03-29T22:28:12.779775+00:00",
   "compiled_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_compiled_latest.json",
   "objective_order": [
     "safety",
@@ -9,7 +9,7 @@
     "efficiency"
   ],
   "replay": {
-    "generated_at": "2026-03-29T22:12:42.004881+00:00",
+    "generated_at": "2026-03-29T22:28:12.779637+00:00",
     "case_count": 5,
     "violation_count": 0,
     "all_valid": true,

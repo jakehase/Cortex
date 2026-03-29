@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-29T22:12:42.023509+00:00",
+  "generated_at": "2026-03-29T22:28:12.798640+00:00",
   "objective_order": [
     "safety",
     "truth",
@@ -8,7 +8,7 @@
     "efficiency"
   ],
   "benchmark": {
-    "generated_at": "2026-03-29T22:12:42.023503+00:00",
+    "generated_at": "2026-03-29T22:28:12.798634+00:00",
     "case_count": 9,
     "success_count": 9,
     "success_rate": 1.0,
