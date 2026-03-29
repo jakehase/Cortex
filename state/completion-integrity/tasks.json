@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-29T16:36:27.704Z",
+      "updatedAt": "2026-03-29T16:41:16.894Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 112,
+        "runs": 113,
         "failures": [],
-        "lastRunAt": "2026-03-29T16:36:27.711Z",
+        "lastRunAt": "2026-03-29T16:41:16.897Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5888,6 +5888,56 @@
         }
       },
       "completedAt": "2026-03-29T14:59:34.208Z",
+      "completionSource": "agent_end"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774802669841:91fcbd2dcc25ed9a",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-29T16:44:29.841Z",
+      "updatedAt": "2026-03-29T16:45:02.674Z",
+      "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-03-29.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this flush; never",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: Cortex Progress, but still in repair mode.\\n\\n*What I’ve fixed*\\n- cleaned the corrupted tail in *`reasoning_observability.py`*\\n- cleaned the corrupted tail in *`reasoning_runtime_service.",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-29T16:44:29.841Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-29T16:44:29.845Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-29T16:45:02.674Z",
+          "completedAt": "2026-03-29T16:45:02.674Z",
+          "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: Cortex Progress, but still in repair mode.\\n\\n*What I’ve fixed*\\n- cleaned the corrupted tail in *`reasoning_observability.py`*\\n- cleaned the corrupted tail in *`reasoning_runtime_service.",
+          "completionSource": "agent_end"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-29T16:45:02.677Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-29T16:45:02.674Z",
       "completionSource": "agent_end"
     }
   ]
