@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-29T18:20:08.222431+00:00",
+  "generated_at": "2026-03-29T18:31:36.606234+00:00",
   "replay": {
     "success": true,
     "rows": 4,
@@ -116,7 +116,7 @@
       "candidate_count": 180,
       "baseline_count": 180
     },
-    "updated_at": "2026-03-29T16:52:32.941687+00:00"
+    "updated_at": "2026-03-29T18:20:11.079297+00:00"
   },
   "runtime_health": {
     "version": "route_health.v1",

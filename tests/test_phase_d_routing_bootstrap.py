@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from services.routing.adaptive_router_policy import choose_route
+from services.routing.adaptive_router_policy import choose_route, explain_route_decision, scoring_policy_spec
 from services.routing.chain_candidate_generator import generate_candidates
 from services.routing.counterfactual_replay_evaluator import evaluate_dataset
 from services.routing.full_rollout_autotuner import runtime_health_snapshot, runtime_outcome_hint, runtime_policy_snapshot
@@ -54,3 +54,17 @@ def test_runtime_snapshots_available_without_mutation():
     assert isinstance(policy, dict)
     assert isinstance(health, dict)
     assert isinstance(hint, dict)
+
+
+def test_step4_scoring_policy_spec_and_explanation_are_explicit():
+    features = build_route_features("Research the latest outage status with sources", risk_flags=["live_state"])
+    spec = scoring_policy_spec()
+    explanation = explain_route_decision(features)
+    assert spec["version"] == "r9.scoring_policy.v1"
+    assert set(spec["weights"].keys()) == {"quality", "latency", "cost", "risk"}
+    assert explanation["selected_chain"] == "research_grounded"
+    assert explanation["utility_gap_to_second"] >= 0
+    top = explanation["candidates"][0]
+    assert "quality_components" in top
+    assert "utility_terms" in top
+    assert set(top["utility_terms"].keys()) == {"weighted_quality", "weighted_latency", "weighted_cost", "weighted_risk"}

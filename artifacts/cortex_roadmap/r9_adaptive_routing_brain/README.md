@@ -6,6 +6,7 @@ Generate/update them with:
 - `python3 scripts/cortex_r9_step1_baseline_telemetry.py`
 - `python3 scripts/cortex_r9_step2_route_taxonomy.py`
 - `python3 scripts/cortex_r9_step3_feature_pipeline.py`
+- `python3 scripts/cortex_r9_step4_scoring_policy.py`
 - `python3 scripts/cortex_r9_step5_candidate_generator.py`
 - `python3 scripts/cortex_r9_step6_counterfactual_replay.py`
 - `python3 scripts/cortex_r9_step7_safety_rollback.py`
