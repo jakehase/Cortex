@@ -142,6 +142,8 @@ The following doc exists:
 - `scripts/cortex_r9_step8_shadow_mode.py`
 - `scripts/cortex_r9_step9_canary_rollout.py`
 - `scripts/cortex_r9_step10_full_rollout_autotune.py`
+- `scripts/cortex_r9_step11_operator_dashboard.py`
+- `scripts/serve_r9_dashboard_local.py`
 - `scripts/cortex_r9_adaptive_routing_brain.py`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/README.md`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/*`
@@ -154,6 +156,7 @@ The following doc exists:
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step8/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step9/*`
 - `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/*`
 
 ### Remaining R9 gaps
 - the bootstrap is still a thin support layer, not the full 12-step roadmap

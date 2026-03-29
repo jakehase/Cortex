@@ -117,3 +117,19 @@ def test_step5_candidate_generator_enforces_core_levels_and_default_chain():
         required = required_core_levels(row["chain_id"])
         for level in required:
             assert level in row["levels"]
+
+
+from services.routing.operator_dashboard import build_dashboard_model, render_dashboard_html, run_operator_control_runbook
+
+
+def test_step11_dashboard_model_and_runbook_are_present():
+    model = build_dashboard_model()
+    drill = run_operator_control_runbook(model)
+    html = render_dashboard_html(model)
+    assert "headline" in model
+    assert "sections" in model
+    assert "controls" in model
+    assert drill["success"] is True
+    assert "R9 Operator Dashboard" in html
+    assert "Freeze policy" in html
+    assert "Rollback to baseline" in html

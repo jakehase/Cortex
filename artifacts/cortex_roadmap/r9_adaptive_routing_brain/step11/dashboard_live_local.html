@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <title>R9 Operator Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #0f172a; color: #e2e8f0; }
+    .card { background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    button { padding: 10px 14px; margin-right: 8px; border-radius: 8px; border: 0; cursor: pointer; }
+    .freeze { background: #f59e0b; color: #111827; }
+    .rollback { background: #ef4444; color: white; }
+    code { color: #93c5fd; }
+  </style>
+</head>
+<body>
+  <h1>R9 Operator Dashboard</h1>
+  <p>Generated at <code>2026-03-29T19:03:42.024026+00:00</code></p>
+  <div class='card'>
+    <h2>Headline</h2>
+    <ul>
+      <li>Quality delta: <strong>0.0575</strong></li>
+      <li>Rollback required: <strong>False</strong></li>
+      <li>Shadow disagreement rate: <strong>0.0</strong></li>
+      <li>Canary stage 20 enabled: <strong>3</strong></li>
+    </ul>
+  </div>
+  <div class='grid'>
+    <div class='card'><h3>Scoring</h3><pre>{
+  "weights": {
+    "quality": 1.35,
+    "latency": 0.08,
+    "cost": 0.06,
+    "risk": 0.18
+  },
+  "quality_delta_positive": true,
+  "quality_delta": 0.0549
+}</pre></div>
+    <div class='card'><h3>Candidates</h3><pre>{
+  "case_count": 8,
+  "all_constraints_valid": true,
+  "total_candidates": 15
+}</pre></div>
+    <div class='card'><h3>Replay</h3><pre>{
+  "rows": 90,
+  "quality_delta": 0.0549,
+  "significant": true,
+  "gate_pass": true
+}</pre></div>
+    <div class='card'><h3>Rollback</h3><pre>{
+  "gate_pass": true,
+  "max_recovery_seconds": 27.0,
+  "sla_met": true
+}</pre></div>
+    <div class='card'><h3>Shadow</h3><pre>{
+  "rows": 4,
+  "disagreement_rate": 0.0
+}</pre></div>
+    <div class='card'><h3>Rollout</h3><pre>{
+  "quality_delta": 0.0575,
+  "rollback_required": false,
+  "runtime_health": {
+    "version": "route_health.v1",
+    "dependency_count": 4,
+    "unhealthy_dependencies": [
+      "architect"
+    ]
+  },
+  "runtime_hint": {
+    "archetype": "coding",
+    "baseline_policy": "deliberate_council",
+    "stage": "shadow",
+    "recommended_policy": null,
+    "rollout_percent": 0,
+    "apply_recommendation": false,
+    "reason": "baseline_only_or_no_stronger_candidate",
+    "decision_confidence": 0.8,
+    "evidence": {
+      "candidate_count": 180,
+      "baseline_count": 180
+    },
+    "updated_at": "2026-03-29T18:31:39.200498+00:00"
+  }
+}</pre></div>
+  </div>
+  <div class='card'>
+    <h2>Chain distribution</h2>
+    <ul><li><strong>candidate::creative_fractal</strong>: 1</li><li><strong>candidate::deliberate_council</strong>: 7</li><li><strong>candidate::fastlane_memory</strong>: 5</li><li><strong>candidate::research_grounded</strong>: 1</li><li><strong>candidate::safe_reminder</strong>: 1</li><li><strong>creative_fractal</strong>: 1</li><li><strong>deliberate_council</strong>: 1</li><li><strong>fastlane_memory</strong>: 1</li><li><strong>research_grounded</strong>: 1</li></ul>
+  </div>
+  <div class='card'>
+    <h2>Canary stages</h2>
+    <ul><li><strong>stage_5</strong>: enabled=2 rollout=5</li><li><strong>stage_20</strong>: enabled=3 rollout=20</li></ul>
+  </div>
+  <div class='card'>
+    <h2>Operator controls</h2>
+    <p>Controls are local stubs for drill/testing, not live production mutations.</p>
+    <button class='freeze' onclick="alert('freeze policy stub: local_stub')">Freeze policy</button>
+    <button class='rollback' onclick="alert('rollback stub: local_stub')">Rollback to baseline</button>
+  </div>
+</body>
+</html>

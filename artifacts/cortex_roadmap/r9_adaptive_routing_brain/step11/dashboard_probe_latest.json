@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-03-29T19:03:42.024220+00:00",
+  "dashboard_path": "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_live_local.html",
+  "headline": {
+    "quality_delta": 0.0575,
+    "rollback_required": false,
+    "shadow_disagreement_rate": 0.0,
+    "canary_stage_20_enabled": 3
+  },
+  "controls": {
+    "freeze_policy": {
+      "action": "freeze",
+      "supported": true,
+      "mode": "local_stub"
+    },
+    "rollback_to_baseline": {
+      "action": "rollback",
+      "supported": true,
+      "mode": "local_stub"
+    }
+  },
+  "runbook_drill": {
+    "generated_at": "2026-03-29T19:03:42.024057+00:00",
+    "success": true,
+    "steps": {
+      "freeze_policy": {
+        "supported": true,
+        "success": true,
+        "mode": "local_stub"
+      },
+      "rollback_to_baseline": {
+        "supported": true,
+        "success": true,
+        "mode": "local_stub"
+      }
+    }
+  },
+  "gate_pass": true
+}
