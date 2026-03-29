@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-03-29T22:28:12.836656+00:00",
+  "generated_at": "2026-03-29T22:49:49.396124+00:00",
   "benchmark": {
-    "generated_at": "2026-03-29T22:28:12.836652+00:00",
+    "generated_at": "2026-03-29T22:49:49.396119+00:00",
     "case_count": 8,
     "success_count": 7,
     "success_rate": 0.875,
@@ -10,7 +10,7 @@
       {
         "case_id": "protective_research",
         "profile": {
-          "generated_at": "2026-03-29T22:28:12.836546+00:00",
+          "generated_at": "2026-03-29T22:49:49.396021+00:00",
           "intent": "research",
           "risk_tier": "high",
           "mode": "protective",
@@ -35,7 +35,7 @@
             "block_fastlane": true
           },
           "budget_reference": {
-            "generated_at": "2026-03-29T22:28:12.836532+00:00",
+            "generated_at": "2026-03-29T22:49:49.396006+00:00",
             "intent": "research",
             "risk_tier": "high",
             "mode": "protective",
@@ -74,7 +74,7 @@
       {
         "case_id": "protective_coding",
         "profile": {
-          "generated_at": "2026-03-29T22:28:12.836566+00:00",
+          "generated_at": "2026-03-29T22:49:49.396035+00:00",
           "intent": "coding",
           "risk_tier": "critical",
           "mode": "protective",
@@ -98,7 +98,7 @@
             "block_fastlane": true
           },
           "budget_reference": {
-            "generated_at": "2026-03-29T22:28:12.836561+00:00",
+            "generated_at": "2026-03-29T22:49:49.396031+00:00",
             "intent": "coding",
             "risk_tier": "critical",
             "mode": "protective",
@@ -137,7 +137,7 @@
       {
         "case_id": "conserve_qa",
         "profile": {
-          "generated_at": "2026-03-29T22:28:12.836582+00:00",
+          "generated_at": "2026-03-29T22:49:49.396052+00:00",
           "intent": "qa",
           "risk_tier": "low",
           "mode": "conserve",
@@ -162,7 +162,7 @@
             "block_fastlane": false
           },
           "budget_reference": {
-            "generated_at": "2026-03-29T22:28:12.836576+00:00",
+            "generated_at": "2026-03-29T22:49:49.396047+00:00",
             "intent": "qa",
             "risk_tier": "low",
             "mode": "conserve",
@@ -202,7 +202,7 @@
       {
         "case_id": "conserve_research",
         "profile": {
-          "generated_at": "2026-03-29T22:28:12.836595+00:00",
+          "generated_at": "2026-03-29T22:49:49.396064+00:00",
           "intent": "research",
           "risk_tier": "medium",
           "mode": "conserve",
@@ -227,7 +227,7 @@
             "block_fastlane": false
           },
           "budget_reference": {
-            "generated_at": "2026-03-29T22:28:12.836592+00:00",
+            "generated_at": "2026-03-29T22:49:49.396061+00:00",
             "intent": "research",
             "risk_tier": "medium",
             "mode": "conserve",
@@ -267,7 +267,7 @@
       {
         "case_id": "normal_planning",
         "profile": {
-          "generated_at": "2026-03-29T22:28:12.836606+00:00",
+          "generated_at": "2026-03-29T22:49:49.396074+00:00",
           "intent": "planning",
           "risk_tier": "medium",
           "mode": "normal",
@@ -289,7 +289,7 @@
             "block_fastlane": false
           },
           "budget_reference": {
-            "generated_at": "2026-03-29T22:28:12.836603+00:00",
+            "generated_at": "2026-03-29T22:49:49.396071+00:00",
             "intent": "planning",
             "risk_tier": "medium",
             "mode": "normal",
@@ -326,7 +326,7 @@
       {
         "case_id": "normal_creative",
         "profile": {
-          "generated_at": "2026-03-29T22:28:12.836615+00:00",
+          "generated_at": "2026-03-29T22:49:49.396083+00:00",
           "intent": "creative",
           "risk_tier": "low",
           "mode": "normal",
@@ -349,7 +349,7 @@
             "block_fastlane": false
           },
           "budget_reference": {
-            "generated_at": "2026-03-29T22:28:12.836612+00:00",
+            "generated_at": "2026-03-29T22:49:49.396080+00:00",
             "intent": "creative",
             "risk_tier": "low",
             "mode": "normal",
@@ -386,7 +386,7 @@
       {
         "case_id": "high_risk_reminder",
         "profile": {
-          "generated_at": "2026-03-29T22:28:12.836628+00:00",
+          "generated_at": "2026-03-29T22:49:49.396096+00:00",
           "intent": "reminder",
           "risk_tier": "high",
           "mode": "normal",
@@ -409,7 +409,7 @@
             "block_fastlane": true
           },
           "budget_reference": {
-            "generated_at": "2026-03-29T22:28:12.836624+00:00",
+            "generated_at": "2026-03-29T22:49:49.396093+00:00",
             "intent": "reminder",
             "risk_tier": "high",
             "mode": "normal",
@@ -448,7 +448,7 @@
       {
         "case_id": "critical_research_overrides_mode",
         "profile": {
-          "generated_at": "2026-03-29T22:28:12.836648+00:00",
+          "generated_at": "2026-03-29T22:49:49.396116+00:00",
           "intent": "research",
           "risk_tier": "critical",
           "mode": "normal",
@@ -470,7 +470,7 @@
             "block_fastlane": true
           },
           "budget_reference": {
-            "generated_at": "2026-03-29T22:28:12.836643+00:00",
+            "generated_at": "2026-03-29T22:49:49.396110+00:00",
             "intent": "research",
             "risk_tier": "critical",
             "mode": "normal",
