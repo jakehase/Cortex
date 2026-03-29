@@ -8,15 +8,21 @@ Current live state:
 - **Actually landed now:**
   - `services/homeostasis/baseline_regulation.py`
   - `services/homeostasis/state_signal_model.py`
+  - `services/homeostasis/value_hierarchy_compiler.py`
+  - `services/homeostasis/objective_hierarchy.json`
   - `scripts/cortex_r7_step1_baseline_regulation.py`
   - `scripts/cortex_r7_step2_state_signal_model.py`
+  - `scripts/cortex_r7_step3_value_hierarchy_compiler.py`
   - `config/cortex_roadmap/r7_step1_baseline_regulation_contract.json`
   - `config/cortex_roadmap/r7_step2_state_signal_model_contract.json`
+  - `config/cortex_roadmap/r7_step3_value_hierarchy_compiler_contract.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_snapshot_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_snapshot_latest.json`
   - `artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_probe_latest.json`
-- **Not yet landed in this checkout:** the broader Step 3–12 homeostasis surfaces that were previously listed as delivered.
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_compiled_latest.json`
+  - `artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_probe_latest.json`
+- **Not yet landed in this checkout:** the broader Step 4–12 homeostasis surfaces that were previously listed as delivered.
 
 ## Intended scope
 The broader intended scope remains:

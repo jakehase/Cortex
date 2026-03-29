@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-29T19:50:00.651009+00:00",
+  "generated_at": "2026-03-29T19:57:24.309726+00:00",
   "snapshot_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_snapshot_latest.json",
   "validation": {
-    "generated_at": "2026-03-29T19:50:00.650886+00:00",
+    "generated_at": "2026-03-29T19:57:24.309604+00:00",
     "valid": true,
     "signal_complete": true,
     "signal_stable": true,

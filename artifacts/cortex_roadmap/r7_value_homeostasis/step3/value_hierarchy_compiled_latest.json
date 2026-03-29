@@ -1,0 +1,29 @@
+{
+  "generated_at": "2026-03-29T19:57:24.382433+00:00",
+  "version": "r7.value_hierarchy.v1",
+  "objective_order": [
+    "safety",
+    "truth",
+    "user_intent",
+    "reliability",
+    "efficiency"
+  ],
+  "objective_weights": {
+    "safety": 1.0,
+    "truth": 0.5,
+    "user_intent": 0.3333,
+    "reliability": 0.25,
+    "efficiency": 0.2
+  },
+  "hard_constraints": {
+    "min_safety_score": 0.85,
+    "min_truth_score": 0.7,
+    "disallow_efficiency_win_on_safety_loss": true,
+    "disallow_reliability_win_on_truth_loss": true
+  },
+  "tie_breakers": [
+    "higher_reliability",
+    "higher_efficiency",
+    "stable_candidate_id"
+  ]
+}

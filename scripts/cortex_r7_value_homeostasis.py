@@ -16,13 +16,15 @@ def run_json(script: str):
 def main() -> int:
     step1 = run_json("scripts/cortex_r7_step1_baseline_regulation.py")
     step2 = run_json("scripts/cortex_r7_step2_state_signal_model.py")
+    step3 = run_json("scripts/cortex_r7_step3_value_hierarchy_compiler.py")
     payload = {
         "success": True,
         "phase": "phase_e_r7",
-        "landed_steps": [1, 2],
-        "remaining_steps": list(range(3, 13)),
+        "landed_steps": [1, 2, 3],
+        "remaining_steps": list(range(4, 13)),
         "step1": step1,
         "step2": step2,
+        "step3": step3,
     }
     print(json.dumps(payload, indent=2))
     return 0
