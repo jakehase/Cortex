@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-29T14:51:35.038Z",
+      "updatedAt": "2026-03-29T14:56:35.835Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 91,
+        "runs": 92,
         "failures": [],
-        "lastRunAt": "2026-03-29T14:51:35.044Z",
+        "lastRunAt": "2026-03-29T14:56:35.844Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5833,12 +5833,12 @@
       "id": "agent:main:subagent:dae397fd-73bf-448a-a66e-8ddb3a1306c4:1774796061686:8cd127caf5cdb816",
       "sessionKey": "agent:main:subagent:dae397fd-73bf-448a-a66e-8ddb3a1306c4",
       "createdAt": "2026-03-29T14:54:21.686Z",
-      "updatedAt": "2026-03-29T14:54:21.690Z",
+      "updatedAt": "2026-03-29T14:59:34.208Z",
       "prompt": "[Sun 2026-03-29 09:54 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Audit the repo and the roadmap docs to produce a concrete implem",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Sun 2026-03-29 09:54 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Audit the repo and the roadmap docs to produce a concrete implementation map for the missing broader Phase D w",
       "history": [
         {
           "from": null,
@@ -5849,6 +5849,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-29T14:54:21.690Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-29T14:59:34.208Z",
+          "completedAt": "2026-03-29T14:59:34.208Z",
+          "completionSummary": "Sun 2026-03-29 09:54 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Audit the repo and the roadmap docs to produce a concrete implementation map for the missing broader Phase D w",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -5859,10 +5867,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-29T14:59:34.211Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-29T14:59:34.208Z",
+      "completionSource": "agent_end"
     }
   ]
 }
