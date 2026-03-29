@@ -2,12 +2,12 @@
 
 ## Status in this checkout
 
-**Roadmap / planned work, not a verified shipped feature set in the current repo checkout.**
+**Bootstrap implementation is present in this checkout, but the full roadmap remains incomplete.**
 
-Audit date: `2026-03-29`
+Audit/update date: `2026-03-29`
 Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
 
-There is adjacent routing machinery in `public/cortex_server/cortex_server/routers/nexus.py`, including replay-oriented logic, but the specific service files, scripts, and artifacts described below were not found in this repo.
+This repo now contains a routing bootstrap under `services/routing/` plus baseline/autotune scripts and artifacts. It also still has adjacent replay-oriented routing logic in `public/cortex_server/cortex_server/routers/nexus.py`.
 
 ## Objective
 Turn Cortex routing into a learned, self-improving decision system that selects the best level-chain per prompt under explicit quality, latency, cost, and risk constraints.
@@ -16,11 +16,11 @@ Turn Cortex routing into a learned, self-improving decision system that selects 
 Memory (R8) is implemented and hardened. The fastest multiplier on all capabilities is smarter route selection over existing levels.
 
 ## Phase
-Phase D2 roadmap (planned, not verified shipped in this checkout)
+Phase D2 roadmap with a bootstrap slice now present in this checkout
 
 ## Current repo reality
 
-### Missing service files named by this roadmap
+### Present bootstrap files
 - `services/routing/route_feature_pipeline.py`
 - `services/routing/adaptive_router_policy.py`
 - `services/routing/chain_candidate_generator.py`
@@ -29,14 +29,20 @@ Phase D2 roadmap (planned, not verified shipped in this checkout)
 - `services/routing/shadow_mode_runner.py`
 - `services/routing/canary_rollout_controller.py`
 - `services/routing/full_rollout_autotuner.py`
-
-### Missing scripts/artifacts named by this roadmap
+- `services/routing/counterfactual_replay_evaluator.py`
 - `scripts/cortex_r9_step1_baseline_telemetry.py`
 - `scripts/cortex_r9_step10_full_rollout_autotune.py`
-- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/*`
+- `scripts/cortex_r9_adaptive_routing_brain.py`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/*`
+
+### Still missing for full roadmap completion
+- most step-specific scripts/configs/artifacts from the full 12-step plan
+- operator dashboard and novelty-packaging surfaces
+- larger-scale replay datasets and canary/live rollout evidence
 
 ### Practical interpretation
-Read the remainder of this document as an implementation plan / target architecture, not as proof that the full R9 Phase D2 stack is already shipped in this checkout.
+Read the remainder of this document as a target architecture plus execution plan. The bootstrap slice is real; the full R9 Phase D2 stack is not complete yet.
 
 ## Step-by-step execution plan
 

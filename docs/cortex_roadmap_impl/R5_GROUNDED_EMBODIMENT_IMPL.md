@@ -42,19 +42,24 @@ python3 scripts/cortex_phase_c_impl_wave.py
 
 ## Phase D extension status
 
-**Not repo-verified in this checkout.**
-
-The broader Phase D embodiment extension referenced here is currently documented, but the claimed implementation/scripts/artifacts were not found during the 2026-03-29 repo audit.
+**MVP now repo-verified in this checkout.**
 
 Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
 
-### Intended Phase D extension
-If restored or implemented later, this extension is intended to add:
-- orchestrator wiring from embodiment episode outputs into R1 world-state updates, R4 workspace arbitration/signaling, and R7 adaptive regulation hooks
-- hardening: stochastic sweeps, fault-injection scenarios, watchdog timeout controls, and regression invariants
+### Current Phase D extension now present
+- orchestrator wiring from embodiment episode outputs into world-state / arbitration / signaling / regulation compatibility hooks
+- hardening: stochastic sweeps, fault-injection scenarios, watchdog timeout controls, and regression-oriented safety behavior
 - benchmark pack outputs under `artifacts/cortex_roadmap/phase_d_wave/benchmark/`
 
-### Current truth in this repo
-- `services/embodiment/*` implementation files for this extension are **missing**
-- the referenced Phase D scripts are **missing**
-- the referenced Phase D artifact tree is **missing**
+### Present files
+- `services/embodiment/episode_orchestrator.py`
+- `services/embodiment/scenario_profiles.py`
+- `scripts/probes/probe_phase_d_integration.py`
+- `scripts/probes/probe_phase_d_hardening.py`
+- `scripts/run_phase_d_embodiment_benchmark.py`
+- `scripts/cortex_phase_d_impl_wave.py`
+
+### Remaining limits
+- this extension currently uses local compatibility hook implementations rather than full external R1/R4/R7 subsystem backends
+- benchmark scale and confidence interval logic are still lightweight
+- live hardware transport remains out of scope

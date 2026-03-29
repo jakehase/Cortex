@@ -2,36 +2,44 @@
 
 ## Status in this checkout
 
-**This document is roadmap intent, not a verified shipped slice in the current repo checkout.**
+**Phase D Wave MVP is now implemented in this checkout.**
 
-Audit date: `2026-03-29`
+Audit/update date: `2026-03-29`
 Reference: `docs/PHASE_D_REPO_AUDIT_2026-03-29.md`
 
-### Reality check
-- This repo checkout does **not** currently contain the embodiment implementation tree or Phase D Wave scripts/artifacts listed below.
-- The items in this document should be treated as **planned / previously intended deliverables** unless and until the missing code is restored.
+### What is present now
+- embodiment simulator/orchestration code under `services/embodiment/`
+- deterministic scenario profiles
+- runnable integration and hardening probes
+- reproducible benchmark script
+- generated artifact tree under `artifacts/cortex_roadmap/phase_d_wave/`
+
+### Scope caveat
+This is a **real MVP slice**, not proof that every originally imagined embodiment Phase D expansion is finished. It establishes the orchestration/hardening/benchmark surfaces and artifacts in-repo.
 
 ## Artifact status matrix
 
-### Claimed implementation files
-- `services/embodiment/episode_orchestrator.py` — **missing**
-- `services/embodiment/scenario_profiles.py` — **missing**
+### Implementation files
+- `services/embodiment/episode_orchestrator.py` — **present**
+- `services/embodiment/scenario_profiles.py` — **present**
+- `services/embodiment/integration_hooks.py` — **present**
+- `services/embodiment/sim_safety_sandbox.py` — **present**
+- `services/embodiment/closed_loop_runner.py` — **present**
 
-### Claimed entry points
-- `scripts/cortex_r5_embodiment_orchestrator.py` — **missing**
-- `scripts/probes/probe_phase_d_integration.py` — **missing**
-- `scripts/probes/probe_phase_d_hardening.py` — **missing**
-- `scripts/run_phase_d_embodiment_benchmark.py` — **missing**
-- `scripts/cortex_phase_d_impl_wave.py` — **missing**
+### Entry points
+- `scripts/cortex_r5_embodiment_orchestrator.py` — **present**
+- `scripts/probes/probe_phase_d_integration.py` — **present**
+- `scripts/probes/probe_phase_d_hardening.py` — **present**
+- `scripts/run_phase_d_embodiment_benchmark.py` — **present**
+- `scripts/cortex_phase_d_impl_wave.py` — **present**
 
-### Claimed artifacts
-- `artifacts/cortex_roadmap/phase_d_wave/integration/*` — **missing**
-- `artifacts/cortex_roadmap/phase_d_wave/hardening/*` — **missing**
-- `artifacts/cortex_roadmap/phase_d_wave/benchmark/*` — **missing**
-- `artifacts/cortex_roadmap/phase_d_wave/phase_d_impl_run_latest.json` — **missing**
+### Artifacts
+- `artifacts/cortex_roadmap/phase_d_wave/integration/*` — **present**
+- `artifacts/cortex_roadmap/phase_d_wave/hardening/*` — **present**
+- `artifacts/cortex_roadmap/phase_d_wave/benchmark/*` — **present**
+- `artifacts/cortex_roadmap/phase_d_wave/phase_d_impl_run_latest.json` — **present**
 
-### Claimed hook names referenced in docs only
-The following symbols were not found in implementation code during audit:
+### Hook/profile names now present in code
 - `WorldStateModel.merge_embodiment_episode`
 - `ArbitrationEngine.arbitrate_embodiment_episode`
 - `BroadcastPolicy.select_from_embodiment_episode`
@@ -40,17 +48,15 @@ The following symbols were not found in implementation code during audit:
 - `sim2real_transfer_v1`
 - `failure_taxonomy_challenge_v1`
 
-## Intended scope
-If restored, the intended Phase D Wave scope is:
-- orchestrator-level episode wiring from R5 outputs into R1 / R4 / R7 surfaces
-- hardening upgrades in the simulator/runner
-- deterministic scenario profiles
-- benchmark pack with reproducibility and failure taxonomy
+## Delivered MVP scope
+- orchestrator-level episode wiring from R5 outputs into world-state / arbitration / signaling / regulation hooks
+- hardening upgrades in the simulator/runner via stochastic noise, adversarial perturbation, and fault injection modes
+- deterministic scenario profile generator
+- benchmark pack with reproducibility metadata and failure taxonomy counters
 
-## Restore checklist
-To make this doc honestly say "delivered" again, restore or implement:
-1. `services/embodiment/episode_orchestrator.py`
-2. `services/embodiment/scenario_profiles.py`
-3. the five missing scripts listed above
-4. `artifacts/cortex_roadmap/phase_d_wave/*` or an artifact manifest proving reproducible generation
-5. tests or probes exercising the claimed hooks
+## Remaining expansion work
+To move from MVP to broader Phase D completion:
+1. add richer world-state / workspace / regulator backends beyond the local compatibility hooks
+2. increase scenario breadth and failure taxonomy depth
+3. add dedicated tests around the hook contracts
+4. extend benchmark scale and confidence interval rigor

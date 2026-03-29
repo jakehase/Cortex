@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-29T14:56:35.835Z",
+      "updatedAt": "2026-03-29T15:01:37.194Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 92,
+        "runs": 93,
         "failures": [],
-        "lastRunAt": "2026-03-29T14:56:35.844Z",
+        "lastRunAt": "2026-03-29T15:01:37.197Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5783,11 +5783,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774793788312:9f8ae29484e8d2f6",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-29T14:16:28.312Z",
-      "updatedAt": "2026-03-29T14:50:05.006Z",
+      "updatedAt": "2026-03-29T15:03:55.564Z",
       "prompt": "System: [2026-03-29 08:36:36 CDT] Exec completed (plaid-cr, code 0) :: ............................................... [100%] Yes do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: Cortex Progress, but still in repair mode.\\n\\n*What I’ve fixed*\\n- cleaned the corrupted tail in *`reasoning_observability.py`*\\n- cleaned the corrupted tail in *`reasoning_runtime_service.",
       "history": [
         {
@@ -5807,6 +5807,14 @@
           "completedAt": "2026-03-29T14:16:29.620Z",
           "completionSummary": "System: 2026-03-29 08:36:36 CDT Exec completed (plaid-cr, code 0) :: ............................................... 100% Sender (untrusted metadata): ```json label: Jake (+17855410986), id: +17855410986, name: Jake, e164: +17855410986",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-29T15:03:55.564Z",
+          "failedAt": "2026-03-29T15:03:55.564Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -5827,7 +5835,10 @@
         }
       },
       "completedAt": "2026-03-29T14:16:29.620Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-29T15:03:55.564Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     },
     {
       "id": "agent:main:subagent:dae397fd-73bf-448a-a66e-8ddb3a1306c4:1774796061686:8cd127caf5cdb816",
