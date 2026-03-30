@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from cortex_server.modules import reasoning_explain as explain
 from cortex_server.modules import reasoning_observability as observability
@@ -10,6 +10,9 @@ from cortex_server.modules.runtime_constraint_compiler import compile_runtime_co
 
 
 JsonDict = Dict[str, Any]
+ExplainBeliefFn = Callable[[str], Optional[JsonDict]]
+GetBeliefFn = Callable[[str], Optional[JsonDict]]
+SelectInfluentialBeliefsFn = Callable[..., List[JsonDict]]
 
 
 _RUNTIME_OWNER_HINTS = {
@@ -440,6 +443,115 @@ def default_policy_patch_history() -> JsonDict:
 
 
 
+def compile_policy_patch_history(events: List[JsonDict]) -> JsonDict:
+    rows: List[JsonDict] = []
+    for event in events or []:
+        kind = str((event or {}).get("kind") or "")
+        if not isinstance(event, dict) or kind not in {"policy_patch_applied", "policy_patch_rolled_back"}:
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        applied_settings = [dict(row) for row in (payload.get("applied_settings") or []) if isinstance(row, dict)]
+        metadata_overrides = dict(payload.get("metadata_overrides") or {})
+        if not metadata_overrides:
+            metadata_overrides = {str(row.get("setting") or ""): row.get("after") for row in applied_settings if str(row.get("setting") or "").strip()}
+        rows.append(
+            {
+                "event_id": event.get("event_id"),
+                "revision_id": payload.get("revision_id"),
+                "recommendation_version": payload.get("recommendation_version"),
+                "kind": kind,
+                "ts": event.get("ts"),
+                "applied_count": int(payload.get("applied_count", len(applied_settings)) or 0),
+                "settings": [str(x) for x in (payload.get("settings") or []) if str(x).strip()],
+                "requested_settings": [str(x) for x in (payload.get("requested_settings") or []) if str(x).strip()],
+                "applied_settings": applied_settings,
+                "metadata_overrides": metadata_overrides,
+                "previous_values": dict(payload.get("previous_values") or {}),
+                "operator_overrides": dict(payload.get("operator_overrides") or {}),
+                "audit": dict(payload.get("audit") or {}),
+                "allow_confirmation_required": bool(payload.get("allow_confirmation_required", False)),
+                "allow_intervening_revisions": bool(payload.get("allow_intervening_revisions", False)),
+                "intervening_revisions": [dict(row) for row in (payload.get("intervening_revisions") or []) if isinstance(row, dict)],
+                "rolled_back_from_revision_id": payload.get("rolled_back_from_revision_id"),
+            }
+        )
+    return {"count": len(rows), "entries": rows}
+
+
+
+def compile_step_belief_influences(
+    *,
+    workflow: JsonDict,
+    results_by_node: JsonDict,
+    task_id: Optional[str],
+    explain_belief_fn: ExplainBeliefFn,
+    get_belief_fn: GetBeliefFn,
+    select_influential_beliefs_fn: SelectInfluentialBeliefsFn,
+) -> List[JsonDict]:
+    workflow = workflow if isinstance(workflow, dict) else {}
+    results_by_node = results_by_node if isinstance(results_by_node, dict) else {}
+    rows: List[JsonDict] = []
+    for idx, raw_step in enumerate(workflow.get("steps") or [], start=1):
+        step = dict(raw_step or {})
+        node_id = str(step.get("node_id") or f"step_{idx}")
+        title = step.get("title") or node_id
+        step_metadata = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
+        filters = {
+            "subjects": [str(x) for x in (step_metadata.get("belief_subjects") or []) if str(x).strip()],
+            "predicates": [str(x) for x in (step_metadata.get("belief_predicates") or []) if str(x).strip()],
+            "query": step_metadata.get("belief_query"),
+        }
+        result = results_by_node.get(node_id) if isinstance(results_by_node.get(node_id), dict) else {}
+        captured_context = result.get("belief_context") if isinstance(result.get("belief_context"), dict) else None
+        captured_ids = [str(x) for x in ((captured_context or {}).get("selected_ids") or []) if str(x).strip()]
+        current_selected = select_influential_beliefs_fn(
+            task_id=task_id,
+            subjects=filters["subjects"] or None,
+            predicates=filters["predicates"] or None,
+            query=filters["query"],
+            limit=8,
+        )
+        current_ids = [str(row.get("claim_id") or "") for row in current_selected if str(row.get("claim_id") or "").strip()]
+        effective_ids = captured_ids if captured_context else current_ids
+        belief_delta = explain.belief_id_delta(captured_ids if captured_context else current_ids, current_ids)
+        produced_belief_ids = [str(x) for x in (result.get("produced_belief_ids") or []) if str(x).strip()]
+        impact_attribution = explain.impact_attribution_from_beliefs(
+            belief_ids=effective_ids,
+            produced_belief_ids=produced_belief_ids,
+            success=result.get("success"),
+            error=result.get("error"),
+            get_belief_fn=get_belief_fn,
+        )
+        belief_summary_texts = explain.summarize_belief_ids(effective_ids, get_belief_fn=get_belief_fn, limit=3)
+        rows.append(
+            {
+                "order": idx,
+                "node_id": node_id,
+                "title": title,
+                "filters": filters,
+                "captured_at_execution": bool(captured_context),
+                "captured_belief_ids": captured_ids,
+                "current_belief_ids": current_ids,
+                "belief_ids": effective_ids,
+                "belief_count": len(effective_ids),
+                "belief_summary_texts": belief_summary_texts,
+                "belief_explanations": [explained_row for explained_row in (explain_belief_fn(belief_id) for belief_id in effective_ids[:5]) if explained_row],
+                "belief_delta": belief_delta,
+                "produced_belief_ids": produced_belief_ids,
+                "impact_attribution": impact_attribution,
+                "operator_summary": explain.step_operator_summary(
+                    title=title,
+                    belief_count=len(effective_ids),
+                    changed=bool(belief_delta.get("changed")),
+                    produced_belief_ids=produced_belief_ids,
+                    impact=impact_attribution,
+                ),
+            }
+        )
+    return rows
+
+
+
 def default_self_review(*, fallback: bool = False) -> JsonDict:
     return {
         "score": 0.0,
@@ -625,6 +737,8 @@ __all__ = [
     "compile_runtime_shared_response_sections",
     "default_belief_evidence_summary",
     "default_contradiction_graph_summary",
+    "compile_policy_patch_history",
+    "compile_step_belief_influences",
     "default_decision_causality_summary",
     "default_epistemic_core_summary",
     "default_epistemic_risk_summary",
