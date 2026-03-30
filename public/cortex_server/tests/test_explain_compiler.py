@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cortex_server.modules.explain_compiler import compile_control_plane_summary, compile_epistemic_summary_sections, compile_explain_atoms, compile_observability_sections, compile_policy_patch_history, compile_policy_surface_summaries, compile_step_belief_influences
+from cortex_server.modules.explain_compiler import compile_control_plane_summary, compile_epistemic_summary_sections, compile_explain_atoms, compile_observability_sections, compile_policy_patch_history, compile_policy_surface_summaries, compile_runtime_process_sections, compile_step_belief_influences
 from cortex_server.modules.governance_compiler import compile_workflow_policy
 from tests.test_reasoning_restored_phase_integration import RESTORED_METADATA
 
@@ -179,9 +179,30 @@ def test_compile_policy_patch_history_and_step_belief_influences():
         get_belief_fn=lambda claim_id: {"claim_id": claim_id, "summary": f"belief:{claim_id}"},
         select_influential_beliefs_fn=lambda **kwargs: [{"claim_id": "claim-1"}],
     )
+    sections = compile_runtime_process_sections(
+        process={
+            "process_id": "proc-1",
+            "task_id": "task-1",
+            "workflow": {
+                "metadata": {"policy": compile_workflow_policy(name="Investigate a degraded production service carefully", steps=[{"node_id": "step1", "title": "Inspect"}], metadata=RESTORED_METADATA)},
+                "steps": [{"node_id": "step1", "title": "Inspect", "metadata": {"belief_query": "service status"}}],
+            },
+            "results_by_node": {"step1": {"success": False, "error": "timeout", "produced_belief_ids": ["claim-2"]}},
+            "nodes": {"step1": {"status": "failed", "last_error": "timeout", "last_error_code": "timeout"}},
+            "status": "failed",
+        },
+        beliefs_for_task_fn=lambda task_id, limit=200: [{"claim_id": "claim-1"}],
+        summarize_beliefs_fn=lambda **kwargs: {"count": 1},
+        explain_belief_fn=lambda claim_id: {"belief": {"claim_id": claim_id}, "evidence_bundle": {"evidence_count": 1, "source_types": {"monitor": 1}, "weighted_confidence": 0.8, "weighted_freshness": 0.7}, "contradiction_summary": {"conflict_count": 0, "ambiguity_score": 0.0}, "contradiction_cluster": {"subject": "svc", "predicate": "status", "ambiguity_score": 0.0}, "lineage_graph": {"nodes": [{"claim_id": claim_id}], "edges": []}, "epistemic_risk": {"risk_level": "low", "risk_score": 0.1}},
+        get_belief_fn=lambda claim_id: {"claim_id": claim_id, "summary": f"belief:{claim_id}"},
+        select_influential_beliefs_fn=lambda **kwargs: [{"claim_id": "claim-1"}],
+    )
 
     assert history["count"] == 1
     assert history["entries"][0]["settings"] == ["step_timeout_seconds"]
     assert influences[0]["node_id"] == "step1"
     assert influences[0]["belief_count"] == 1
     assert influences[0]["operator_summary"]
+    assert sections["policy_outcome_evaluation"] is not None
+    assert sections["step_belief_influences"][0]["node_id"] == "step1"
+    assert sections["incident_report"]["incident_count"] >= 1

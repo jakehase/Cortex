@@ -653,6 +653,97 @@ def compile_runtime_postmortem_response_sections(explained: Optional[JsonDict], 
 
 
 
+BeliefsForTaskFn = Callable[[str], List[JsonDict]]
+SummarizeBeliefsFn = Callable[..., JsonDict]
+
+
+
+def compile_runtime_process_sections(
+    *,
+    process: JsonDict,
+    beliefs_for_task_fn: BeliefsForTaskFn,
+    summarize_beliefs_fn: SummarizeBeliefsFn,
+    explain_belief_fn: ExplainBeliefFn,
+    get_belief_fn: GetBeliefFn,
+    select_influential_beliefs_fn: SelectInfluentialBeliefsFn,
+) -> JsonDict:
+    process = process if isinstance(process, dict) else {}
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    task_id = str(process.get("task_id") or metadata.get("task_id") or metadata.get("kernel_task_id") or "").strip() or None
+
+    belief_rows = beliefs_for_task_fn(task_id, limit=200) if task_id else []
+    summary = summarize_beliefs_fn(task_id=task_id) if task_id else summarize_beliefs_fn()
+    belief_explanations: List[JsonDict] = []
+    for row in belief_rows[:10]:
+        claim_id = str(row.get("claim_id") or "")
+        if not claim_id:
+            continue
+        explained_belief = explain_belief_fn(claim_id)
+        if explained_belief:
+            belief_explanations.append(explained_belief)
+
+    results_by_node = process.get("results_by_node") if isinstance(process.get("results_by_node"), dict) else {}
+    step_influences = compile_step_belief_influences(
+        workflow=workflow,
+        results_by_node=results_by_node,
+        task_id=task_id,
+        explain_belief_fn=explain_belief_fn,
+        get_belief_fn=get_belief_fn,
+        select_influential_beliefs_fn=select_influential_beliefs_fn,
+    )
+    execution_trace_rows = explain.execution_trace(process)
+    epistemic_timeline = explain.epistemic_timeline(step_influences, execution_trace_rows)
+    drift_summary = explain.epistemic_drift_summary(step_influences)
+    policy_evaluation = explain.policy_outcome_evaluation(
+        policy=policy,
+        process=process,
+        execution_trace_rows=execution_trace_rows,
+        step_influences=step_influences,
+        belief_summary=summary,
+    )
+    policy_outcome_summary = explain.policy_outcome_summary(policy_evaluation)
+    policy_decision_explanations = explain.policy_decision_explanations(policy, explain_belief_fn=explain_belief_fn, get_belief_fn=get_belief_fn)
+    epistemic_sections = compile_epistemic_summary_sections(
+        belief_explanations=belief_explanations,
+        decision_explanations=policy_decision_explanations,
+    )
+    policy_surface_sections = compile_policy_surface_sections(
+        policy,
+        policy_outcome_evaluation=policy_evaluation,
+    )
+    observability_sections = compile_observability_sections(
+        process=process,
+        policy=policy,
+        execution_trace_rows=execution_trace_rows,
+        policy_outcome_evaluation=policy_evaluation,
+        epistemic_drift_summary=drift_summary,
+        step_influences=step_influences,
+        belief_summary=summary,
+    )
+    return {
+        "process": process,
+        "policy": policy,
+        **policy_surface_sections,
+        "policy_belief_influences": policy.get("belief_influences") if isinstance(policy, dict) else [],
+        "policy_decision_explanations": policy_decision_explanations,
+        "policy_outcome_evaluation": policy_evaluation,
+        "policy_outcome_summary": policy_outcome_summary,
+        "explain_atoms": policy_surface_sections.get("explain_atoms") or compile_explain_atoms(policy, policy_outcome_evaluation=policy_evaluation),
+        "beliefs": belief_rows,
+        "belief_summary": summary,
+        "belief_explanations": belief_explanations,
+        **epistemic_sections,
+        "step_belief_influences": step_influences,
+        "execution_trace": execution_trace_rows,
+        "epistemic_timeline": epistemic_timeline,
+        "epistemic_drift_summary": drift_summary,
+        **observability_sections,
+    }
+
+
+
 def compile_observability_sections(
     *,
     process: JsonDict,
@@ -730,6 +821,7 @@ __all__ = [
     "compile_epistemic_summary_sections",
     "compile_explain_atoms",
     "compile_observability_sections",
+    "compile_runtime_process_sections",
     "compile_policy_surface_sections",
     "compile_policy_surface_summaries",
     "compile_runtime_policy_response_sections",
