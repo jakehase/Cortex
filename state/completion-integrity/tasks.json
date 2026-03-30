@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T01:51:40.202Z",
+      "updatedAt": "2026-03-30T01:56:40.742Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 223,
+        "runs": 224,
         "failures": [],
-        "lastRunAt": "2026-03-30T01:51:40.209Z",
+        "lastRunAt": "2026-03-30T01:56:40.749Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6118,6 +6118,41 @@
       "failedAt": "2026-03-30T01:09:04.721Z",
       "failureReason": "System: [2026-03-29 20:01:27 CDT] Exec completed (sharp-cl, code 1) :: protective\" E AssertionError: assert None == 'protective' tests/test_reasoning_runtime_homeostasis.py:139: AssertionError =========================== short test summary info =====… System: [2026-03-29 20:01:48 CDT] Exec completed (vivid-cr, code 0) :: ........... [100%] 11 passed, 45 deselected in 1.94s System: [2026-03-29 20:0",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774836058472:df3bea29f96269d8",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-30T02:00:58.472Z",
+      "updatedAt": "2026-03-30T02:00:58.478Z",
+      "prompt": "System: [2026-03-29 20:51:37 CDT] Exec completed (glow-tid, code 1) :: ================= short test summary info ============================ FAILED tests/test_reasoning_runtime_operator_controls.py::test_runtime_homeostasis_freeze_route_ap",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-30T02:00:58.472Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-30T02:00:58.478Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }
