@@ -216,12 +216,38 @@ def policy_outcome_evaluation(*, policy: Dict[str, Any], process: Dict[str, Any]
                 "parallelism": settings.get("max_parallelism"),
                 "execution_mode": settings.get("execution_mode"),
                 "homeostasis_prefer_chain": settings.get("homeostasis_prefer_chain"),
+                "routing_selected_chain": settings.get("routing_selected_chain"),
+                "routing_override_reason": settings.get("routing_override_reason"),
             }
-            expected = {"execution_mode": expected_mode}
+            expected = {
+                "execution_mode": expected_mode,
+                "selected_chain": (decision.get("inputs") or {}).get("r9_selected_chain"),
+            }
             observed_mode = str(settings.get("execution_mode") or "")
+            observed_chain = settings.get("routing_selected_chain")
             if observed_mode:
                 outcome = "match" if observed_mode == expected_mode else "mismatch"
-            comparison = {"execution_mode_match": observed_mode == expected_mode if observed_mode else None}
+            comparison = {
+                "execution_mode_match": observed_mode == expected_mode if observed_mode else None,
+                "selected_chain_match": observed_chain == expected.get("selected_chain") if expected.get("selected_chain") else None,
+            }
+        elif domain == "routing_r9":
+            expected = {
+                "selected_chain": chosen,
+                "coarse_choice": (decision.get("inputs") or {}).get("coarse_choice"),
+            }
+            observed = {
+                "selected_chain": settings.get("routing_selected_chain"),
+                "default_chain": settings.get("routing_default_chain"),
+                "allowed_chain_ids": settings.get("routing_allowed_chain_ids"),
+                "utility": settings.get("routing_r9_utility"),
+                "override_reason": settings.get("routing_override_reason"),
+            }
+            outcome = "match" if observed.get("selected_chain") == chosen else "mismatch"
+            comparison = {
+                "selected_chain_match": observed.get("selected_chain") == chosen,
+                "coarse_choice_match": (decision.get("inputs") or {}).get("coarse_choice") == ("deliberate" if chosen in {"deliberate_council", "research_grounded"} else "fastlane"),
+            }
         elif domain == "homeostasis":
             homeostasis = policy.get("homeostasis") if isinstance(policy.get("homeostasis"), dict) else {}
             effort = homeostasis.get("effort") if isinstance(homeostasis.get("effort"), dict) else {}

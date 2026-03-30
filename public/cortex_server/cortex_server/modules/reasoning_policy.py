@@ -8,6 +8,11 @@ from cortex_server.modules.reasoning_kernel import build_policy_decision, model_
 from cortex_server.modules.routing_autotune import get_policy_snapshot
 
 
+_R9_DELIBERATE_CHAINS = {"deliberate_council", "research_grounded"}
+_R9_FASTLANE_CHAINS = {"fastlane_memory", "safe_reminder"}
+
+
+
 def _infer_homeostasis_intent(*, archetype: str, query: str, metadata: Dict[str, Any]) -> str:
     explicit = str(metadata.get("homeostasis_intent") or metadata.get("intent") or "").strip().lower()
     if explicit in {"qa", "coding", "planning", "research", "creative", "reminder"}:
@@ -24,6 +29,7 @@ def _infer_homeostasis_intent(*, archetype: str, query: str, metadata: Dict[str,
     }.get(str(archetype or ""), "qa")
 
 
+
 def _infer_homeostasis_risk_tier(*, archetype: str, metadata: Dict[str, Any], has_contracts: bool, long_running: bool) -> str:
     explicit = str(metadata.get("homeostasis_risk_tier") or metadata.get("risk_tier") or "").strip().lower()
     if explicit in {"low", "medium", "high", "critical"}:
@@ -35,6 +41,7 @@ def _infer_homeostasis_risk_tier(*, archetype: str, metadata: Dict[str, Any], ha
     if long_running:
         return "medium"
     return "low"
+
 
 
 def _load_homeostasis_bundle(*, archetype: str, query: str, metadata: Dict[str, Any], has_contracts: bool, long_running: bool) -> Dict[str, Any]:
@@ -97,6 +104,70 @@ def _load_homeostasis_bundle(*, archetype: str, query: str, metadata: Dict[str, 
     }
 
 
+
+def _load_r9_routing_bundle(*, query: str, archetype: str, metadata: Dict[str, Any], dependency_density: float, has_contracts: bool, long_running: bool) -> Dict[str, Any]:
+    if metadata.get("enable_r9_routing") is False:
+        return {"enabled": False, "reason": "disabled_by_metadata"}
+
+    risk_flags = [str(x).strip() for x in (metadata.get("routing_risk_flags") or metadata.get("risk_flags") or []) if str(x).strip()]
+    if has_contracts and "verification" not in risk_flags:
+        risk_flags.append("verification")
+    if dependency_density >= 0.5 and "dependency_dense" not in risk_flags:
+        risk_flags.append("dependency_dense")
+    if long_running and "long_running" not in risk_flags:
+        risk_flags.append("long_running")
+    if bool(metadata.get("requires_preflight")) and "requires_preflight" not in risk_flags:
+        risk_flags.append("requires_preflight")
+    historical_success = float(metadata.get("routing_historical_success", 0.5) or 0.5)
+
+    try:
+        from services.routing.route_feature_pipeline import build_route_features
+        from services.routing.adaptive_router_policy import choose_route, explain_route_decision
+    except Exception as exc:  # pragma: no cover - defensive import guard
+        return {
+            "enabled": False,
+            "reason": f"import_failed:{exc.__class__.__name__}",
+            "archetype": archetype,
+            "risk_flags": risk_flags,
+        }
+
+    try:
+        features = build_route_features(query, risk_flags=risk_flags, historical_success=historical_success)
+        decision = choose_route(features)
+        explanation = explain_route_decision(features)
+        selected = decision.get("selected") if isinstance(decision.get("selected"), dict) else {}
+        selected_chain = str(selected.get("chain_id") or features.get("default_chain") or "fastlane_memory")
+        if selected_chain in _R9_DELIBERATE_CHAINS:
+            coarse = "deliberate"
+        elif selected_chain in _R9_FASTLANE_CHAINS:
+            coarse = "fastlane"
+        else:
+            coarse = "deliberate" if selected_chain else "fastlane"
+        return {
+            "enabled": True,
+            "source": "r9_adaptive_router_policy",
+            "features": features,
+            "decision": decision,
+            "explanation": explanation,
+            "selected_chain": selected_chain,
+            "coarse_choice": coarse,
+            "risk_flags": risk_flags,
+            "historical_success": historical_success,
+            "utility": selected.get("utility"),
+            "estimated_quality": selected.get("estimated_quality"),
+            "allowed_chain_ids": list(features.get("allowed_chain_ids") or []),
+            "default_chain": features.get("default_chain"),
+        }
+    except Exception as exc:  # pragma: no cover - defensive runtime guard
+        return {
+            "enabled": False,
+            "reason": f"route_failed:{exc.__class__.__name__}",
+            "archetype": archetype,
+            "risk_flags": risk_flags,
+        }
+
+
+
 def _routing_choice_from_homeostasis(bundle: Dict[str, Any], default_choice: str) -> str:
     if not bool(bundle.get("enabled")):
         return default_choice
@@ -110,6 +181,7 @@ def _routing_choice_from_homeostasis(bundle: Dict[str, Any], default_choice: str
     if prefer_chain in {"deliberate_council", "research_grounded"}:
         return "deliberate"
     return default_choice
+
 
 
 def build_workflow_policy(*, name: str, goal: str = "", description: str = "", steps: List[Dict[str, Any]] | None = None, metadata: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -167,6 +239,14 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
         has_contracts=has_contracts,
         long_running=long_running,
     )
+    r9_routing = _load_r9_routing_bundle(
+        query=query,
+        archetype=archetype,
+        metadata=metadata,
+        dependency_density=dependency_density,
+        has_contracts=has_contracts,
+        long_running=long_running,
+    )
 
     risk_flags: List[str] = []
     if has_contracts:
@@ -178,9 +258,20 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
     if execution_mode == "parallel":
         risk_flags.append("parallelizable")
 
-    routing_choice = "deliberate" if archetype in {"coding", "planning", "ops_triage"} or dependency_density >= 0.5 else "fastlane"
+    routing_choice = str(r9_routing.get("coarse_choice") or "") if bool(r9_routing.get("enabled")) else ""
+    if not routing_choice:
+        routing_choice = "deliberate" if archetype in {"coding", "planning", "ops_triage"} or dependency_density >= 0.5 else "fastlane"
+    routing_selected_chain = str(r9_routing.get("selected_chain") or "") if bool(r9_routing.get("enabled")) else None
+    routing_override_reason = None
     if bool(homeostasis.get("enabled")):
-        routing_choice = _routing_choice_from_homeostasis(homeostasis, routing_choice)
+        post_homeostasis_choice = _routing_choice_from_homeostasis(homeostasis, routing_choice)
+        if post_homeostasis_choice != routing_choice:
+            routing_override_reason = f"homeostasis_{homeostasis.get('mode')}"
+            guardrails = homeostasis.get("guardrails") if isinstance(homeostasis.get("guardrails"), dict) else {}
+            prefer_chain = str(guardrails.get("prefer_chain") or "").strip()
+            if prefer_chain:
+                routing_selected_chain = prefer_chain
+        routing_choice = post_homeostasis_choice
         mode = str(homeostasis.get("mode") or "normal")
         if mode == "protective":
             execution_mode = "sequential"
@@ -197,10 +288,30 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
         if bool(((homeostasis.get("effort") or {}).get("escalation_recommended"))):
             risk_flags.append("homeostasis_escalation")
 
+    if bool(r9_routing.get("enabled")):
+        risk_flags.append("r9_routing_active")
+
     risk_flags = sorted(set(risk_flags))
     homeostasis_mode = str(homeostasis.get("mode") or "unavailable")
     homeostasis_guardrails = homeostasis.get("guardrails") if isinstance(homeostasis.get("guardrails"), dict) else {}
     homeostasis_effort = homeostasis.get("effort") if isinstance(homeostasis.get("effort"), dict) else {}
+    routing_inputs = {
+        "archetype": archetype,
+        "dependency_density": round(dependency_density, 3),
+        "route_policy": route_policy,
+        "belief_ids": belief_ids,
+        "homeostasis_mode": homeostasis_mode,
+        "homeostasis_prefer_chain": homeostasis_guardrails.get("prefer_chain"),
+        "homeostasis_block_fastlane": bool(homeostasis_guardrails.get("block_fastlane")),
+        "r9_enabled": bool(r9_routing.get("enabled")),
+        "r9_selected_chain": routing_selected_chain,
+        "r9_default_chain": r9_routing.get("default_chain"),
+        "r9_allowed_chain_ids": list(r9_routing.get("allowed_chain_ids") or []),
+        "r9_utility": r9_routing.get("utility"),
+        "r9_estimated_quality": r9_routing.get("estimated_quality"),
+        "r9_risk_flags": list(r9_routing.get("risk_flags") or []),
+        "routing_override_reason": routing_override_reason,
+    }
 
     decisions = [
         build_policy_decision(
@@ -208,19 +319,12 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
             chosen=routing_choice,
             rationale=(
                 f"archetype={archetype}, dependency_density={dependency_density:.2f}, "
-                f"homeostasis_mode={homeostasis_mode}, prefer_chain={homeostasis_guardrails.get('prefer_chain')}"
+                f"r9_selected_chain={routing_selected_chain}, homeostasis_mode={homeostasis_mode}, "
+                f"prefer_chain={homeostasis_guardrails.get('prefer_chain')}"
             ),
             confidence=0.78,
             alternatives=["fastlane", "deliberate"],
-            inputs={
-                "archetype": archetype,
-                "dependency_density": round(dependency_density, 3),
-                "route_policy": route_policy,
-                "belief_ids": belief_ids,
-                "homeostasis_mode": homeostasis_mode,
-                "homeostasis_prefer_chain": homeostasis_guardrails.get("prefer_chain"),
-                "homeostasis_block_fastlane": bool(homeostasis_guardrails.get("block_fastlane")),
-            },
+            inputs=routing_inputs,
         ),
         build_policy_decision(
             domain="scheduler",
@@ -287,6 +391,34 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
                 "metrics": {},
             }
         )
+    if bool(r9_routing.get("enabled")):
+        decisions.append(
+            {
+                "domain": "routing_r9",
+                "chosen": routing_selected_chain,
+                "rationale": (
+                    f"intent={((r9_routing.get('features') or {}).get('intent'))}, risk_tier={((r9_routing.get('features') or {}).get('risk_tier'))}, "
+                    f"utility={r9_routing.get('utility')}"
+                ),
+                "confidence": 0.8,
+                "alternatives": list((r9_routing.get("features") or {}).get("allowed_chain_ids") or []),
+                "inputs": {
+                    "belief_ids": belief_ids,
+                    "coarse_choice": r9_routing.get("coarse_choice"),
+                    "default_chain": r9_routing.get("default_chain"),
+                    "allowed_chain_ids": list(r9_routing.get("allowed_chain_ids") or []),
+                    "risk_flags": list(r9_routing.get("risk_flags") or []),
+                    "utility": r9_routing.get("utility"),
+                    "estimated_quality": r9_routing.get("estimated_quality"),
+                    "intent": ((r9_routing.get("features") or {}).get("intent")),
+                    "archetype": ((r9_routing.get("features") or {}).get("archetype")),
+                    "route_taxonomy_version": ((r9_routing.get("features") or {}).get("route_taxonomy_version")),
+                    "policy_spec": ((r9_routing.get("decision") or {}).get("policy_spec") if isinstance(r9_routing.get("decision"), dict) else {}),
+                    "override_reason": routing_override_reason,
+                },
+                "metrics": {},
+            }
+        )
 
     settings = {
         "execution_mode": execution_mode,
@@ -311,6 +443,12 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
         "homeostasis_block_fastlane": bool(homeostasis_guardrails.get("block_fastlane")),
         "homeostasis_human_review_required": bool(homeostasis_effort.get("human_review_required")),
         "homeostasis_escalation_recommended": bool(homeostasis_effort.get("escalation_recommended")),
+        "routing_selected_chain": routing_selected_chain,
+        "routing_default_chain": r9_routing.get("default_chain"),
+        "routing_allowed_chain_ids": list(r9_routing.get("allowed_chain_ids") or []),
+        "routing_r9_enabled": bool(r9_routing.get("enabled")),
+        "routing_r9_utility": r9_routing.get("utility"),
+        "routing_override_reason": routing_override_reason,
     }
 
     return {
@@ -323,6 +461,7 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
         "risk_flags": risk_flags,
         "route_policy_snapshot": route_policy,
         "homeostasis": homeostasis,
+        "routing_r9": r9_routing,
         "settings": settings,
         "decisions": [model_dump_compat(d) if not isinstance(d, dict) else dict(d) for d in decisions],
     }
