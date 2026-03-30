@@ -159,50 +159,14 @@ def assemble_runtime_process_explain(
         policy,
         policy_outcome_evaluation=policy_evaluation,
     )
-    incidents = []
-    for node_id, row in (process.get("nodes") or {}).items():
-        if isinstance(row, dict) and str(row.get("status") or "") in {"failed", "blocked", "cancelled"}:
-            incidents.append(
-                {
-                    "node_id": node_id,
-                    "status": row.get("status"),
-                    "blocked_by": row.get("blocked_by"),
-                    "last_error": row.get("last_error"),
-                    "error_code": row.get("last_error_code"),
-                }
-            )
-    incident_report = observability.incident_report(
+    observability_sections = explain_compiler.compile_observability_sections(
         process=process,
-        execution_trace=execution_trace_rows,
-        incidents=incidents,
-        policy_outcome_evaluation=policy_evaluation,
-    )
-    postmortem = observability.workflow_postmortem(
-        process=process,
-        execution_trace=execution_trace_rows,
-        incident_report=incident_report,
+        policy=policy,
+        execution_trace_rows=execution_trace_rows,
         policy_outcome_evaluation=policy_evaluation,
         epistemic_drift_summary=drift_summary,
-    )
-    rerun_recommendations = observability.rerun_recommendations(
-        incident_report=incident_report,
-        postmortem=postmortem,
-        process=process,
-    )
-    policy_adaptation_hooks = observability.policy_adaptation_hooks(
-        policy=policy,
-        incident_report=incident_report,
-        policy_outcome_evaluation=policy_evaluation,
-    )
-    policy_patch_preview = observability.policy_patch_preview(policy=policy, hooks=policy_adaptation_hooks)
-    self_review = observability.workflow_self_review(
-        process=process,
-        policy=policy,
-        execution_trace=execution_trace_rows,
         step_influences=step_influences,
         belief_summary=summary,
-        incident_report=incident_report,
-        postmortem=postmortem,
     )
 
     return {
@@ -224,13 +188,7 @@ def assemble_runtime_process_explain(
         "execution_trace": execution_trace_rows,
         "epistemic_timeline": epistemic_timeline,
         "epistemic_drift_summary": drift_summary,
-        "incidents": incidents,
-        "incident_report": incident_report,
-        "postmortem": postmortem,
-        "rerun_recommendations": rerun_recommendations,
-        "policy_adaptation_hooks": policy_adaptation_hooks,
-        "policy_patch_preview": policy_patch_preview,
-        "self_review": self_review,
+        **observability_sections,
     }
 
 

@@ -540,10 +540,84 @@ def compile_runtime_postmortem_response_sections(explained: Optional[JsonDict], 
     return sections
 
 
+
+def compile_observability_sections(
+    *,
+    process: JsonDict,
+    policy: JsonDict,
+    execution_trace_rows: List[JsonDict],
+    policy_outcome_evaluation: List[JsonDict],
+    epistemic_drift_summary: JsonDict,
+    step_influences: List[JsonDict],
+    belief_summary: JsonDict,
+) -> JsonDict:
+    process = process if isinstance(process, dict) else {}
+    policy = policy if isinstance(policy, dict) else {}
+    execution_trace_rows = [dict(row) for row in (execution_trace_rows or []) if isinstance(row, dict)]
+    policy_outcome_evaluation = [dict(row) for row in (policy_outcome_evaluation or []) if isinstance(row, dict)]
+    step_influences = [dict(row) for row in (step_influences or []) if isinstance(row, dict)]
+    belief_summary = dict(belief_summary or {})
+    incidents: List[JsonDict] = []
+    for node_id, row in (process.get("nodes") or {}).items():
+        if isinstance(row, dict) and str(row.get("status") or "") in {"failed", "blocked", "cancelled"}:
+            incidents.append(
+                {
+                    "node_id": node_id,
+                    "status": row.get("status"),
+                    "blocked_by": row.get("blocked_by"),
+                    "last_error": row.get("last_error"),
+                    "error_code": row.get("last_error_code"),
+                }
+            )
+    incident_report = observability.incident_report(
+        process=process,
+        execution_trace=execution_trace_rows,
+        incidents=incidents,
+        policy_outcome_evaluation=policy_outcome_evaluation,
+    )
+    postmortem = observability.workflow_postmortem(
+        process=process,
+        execution_trace=execution_trace_rows,
+        incident_report=incident_report,
+        policy_outcome_evaluation=policy_outcome_evaluation,
+        epistemic_drift_summary=epistemic_drift_summary,
+    )
+    rerun_recommendations = observability.rerun_recommendations(
+        incident_report=incident_report,
+        postmortem=postmortem,
+        process=process,
+    )
+    policy_adaptation_hooks = observability.policy_adaptation_hooks(
+        policy=policy,
+        incident_report=incident_report,
+        policy_outcome_evaluation=policy_outcome_evaluation,
+    )
+    policy_patch_preview = observability.policy_patch_preview(policy=policy, hooks=policy_adaptation_hooks)
+    self_review = observability.workflow_self_review(
+        process=process,
+        policy=policy,
+        execution_trace=execution_trace_rows,
+        step_influences=step_influences,
+        belief_summary=belief_summary,
+        incident_report=incident_report,
+        postmortem=postmortem,
+    )
+    return {
+        "incidents": incidents,
+        "incident_report": incident_report,
+        "postmortem": postmortem,
+        "rerun_recommendations": rerun_recommendations,
+        "policy_adaptation_hooks": policy_adaptation_hooks,
+        "policy_patch_preview": policy_patch_preview,
+        "self_review": self_review,
+    }
+
+
 __all__ = [
     "compile_control_plane_summary",
     "compile_epistemic_summary_sections",
     "compile_explain_atoms",
+    "compile_observability_sections",
     "compile_policy_surface_sections",
     "compile_policy_surface_summaries",
     "compile_runtime_policy_response_sections",

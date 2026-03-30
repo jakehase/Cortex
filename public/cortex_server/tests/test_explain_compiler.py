@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cortex_server.modules.explain_compiler import compile_control_plane_summary, compile_epistemic_summary_sections, compile_explain_atoms, compile_policy_surface_summaries
+from cortex_server.modules.explain_compiler import compile_control_plane_summary, compile_epistemic_summary_sections, compile_explain_atoms, compile_observability_sections, compile_policy_surface_summaries
 from cortex_server.modules.governance_compiler import compile_workflow_policy
 from tests.test_reasoning_restored_phase_integration import RESTORED_METADATA
 
@@ -109,3 +109,46 @@ def test_compile_epistemic_summary_sections_surfaces_evidence_risk_and_core():
     assert sections["decision_causality_summary"]["decision_count"] == 1
     assert sections["epistemic_risk_summary"]["belief_count"] == 1
     assert sections["epistemic_core_summary"]["operator_summary"]
+
+
+
+def test_compile_observability_sections_surfaces_incident_postmortem_and_hooks():
+    policy = compile_workflow_policy(
+        name="Investigate a degraded production service carefully",
+        steps=[{"node_id": "step1", "title": "Investigate incident"}],
+        metadata=RESTORED_METADATA,
+    )
+    process = {
+        "process_id": "proc_obs",
+        "status": "failed",
+        "nodes": {
+            "step1": {
+                "status": "failed",
+                "last_error": "timeout:simulated",
+                "last_error_code": "timeout",
+            }
+        },
+    }
+    execution_trace_rows = [{"step": 1, "success": False, "error": "timeout:simulated"}]
+    policy_outcome_evaluation = [{"domain": "truth_engine", "outcome": "mismatch"}]
+    drift_summary = {"changed": True, "operator_summary": "drift observed"}
+    step_influences = [{"node_id": "step1", "operator_summary": "impact observed"}]
+    belief_summary = {"count": 1}
+
+    sections = compile_observability_sections(
+        process=process,
+        policy=policy,
+        execution_trace_rows=execution_trace_rows,
+        policy_outcome_evaluation=policy_outcome_evaluation,
+        epistemic_drift_summary=drift_summary,
+        step_influences=step_influences,
+        belief_summary=belief_summary,
+    )
+
+    assert sections["incidents"][0]["node_id"] == "step1"
+    assert sections["incident_report"]["incident_count"] >= 1
+    assert sections["postmortem"]["title"]
+    assert sections["rerun_recommendations"] is not None
+    assert sections["policy_adaptation_hooks"] is not None
+    assert sections["policy_patch_preview"] is not None
+    assert sections["self_review"] is not None
