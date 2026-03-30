@@ -120,6 +120,8 @@ def test_runtime_constraint_compiler_matches_runtime_execution_wrapper_for_homeo
     assert compiled["execution_mode"] == "sequential"
     assert compiled["verification_mode"] == "strict"
     assert compiled["step_timeout_seconds"] == 12.0
+    assert "constraint_precedence" in compiled
+    assert "constraint_decisions" in compiled
 
 
 

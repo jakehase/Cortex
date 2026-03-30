@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from cortex_server.modules.governance_arbitration import apply_overlay_precedence
+
 
 JsonDict = Dict[str, Any]
 
@@ -79,15 +81,18 @@ def _homeostasis_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDi
 
 
 
-def _restored_phase_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
-    policy = policy if isinstance(policy, dict) else {}
+def _world_state_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
     settings = dict(settings or {})
-    explicit_timeout = settings.get("step_timeout_seconds") is not None
-
     if bool(settings.get("world_state_runtime_enforce")) and list(settings.get("world_state_low_confidence_entities") or []):
         settings["verification_mode"] = "strict"
         settings["world_state_runtime_enforced"] = True
+    return settings
 
+
+
+def _modulation_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
+    settings = dict(settings or {})
+    explicit_timeout = settings.get("step_timeout_seconds") is not None
     if bool(settings.get("modulation_runtime_enforce")) and bool(settings.get("modulation_deep_reasoning_required")):
         settings["max_parallelism"] = min(2, max(1, int(settings.get("max_parallelism", 1) or 1)))
         settings["same_tick_drain"] = False
@@ -95,11 +100,21 @@ def _restored_phase_runtime_overlay(policy: JsonDict, settings: JsonDict) -> Jso
             depth = int(settings.get("modulation_reasoning_depth", 1) or 1)
             settings["step_timeout_seconds"] = max(6.0, min(12.0, 3.0 + float(depth)))
         settings["modulation_runtime_enforced"] = True
+    return settings
 
+
+
+def _workspace_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
+    settings = dict(settings or {})
     if bool(settings.get("workspace_runtime_enforce")) and str(settings.get("workspace_selected_specialist") or "") == "planner":
         settings["same_tick_drain"] = False
         settings["workspace_runtime_enforced"] = True
+    return settings
 
+
+
+def _truth_engine_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
+    settings = dict(settings or {})
     if bool(settings.get("truth_engine_runtime_enforce")):
         action = str(settings.get("truth_guard_action") or "allow")
         if action in {"clarify", "block"}:
@@ -108,12 +123,22 @@ def _restored_phase_runtime_overlay(policy: JsonDict, settings: JsonDict) -> Jso
             if action == "block":
                 settings["max_parallelism"] = 1
             settings["truth_engine_runtime_enforced"] = True
+    return settings
 
+
+
+def _plasticity_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
+    settings = dict(settings or {})
     if bool(settings.get("plasticity_runtime_enforce")) and bool(settings.get("plasticity_alert")):
         settings["same_tick_drain"] = False
         settings["max_parallelism"] = min(2, max(1, int(settings.get("max_parallelism", 1) or 1)))
         settings["plasticity_runtime_enforced"] = True
+    return settings
 
+
+
+def _embodiment_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
+    settings = dict(settings or {})
     if bool(settings.get("embodiment_runtime_enforce")) and bool(settings.get("embodiment_pause_noncritical_work")):
         settings["execution_mode"] = "sequential"
         settings["max_parallelism"] = 1
@@ -121,20 +146,40 @@ def _restored_phase_runtime_overlay(policy: JsonDict, settings: JsonDict) -> Jso
         settings["verification_mode"] = "strict"
         settings["step_timeout_seconds"] = max(10.0, float(settings.get("step_timeout_seconds") or 0.0))
         settings["embodiment_runtime_enforced"] = True
-
     return settings
 
 
 
-def compile_runtime_constraint_settings(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+def compile_runtime_constraint_resolution(workflow_metadata: Optional[JsonDict]) -> JsonDict:
     metadata = dict(workflow_metadata or {})
     policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
     settings = policy.get("settings") if isinstance(policy.get("settings"), dict) else {}
-    settings = _r9_runtime_overlay(policy, dict(settings))
-    settings = _homeostasis_runtime_overlay(policy, settings)
-    return _restored_phase_runtime_overlay(policy, settings)
+    return {
+        "settings": apply_overlay_precedence(
+            policy=policy,
+            base_settings=dict(settings),
+            overlays=[
+                ("routing_r9", _r9_runtime_overlay),
+                ("homeostasis", _homeostasis_runtime_overlay),
+                ("world_state", _world_state_runtime_overlay),
+                ("modulation", _modulation_runtime_overlay),
+                ("workspace", _workspace_runtime_overlay),
+                ("truth_engine", _truth_engine_runtime_overlay),
+                ("plasticity", _plasticity_runtime_overlay),
+                ("embodiment", _embodiment_runtime_overlay),
+            ],
+        )
+    }
+
+
+
+def compile_runtime_constraint_settings(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    resolution = compile_runtime_constraint_resolution(workflow_metadata)
+    settings = resolution.get("settings") if isinstance(resolution.get("settings"), dict) else {}
+    return dict(settings)
 
 
 __all__ = [
+    "compile_runtime_constraint_resolution",
     "compile_runtime_constraint_settings",
 ]
