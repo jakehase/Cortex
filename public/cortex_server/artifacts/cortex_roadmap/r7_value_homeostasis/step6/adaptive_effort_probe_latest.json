@@ -1,0 +1,508 @@
+{
+  "generated_at": "2026-03-30T00:18:52.665963+00:00",
+  "benchmark": {
+    "generated_at": "2026-03-30T00:18:52.665959+00:00",
+    "case_count": 8,
+    "success_count": 8,
+    "success_rate": 1.0,
+    "gate_pass": true,
+    "results": [
+      {
+        "case_id": "protective_research",
+        "profile": {
+          "generated_at": "2026-03-30T00:18:52.665854+00:00",
+          "intent": "research",
+          "risk_tier": "high",
+          "mode": "protective",
+          "mode_reasons": [
+            "high_risk_pressure",
+            "high_urgency",
+            "high_error_pressure"
+          ],
+          "effort": {
+            "reasoning_depth": 6,
+            "tempo": "deliberate",
+            "tool_budget_class": "expanded",
+            "human_review_required": true,
+            "escalation_recommended": true
+          },
+          "guardrails": {
+            "allowed_chains": [
+              "research_grounded",
+              "deliberate_council"
+            ],
+            "prefer_chain": "research_grounded",
+            "block_fastlane": true
+          },
+          "budget_reference": {
+            "generated_at": "2026-03-30T00:18:52.665833+00:00",
+            "intent": "research",
+            "risk_tier": "high",
+            "mode": "protective",
+            "mode_reasons": [
+              "high_risk_pressure",
+              "high_urgency",
+              "high_error_pressure"
+            ],
+            "budgets": {
+              "tokens": 2397,
+              "depth": 5,
+              "latency_ms": 3778
+            },
+            "reserve_pools": {
+              "incident": {
+                "tokens": 839,
+                "depth": 2,
+                "latency_ms": 1322
+              },
+              "recovery": {
+                "tokens": 499,
+                "depth": 1,
+                "latency_ms": 787
+              }
+            },
+            "observed_load": {
+              "token_pressure": 0.55,
+              "depth_pressure": 0.4,
+              "latency_pressure": 0.45
+            }
+          }
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "protective_coding",
+        "profile": {
+          "generated_at": "2026-03-30T00:18:52.665869+00:00",
+          "intent": "coding",
+          "risk_tier": "critical",
+          "mode": "protective",
+          "mode_reasons": [
+            "high_risk_pressure",
+            "high_urgency",
+            "high_error_pressure"
+          ],
+          "effort": {
+            "reasoning_depth": 6,
+            "tempo": "deliberate",
+            "tool_budget_class": "expanded",
+            "human_review_required": true,
+            "escalation_recommended": true
+          },
+          "guardrails": {
+            "allowed_chains": [
+              "deliberate_council"
+            ],
+            "prefer_chain": "deliberate_council",
+            "block_fastlane": true
+          },
+          "budget_reference": {
+            "generated_at": "2026-03-30T00:18:52.665865+00:00",
+            "intent": "coding",
+            "risk_tier": "critical",
+            "mode": "protective",
+            "mode_reasons": [
+              "high_risk_pressure",
+              "high_urgency",
+              "high_error_pressure"
+            ],
+            "budgets": {
+              "tokens": 2438,
+              "depth": 6,
+              "latency_ms": 3691
+            },
+            "reserve_pools": {
+              "incident": {
+                "tokens": 853,
+                "depth": 2,
+                "latency_ms": 1292
+              },
+              "recovery": {
+                "tokens": 508,
+                "depth": 1,
+                "latency_ms": 768
+              }
+            },
+            "observed_load": {
+              "token_pressure": 0.52,
+              "depth_pressure": 0.55,
+              "latency_pressure": 0.42
+            }
+          }
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "conserve_qa",
+        "profile": {
+          "generated_at": "2026-03-30T00:18:52.665886+00:00",
+          "intent": "qa",
+          "risk_tier": "low",
+          "mode": "conserve",
+          "mode_reasons": [
+            "high_fatigue",
+            "high_timeout_pressure",
+            "high_budget_pressure",
+            "high_escalation_debt"
+          ],
+          "effort": {
+            "reasoning_depth": 1,
+            "tempo": "tight",
+            "tool_budget_class": "minimal",
+            "human_review_required": false,
+            "escalation_recommended": false
+          },
+          "guardrails": {
+            "allowed_chains": [
+              "fastlane_memory"
+            ],
+            "prefer_chain": "fastlane_memory",
+            "block_fastlane": false
+          },
+          "budget_reference": {
+            "generated_at": "2026-03-30T00:18:52.665880+00:00",
+            "intent": "qa",
+            "risk_tier": "low",
+            "mode": "conserve",
+            "mode_reasons": [
+              "high_fatigue",
+              "high_timeout_pressure",
+              "high_budget_pressure",
+              "high_escalation_debt"
+            ],
+            "budgets": {
+              "tokens": 782,
+              "depth": 3,
+              "latency_ms": 1471
+            },
+            "reserve_pools": {
+              "incident": {
+                "tokens": 151,
+                "depth": 1,
+                "latency_ms": 285
+              },
+              "recovery": {
+                "tokens": 176,
+                "depth": 1,
+                "latency_ms": 330
+              }
+            },
+            "observed_load": {
+              "token_pressure": 0.2,
+              "depth_pressure": 0.15,
+              "latency_pressure": 0.18
+            }
+          }
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "conserve_research",
+        "profile": {
+          "generated_at": "2026-03-30T00:18:52.665901+00:00",
+          "intent": "research",
+          "risk_tier": "medium",
+          "mode": "conserve",
+          "mode_reasons": [
+            "high_fatigue",
+            "high_timeout_pressure",
+            "high_budget_pressure",
+            "high_escalation_debt"
+          ],
+          "effort": {
+            "reasoning_depth": 3,
+            "tempo": "tight",
+            "tool_budget_class": "focused",
+            "human_review_required": false,
+            "escalation_recommended": false
+          },
+          "guardrails": {
+            "allowed_chains": [
+              "research_grounded"
+            ],
+            "prefer_chain": "research_grounded",
+            "block_fastlane": false
+          },
+          "budget_reference": {
+            "generated_at": "2026-03-30T00:18:52.665898+00:00",
+            "intent": "research",
+            "risk_tier": "medium",
+            "mode": "conserve",
+            "mode_reasons": [
+              "high_fatigue",
+              "high_timeout_pressure",
+              "high_budget_pressure",
+              "high_escalation_debt"
+            ],
+            "budgets": {
+              "tokens": 1693,
+              "depth": 4,
+              "latency_ms": 2964
+            },
+            "reserve_pools": {
+              "incident": {
+                "tokens": 328,
+                "depth": 1,
+                "latency_ms": 574
+              },
+              "recovery": {
+                "tokens": 380,
+                "depth": 1,
+                "latency_ms": 666
+              }
+            },
+            "observed_load": {
+              "token_pressure": 0.44,
+              "depth_pressure": 0.3,
+              "latency_pressure": 0.41
+            }
+          }
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "normal_planning",
+        "profile": {
+          "generated_at": "2026-03-30T00:18:52.665911+00:00",
+          "intent": "planning",
+          "risk_tier": "medium",
+          "mode": "normal",
+          "mode_reasons": [
+            "nominal_window"
+          ],
+          "effort": {
+            "reasoning_depth": 4,
+            "tempo": "balanced",
+            "tool_budget_class": "standard",
+            "human_review_required": false,
+            "escalation_recommended": false
+          },
+          "guardrails": {
+            "allowed_chains": [
+              "deliberate_council"
+            ],
+            "prefer_chain": "deliberate_council",
+            "block_fastlane": false
+          },
+          "budget_reference": {
+            "generated_at": "2026-03-30T00:18:52.665908+00:00",
+            "intent": "planning",
+            "risk_tier": "medium",
+            "mode": "normal",
+            "mode_reasons": [
+              "nominal_window"
+            ],
+            "budgets": {
+              "tokens": 1686,
+              "depth": 5,
+              "latency_ms": 2857
+            },
+            "reserve_pools": {
+              "incident": {
+                "tokens": 171,
+                "depth": 1,
+                "latency_ms": 290
+              },
+              "recovery": {
+                "tokens": 166,
+                "depth": 1,
+                "latency_ms": 282
+              }
+            },
+            "observed_load": {
+              "token_pressure": 0.3,
+              "depth_pressure": 0.28,
+              "latency_pressure": 0.22
+            }
+          }
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "normal_creative",
+        "profile": {
+          "generated_at": "2026-03-30T00:18:52.665921+00:00",
+          "intent": "creative",
+          "risk_tier": "low",
+          "mode": "normal",
+          "mode_reasons": [
+            "nominal_window"
+          ],
+          "effort": {
+            "reasoning_depth": 3,
+            "tempo": "balanced",
+            "tool_budget_class": "standard",
+            "human_review_required": false,
+            "escalation_recommended": false
+          },
+          "guardrails": {
+            "allowed_chains": [
+              "creative_fractal",
+              "deliberate_council"
+            ],
+            "prefer_chain": "creative_fractal",
+            "block_fastlane": false
+          },
+          "budget_reference": {
+            "generated_at": "2026-03-30T00:18:52.665918+00:00",
+            "intent": "creative",
+            "risk_tier": "low",
+            "mode": "normal",
+            "mode_reasons": [
+              "nominal_window"
+            ],
+            "budgets": {
+              "tokens": 1455,
+              "depth": 3,
+              "latency_ms": 2270
+            },
+            "reserve_pools": {
+              "incident": {
+                "tokens": 148,
+                "depth": 1,
+                "latency_ms": 231
+              },
+              "recovery": {
+                "tokens": 143,
+                "depth": 1,
+                "latency_ms": 224
+              }
+            },
+            "observed_load": {
+              "token_pressure": 0.25,
+              "depth_pressure": 0.2,
+              "latency_pressure": 0.2
+            }
+          }
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "high_risk_reminder",
+        "profile": {
+          "generated_at": "2026-03-30T00:18:52.665933+00:00",
+          "intent": "reminder",
+          "risk_tier": "high",
+          "mode": "normal",
+          "mode_reasons": [
+            "nominal_window"
+          ],
+          "effort": {
+            "reasoning_depth": 2,
+            "tempo": "balanced",
+            "tool_budget_class": "standard",
+            "human_review_required": true,
+            "escalation_recommended": true
+          },
+          "guardrails": {
+            "allowed_chains": [
+              "safe_reminder",
+              "deliberate_council"
+            ],
+            "prefer_chain": "safe_reminder",
+            "block_fastlane": true
+          },
+          "budget_reference": {
+            "generated_at": "2026-03-30T00:18:52.665929+00:00",
+            "intent": "reminder",
+            "risk_tier": "high",
+            "mode": "normal",
+            "mode_reasons": [
+              "nominal_window"
+            ],
+            "budgets": {
+              "tokens": 1298,
+              "depth": 3,
+              "latency_ms": 1908
+            },
+            "reserve_pools": {
+              "incident": {
+                "tokens": 262,
+                "depth": 1,
+                "latency_ms": 385
+              },
+              "recovery": {
+                "tokens": 128,
+                "depth": 1,
+                "latency_ms": 188
+              }
+            },
+            "observed_load": {
+              "token_pressure": 0.08,
+              "depth_pressure": 0.05,
+              "latency_pressure": 0.08
+            }
+          }
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "critical_research_overrides_mode",
+        "profile": {
+          "generated_at": "2026-03-30T00:18:52.665955+00:00",
+          "intent": "research",
+          "risk_tier": "critical",
+          "mode": "normal",
+          "mode_reasons": [
+            "nominal_window"
+          ],
+          "effort": {
+            "reasoning_depth": 6,
+            "tempo": "balanced",
+            "tool_budget_class": "expanded",
+            "human_review_required": true,
+            "escalation_recommended": true
+          },
+          "guardrails": {
+            "allowed_chains": [
+              "research_grounded"
+            ],
+            "prefer_chain": "research_grounded",
+            "block_fastlane": true
+          },
+          "budget_reference": {
+            "generated_at": "2026-03-30T00:18:52.665949+00:00",
+            "intent": "research",
+            "risk_tier": "critical",
+            "mode": "normal",
+            "mode_reasons": [
+              "nominal_window"
+            ],
+            "budgets": {
+              "tokens": 2297,
+              "depth": 5,
+              "latency_ms": 3611
+            },
+            "reserve_pools": {
+              "incident": {
+                "tokens": 463,
+                "depth": 1,
+                "latency_ms": 728
+              },
+              "recovery": {
+                "tokens": 226,
+                "depth": 1,
+                "latency_ms": 356
+              }
+            },
+            "observed_load": {
+              "token_pressure": 0.35,
+              "depth_pressure": 0.3,
+              "latency_pressure": 0.26
+            }
+          }
+        },
+        "violations": [],
+        "success": true
+      }
+    ]
+  },
+  "gate_pass": true
+}

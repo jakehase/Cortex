@@ -1,0 +1,62 @@
+{
+  "generated_at": "2026-03-30T00:18:52.839888+00:00",
+  "artifact_root": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r7_value_homeostasis",
+  "scripts": [
+    "scripts/cortex_r7_step1_baseline_regulation.py",
+    "scripts/cortex_r7_step2_state_signal_model.py",
+    "scripts/cortex_r7_step3_value_hierarchy_compiler.py",
+    "scripts/cortex_r7_step4_conflict_arbitration.py",
+    "scripts/cortex_r7_step5_dynamic_budget_allocator.py",
+    "scripts/cortex_r7_step6_adaptive_effort_controller.py",
+    "scripts/cortex_r7_step7_safety_envelope_overrides.py",
+    "scripts/cortex_r7_step8_shadow_governor_runner.py",
+    "scripts/cortex_r7_step9_canary_governor_controller.py",
+    "scripts/cortex_r7_step10_full_rollout_autotuner.py",
+    "scripts/cortex_r7_step11_operator_dashboard.py",
+    "scripts/cortex_r7_step12_novelty_packaging.py",
+    "scripts/cortex_r7_value_homeostasis.py"
+  ],
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_snapshot_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_live_local.html",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_model_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step12/claim_map_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step12/novelty_brief_latest.md",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step12/novelty_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step12/reproducibility_pack_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step2/state_signal_snapshot_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_compiled_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step3/value_hierarchy_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step4/arbitration_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step5/budget_allocator_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step6/adaptive_effort_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step7/safety_override_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step8/shadow_governor_probe_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step9/canary_governor_probe_latest.json"
+  ],
+  "commands": [
+    "python3 scripts/cortex_r7_step1_baseline_regulation.py",
+    "python3 scripts/cortex_r7_step2_state_signal_model.py",
+    "python3 scripts/cortex_r7_step3_value_hierarchy_compiler.py",
+    "python3 scripts/cortex_r7_step4_conflict_arbitration.py",
+    "python3 scripts/cortex_r7_step5_dynamic_budget_allocator.py",
+    "python3 scripts/cortex_r7_step6_adaptive_effort_controller.py",
+    "python3 scripts/cortex_r7_step7_safety_envelope_overrides.py",
+    "python3 scripts/cortex_r7_step8_shadow_governor_runner.py",
+    "python3 scripts/cortex_r7_step9_canary_governor_controller.py",
+    "python3 scripts/cortex_r7_step10_full_rollout_autotuner.py",
+    "python3 scripts/cortex_r7_step11_operator_dashboard.py",
+    "python3 scripts/cortex_r7_step12_novelty_packaging.py",
+    "python3 scripts/cortex_r7_value_homeostasis.py"
+  ],
+  "notes": [
+    "Artifacts are locally reproducible from committed scripts.",
+    "Step 11 uses local-stub controls for drill verification rather than live production mutations.",
+    "Claim language should stay disciplined about synthetic, replay, shadow, and canary evidence."
+  ]
+}

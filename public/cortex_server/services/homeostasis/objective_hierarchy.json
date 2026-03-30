@@ -1,0 +1,21 @@
+{
+  "version": "r7.value_hierarchy.v1",
+  "objectives": [
+    {"id": "safety", "priority": 1, "kind": "hard_guardrail"},
+    {"id": "truth", "priority": 2, "kind": "hard_guardrail"},
+    {"id": "user_intent", "priority": 3, "kind": "primary"},
+    {"id": "reliability", "priority": 4, "kind": "supporting"},
+    {"id": "efficiency", "priority": 5, "kind": "supporting"}
+  ],
+  "hard_constraints": {
+    "min_safety_score": 0.85,
+    "min_truth_score": 0.7,
+    "disallow_efficiency_win_on_safety_loss": true,
+    "disallow_reliability_win_on_truth_loss": true
+  },
+  "tie_breakers": [
+    "higher_reliability",
+    "higher_efficiency",
+    "stable_candidate_id"
+  ]
+}

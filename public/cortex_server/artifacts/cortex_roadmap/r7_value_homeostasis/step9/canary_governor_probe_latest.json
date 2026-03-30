@@ -1,0 +1,198 @@
+{
+  "generated_at": "2026-03-30T00:18:52.725159+00:00",
+  "canary": {
+    "generated_at": "2026-03-30T00:18:52.725138+00:00",
+    "shadow_summary": {
+      "disagreement_rate": 0.625,
+      "average_estimated_uplift": 0.105,
+      "safety_regression_count": 0,
+      "case_count": 8
+    },
+    "stages": {
+      "stage_5": {
+        "rollout_percent": 5,
+        "status": "promote",
+        "reasons": [],
+        "rollout_allowed": true,
+        "sample_members": [
+          {
+            "key": "qa:baseline",
+            "bucket": 97,
+            "enabled": false
+          },
+          {
+            "key": "research:live_status",
+            "bucket": 57,
+            "enabled": false
+          },
+          {
+            "key": "coding:incident_fix",
+            "bucket": 23,
+            "enabled": false
+          },
+          {
+            "key": "creative:brainstorm",
+            "bucket": 48,
+            "enabled": false
+          },
+          {
+            "key": "planning:migration",
+            "bucket": 57,
+            "enabled": false
+          },
+          {
+            "key": "reminder:lunch_ping",
+            "bucket": 86,
+            "enabled": false
+          },
+          {
+            "key": "research:comparison",
+            "bucket": 77,
+            "enabled": false
+          },
+          {
+            "key": "qa:http_502",
+            "bucket": 35,
+            "enabled": false
+          },
+          {
+            "key": "coding:test_failure",
+            "bucket": 61,
+            "enabled": false
+          },
+          {
+            "key": "reminder:calendar_check",
+            "bucket": 97,
+            "enabled": false
+          }
+        ],
+        "enabled_count": 0
+      },
+      "stage_20": {
+        "rollout_percent": 20,
+        "status": "promote",
+        "reasons": [],
+        "rollout_allowed": true,
+        "sample_members": [
+          {
+            "key": "qa:baseline",
+            "bucket": 97,
+            "enabled": false
+          },
+          {
+            "key": "research:live_status",
+            "bucket": 57,
+            "enabled": false
+          },
+          {
+            "key": "coding:incident_fix",
+            "bucket": 23,
+            "enabled": false
+          },
+          {
+            "key": "creative:brainstorm",
+            "bucket": 48,
+            "enabled": false
+          },
+          {
+            "key": "planning:migration",
+            "bucket": 57,
+            "enabled": false
+          },
+          {
+            "key": "reminder:lunch_ping",
+            "bucket": 86,
+            "enabled": false
+          },
+          {
+            "key": "research:comparison",
+            "bucket": 77,
+            "enabled": false
+          },
+          {
+            "key": "qa:http_502",
+            "bucket": 35,
+            "enabled": false
+          },
+          {
+            "key": "coding:test_failure",
+            "bucket": 61,
+            "enabled": false
+          },
+          {
+            "key": "reminder:calendar_check",
+            "bucket": 97,
+            "enabled": false
+          }
+        ],
+        "enabled_count": 0
+      },
+      "stage_50": {
+        "rollout_percent": 50,
+        "status": "promote",
+        "reasons": [],
+        "rollout_allowed": true,
+        "sample_members": [
+          {
+            "key": "qa:baseline",
+            "bucket": 97,
+            "enabled": false
+          },
+          {
+            "key": "research:live_status",
+            "bucket": 57,
+            "enabled": false
+          },
+          {
+            "key": "coding:incident_fix",
+            "bucket": 23,
+            "enabled": true
+          },
+          {
+            "key": "creative:brainstorm",
+            "bucket": 48,
+            "enabled": true
+          },
+          {
+            "key": "planning:migration",
+            "bucket": 57,
+            "enabled": false
+          },
+          {
+            "key": "reminder:lunch_ping",
+            "bucket": 86,
+            "enabled": false
+          },
+          {
+            "key": "research:comparison",
+            "bucket": 77,
+            "enabled": false
+          },
+          {
+            "key": "qa:http_502",
+            "bucket": 35,
+            "enabled": true
+          },
+          {
+            "key": "coding:test_failure",
+            "bucket": 61,
+            "enabled": false
+          },
+          {
+            "key": "reminder:calendar_check",
+            "bucket": 97,
+            "enabled": false
+          }
+        ],
+        "enabled_count": 3
+      }
+    },
+    "kill_switch": {
+      "supported": true,
+      "triggered": false,
+      "reasons": []
+    },
+    "rollout_ready": true
+  },
+  "gate_pass": true
+}

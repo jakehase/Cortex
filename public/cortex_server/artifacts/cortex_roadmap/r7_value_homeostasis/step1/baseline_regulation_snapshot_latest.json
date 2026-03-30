@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-03-30T00:18:52.566183+00:00",
+  "phase": "phase_e_r7_step1",
+  "artifact_root": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r7_value_homeostasis",
+  "source_artifacts": {
+    "r9_step6": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/replay_probe_latest.json",
+    "r9_step7": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step7/rollback_probe_latest.json",
+    "r9_step10": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/full_rollout_probe_latest.json",
+    "r9_step11": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_probe_latest.json",
+    "r9_step12": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/novelty_probe_latest.json"
+  },
+  "baseline_window": {
+    "mode": "artifact_derived_bootstrap_lock",
+    "note": "This is a local baseline lock from current landed R9 artifacts, not a 14-day live telemetry window."
+  },
+  "telemetry": {
+    "quality": {
+      "replay_quality_delta": null,
+      "scoring_supported_claims": null,
+      "quality_non_regression_proxy": 1.0
+    },
+    "latency": {
+      "rollback_recovery_sla_met": null,
+      "rollback_max_recovery_seconds": null,
+      "shadow_disagreement_rate": null
+    },
+    "reliability": {
+      "rollback_required": null,
+      "runtime_health_unhealthy_dependencies": [],
+      "novelty_gate_pass": null
+    },
+    "cost": {
+      "autotuned_weights": {},
+      "runtime_policy": {}
+    },
+    "safety": {
+      "rollback_gate_pass": null,
+      "risk_reasons": [],
+      "dashboard_controls_present": false
+    },
+    "operator": {
+      "dashboard_gate_pass": null,
+      "dashboard_path": null,
+      "runbook_success": null
+    }
+  }
+}

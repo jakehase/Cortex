@@ -1,0 +1,572 @@
+{
+  "generated_at": "2026-03-30T00:18:52.818145+00:00",
+  "artifact_root": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r7_value_homeostasis",
+  "headline": {
+    "utility_proxy": 0.821,
+    "rollout_mode": "full",
+    "canary_ready": true,
+    "shadow_estimated_uplift": 0.105,
+    "alert_noise_index_delta": -0.4583
+  },
+  "sections": {
+    "baseline": {
+      "quality_non_regression_proxy": 1.0,
+      "rollback_max_recovery_seconds": null,
+      "dashboard_controls_present": false
+    },
+    "utility": {
+      "proxy": 0.821,
+      "weights": {
+        "safety": 1.0,
+        "truth": 0.92,
+        "user_intent": 0.86,
+        "reliability": 0.72,
+        "efficiency": 0.48
+      },
+      "weight_bounds": {
+        "safety": [
+          0.9,
+          1.2
+        ],
+        "truth": [
+          0.8,
+          1.1
+        ],
+        "user_intent": [
+          0.7,
+          1.0
+        ],
+        "reliability": [
+          0.6,
+          0.95
+        ],
+        "efficiency": [
+          0.3,
+          0.7
+        ]
+      },
+      "notes": [
+        "raised user_intent due to positive shadow uplift"
+      ]
+    },
+    "depth": {
+      "mean_reasoning_depth": 3.875,
+      "human_review_count": 4,
+      "escalation_count": 4,
+      "benchmark_success_rate": 1.0,
+      "mode_distribution": {
+        "effort::conserve": 2,
+        "effort::normal": 4,
+        "effort::protective": 2,
+        "override::baseline_safe_fallback": 2,
+        "override::elevated_review": 1,
+        "override::emergency_freeze": 2,
+        "override::normal": 1,
+        "shadow::baseline_safe_fallback": 2,
+        "shadow::elevated_review": 1,
+        "shadow::emergency_freeze": 1,
+        "shadow::normal": 4
+      }
+    },
+    "latency": {
+      "mean_budget_latency_ms": 2734.3333,
+      "overrun_events": 0,
+      "overrun_rate_per_100": 0.0,
+      "shadow_disagreement_rate": 0.625
+    },
+    "cost": {
+      "mean_budget_tokens": 1720.0,
+      "mean_incident_reserve_tokens": 272.6667,
+      "intent_kill_switches": {
+        "coding": false,
+        "research": false,
+        "creative": false,
+        "reminder": false
+      }
+    },
+    "risk": {
+      "safety_gate_pass": true,
+      "safety_regression_count": 0,
+      "kill_switch": {
+        "supported": true,
+        "triggered": false,
+        "reasons": []
+      },
+      "validation": {
+        "generated_at": "2026-03-30T00:18:52.743311+00:00",
+        "valid": true,
+        "missing_weights": [],
+        "out_of_bounds_weights": [],
+        "has_intent_kill_switches": true
+      }
+    },
+    "alert_noise": {
+      "alert_noise_index_delta": -0.4583,
+      "manual_ack_live": 1,
+      "manual_ack_shadow": 4
+    },
+    "arbitration_traces": {
+      "success_rate": 1.0,
+      "trace_samples": [
+        {
+          "case_id": "protective_prefers_safe_reliable",
+          "selected_candidate_id": "safe_reliable",
+          "rationale": [
+            "mode=protective",
+            "high_risk_pressure",
+            "high_urgency",
+            "high_error_pressure",
+            "protective_mode_bias_to_safety_truth_reliability",
+            "selected_wins_on_safety"
+          ],
+          "fallback_used": false
+        },
+        {
+          "case_id": "protective_truth_over_intent",
+          "selected_candidate_id": "truthful_guarded",
+          "rationale": [
+            "mode=protective",
+            "high_risk_pressure",
+            "high_urgency",
+            "high_error_pressure",
+            "protective_mode_bias_to_safety_truth_reliability",
+            "selected_wins_on_safety"
+          ],
+          "fallback_used": false
+        },
+        {
+          "case_id": "conserve_prefers_efficient_stable",
+          "selected_candidate_id": "efficient_stable",
+          "rationale": [
+            "mode=conserve",
+            "high_fatigue",
+            "high_timeout_pressure",
+            "high_budget_pressure",
+            "high_escalation_debt",
+            "conserve_mode_bias_to_efficiency_reliability",
+            "selected_wins_on_user_intent"
+          ],
+          "fallback_used": false
+        },
+        {
+          "case_id": "conserve_keeps_truth_floor",
+          "selected_candidate_id": "truthful_efficient",
+          "rationale": [
+            "mode=conserve",
+            "high_fatigue",
+            "high_timeout_pressure",
+            "high_budget_pressure",
+            "high_escalation_debt",
+            "conserve_mode_bias_to_efficiency_reliability",
+            "selected_wins_on_truth"
+          ],
+          "fallback_used": false
+        }
+      ]
+    },
+    "shadow": {
+      "generated_at": "2026-03-30T00:18:52.705489+00:00",
+      "case_count": 8,
+      "disagreement_rate": 0.625,
+      "average_estimated_uplift": 0.105,
+      "safety_regression_count": 0,
+      "gate_pass": true,
+      "rows": [
+        {
+          "case_id": "critical_code_incident",
+          "intent": "coding",
+          "risk_tier": "critical",
+          "live": {
+            "mode": "normal",
+            "prefer_chain": "deliberate_council",
+            "block_side_effects": true,
+            "manual_ack": true
+          },
+          "shadow": {
+            "mode": "emergency_freeze",
+            "prefer_chain": "deliberate_council",
+            "block_side_effects": true,
+            "manual_ack": true
+          },
+          "disagree": true,
+          "live_quality": 0.82,
+          "shadow_quality": 0.82,
+          "live_safety": 0.84,
+          "shadow_safety": 0.96,
+          "estimated_uplift": 0.12
+        },
+        {
+          "case_id": "high_research_dependency_issue",
+          "intent": "research",
+          "risk_tier": "high",
+          "live": {
+            "mode": "normal",
+            "prefer_chain": "research_grounded",
+            "block_side_effects": true,
+            "manual_ack": false
+          },
+          "shadow": {
+            "mode": "baseline_safe_fallback",
+            "prefer_chain": "research_grounded",
+            "block_side_effects": true,
+            "manual_ack": true
+          },
+          "disagree": true,
+          "live_quality": 0.74,
+          "shadow_quality": 0.79,
+          "live_safety": 0.79,
+          "shadow_safety": 0.95,
+          "estimated_uplift": 0.21
+        },
+        {
+          "case_id": "normal_qa",
+          "intent": "qa",
+          "risk_tier": "low",
+          "live": {
+            "mode": "normal",
+            "prefer_chain": "fastlane_memory",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "shadow": {
+            "mode": "normal",
+            "prefer_chain": "fastlane_memory",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "disagree": false,
+          "live_quality": 0.62,
+          "shadow_quality": 0.62,
+          "live_safety": 0.7,
+          "shadow_safety": 0.7,
+          "estimated_uplift": 0.0
+        },
+        {
+          "case_id": "conserve_research",
+          "intent": "research",
+          "risk_tier": "medium",
+          "live": {
+            "mode": "normal",
+            "prefer_chain": "research_grounded",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "shadow": {
+            "mode": "normal",
+            "prefer_chain": "research_grounded",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "disagree": false,
+          "live_quality": 0.74,
+          "shadow_quality": 0.74,
+          "live_safety": 0.7,
+          "shadow_safety": 0.7,
+          "estimated_uplift": 0.0
+        },
+        {
+          "case_id": "creative_normal",
+          "intent": "creative",
+          "risk_tier": "low",
+          "live": {
+            "mode": "normal",
+            "prefer_chain": "creative_fractal",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "shadow": {
+            "mode": "normal",
+            "prefer_chain": "creative_fractal",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "disagree": false,
+          "live_quality": 0.72,
+          "shadow_quality": 0.72,
+          "live_safety": 0.7,
+          "shadow_safety": 0.7,
+          "estimated_uplift": 0.0
+        },
+        {
+          "case_id": "high_reminder",
+          "intent": "reminder",
+          "risk_tier": "high",
+          "live": {
+            "mode": "normal",
+            "prefer_chain": "safe_reminder",
+            "block_side_effects": true,
+            "manual_ack": false
+          },
+          "shadow": {
+            "mode": "elevated_review",
+            "prefer_chain": "safe_reminder",
+            "block_side_effects": true,
+            "manual_ack": true
+          },
+          "disagree": true,
+          "live_quality": 0.7,
+          "shadow_quality": 0.72,
+          "live_safety": 0.79,
+          "shadow_safety": 0.87,
+          "estimated_uplift": 0.1
+        },
+        {
+          "case_id": "rollback_research",
+          "intent": "research",
+          "risk_tier": "medium",
+          "live": {
+            "mode": "normal",
+            "prefer_chain": "research_grounded",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "shadow": {
+            "mode": "baseline_safe_fallback",
+            "prefer_chain": "research_grounded",
+            "block_side_effects": true,
+            "manual_ack": true
+          },
+          "disagree": true,
+          "live_quality": 0.74,
+          "shadow_quality": 0.79,
+          "live_safety": 0.7,
+          "shadow_safety": 0.98,
+          "estimated_uplift": 0.33
+        },
+        {
+          "case_id": "planning_medium",
+          "intent": "planning",
+          "risk_tier": "medium",
+          "live": {
+            "mode": "normal",
+            "prefer_chain": "fastlane_memory",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "shadow": {
+            "mode": "normal",
+            "prefer_chain": "deliberate_council",
+            "block_side_effects": false,
+            "manual_ack": false
+          },
+          "disagree": true,
+          "live_quality": 0.62,
+          "shadow_quality": 0.7,
+          "live_safety": 0.7,
+          "shadow_safety": 0.7,
+          "estimated_uplift": 0.08
+        }
+      ]
+    },
+    "canary": {
+      "stages": {
+        "stage_5": {
+          "rollout_percent": 5,
+          "status": "promote",
+          "reasons": [],
+          "rollout_allowed": true,
+          "sample_members": [
+            {
+              "key": "qa:baseline",
+              "bucket": 97,
+              "enabled": false
+            },
+            {
+              "key": "research:live_status",
+              "bucket": 57,
+              "enabled": false
+            },
+            {
+              "key": "coding:incident_fix",
+              "bucket": 23,
+              "enabled": false
+            },
+            {
+              "key": "creative:brainstorm",
+              "bucket": 48,
+              "enabled": false
+            },
+            {
+              "key": "planning:migration",
+              "bucket": 57,
+              "enabled": false
+            },
+            {
+              "key": "reminder:lunch_ping",
+              "bucket": 86,
+              "enabled": false
+            },
+            {
+              "key": "research:comparison",
+              "bucket": 77,
+              "enabled": false
+            },
+            {
+              "key": "qa:http_502",
+              "bucket": 35,
+              "enabled": false
+            },
+            {
+              "key": "coding:test_failure",
+              "bucket": 61,
+              "enabled": false
+            },
+            {
+              "key": "reminder:calendar_check",
+              "bucket": 97,
+              "enabled": false
+            }
+          ],
+          "enabled_count": 0
+        },
+        "stage_20": {
+          "rollout_percent": 20,
+          "status": "promote",
+          "reasons": [],
+          "rollout_allowed": true,
+          "sample_members": [
+            {
+              "key": "qa:baseline",
+              "bucket": 97,
+              "enabled": false
+            },
+            {
+              "key": "research:live_status",
+              "bucket": 57,
+              "enabled": false
+            },
+            {
+              "key": "coding:incident_fix",
+              "bucket": 23,
+              "enabled": false
+            },
+            {
+              "key": "creative:brainstorm",
+              "bucket": 48,
+              "enabled": false
+            },
+            {
+              "key": "planning:migration",
+              "bucket": 57,
+              "enabled": false
+            },
+            {
+              "key": "reminder:lunch_ping",
+              "bucket": 86,
+              "enabled": false
+            },
+            {
+              "key": "research:comparison",
+              "bucket": 77,
+              "enabled": false
+            },
+            {
+              "key": "qa:http_502",
+              "bucket": 35,
+              "enabled": false
+            },
+            {
+              "key": "coding:test_failure",
+              "bucket": 61,
+              "enabled": false
+            },
+            {
+              "key": "reminder:calendar_check",
+              "bucket": 97,
+              "enabled": false
+            }
+          ],
+          "enabled_count": 0
+        },
+        "stage_50": {
+          "rollout_percent": 50,
+          "status": "promote",
+          "reasons": [],
+          "rollout_allowed": true,
+          "sample_members": [
+            {
+              "key": "qa:baseline",
+              "bucket": 97,
+              "enabled": false
+            },
+            {
+              "key": "research:live_status",
+              "bucket": 57,
+              "enabled": false
+            },
+            {
+              "key": "coding:incident_fix",
+              "bucket": 23,
+              "enabled": true
+            },
+            {
+              "key": "creative:brainstorm",
+              "bucket": 48,
+              "enabled": true
+            },
+            {
+              "key": "planning:migration",
+              "bucket": 57,
+              "enabled": false
+            },
+            {
+              "key": "reminder:lunch_ping",
+              "bucket": 86,
+              "enabled": false
+            },
+            {
+              "key": "research:comparison",
+              "bucket": 77,
+              "enabled": false
+            },
+            {
+              "key": "qa:http_502",
+              "bucket": 35,
+              "enabled": true
+            },
+            {
+              "key": "coding:test_failure",
+              "bucket": 61,
+              "enabled": false
+            },
+            {
+              "key": "reminder:calendar_check",
+              "bucket": 97,
+              "enabled": false
+            }
+          ],
+          "enabled_count": 3
+        }
+      },
+      "rollout_ready": true
+    },
+    "rollout": {
+      "result_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_latest.json",
+      "rollout_mode": "full",
+      "validation": {
+        "generated_at": "2026-03-30T00:18:52.743311+00:00",
+        "valid": true,
+        "missing_weights": [],
+        "out_of_bounds_weights": [],
+        "has_intent_kill_switches": true
+      }
+    }
+  },
+  "controls": {
+    "freeze_policy": {
+      "action": "freeze",
+      "supported": true,
+      "mode": "local_stub"
+    },
+    "rollback_to_baseline": {
+      "action": "rollback",
+      "supported": true,
+      "mode": "local_stub"
+    },
+    "resume_governor": {
+      "action": "resume",
+      "supported": true,
+      "mode": "local_stub"
+    }
+  }
+}

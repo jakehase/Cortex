@@ -1,0 +1,13 @@
+{
+  "version": "cortex.roadmap.r7.step11.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_model_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_live_local.html",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_probe_latest.json"
+  ],
+  "gates": {
+    "runbookDrillRequired": true,
+    "controlsPresent": true,
+    "htmlRenderable": true
+  }
+}

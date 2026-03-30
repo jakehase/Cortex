@@ -1,0 +1,471 @@
+{
+  "generated_at": "2026-03-30T00:18:52.685721+00:00",
+  "benchmark": {
+    "generated_at": "2026-03-30T00:18:52.685716+00:00",
+    "case_count": 6,
+    "success_count": 6,
+    "success_rate": 1.0,
+    "gate_pass": true,
+    "results": [
+      {
+        "case_id": "critical_freeze",
+        "result": {
+          "generated_at": "2026-03-30T00:18:52.685632+00:00",
+          "intent": "coding",
+          "risk_tier": "critical",
+          "profile": {
+            "generated_at": "2026-03-30T00:18:52.685626+00:00",
+            "intent": "coding",
+            "risk_tier": "critical",
+            "mode": "protective",
+            "mode_reasons": [
+              "high_risk_pressure",
+              "high_urgency",
+              "high_error_pressure"
+            ],
+            "effort": {
+              "reasoning_depth": 6,
+              "tempo": "deliberate",
+              "tool_budget_class": "expanded",
+              "human_review_required": true,
+              "escalation_recommended": true
+            },
+            "guardrails": {
+              "allowed_chains": [
+                "deliberate_council"
+              ],
+              "prefer_chain": "deliberate_council",
+              "block_fastlane": true
+            },
+            "budget_reference": {
+              "generated_at": "2026-03-30T00:18:52.685607+00:00",
+              "intent": "coding",
+              "risk_tier": "critical",
+              "mode": "protective",
+              "mode_reasons": [
+                "high_risk_pressure",
+                "high_urgency",
+                "high_error_pressure"
+              ],
+              "budgets": {
+                "tokens": 2324,
+                "depth": 5,
+                "latency_ms": 3544
+              },
+              "reserve_pools": {
+                "incident": {
+                  "tokens": 813,
+                  "depth": 2,
+                  "latency_ms": 1240
+                },
+                "recovery": {
+                  "tokens": 492,
+                  "depth": 1,
+                  "latency_ms": 751
+                }
+              },
+              "observed_load": {}
+            }
+          },
+          "override": {
+            "mode": "emergency_freeze",
+            "allowed_chains": [
+              "deliberate_council"
+            ],
+            "max_reasoning_depth": 3,
+            "block_side_effects": true,
+            "require_manual_ack": true
+          },
+          "rationale": [
+            "freeze_triggered",
+            "elevated_review_required",
+            "incident:external_side_effect",
+            "anomaly:dependency_degraded",
+            "anomaly:runtime_health_warning"
+          ]
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "explicit_freeze_flag",
+        "result": {
+          "generated_at": "2026-03-30T00:18:52.685652+00:00",
+          "intent": "research",
+          "risk_tier": "high",
+          "profile": {
+            "generated_at": "2026-03-30T00:18:52.685648+00:00",
+            "intent": "research",
+            "risk_tier": "high",
+            "mode": "protective",
+            "mode_reasons": [
+              "high_risk_pressure",
+              "high_urgency"
+            ],
+            "effort": {
+              "reasoning_depth": 6,
+              "tempo": "deliberate",
+              "tool_budget_class": "expanded",
+              "human_review_required": true,
+              "escalation_recommended": true
+            },
+            "guardrails": {
+              "allowed_chains": [
+                "research_grounded",
+                "deliberate_council"
+              ],
+              "prefer_chain": "research_grounded",
+              "block_fastlane": true
+            },
+            "budget_reference": {
+              "generated_at": "2026-03-30T00:18:52.685644+00:00",
+              "intent": "research",
+              "risk_tier": "high",
+              "mode": "protective",
+              "mode_reasons": [
+                "high_risk_pressure",
+                "high_urgency"
+              ],
+              "budgets": {
+                "tokens": 2276,
+                "depth": 5,
+                "latency_ms": 3620
+              },
+              "reserve_pools": {
+                "incident": {
+                  "tokens": 797,
+                  "depth": 2,
+                  "latency_ms": 1267
+                },
+                "recovery": {
+                  "tokens": 547,
+                  "depth": 1,
+                  "latency_ms": 870
+                }
+              },
+              "observed_load": {}
+            }
+          },
+          "override": {
+            "mode": "emergency_freeze",
+            "allowed_chains": [
+              "research_grounded"
+            ],
+            "max_reasoning_depth": 3,
+            "block_side_effects": true,
+            "require_manual_ack": true
+          },
+          "rationale": [
+            "freeze_triggered",
+            "elevated_review_required",
+            "incident:emergency_freeze",
+            "anomaly:dependency_degraded"
+          ]
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "fallback_on_timeout_and_dependency",
+        "result": {
+          "generated_at": "2026-03-30T00:18:52.685667+00:00",
+          "intent": "planning",
+          "risk_tier": "high",
+          "profile": {
+            "generated_at": "2026-03-30T00:18:52.685664+00:00",
+            "intent": "planning",
+            "risk_tier": "high",
+            "mode": "protective",
+            "mode_reasons": [
+              "high_risk_pressure",
+              "high_urgency"
+            ],
+            "effort": {
+              "reasoning_depth": 6,
+              "tempo": "deliberate",
+              "tool_budget_class": "expanded",
+              "human_review_required": true,
+              "escalation_recommended": true
+            },
+            "guardrails": {
+              "allowed_chains": [
+                "deliberate_council"
+              ],
+              "prefer_chain": "deliberate_council",
+              "block_fastlane": true
+            },
+            "budget_reference": {
+              "generated_at": "2026-03-30T00:18:52.685660+00:00",
+              "intent": "planning",
+              "risk_tier": "high",
+              "mode": "protective",
+              "mode_reasons": [
+                "high_risk_pressure",
+                "high_urgency"
+              ],
+              "budgets": {
+                "tokens": 1940,
+                "depth": 5,
+                "latency_ms": 3188
+              },
+              "reserve_pools": {
+                "incident": {
+                  "tokens": 679,
+                  "depth": 2,
+                  "latency_ms": 1116
+                },
+                "recovery": {
+                  "tokens": 466,
+                  "depth": 1,
+                  "latency_ms": 766
+                }
+              },
+              "observed_load": {}
+            }
+          },
+          "override": {
+            "mode": "baseline_safe_fallback",
+            "allowed_chains": [
+              "deliberate_council"
+            ],
+            "max_reasoning_depth": 4,
+            "block_side_effects": true,
+            "require_manual_ack": true
+          },
+          "rationale": [
+            "fallback_triggered",
+            "elevated_review_required",
+            "anomaly:dependency_degraded"
+          ]
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "elevated_review_high_risk",
+        "result": {
+          "generated_at": "2026-03-30T00:18:52.685685+00:00",
+          "intent": "reminder",
+          "risk_tier": "high",
+          "profile": {
+            "generated_at": "2026-03-30T00:18:52.685683+00:00",
+            "intent": "reminder",
+            "risk_tier": "high",
+            "mode": "normal",
+            "mode_reasons": [
+              "nominal_window"
+            ],
+            "effort": {
+              "reasoning_depth": 2,
+              "tempo": "balanced",
+              "tool_budget_class": "standard",
+              "human_review_required": true,
+              "escalation_recommended": true
+            },
+            "guardrails": {
+              "allowed_chains": [
+                "safe_reminder",
+                "deliberate_council"
+              ],
+              "prefer_chain": "safe_reminder",
+              "block_fastlane": true
+            },
+            "budget_reference": {
+              "generated_at": "2026-03-30T00:18:52.685678+00:00",
+              "intent": "reminder",
+              "risk_tier": "high",
+              "mode": "normal",
+              "mode_reasons": [
+                "nominal_window"
+              ],
+              "budgets": {
+                "tokens": 1280,
+                "depth": 3,
+                "latency_ms": 1880
+              },
+              "reserve_pools": {
+                "incident": {
+                  "tokens": 258,
+                  "depth": 1,
+                  "latency_ms": 379
+                },
+                "recovery": {
+                  "tokens": 126,
+                  "depth": 1,
+                  "latency_ms": 185
+                }
+              },
+              "observed_load": {}
+            }
+          },
+          "override": {
+            "mode": "elevated_review",
+            "allowed_chains": [
+              "safe_reminder",
+              "deliberate_council"
+            ],
+            "max_reasoning_depth": 2,
+            "block_side_effects": true,
+            "require_manual_ack": true
+          },
+          "rationale": [
+            "elevated_review_required"
+          ]
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "normal_low_risk",
+        "result": {
+          "generated_at": "2026-03-30T00:18:52.685700+00:00",
+          "intent": "qa",
+          "risk_tier": "low",
+          "profile": {
+            "generated_at": "2026-03-30T00:18:52.685698+00:00",
+            "intent": "qa",
+            "risk_tier": "low",
+            "mode": "normal",
+            "mode_reasons": [
+              "nominal_window"
+            ],
+            "effort": {
+              "reasoning_depth": 2,
+              "tempo": "balanced",
+              "tool_budget_class": "standard",
+              "human_review_required": false,
+              "escalation_recommended": false
+            },
+            "guardrails": {
+              "allowed_chains": [
+                "fastlane_memory",
+                "deliberate_council"
+              ],
+              "prefer_chain": "fastlane_memory",
+              "block_fastlane": false
+            },
+            "budget_reference": {
+              "generated_at": "2026-03-30T00:18:52.685695+00:00",
+              "intent": "qa",
+              "risk_tier": "low",
+              "mode": "normal",
+              "mode_reasons": [
+                "nominal_window"
+              ],
+              "budgets": {
+                "tokens": 900,
+                "depth": 3,
+                "latency_ms": 1600
+              },
+              "reserve_pools": {
+                "incident": {
+                  "tokens": 91,
+                  "depth": 1,
+                  "latency_ms": 163
+                },
+                "recovery": {
+                  "tokens": 89,
+                  "depth": 1,
+                  "latency_ms": 158
+                }
+              },
+              "observed_load": {}
+            }
+          },
+          "override": {
+            "mode": "normal",
+            "allowed_chains": [
+              "fastlane_memory",
+              "deliberate_council"
+            ],
+            "max_reasoning_depth": 2,
+            "block_side_effects": false,
+            "require_manual_ack": false
+          },
+          "rationale": []
+        },
+        "violations": [],
+        "success": true
+      },
+      {
+        "case_id": "rollback_flag_forces_fallback",
+        "result": {
+          "generated_at": "2026-03-30T00:18:52.685713+00:00",
+          "intent": "research",
+          "risk_tier": "medium",
+          "profile": {
+            "generated_at": "2026-03-30T00:18:52.685711+00:00",
+            "intent": "research",
+            "risk_tier": "medium",
+            "mode": "protective",
+            "mode_reasons": [
+              "high_risk_pressure",
+              "high_urgency"
+            ],
+            "effort": {
+              "reasoning_depth": 5,
+              "tempo": "deliberate",
+              "tool_budget_class": "expanded",
+              "human_review_required": true,
+              "escalation_recommended": true
+            },
+            "guardrails": {
+              "allowed_chains": [
+                "research_grounded",
+                "deliberate_council"
+              ],
+              "prefer_chain": "research_grounded",
+              "block_fastlane": true
+            },
+            "budget_reference": {
+              "generated_at": "2026-03-30T00:18:52.685708+00:00",
+              "intent": "research",
+              "risk_tier": "medium",
+              "mode": "protective",
+              "mode_reasons": [
+                "high_risk_pressure",
+                "high_urgency"
+              ],
+              "budgets": {
+                "tokens": 2136,
+                "depth": 5,
+                "latency_ms": 3420
+              },
+              "reserve_pools": {
+                "incident": {
+                  "tokens": 629,
+                  "depth": 1,
+                  "latency_ms": 1007
+                },
+                "recovery": {
+                  "tokens": 513,
+                  "depth": 1,
+                  "latency_ms": 821
+                }
+              },
+              "observed_load": {}
+            }
+          },
+          "override": {
+            "mode": "baseline_safe_fallback",
+            "allowed_chains": [
+              "research_grounded"
+            ],
+            "max_reasoning_depth": 4,
+            "block_side_effects": true,
+            "require_manual_ack": true
+          },
+          "rationale": [
+            "fallback_triggered",
+            "elevated_review_required",
+            "incident:rollback_required",
+            "anomaly:dependency_degraded"
+          ]
+        },
+        "violations": [],
+        "success": true
+      }
+    ]
+  },
+  "gate_pass": true
+}

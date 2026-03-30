@@ -1,0 +1,198 @@
+{
+  "generated_at": "2026-03-30T00:18:52.705494+00:00",
+  "shadow": {
+    "generated_at": "2026-03-30T00:18:52.705489+00:00",
+    "case_count": 8,
+    "disagreement_rate": 0.625,
+    "average_estimated_uplift": 0.105,
+    "safety_regression_count": 0,
+    "gate_pass": true,
+    "rows": [
+      {
+        "case_id": "critical_code_incident",
+        "intent": "coding",
+        "risk_tier": "critical",
+        "live": {
+          "mode": "normal",
+          "prefer_chain": "deliberate_council",
+          "block_side_effects": true,
+          "manual_ack": true
+        },
+        "shadow": {
+          "mode": "emergency_freeze",
+          "prefer_chain": "deliberate_council",
+          "block_side_effects": true,
+          "manual_ack": true
+        },
+        "disagree": true,
+        "live_quality": 0.82,
+        "shadow_quality": 0.82,
+        "live_safety": 0.84,
+        "shadow_safety": 0.96,
+        "estimated_uplift": 0.12
+      },
+      {
+        "case_id": "high_research_dependency_issue",
+        "intent": "research",
+        "risk_tier": "high",
+        "live": {
+          "mode": "normal",
+          "prefer_chain": "research_grounded",
+          "block_side_effects": true,
+          "manual_ack": false
+        },
+        "shadow": {
+          "mode": "baseline_safe_fallback",
+          "prefer_chain": "research_grounded",
+          "block_side_effects": true,
+          "manual_ack": true
+        },
+        "disagree": true,
+        "live_quality": 0.74,
+        "shadow_quality": 0.79,
+        "live_safety": 0.79,
+        "shadow_safety": 0.95,
+        "estimated_uplift": 0.21
+      },
+      {
+        "case_id": "normal_qa",
+        "intent": "qa",
+        "risk_tier": "low",
+        "live": {
+          "mode": "normal",
+          "prefer_chain": "fastlane_memory",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "shadow": {
+          "mode": "normal",
+          "prefer_chain": "fastlane_memory",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "disagree": false,
+        "live_quality": 0.62,
+        "shadow_quality": 0.62,
+        "live_safety": 0.7,
+        "shadow_safety": 0.7,
+        "estimated_uplift": 0.0
+      },
+      {
+        "case_id": "conserve_research",
+        "intent": "research",
+        "risk_tier": "medium",
+        "live": {
+          "mode": "normal",
+          "prefer_chain": "research_grounded",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "shadow": {
+          "mode": "normal",
+          "prefer_chain": "research_grounded",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "disagree": false,
+        "live_quality": 0.74,
+        "shadow_quality": 0.74,
+        "live_safety": 0.7,
+        "shadow_safety": 0.7,
+        "estimated_uplift": 0.0
+      },
+      {
+        "case_id": "creative_normal",
+        "intent": "creative",
+        "risk_tier": "low",
+        "live": {
+          "mode": "normal",
+          "prefer_chain": "creative_fractal",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "shadow": {
+          "mode": "normal",
+          "prefer_chain": "creative_fractal",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "disagree": false,
+        "live_quality": 0.72,
+        "shadow_quality": 0.72,
+        "live_safety": 0.7,
+        "shadow_safety": 0.7,
+        "estimated_uplift": 0.0
+      },
+      {
+        "case_id": "high_reminder",
+        "intent": "reminder",
+        "risk_tier": "high",
+        "live": {
+          "mode": "normal",
+          "prefer_chain": "safe_reminder",
+          "block_side_effects": true,
+          "manual_ack": false
+        },
+        "shadow": {
+          "mode": "elevated_review",
+          "prefer_chain": "safe_reminder",
+          "block_side_effects": true,
+          "manual_ack": true
+        },
+        "disagree": true,
+        "live_quality": 0.7,
+        "shadow_quality": 0.72,
+        "live_safety": 0.79,
+        "shadow_safety": 0.87,
+        "estimated_uplift": 0.1
+      },
+      {
+        "case_id": "rollback_research",
+        "intent": "research",
+        "risk_tier": "medium",
+        "live": {
+          "mode": "normal",
+          "prefer_chain": "research_grounded",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "shadow": {
+          "mode": "baseline_safe_fallback",
+          "prefer_chain": "research_grounded",
+          "block_side_effects": true,
+          "manual_ack": true
+        },
+        "disagree": true,
+        "live_quality": 0.74,
+        "shadow_quality": 0.79,
+        "live_safety": 0.7,
+        "shadow_safety": 0.98,
+        "estimated_uplift": 0.33
+      },
+      {
+        "case_id": "planning_medium",
+        "intent": "planning",
+        "risk_tier": "medium",
+        "live": {
+          "mode": "normal",
+          "prefer_chain": "fastlane_memory",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "shadow": {
+          "mode": "normal",
+          "prefer_chain": "deliberate_council",
+          "block_side_effects": false,
+          "manual_ack": false
+        },
+        "disagree": true,
+        "live_quality": 0.62,
+        "shadow_quality": 0.7,
+        "live_safety": 0.7,
+        "shadow_safety": 0.7,
+        "estimated_uplift": 0.08
+      }
+    ]
+  },
+  "gate_pass": true
+}

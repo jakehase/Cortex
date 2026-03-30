@@ -1,0 +1,14 @@
+{
+  "version": "cortex.roadmap.r7.step12.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step12/claim_map_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step12/reproducibility_pack_latest.json",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step12/novelty_brief_latest.md",
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step12/novelty_probe_latest.json"
+  ],
+  "gates": {
+    "claimDisciplineRequired": true,
+    "supportedClaimFloor": 4,
+    "mustIncludeNotSupportedClaim": true
+  }
+}

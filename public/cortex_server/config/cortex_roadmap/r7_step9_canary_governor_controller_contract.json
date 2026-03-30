@@ -1,0 +1,12 @@
+{
+  "version": "cortex.roadmap.r7.step9.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r7_value_homeostasis/step9/canary_governor_probe_latest.json"
+  ],
+  "gates": {
+    "stage20RolloutAllowed": true,
+    "killSwitchSupported": true,
+    "negativeShadowUpliftBlocksPromotion": true,
+    "safetyRegressionBlocksPromotion": true
+  }
+}

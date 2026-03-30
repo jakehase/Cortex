@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-03-30T00:18:52.585730+00:00",
+  "phase": "phase_e_r7_step2",
+  "source_step1_snapshot": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r7_value_homeostasis/step1/baseline_regulation_snapshot_latest.json",
+  "source_r9_step10": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/full_rollout_probe_latest.json",
+  "state_vector_version": "r7.state_signal.v1",
+  "state_vector_fields": [
+    "urgency",
+    "risk_pressure",
+    "fatigue",
+    "timeout_pressure",
+    "error_pressure",
+    "budget_pressure",
+    "escalation_debt"
+  ],
+  "raw_state_vector": {
+    "urgency": 0.08,
+    "risk_pressure": 0.3,
+    "fatigue": 0.12,
+    "timeout_pressure": 0.1,
+    "error_pressure": 0.23,
+    "budget_pressure": 0.4,
+    "escalation_debt": 0.26
+  },
+  "smoothed_state_vector": {
+    "urgency": 0.0818,
+    "risk_pressure": 0.2996,
+    "fatigue": 0.1216,
+    "timeout_pressure": 0.1032,
+    "error_pressure": 0.2298,
+    "budget_pressure": 0.4005,
+    "escalation_debt": 0.2607
+  },
+  "smoothing": {
+    "alpha": 0.6,
+    "previous_state_loaded": true
+  },
+  "signal_health": {
+    "anomaly_tags": [],
+    "completeness_ratio": 1.0
+  }
+}

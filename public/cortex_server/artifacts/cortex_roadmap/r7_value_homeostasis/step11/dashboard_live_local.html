@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <title>R7 Operator Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #08111f; color: #e5eefb; }
+    .card { background: #111b2e; border: 1px solid #2d3b55; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    button { padding: 10px 14px; margin-right: 8px; border-radius: 8px; border: 0; cursor: pointer; }
+    .freeze { background: #f59e0b; color: #111827; }
+    .rollback { background: #ef4444; color: white; }
+    .resume { background: #22c55e; color: #052e16; }
+    code { color: #93c5fd; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <h1>R7 Operator Dashboard</h1>
+  <p>Generated at <code>2026-03-30T00:18:52.818145+00:00</code></p>
+  <div class='card'>
+    <h2>Headline</h2>
+    <ul>
+      <li>Utility proxy: <strong>0.821</strong></li>
+      <li>Rollout mode: <strong>full</strong></li>
+      <li>Canary ready: <strong>True</strong></li>
+      <li>Shadow estimated uplift: <strong>0.105</strong></li>
+      <li>Alert noise index delta: <strong>-0.4583</strong></li>
+    </ul>
+  </div>
+  <div class='grid'>
+    <div class='card'><h3>Utility</h3><pre>{
+  "proxy": 0.821,
+  "weights": {
+    "safety": 1.0,
+    "truth": 0.92,
+    "user_intent": 0.86,
+    "reliability": 0.72,
+    "efficiency": 0.48
+  },
+  "weight_bounds": {
+    "safety": [
+      0.9,
+      1.2
+    ],
+    "truth": [
+      0.8,
+      1.1
+    ],
+    "user_intent": [
+      0.7,
+      1.0
+    ],
+    "reliability": [
+      0.6,
+      0.95
+    ],
+    "efficiency": [
+      0.3,
+      0.7
+    ]
+  },
+  "notes": [
+    "raised user_intent due to positive shadow uplift"
+  ]
+}</pre></div>
+    <div class='card'><h3>Depth</h3><pre>{
+  "mean_reasoning_depth": 3.875,
+  "human_review_count": 4,
+  "escalation_count": 4,
+  "benchmark_success_rate": 1.0,
+  "mode_distribution": {
+    "effort::conserve": 2,
+    "effort::normal": 4,
+    "effort::protective": 2,
+    "override::baseline_safe_fallback": 2,
+    "override::elevated_review": 1,
+    "override::emergency_freeze": 2,
+    "override::normal": 1,
+    "shadow::baseline_safe_fallback": 2,
+    "shadow::elevated_review": 1,
+    "shadow::emergency_freeze": 1,
+    "shadow::normal": 4
+  }
+}</pre></div>
+    <div class='card'><h3>Latency</h3><pre>{
+  "mean_budget_latency_ms": 2734.3333,
+  "overrun_events": 0,
+  "overrun_rate_per_100": 0.0,
+  "shadow_disagreement_rate": 0.625
+}</pre></div>
+    <div class='card'><h3>Cost</h3><pre>{
+  "mean_budget_tokens": 1720.0,
+  "mean_incident_reserve_tokens": 272.6667,
+  "intent_kill_switches": {
+    "coding": false,
+    "research": false,
+    "creative": false,
+    "reminder": false
+  }
+}</pre></div>
+    <div class='card'><h3>Risk</h3><pre>{
+  "safety_gate_pass": true,
+  "safety_regression_count": 0,
+  "kill_switch": {
+    "supported": true,
+    "triggered": false,
+    "reasons": []
+  },
+  "validation": {
+    "generated_at": "2026-03-30T00:18:52.743311+00:00",
+    "valid": true,
+    "missing_weights": [],
+    "out_of_bounds_weights": [],
+    "has_intent_kill_switches": true
+  }
+}</pre></div>
+    <div class='card'><h3>Alert noise</h3><pre>{
+  "alert_noise_index_delta": -0.4583,
+  "manual_ack_live": 1,
+  "manual_ack_shadow": 4
+}</pre></div>
+  </div>
+  <div class='card'>
+    <h2>Arbitration traces</h2>
+    <ul><li><strong>protective_prefers_safe_reliable</strong>: mode=protective, high_risk_pressure, high_urgency, high_error_pressure, protective_mode_bias_to_safety_truth_reliability, selected_wins_on_safety</li><li><strong>protective_truth_over_intent</strong>: mode=protective, high_risk_pressure, high_urgency, high_error_pressure, protective_mode_bias_to_safety_truth_reliability, selected_wins_on_safety</li><li><strong>conserve_prefers_efficient_stable</strong>: mode=conserve, high_fatigue, high_timeout_pressure, high_budget_pressure, high_escalation_debt, conserve_mode_bias_to_efficiency_reliability, selected_wins_on_user_intent</li><li><strong>conserve_keeps_truth_floor</strong>: mode=conserve, high_fatigue, high_timeout_pressure, high_budget_pressure, high_escalation_debt, conserve_mode_bias_to_efficiency_reliability, selected_wins_on_truth</li></ul>
+  </div>
+  <div class='card'>
+    <h2>Canary stages</h2>
+    <ul><li><strong>stage_5</strong>: rollout=5 allowed=True enabled=0</li><li><strong>stage_20</strong>: rollout=20 allowed=True enabled=0</li><li><strong>stage_50</strong>: rollout=50 allowed=True enabled=3</li></ul>
+  </div>
+  <div class='card'>
+    <h2>Operator controls</h2>
+    <p>Controls are local stubs for drill/testing, not live production mutations.</p>
+    <button class='freeze' onclick="alert('freeze policy stub: local_stub')">Freeze policy</button>
+    <button class='rollback' onclick="alert('rollback stub: local_stub')">Rollback to baseline</button>
+    <button class='resume' onclick="alert('resume stub: local_stub')">Resume governor</button>
+  </div>
+</body>
+</html>

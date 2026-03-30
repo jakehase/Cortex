@@ -1,0 +1,51 @@
+{
+  "generated_at": "2026-03-30T00:18:52.818787+00:00",
+  "dashboard_model_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_model_latest.json",
+  "dashboard_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_live_local.html",
+  "headline": {
+    "utility_proxy": 0.821,
+    "rollout_mode": "full",
+    "canary_ready": true,
+    "shadow_estimated_uplift": 0.105,
+    "alert_noise_index_delta": -0.4583
+  },
+  "controls": {
+    "freeze_policy": {
+      "action": "freeze",
+      "supported": true,
+      "mode": "local_stub"
+    },
+    "rollback_to_baseline": {
+      "action": "rollback",
+      "supported": true,
+      "mode": "local_stub"
+    },
+    "resume_governor": {
+      "action": "resume",
+      "supported": true,
+      "mode": "local_stub"
+    }
+  },
+  "runbook_drill": {
+    "generated_at": "2026-03-30T00:18:52.818195+00:00",
+    "success": true,
+    "steps": {
+      "freeze_policy": {
+        "supported": true,
+        "success": true,
+        "mode": "local_stub"
+      },
+      "rollback_to_baseline": {
+        "supported": true,
+        "success": true,
+        "mode": "local_stub"
+      },
+      "resume_governor": {
+        "supported": true,
+        "success": true,
+        "mode": "local_stub"
+      }
+    }
+  },
+  "gate_pass": true
+}

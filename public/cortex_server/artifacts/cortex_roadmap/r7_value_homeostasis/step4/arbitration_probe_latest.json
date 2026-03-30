@@ -1,0 +1,680 @@
+{
+  "generated_at": "2026-03-30T00:18:52.625139+00:00",
+  "objective_order": [
+    "safety",
+    "truth",
+    "user_intent",
+    "reliability",
+    "efficiency"
+  ],
+  "benchmark": {
+    "generated_at": "2026-03-30T00:18:52.625133+00:00",
+    "case_count": 9,
+    "success_count": 9,
+    "success_rate": 1.0,
+    "gate_pass": true,
+    "results": [
+      {
+        "case_id": "protective_prefers_safe_reliable",
+        "mode": "protective",
+        "mode_reasons": [
+          "high_risk_pressure",
+          "high_urgency",
+          "high_error_pressure"
+        ],
+        "selected_candidate_id": "safe_reliable",
+        "selected_scores": {
+          "safety": 1.0,
+          "truth": 0.901,
+          "user_intent": 0.74,
+          "reliability": 0.945,
+          "efficiency": 0.535
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "safe_reliable",
+            "base_scores": {
+              "safety": 0.95,
+              "truth": 0.88,
+              "user_intent": 0.74,
+              "reliability": 0.9,
+              "efficiency": 0.56
+            },
+            "adjusted_scores": {
+              "safety": 1.0,
+              "truth": 0.901,
+              "user_intent": 0.74,
+              "reliability": 0.945,
+              "efficiency": 0.535
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "protective_mode_bias_to_safety_truth_reliability"
+            ]
+          },
+          {
+            "candidate_id": "aggressive_fast",
+            "base_scores": {
+              "safety": 0.87,
+              "truth": 0.86,
+              "user_intent": 0.82,
+              "reliability": 0.78,
+              "efficiency": 0.91
+            },
+            "adjusted_scores": {
+              "safety": 0.9236,
+              "truth": 0.878,
+              "user_intent": 0.82,
+              "reliability": 0.805,
+              "efficiency": 0.905
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "protective_mode_bias_to_safety_truth_reliability"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=protective",
+          "high_risk_pressure",
+          "high_urgency",
+          "high_error_pressure",
+          "protective_mode_bias_to_safety_truth_reliability",
+          "selected_wins_on_safety"
+        ],
+        "expected_candidate_id": "safe_reliable",
+        "success": true
+      },
+      {
+        "case_id": "protective_truth_over_intent",
+        "mode": "protective",
+        "mode_reasons": [
+          "high_risk_pressure",
+          "high_urgency",
+          "high_error_pressure"
+        ],
+        "selected_candidate_id": "truthful_guarded",
+        "selected_scores": {
+          "safety": 1.0,
+          "truth": 0.947,
+          "user_intent": 0.68,
+          "reliability": 0.88,
+          "efficiency": 0.545
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "truthful_guarded",
+            "base_scores": {
+              "safety": 0.93,
+              "truth": 0.92,
+              "user_intent": 0.68,
+              "reliability": 0.84,
+              "efficiency": 0.57
+            },
+            "adjusted_scores": {
+              "safety": 1.0,
+              "truth": 0.947,
+              "user_intent": 0.68,
+              "reliability": 0.88,
+              "efficiency": 0.545
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "protective_mode_bias_to_safety_truth_reliability"
+            ]
+          },
+          {
+            "candidate_id": "wishful_push",
+            "base_scores": {
+              "safety": 0.91,
+              "truth": 0.76,
+              "user_intent": 0.88,
+              "reliability": 0.8,
+              "efficiency": 0.72
+            },
+            "adjusted_scores": {
+              "safety": 0.9816,
+              "truth": 0.766,
+              "user_intent": 0.88,
+              "reliability": 0.83,
+              "efficiency": 0.705
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "protective_mode_bias_to_safety_truth_reliability"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=protective",
+          "high_risk_pressure",
+          "high_urgency",
+          "high_error_pressure",
+          "protective_mode_bias_to_safety_truth_reliability",
+          "selected_wins_on_safety"
+        ],
+        "expected_candidate_id": "truthful_guarded",
+        "success": true
+      },
+      {
+        "case_id": "conserve_prefers_efficient_stable",
+        "mode": "conserve",
+        "mode_reasons": [
+          "high_fatigue",
+          "high_timeout_pressure",
+          "high_budget_pressure",
+          "high_escalation_debt"
+        ],
+        "selected_candidate_id": "efficient_stable",
+        "selected_scores": {
+          "safety": 0.91,
+          "truth": 0.87,
+          "user_intent": 0.8372,
+          "reliability": 0.864,
+          "efficiency": 0.9634
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "efficient_stable",
+            "base_scores": {
+              "safety": 0.91,
+              "truth": 0.87,
+              "user_intent": 0.82,
+              "reliability": 0.84,
+              "efficiency": 0.88
+            },
+            "adjusted_scores": {
+              "safety": 0.91,
+              "truth": 0.87,
+              "user_intent": 0.8372,
+              "reliability": 0.864,
+              "efficiency": 0.9634
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "conserve_mode_bias_to_efficiency_reliability"
+            ]
+          },
+          {
+            "candidate_id": "maximal_depth",
+            "base_scores": {
+              "safety": 0.91,
+              "truth": 0.87,
+              "user_intent": 0.8,
+              "reliability": 0.82,
+              "efficiency": 0.58
+            },
+            "adjusted_scores": {
+              "safety": 0.91,
+              "truth": 0.87,
+              "user_intent": 0.817,
+              "reliability": 0.841,
+              "efficiency": 0.6304
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "conserve_mode_bias_to_efficiency_reliability"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=conserve",
+          "high_fatigue",
+          "high_timeout_pressure",
+          "high_budget_pressure",
+          "high_escalation_debt",
+          "conserve_mode_bias_to_efficiency_reliability",
+          "selected_wins_on_user_intent"
+        ],
+        "expected_candidate_id": "efficient_stable",
+        "success": true
+      },
+      {
+        "case_id": "conserve_keeps_truth_floor",
+        "mode": "conserve",
+        "mode_reasons": [
+          "high_fatigue",
+          "high_timeout_pressure",
+          "high_budget_pressure",
+          "high_escalation_debt"
+        ],
+        "selected_candidate_id": "truthful_efficient",
+        "selected_scores": {
+          "safety": 0.9,
+          "truth": 0.88,
+          "user_intent": 0.8268,
+          "reliability": 0.8325,
+          "efficiency": 0.9092
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "truthful_efficient",
+            "base_scores": {
+              "safety": 0.9,
+              "truth": 0.88,
+              "user_intent": 0.81,
+              "reliability": 0.81,
+              "efficiency": 0.83
+            },
+            "adjusted_scores": {
+              "safety": 0.9,
+              "truth": 0.88,
+              "user_intent": 0.8268,
+              "reliability": 0.8325,
+              "efficiency": 0.9092
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "conserve_mode_bias_to_efficiency_reliability"
+            ]
+          },
+          {
+            "candidate_id": "efficient_but_thin",
+            "base_scores": {
+              "safety": 0.9,
+              "truth": 0.72,
+              "user_intent": 0.79,
+              "reliability": 0.79,
+              "efficiency": 0.92
+            },
+            "adjusted_scores": {
+              "safety": 0.9,
+              "truth": 0.72,
+              "user_intent": 0.8064,
+              "reliability": 0.811,
+              "efficiency": 1.0
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "conserve_mode_bias_to_efficiency_reliability"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=conserve",
+          "high_fatigue",
+          "high_timeout_pressure",
+          "high_budget_pressure",
+          "high_escalation_debt",
+          "conserve_mode_bias_to_efficiency_reliability",
+          "selected_wins_on_truth"
+        ],
+        "expected_candidate_id": "truthful_efficient",
+        "success": true
+      },
+      {
+        "case_id": "normal_prefers_intent_when_safe_and_true",
+        "mode": "normal",
+        "mode_reasons": [
+          "nominal_window"
+        ],
+        "selected_candidate_id": "best_aligned",
+        "selected_scores": {
+          "safety": 0.91,
+          "truth": 0.896,
+          "user_intent": 0.9285,
+          "reliability": 0.8,
+          "efficiency": 0.72
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "best_aligned",
+            "base_scores": {
+              "safety": 0.91,
+              "truth": 0.88,
+              "user_intent": 0.9,
+              "reliability": 0.8,
+              "efficiency": 0.72
+            },
+            "adjusted_scores": {
+              "safety": 0.91,
+              "truth": 0.896,
+              "user_intent": 0.9285,
+              "reliability": 0.8,
+              "efficiency": 0.72
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "normal_mode_bias_to_intent_truth_balance"
+            ]
+          },
+          {
+            "candidate_id": "more_reliable",
+            "base_scores": {
+              "safety": 0.91,
+              "truth": 0.88,
+              "user_intent": 0.76,
+              "reliability": 0.91,
+              "efficiency": 0.74
+            },
+            "adjusted_scores": {
+              "safety": 0.91,
+              "truth": 0.896,
+              "user_intent": 0.7816,
+              "reliability": 0.91,
+              "efficiency": 0.74
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "normal_mode_bias_to_intent_truth_balance"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=normal",
+          "nominal_window",
+          "normal_mode_bias_to_intent_truth_balance",
+          "selected_wins_on_user_intent"
+        ],
+        "expected_candidate_id": "best_aligned",
+        "success": true
+      },
+      {
+        "case_id": "normal_prefers_reliability_over_efficiency_on_tie",
+        "mode": "normal",
+        "mode_reasons": [
+          "nominal_window"
+        ],
+        "selected_candidate_id": "reliable_tie_break",
+        "selected_scores": {
+          "safety": 0.9,
+          "truth": 0.864,
+          "user_intent": 0.7931,
+          "reliability": 0.88,
+          "efficiency": 0.66
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "reliable_tie_break",
+            "base_scores": {
+              "safety": 0.9,
+              "truth": 0.85,
+              "user_intent": 0.77,
+              "reliability": 0.88,
+              "efficiency": 0.66
+            },
+            "adjusted_scores": {
+              "safety": 0.9,
+              "truth": 0.864,
+              "user_intent": 0.7931,
+              "reliability": 0.88,
+              "efficiency": 0.66
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "normal_mode_bias_to_intent_truth_balance"
+            ]
+          },
+          {
+            "candidate_id": "efficient_tie_break",
+            "base_scores": {
+              "safety": 0.9,
+              "truth": 0.85,
+              "user_intent": 0.77,
+              "reliability": 0.74,
+              "efficiency": 0.9
+            },
+            "adjusted_scores": {
+              "safety": 0.9,
+              "truth": 0.864,
+              "user_intent": 0.7931,
+              "reliability": 0.74,
+              "efficiency": 0.9
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "normal_mode_bias_to_intent_truth_balance"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=normal",
+          "nominal_window",
+          "normal_mode_bias_to_intent_truth_balance",
+          "selected_wins_on_reliability"
+        ],
+        "expected_candidate_id": "reliable_tie_break",
+        "success": true
+      },
+      {
+        "case_id": "protective_filters_unsafe_candidate",
+        "mode": "protective",
+        "mode_reasons": [
+          "high_risk_pressure",
+          "high_urgency",
+          "high_error_pressure"
+        ],
+        "selected_candidate_id": "safe_floor_pass",
+        "selected_scores": {
+          "safety": 0.9576,
+          "truth": 0.841,
+          "user_intent": 0.7,
+          "reliability": 0.84,
+          "efficiency": 0.635
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "safe_floor_pass",
+            "base_scores": {
+              "safety": 0.88,
+              "truth": 0.82,
+              "user_intent": 0.7,
+              "reliability": 0.8,
+              "efficiency": 0.65
+            },
+            "adjusted_scores": {
+              "safety": 0.9576,
+              "truth": 0.841,
+              "user_intent": 0.7,
+              "reliability": 0.84,
+              "efficiency": 0.635
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "protective_mode_bias_to_safety_truth_reliability"
+            ]
+          },
+          {
+            "candidate_id": "unsafe_floor_fail",
+            "base_scores": {
+              "safety": 0.72,
+              "truth": 0.84,
+              "user_intent": 0.84,
+              "reliability": 0.82,
+              "efficiency": 0.9
+            },
+            "adjusted_scores": {
+              "safety": 0.7616,
+              "truth": 0.861,
+              "user_intent": 0.84,
+              "reliability": 0.855,
+              "efficiency": 0.8975
+            },
+            "passes_hard_constraints": false,
+            "constraint_failures": [
+              "safety_below_floor"
+            ],
+            "trace": [
+              "protective_mode_bias_to_safety_truth_reliability"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=protective",
+          "high_risk_pressure",
+          "high_urgency",
+          "high_error_pressure",
+          "protective_mode_bias_to_safety_truth_reliability"
+        ],
+        "expected_candidate_id": "safe_floor_pass",
+        "success": true
+      },
+      {
+        "case_id": "fallback_to_highest_safety_when_all_fail",
+        "mode": "protective",
+        "mode_reasons": [
+          "high_risk_pressure",
+          "high_urgency",
+          "high_error_pressure"
+        ],
+        "selected_candidate_id": "least_bad_safe",
+        "selected_scores": {
+          "safety": 0.8986,
+          "truth": 0.7065,
+          "user_intent": 0.6,
+          "reliability": 0.745,
+          "efficiency": 0.591
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "least_bad_safe",
+            "base_scores": {
+              "safety": 0.83,
+              "truth": 0.69,
+              "user_intent": 0.6,
+              "reliability": 0.71,
+              "efficiency": 0.61
+            },
+            "adjusted_scores": {
+              "safety": 0.8986,
+              "truth": 0.7065,
+              "user_intent": 0.6,
+              "reliability": 0.745,
+              "efficiency": 0.591
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "protective_mode_bias_to_safety_truth_reliability"
+            ]
+          },
+          {
+            "candidate_id": "unsafe_fast",
+            "base_scores": {
+              "safety": 0.62,
+              "truth": 0.74,
+              "user_intent": 0.82,
+              "reliability": 0.77,
+              "efficiency": 0.94
+            },
+            "adjusted_scores": {
+              "safety": 0.6616,
+              "truth": 0.7595,
+              "user_intent": 0.82,
+              "reliability": 0.8075,
+              "efficiency": 0.9375
+            },
+            "passes_hard_constraints": false,
+            "constraint_failures": [
+              "safety_below_floor"
+            ],
+            "trace": [
+              "protective_mode_bias_to_safety_truth_reliability"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=protective",
+          "high_risk_pressure",
+          "high_urgency",
+          "high_error_pressure",
+          "protective_mode_bias_to_safety_truth_reliability"
+        ],
+        "expected_candidate_id": "least_bad_safe",
+        "success": true
+      },
+      {
+        "case_id": "live_state_context_uses_current_signal_profile",
+        "mode": "normal",
+        "mode_reasons": [
+          "nominal_window"
+        ],
+        "selected_candidate_id": "live_safe_balanced",
+        "selected_scores": {
+          "safety": 0.9,
+          "truth": 0.865,
+          "user_intent": 0.784,
+          "reliability": 0.83,
+          "efficiency": 0.68
+        },
+        "fallback_used": false,
+        "candidate_reports": [
+          {
+            "candidate_id": "live_safe_balanced",
+            "base_scores": {
+              "safety": 0.9,
+              "truth": 0.85,
+              "user_intent": 0.76,
+              "reliability": 0.83,
+              "efficiency": 0.68
+            },
+            "adjusted_scores": {
+              "safety": 0.9,
+              "truth": 0.865,
+              "user_intent": 0.784,
+              "reliability": 0.83,
+              "efficiency": 0.68
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "normal_mode_bias_to_intent_truth_balance"
+            ]
+          },
+          {
+            "candidate_id": "live_fast_thin",
+            "base_scores": {
+              "safety": 0.88,
+              "truth": 0.82,
+              "user_intent": 0.79,
+              "reliability": 0.77,
+              "efficiency": 0.88
+            },
+            "adjusted_scores": {
+              "safety": 0.88,
+              "truth": 0.832,
+              "user_intent": 0.8152,
+              "reliability": 0.77,
+              "efficiency": 0.88
+            },
+            "passes_hard_constraints": true,
+            "constraint_failures": [],
+            "trace": [
+              "normal_mode_bias_to_intent_truth_balance"
+            ]
+          }
+        ],
+        "rationale": [
+          "mode=normal",
+          "nominal_window",
+          "normal_mode_bias_to_intent_truth_balance",
+          "selected_wins_on_safety"
+        ],
+        "expected_candidate_id": "live_safe_balanced",
+        "success": true
+      }
+    ]
+  },
+  "gate_pass": true
+}

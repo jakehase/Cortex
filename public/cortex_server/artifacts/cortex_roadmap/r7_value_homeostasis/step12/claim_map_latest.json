@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-03-30T00:18:52.839346+00:00",
+  "artifact_root": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r7_value_homeostasis",
+  "claims": [
+    {
+      "claim_id": "r7-claim-01",
+      "title": "Value hierarchy is explicit and enforceable in replayed decisions",
+      "status": "partial",
+      "evidence": [
+        "step3/value_hierarchy_probe_latest.json",
+        "services/homeostasis/value_hierarchy_compiler.py",
+        "services/homeostasis/objective_hierarchy.json"
+      ],
+      "notes": "Safety-first ordering and tie-break behavior are exposed as reproducible artifacts rather than hidden weights."
+    },
+    {
+      "claim_id": "r7-claim-02",
+      "title": "Conflict arbitration emits explainable tradeoff traces",
+      "status": "supported",
+      "evidence": [
+        "step4/arbitration_probe_latest.json",
+        "services/homeostasis/conflict_arbitration_v2.py"
+      ],
+      "notes": "Case-level rationale traces show why a safe or truthful option won under the current mode."
+    },
+    {
+      "claim_id": "r7-claim-03",
+      "title": "Dynamic budget allocation keeps overruns bounded while reserving incident capacity",
+      "status": "supported",
+      "evidence": [
+        "step5/budget_allocator_probe_latest.json",
+        "services/homeostasis/dynamic_budget_allocator.py"
+      ],
+      "notes": "The probe includes per-intent sample budgets plus reserve pools for incident and recovery modes."
+    },
+    {
+      "claim_id": "r7-claim-04",
+      "title": "Adaptive effort control couples regulation mode to depth and route guardrails",
+      "status": "supported",
+      "evidence": [
+        "step6/adaptive_effort_probe_latest.json",
+        "services/homeostasis/adaptive_effort_controller.py"
+      ],
+      "notes": "Mode selection, reasoning depth, escalation, and preferred chains are all emitted in the benchmark payload."
+    },
+    {
+      "claim_id": "r7-claim-05",
+      "title": "Safety overrides and fallback paths are drillable and operator-visible",
+      "status": "supported",
+      "evidence": [
+        "step7/safety_override_probe_latest.json",
+        "step11/dashboard_probe_latest.json",
+        "services/homeostasis/safety_envelope_overrides.py",
+        "services/homeostasis/operator_dashboard.py"
+      ],
+      "notes": "Freeze, rollback, and resume are represented as local runbook drills rather than hidden operational assumptions."
+    },
+    {
+      "claim_id": "r7-claim-06",
+      "title": "The governor has been fully proven on long-horizon live production traffic",
+      "status": "not_supported",
+      "evidence": [
+        "step8/shadow_governor_probe_latest.json",
+        "step9/canary_governor_probe_latest.json",
+        "step10/full_rollout_autotune_probe_latest.json"
+      ],
+      "notes": "Current evidence demonstrates a reproducible rollout slice with bounded self-tuning, not mature long-horizon production validation."
+    },
+    {
+      "claim_id": "r7-claim-07",
+      "title": "Shadow-to-rollout evidence is coherent enough for internal novelty review",
+      "status": "supported",
+      "evidence": [
+        "step8/shadow_governor_probe_latest.json",
+        "step9/canary_governor_probe_latest.json",
+        "step10/full_rollout_autotune_probe_latest.json"
+      ],
+      "notes": "Shadow uplift, canary readiness state, and bounded autotune validation can be traced through committed artifacts."
+    }
+  ],
+  "summary": {
+    "supported": 5,
+    "partial": 1,
+    "not_supported": 1,
+    "canary_ready": true
+  }
+}

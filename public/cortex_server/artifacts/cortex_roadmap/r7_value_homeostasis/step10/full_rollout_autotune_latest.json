@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-03-30T00:18:52.743282+00:00",
+  "weights": {
+    "safety": 1.0,
+    "truth": 0.92,
+    "user_intent": 0.86,
+    "reliability": 0.72,
+    "efficiency": 0.48
+  },
+  "weight_bounds": {
+    "safety": [
+      0.9,
+      1.2
+    ],
+    "truth": [
+      0.8,
+      1.1
+    ],
+    "user_intent": [
+      0.7,
+      1.0
+    ],
+    "reliability": [
+      0.6,
+      0.95
+    ],
+    "efficiency": [
+      0.3,
+      0.7
+    ]
+  },
+  "intent_kill_switches": {
+    "coding": false,
+    "research": false,
+    "creative": false,
+    "reminder": false
+  },
+  "rollout_mode": "full",
+  "inputs": {
+    "disagreement_rate": 0.625,
+    "average_estimated_uplift": 0.105,
+    "safety_regressions": 0,
+    "overrun_events": 0,
+    "canary_ready": true,
+    "kill_reasons": []
+  },
+  "notes": [
+    "raised user_intent due to positive shadow uplift"
+  ]
+}
