@@ -714,6 +714,18 @@ def resume_process(process_id: str) -> Dict[str, Any]:
         _append_event(state, process_id, "process_resumed", {})
         save_state(state)
         return process
+
+def record_process_event(process_id: str, kind: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    with _LOCK:
+        state = load_state()
+        process = (state.get("processes") or {}).get(process_id)
+        if not isinstance(process, dict):
+            raise ReasoningSchedulerError(f"unknown process: {process_id}")
+        process["updated_at"] = _now_iso()
+        _append_event(state, process_id, kind, dict(payload or {}))
+        save_state(state)
+        return process
+
 def process_events(process_id: str, *, limit: int = 50) -> List[Dict[str, Any]]:
     with _LOCK:
         state = load_state()

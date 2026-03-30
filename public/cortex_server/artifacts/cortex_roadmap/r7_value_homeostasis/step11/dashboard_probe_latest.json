@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-30T01:53:51.800792+00:00",
+  "generated_at": "2026-03-30T02:50:23.620237+00:00",
   "dashboard_model_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_model_latest.json",
   "dashboard_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step11/dashboard_live_local.html",
   "headline": {
@@ -14,23 +14,29 @@
       "action": "freeze",
       "supported": true,
       "mode": "runtime_policy_patch_and_pause",
-      "route": "/runtime/homeostasis/freeze/{process_id}"
+      "route": "/runtime/homeostasis/freeze/{process_id}",
+      "permission": "actor must match process owner or session key",
+      "audit_event": "homeostasis_control_audit"
     },
     "rollback_to_baseline": {
       "action": "rollback",
       "supported": true,
       "mode": "runtime_policy_rollback",
-      "route": "/runtime/homeostasis/rollback/{process_id}"
+      "route": "/runtime/homeostasis/rollback/{process_id}",
+      "permission": "actor must match process owner or session key",
+      "audit_event": "homeostasis_control_audit"
     },
     "resume_governor": {
       "action": "resume",
       "supported": true,
       "mode": "runtime_process_resume",
-      "route": "/runtime/homeostasis/resume/{process_id}"
+      "route": "/runtime/homeostasis/resume/{process_id}",
+      "permission": "actor must match process owner or session key",
+      "audit_event": "homeostasis_control_audit"
     }
   },
   "runbook_drill": {
-    "generated_at": "2026-03-30T01:53:51.800225+00:00",
+    "generated_at": "2026-03-30T02:50:23.619713+00:00",
     "success": true,
     "steps": {
       "freeze_policy": {

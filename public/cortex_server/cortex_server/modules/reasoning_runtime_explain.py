@@ -39,6 +39,7 @@ def policy_patch_history(events: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "metadata_overrides": metadata_overrides,
                 "previous_values": dict(payload.get("previous_values") or {}),
                 "operator_overrides": dict(payload.get("operator_overrides") or {}),
+                "audit": dict(payload.get("audit") or {}),
                 "allow_confirmation_required": bool(payload.get("allow_confirmation_required", False)),
                 "allow_intervening_revisions": bool(payload.get("allow_intervening_revisions", False)),
                 "intervening_revisions": [dict(row) for row in (payload.get("intervening_revisions") or []) if isinstance(row, dict)],

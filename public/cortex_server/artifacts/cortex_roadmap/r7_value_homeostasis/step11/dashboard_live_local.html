@@ -17,7 +17,7 @@
 </head>
 <body>
   <h1>R7 Operator Dashboard</h1>
-  <p>Generated at <code>2026-03-30T01:53:51.800177+00:00</code></p>
+  <p>Generated at <code>2026-03-30T02:50:23.619666+00:00</code></p>
   <div class='card'>
     <h2>Headline</h2>
     <ul>
@@ -91,7 +91,7 @@
 }</pre></div>
     <div class='card'><h3>Cost</h3><pre>{
   "mean_budget_tokens": 1720.0,
-  "mean_incident_reserve_tokens": 272.6667,
+  "mean_incident_reserve_tokens": 237.6667,
   "intent_kill_switches": {
     "coding": false,
     "research": false,
@@ -108,7 +108,7 @@
     "reasons": []
   },
   "validation": {
-    "generated_at": "2026-03-30T00:18:52.743311+00:00",
+    "generated_at": "2026-03-30T02:50:23.558094+00:00",
     "valid": true,
     "missing_weights": [],
     "out_of_bounds_weights": [],
@@ -131,7 +131,7 @@
   </div>
   <div class='card'>
     <h2>Operator controls</h2>
-    <p>Controls map to real runtime endpoints for freeze, rollback, and resume. This HTML remains a dashboard surface, but the backing routes are no longer local-only stubs.</p>
+    <p>Controls map to real runtime endpoints for freeze, rollback, and resume. They now require owner/session authorization and emit audit events for operator actions. This HTML remains a dashboard surface, but the backing routes are no longer local-only stubs.</p>
     <button class='freeze' onclick="alert('freeze route: /runtime/homeostasis/freeze/{process_id} mode=runtime_policy_patch_and_pause')">Freeze policy</button>
     <button class='rollback' onclick="alert('rollback route: /runtime/homeostasis/rollback/{process_id} mode=runtime_policy_rollback')">Rollback to baseline</button>
     <button class='resume' onclick="alert('resume route: /runtime/homeostasis/resume/{process_id} mode=runtime_process_resume')">Resume governor</button>

@@ -43,6 +43,7 @@ from cortex_server.modules.reasoning_scheduler import (
     mark_node_running,
     pause_process as pause_runtime_process,
     process_events as get_runtime_events,
+    record_process_event as record_runtime_event,
     record_node_result,
     replace_process_workflow,
     resume_process as resume_runtime_process,
@@ -162,6 +163,9 @@ class RuntimePolicyRollbackRequest(BaseModel):
 class RuntimeHomeostasisControlRequest(BaseModel):
     dry_run: bool = False
     allow_intervening_revisions: bool = False
+    actor_id: str = "cortex"
+    actor_session_key: Optional[str] = None
+    reason: Optional[str] = None
 
 
 class RuntimePlanRequest(BaseModel):
@@ -633,6 +637,10 @@ async def freeze_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeo
         ),
         replace_process_workflow_fn=replace_process_workflow,
         pause_process_fn=pause_runtime_process,
+        record_runtime_event_fn=record_runtime_event,
+        actor_id=req.actor_id,
+        actor_session_key=req.actor_session_key,
+        reason=req.reason,
         dry_run=bool(req.dry_run),
         load_workflow_fn=_load_workflow,
         persist_workflow_fn=_persist_workflow,
@@ -654,6 +662,10 @@ async def rollback_runtime_homeostasis(process_id: str, req: Optional[RuntimeHom
             build_workflow_policy_fn=build_workflow_policy,
         ),
         replace_process_workflow_fn=replace_process_workflow,
+        record_runtime_event_fn=record_runtime_event,
+        actor_id=req.actor_id,
+        actor_session_key=req.actor_session_key,
+        reason=req.reason,
         dry_run=bool(req.dry_run),
         allow_intervening_revisions=bool(req.allow_intervening_revisions),
         load_workflow_fn=_load_workflow,
@@ -662,11 +674,16 @@ async def rollback_runtime_homeostasis(process_id: str, req: Optional[RuntimeHom
 
 
 @router.post("/runtime/homeostasis/resume/{process_id}")
-async def resume_runtime_homeostasis(process_id: str):
+async def resume_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeostasisControlRequest] = None):
+    req = req or RuntimeHomeostasisControlRequest()
     return runtime_service.runtime_homeostasis_resume_control(
         process_id,
         get_runtime_process_fn=get_runtime_process,
         resume_process_fn=resume_runtime_process,
+        record_runtime_event_fn=record_runtime_event,
+        actor_id=req.actor_id,
+        actor_session_key=req.actor_session_key,
+        reason=req.reason,
     )
 
 @router.get("/runtime/incident-trends")

@@ -180,9 +180,9 @@ def build_dashboard_model(*, artifact_root: Path | str = ARTIFACT_ROOT) -> Dict[
             },
         },
         "controls": {
-            "freeze_policy": {"action": "freeze", "supported": True, "mode": "runtime_policy_patch_and_pause", "route": "/runtime/homeostasis/freeze/{process_id}"},
-            "rollback_to_baseline": {"action": "rollback", "supported": True, "mode": "runtime_policy_rollback", "route": "/runtime/homeostasis/rollback/{process_id}"},
-            "resume_governor": {"action": "resume", "supported": True, "mode": "runtime_process_resume", "route": "/runtime/homeostasis/resume/{process_id}"},
+            "freeze_policy": {"action": "freeze", "supported": True, "mode": "runtime_policy_patch_and_pause", "route": "/runtime/homeostasis/freeze/{process_id}", "permission": "actor must match process owner or session key", "audit_event": "homeostasis_control_audit"},
+            "rollback_to_baseline": {"action": "rollback", "supported": True, "mode": "runtime_policy_rollback", "route": "/runtime/homeostasis/rollback/{process_id}", "permission": "actor must match process owner or session key", "audit_event": "homeostasis_control_audit"},
+            "resume_governor": {"action": "resume", "supported": True, "mode": "runtime_process_resume", "route": "/runtime/homeostasis/resume/{process_id}", "permission": "actor must match process owner or session key", "audit_event": "homeostasis_control_audit"},
         },
     }
     return dashboard
@@ -278,7 +278,7 @@ def render_dashboard_html(model: Dict[str, Any]) -> str:
   </div>
   <div class='card'>
     <h2>Operator controls</h2>
-    <p>Controls map to real runtime endpoints for freeze, rollback, and resume. This HTML remains a dashboard surface, but the backing routes are no longer local-only stubs.</p>
+    <p>Controls map to real runtime endpoints for freeze, rollback, and resume. They now require owner/session authorization and emit audit events for operator actions. This HTML remains a dashboard surface, but the backing routes are no longer local-only stubs.</p>
     <button class='freeze' onclick=\"alert('freeze route: {controls.get('freeze_policy', {}).get('route')} mode={controls.get('freeze_policy', {}).get('mode')}')\">Freeze policy</button>
     <button class='rollback' onclick=\"alert('rollback route: {controls.get('rollback_to_baseline', {}).get('route')} mode={controls.get('rollback_to_baseline', {}).get('mode')}')\">Rollback to baseline</button>
     <button class='resume' onclick=\"alert('resume route: {controls.get('resume_governor', {}).get('route')} mode={controls.get('resume_governor', {}).get('mode')}')\">Resume governor</button>

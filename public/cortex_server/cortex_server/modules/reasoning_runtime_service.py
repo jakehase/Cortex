@@ -28,6 +28,7 @@ RefreshWorkflowPolicyFn = Callable[[JsonDict], JsonDict]
 ApplyPolicyPatchPreviewFn = Callable[..., JsonDict]
 SelectPolicyPatchPreviewFn = Callable[..., JsonDict]
 ProcessActionFn = Callable[[str], JsonDict]
+RecordRuntimeEventFn = Callable[[str, str, JsonDict], JsonDict]
 
 
 
@@ -247,6 +248,66 @@ _HOMEOSTASIS_FREEZE_OVERRIDES = {
 }
 
 
+def _runtime_process_identity(process: JsonDict) -> JsonDict:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    return {
+        "owner": str(process.get("owner") or metadata.get("owner") or "cortex"),
+        "session_key": str(process.get("session_key") or metadata.get("session_key") or "") or None,
+        "workflow_id": str(metadata.get("workflow_id") or "") or None,
+        "task_id": str(process.get("task_id") or metadata.get("task_id") or metadata.get("kernel_task_id") or "") or None,
+    }
+
+
+
+def _authorize_homeostasis_operator(*, process: JsonDict, actor_id: str, actor_session_key: Optional[str]) -> JsonDict:
+    identity = _runtime_process_identity(process)
+    owner = str(identity.get("owner") or "cortex")
+    session_key = str(identity.get("session_key") or "") or None
+    actor_id = str(actor_id or "").strip() or "unknown"
+    actor_session_key = str(actor_session_key or "").strip() or None
+
+    if actor_id == owner:
+        return {"authorized": True, "basis": "owner_match", "owner": owner, "session_key": session_key, "actor_id": actor_id, "actor_session_key": actor_session_key}
+    if actor_session_key and session_key and actor_session_key == session_key:
+        return {"authorized": True, "basis": "session_key_match", "owner": owner, "session_key": session_key, "actor_id": actor_id, "actor_session_key": actor_session_key}
+    if actor_id == "cortex" and owner == "cortex":
+        return {"authorized": True, "basis": "system_default", "owner": owner, "session_key": session_key, "actor_id": actor_id, "actor_session_key": actor_session_key}
+    return {"authorized": False, "basis": "owner_or_session_mismatch", "owner": owner, "session_key": session_key, "actor_id": actor_id, "actor_session_key": actor_session_key}
+
+
+
+def _homeostasis_audit_payload(*, control: str, process: JsonDict, actor_id: str, actor_session_key: Optional[str], reason: Optional[str], authorization: JsonDict, status: str, dry_run: bool, extra: Optional[JsonDict] = None) -> JsonDict:
+    identity = _runtime_process_identity(process)
+    payload = {
+        "control": control,
+        "status": status,
+        "dry_run": bool(dry_run),
+        "actor": {
+            "actor_id": str(actor_id or "").strip() or "unknown",
+            "actor_session_key": str(actor_session_key or "").strip() or None,
+        },
+        "authorization": {
+            "authorized": bool(authorization.get("authorized")),
+            "basis": authorization.get("basis"),
+            "process_owner": identity.get("owner"),
+            "process_session_key": identity.get("session_key"),
+        },
+        "reason": str(reason or "operator_control").strip() or "operator_control",
+        "workflow_id": identity.get("workflow_id"),
+        "task_id": identity.get("task_id"),
+    }
+    if isinstance(extra, dict) and extra:
+        payload.update(dict(extra))
+    return payload
+
+
+
+def _record_homeostasis_control_event(*, record_runtime_event_fn: Optional[RecordRuntimeEventFn], process_id: str, payload: JsonDict) -> None:
+    if callable(record_runtime_event_fn):
+        record_runtime_event_fn(process_id, "homeostasis_control_audit", dict(payload or {}))
+
+
 async def runtime_homeostasis_freeze_control(
     process_id: str,
     *,
@@ -257,23 +318,75 @@ async def runtime_homeostasis_freeze_control(
     refresh_workflow_policy_fn: RefreshWorkflowPolicyFn,
     replace_process_workflow_fn: ReplaceProcessWorkflowFn,
     pause_process_fn: ProcessActionFn,
+    record_runtime_event_fn: Optional[RecordRuntimeEventFn] = None,
+    actor_id: str = "cortex",
+    actor_session_key: Optional[str] = None,
+    reason: Optional[str] = None,
     dry_run: bool = False,
     load_workflow_fn: Optional[LoadWorkflowFn] = None,
     persist_workflow_fn: Optional[PersistWorkflowFn] = None,
 ) -> JsonDict:
     process = require_runtime_process(process_id, get_runtime_process_fn=get_runtime_process_fn)
+    authorization = _authorize_homeostasis_operator(process=process, actor_id=actor_id, actor_session_key=actor_session_key)
+    if not bool(authorization.get("authorized")):
+        denied_payload = _homeostasis_audit_payload(
+            control="freeze_policy",
+            process=process,
+            actor_id=actor_id,
+            actor_session_key=actor_session_key,
+            reason=reason,
+            authorization=authorization,
+            status="denied",
+            dry_run=bool(dry_run),
+        )
+        _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=denied_payload)
+        raise HTTPException(status_code=403, detail="homeostasis control denied: actor must match process owner or session key")
+    requested_payload = _homeostasis_audit_payload(
+        control="freeze_policy",
+        process=process,
+        actor_id=actor_id,
+        actor_session_key=actor_session_key,
+        reason=reason,
+        authorization=authorization,
+        status="requested",
+        dry_run=bool(dry_run),
+        extra={"requested_settings": list(_HOMEOSTASIS_FREEZE_SETTINGS)},
+    )
+    _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=requested_payload)
     status = str(process.get("status") or "")
     if status in {"completed", "failed", "cancelled"}:
+        blocked_payload = _homeostasis_audit_payload(
+            control="freeze_policy",
+            process=process,
+            actor_id=actor_id,
+            actor_session_key=actor_session_key,
+            reason=reason,
+            authorization=authorization,
+            status="blocked_terminal_process",
+            dry_run=bool(dry_run),
+        )
+        _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=blocked_payload)
         return {
             "success": True,
             "process_id": process_id,
             "control": "freeze_policy",
+            "authorization": authorization,
             "frozen": False,
             "dry_run": bool(dry_run),
             "blocked_reason": "terminal_process",
             "process": process,
         }
 
+    audit_context = _homeostasis_audit_payload(
+        control="freeze_policy",
+        process=process,
+        actor_id=actor_id,
+        actor_session_key=actor_session_key,
+        reason=reason,
+        authorization=authorization,
+        status="patch_applied",
+        dry_run=bool(dry_run),
+    )
     patch_result = await apply_runtime_policy_patch(
         process_id,
         get_runtime_process_fn=get_runtime_process_fn,
@@ -288,12 +401,26 @@ async def runtime_homeostasis_freeze_control(
         allow_confirmation_required=True,
         load_workflow_fn=load_workflow_fn,
         persist_workflow_fn=persist_workflow_fn,
+        audit_context=audit_context,
     )
     if bool(dry_run) or not bool(patch_result.get("applied")):
+        completed_payload = _homeostasis_audit_payload(
+            control="freeze_policy",
+            process=patch_result.get("process") if isinstance(patch_result.get("process"), dict) else process,
+            actor_id=actor_id,
+            actor_session_key=actor_session_key,
+            reason=reason,
+            authorization=authorization,
+            status="preview" if bool(dry_run) else "no_change",
+            dry_run=bool(dry_run),
+            extra={"policy_revision_id": patch_result.get("revision_id")},
+        )
+        _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=completed_payload)
         return {
             "success": True,
             "process_id": process_id,
             "control": "freeze_policy",
+            "authorization": authorization,
             "frozen": False,
             "dry_run": bool(dry_run),
             "policy_result": patch_result,
@@ -302,10 +429,23 @@ async def runtime_homeostasis_freeze_control(
         }
 
     paused = pause_process_fn(process_id)
+    completed_payload = _homeostasis_audit_payload(
+        control="freeze_policy",
+        process=paused,
+        actor_id=actor_id,
+        actor_session_key=actor_session_key,
+        reason=reason,
+        authorization=authorization,
+        status="completed",
+        dry_run=False,
+        extra={"policy_revision_id": patch_result.get("revision_id")},
+    )
+    _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=completed_payload)
     return {
         "success": True,
         "process_id": process_id,
         "control": "freeze_policy",
+        "authorization": authorization,
         "frozen": True,
         "dry_run": False,
         "revision_id": patch_result.get("revision_id"),
@@ -325,21 +465,51 @@ async def runtime_homeostasis_rollback_control(
     apply_policy_patch_preview_fn: ApplyPolicyPatchPreviewFn,
     refresh_workflow_policy_fn: RefreshWorkflowPolicyFn,
     replace_process_workflow_fn: ReplaceProcessWorkflowFn,
+    record_runtime_event_fn: Optional[RecordRuntimeEventFn] = None,
+    actor_id: str = "cortex",
+    actor_session_key: Optional[str] = None,
+    reason: Optional[str] = None,
     dry_run: bool = False,
     allow_intervening_revisions: bool = False,
     load_workflow_fn: Optional[LoadWorkflowFn] = None,
     persist_workflow_fn: Optional[PersistWorkflowFn] = None,
 ) -> JsonDict:
     process = require_runtime_process(process_id, get_runtime_process_fn=get_runtime_process_fn)
+    authorization = _authorize_homeostasis_operator(process=process, actor_id=actor_id, actor_session_key=actor_session_key)
+    if not bool(authorization.get("authorized")):
+        denied_payload = _homeostasis_audit_payload(
+            control="rollback_to_baseline",
+            process=process,
+            actor_id=actor_id,
+            actor_session_key=actor_session_key,
+            reason=reason,
+            authorization=authorization,
+            status="denied",
+            dry_run=bool(dry_run),
+        )
+        _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=denied_payload)
+        raise HTTPException(status_code=403, detail="homeostasis control denied: actor must match process owner or session key")
     events = get_runtime_events_fn(process_id, limit=100)
     history = policy_patch_history_fn(events)
     entries = list(history.get("entries") or [])
     latest_applied = next((row for row in reversed(entries) if str((row or {}).get("kind") or "") == "policy_patch_applied"), None)
     if not isinstance(latest_applied, dict):
+        blocked_payload = _homeostasis_audit_payload(
+            control="rollback_to_baseline",
+            process=process,
+            actor_id=actor_id,
+            actor_session_key=actor_session_key,
+            reason=reason,
+            authorization=authorization,
+            status="blocked_no_patch_history",
+            dry_run=bool(dry_run),
+        )
+        _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=blocked_payload)
         return {
             "success": True,
             "process_id": process_id,
             "control": "rollback_to_baseline",
+            "authorization": authorization,
             "rolled_back": False,
             "dry_run": bool(dry_run),
             "blocked_reason": "no_policy_patch_history",
@@ -347,6 +517,18 @@ async def runtime_homeostasis_rollback_control(
             "process": process,
         }
 
+    requested_payload = _homeostasis_audit_payload(
+        control="rollback_to_baseline",
+        process=process,
+        actor_id=actor_id,
+        actor_session_key=actor_session_key,
+        reason=reason,
+        authorization=authorization,
+        status="requested",
+        dry_run=bool(dry_run),
+        extra={"target_revision_id": latest_applied.get("revision_id")},
+    )
+    _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=requested_payload)
     rollback_result = await rollback_runtime_policy_patch(
         process_id,
         str(latest_applied.get("revision_id") or ""),
@@ -362,10 +544,34 @@ async def runtime_homeostasis_rollback_control(
         allow_intervening_revisions=bool(allow_intervening_revisions),
         load_workflow_fn=load_workflow_fn,
         persist_workflow_fn=persist_workflow_fn,
+        audit_context=_homeostasis_audit_payload(
+            control="rollback_to_baseline",
+            process=process,
+            actor_id=actor_id,
+            actor_session_key=actor_session_key,
+            reason=reason,
+            authorization=authorization,
+            status="rollback_applied",
+            dry_run=bool(dry_run),
+            extra={"target_revision_id": latest_applied.get("revision_id")},
+        ),
     )
     rollback_result = dict(rollback_result)
     rollback_result["control"] = "rollback_to_baseline"
+    rollback_result["authorization"] = authorization
     rollback_result["target_revision_id"] = latest_applied.get("revision_id")
+    completed_payload = _homeostasis_audit_payload(
+        control="rollback_to_baseline",
+        process=rollback_result.get("process") if isinstance(rollback_result.get("process"), dict) else process,
+        actor_id=actor_id,
+        actor_session_key=actor_session_key,
+        reason=reason,
+        authorization=authorization,
+        status="completed" if bool(rollback_result.get("rolled_back")) else ("preview" if bool(dry_run) else "no_change"),
+        dry_run=bool(dry_run),
+        extra={"target_revision_id": latest_applied.get("revision_id"), "policy_revision_id": rollback_result.get("revision_id")},
+    )
+    _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=completed_payload)
     return rollback_result
 
 
@@ -374,22 +580,75 @@ def runtime_homeostasis_resume_control(
     *,
     get_runtime_process_fn: GetRuntimeProcessFn,
     resume_process_fn: ProcessActionFn,
+    record_runtime_event_fn: Optional[RecordRuntimeEventFn] = None,
+    actor_id: str = "cortex",
+    actor_session_key: Optional[str] = None,
+    reason: Optional[str] = None,
 ) -> JsonDict:
     process = require_runtime_process(process_id, get_runtime_process_fn=get_runtime_process_fn)
+    authorization = _authorize_homeostasis_operator(process=process, actor_id=actor_id, actor_session_key=actor_session_key)
+    if not bool(authorization.get("authorized")):
+        denied_payload = _homeostasis_audit_payload(
+            control="resume_governor",
+            process=process,
+            actor_id=actor_id,
+            actor_session_key=actor_session_key,
+            reason=reason,
+            authorization=authorization,
+            status="denied",
+            dry_run=False,
+        )
+        _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=denied_payload)
+        raise HTTPException(status_code=403, detail="homeostasis control denied: actor must match process owner or session key")
+    requested_payload = _homeostasis_audit_payload(
+        control="resume_governor",
+        process=process,
+        actor_id=actor_id,
+        actor_session_key=actor_session_key,
+        reason=reason,
+        authorization=authorization,
+        status="requested",
+        dry_run=False,
+    )
+    _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=requested_payload)
     if str(process.get("status") or "") != "paused" and bool(process.get("enabled", True)):
+        blocked_payload = _homeostasis_audit_payload(
+            control="resume_governor",
+            process=process,
+            actor_id=actor_id,
+            actor_session_key=actor_session_key,
+            reason=reason,
+            authorization=authorization,
+            status="blocked_not_paused",
+            dry_run=False,
+        )
+        _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=blocked_payload)
         return {
             "success": True,
             "process_id": process_id,
             "control": "resume_governor",
+            "authorization": authorization,
             "resumed": False,
             "blocked_reason": "not_paused",
             "process": process,
         }
     resumed = resume_process_fn(process_id)
+    completed_payload = _homeostasis_audit_payload(
+        control="resume_governor",
+        process=resumed,
+        actor_id=actor_id,
+        actor_session_key=actor_session_key,
+        reason=reason,
+        authorization=authorization,
+        status="completed",
+        dry_run=False,
+    )
+    _record_homeostasis_control_event(record_runtime_event_fn=record_runtime_event_fn, process_id=process_id, payload=completed_payload)
     return {
         "success": True,
         "process_id": process_id,
         "control": "resume_governor",
+        "authorization": authorization,
         "resumed": True,
         "process": resumed,
     }
@@ -411,6 +670,7 @@ async def rollback_runtime_policy_patch(
     allow_intervening_revisions: bool = False,
     load_workflow_fn: Optional[LoadWorkflowFn] = None,
     persist_workflow_fn: Optional[PersistWorkflowFn] = None,
+    audit_context: Optional[JsonDict] = None,
 ) -> JsonDict:
     process = require_runtime_process(process_id, get_runtime_process_fn=get_runtime_process_fn)
     workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
@@ -535,6 +795,7 @@ async def rollback_runtime_policy_patch(
             "requested_settings": list(previous_values.keys()),
             "operator_overrides": {},
             "allow_confirmation_required": bool(allow_confirmation_required),
+            "audit": dict(audit_context or {}),
         },
     )
 
@@ -964,6 +1225,7 @@ async def apply_runtime_policy_patch(
     allow_confirmation_required: bool = False,
     load_workflow_fn: Optional[LoadWorkflowFn] = None,
     persist_workflow_fn: Optional[PersistWorkflowFn] = None,
+    audit_context: Optional[JsonDict] = None,
 ) -> JsonDict:
     process = require_runtime_process(process_id, get_runtime_process_fn=get_runtime_process_fn)
     workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
@@ -1026,6 +1288,7 @@ async def apply_runtime_policy_patch(
             "requested_settings": list(requested_settings or []),
             "operator_overrides": dict(metadata_overrides or {}),
             "allow_confirmation_required": bool(allow_confirmation_required),
+            "audit": dict(audit_context or {}),
         },
     )
 

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-30T01:53:51.800177+00:00",
+  "generated_at": "2026-03-30T02:50:23.619666+00:00",
   "artifact_root": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r7_value_homeostasis",
   "headline": {
     "utility_proxy": 0.821,
@@ -10,9 +10,9 @@
   },
   "sections": {
     "baseline": {
-      "quality_non_regression_proxy": 1.0,
+      "quality_non_regression_proxy": 0.0,
       "rollback_max_recovery_seconds": null,
-      "dashboard_controls_present": false
+      "dashboard_controls_present": true
     },
     "utility": {
       "proxy": 0.821,
@@ -76,7 +76,7 @@
     },
     "cost": {
       "mean_budget_tokens": 1720.0,
-      "mean_incident_reserve_tokens": 272.6667,
+      "mean_incident_reserve_tokens": 237.6667,
       "intent_kill_switches": {
         "coding": false,
         "research": false,
@@ -93,7 +93,7 @@
         "reasons": []
       },
       "validation": {
-        "generated_at": "2026-03-30T00:18:52.743311+00:00",
+        "generated_at": "2026-03-30T02:50:23.558094+00:00",
         "valid": true,
         "missing_weights": [],
         "out_of_bounds_weights": [],
@@ -165,7 +165,7 @@
       ]
     },
     "shadow": {
-      "generated_at": "2026-03-30T00:18:52.705489+00:00",
+      "generated_at": "2026-03-30T02:50:23.522915+00:00",
       "case_count": 8,
       "disagreement_rate": 0.625,
       "average_estimated_uplift": 0.105,
@@ -544,7 +544,7 @@
       "result_path": "artifacts/cortex_roadmap/r7_value_homeostasis/step10/full_rollout_autotune_latest.json",
       "rollout_mode": "full",
       "validation": {
-        "generated_at": "2026-03-30T00:18:52.743311+00:00",
+        "generated_at": "2026-03-30T02:50:23.558094+00:00",
         "valid": true,
         "missing_weights": [],
         "out_of_bounds_weights": [],
@@ -557,19 +557,25 @@
       "action": "freeze",
       "supported": true,
       "mode": "runtime_policy_patch_and_pause",
-      "route": "/runtime/homeostasis/freeze/{process_id}"
+      "route": "/runtime/homeostasis/freeze/{process_id}",
+      "permission": "actor must match process owner or session key",
+      "audit_event": "homeostasis_control_audit"
     },
     "rollback_to_baseline": {
       "action": "rollback",
       "supported": true,
       "mode": "runtime_policy_rollback",
-      "route": "/runtime/homeostasis/rollback/{process_id}"
+      "route": "/runtime/homeostasis/rollback/{process_id}",
+      "permission": "actor must match process owner or session key",
+      "audit_event": "homeostasis_control_audit"
     },
     "resume_governor": {
       "action": "resume",
       "supported": true,
       "mode": "runtime_process_resume",
-      "route": "/runtime/homeostasis/resume/{process_id}"
+      "route": "/runtime/homeostasis/resume/{process_id}",
+      "permission": "actor must match process owner or session key",
+      "audit_event": "homeostasis_control_audit"
     }
   }
 }
