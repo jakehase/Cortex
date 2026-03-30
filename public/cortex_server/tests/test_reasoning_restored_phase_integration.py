@@ -160,6 +160,8 @@ def test_runtime_explain_surfaces_restored_phase_summaries():
     assert explained["truth_engine_summary"]["guard_action"] == "block"
     assert explained["plasticity_summary"]["alert"] is True
     assert explained["embodiment_summary"]["risk"] == "high"
+    assert explained["control_plane_summary"]["constraint_field_owners"]["execution_mode"] == "embodiment"
+    assert response["control_plane_summary"]["constraint_decisions"]
     assert response["truth_engine_summary"]["operator_summary"]
     assert response["plasticity_summary"]["operator_summary"]
     assert response["embodiment_summary"]["operator_summary"]
