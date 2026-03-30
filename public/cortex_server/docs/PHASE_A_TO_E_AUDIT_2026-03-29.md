@@ -207,7 +207,7 @@ The original `docs/REASONING_OS.md` standard is fundamentally about:
 
 ### What now matches
 - The reasoning core itself.
-- Real executable phase slices for D and E.
+- Real executable phase slices for C, D, and E.
 - Policy embedded into live runtime behavior for both R7 and R9.
 - Real operator control paths and audit trails for Step 11.
 - Live telemetry preference for the Step 1 baseline.
@@ -241,3 +241,5 @@ More precise wording:
 2. Tighten **D + E into one more generalized governance/runtime layer**.
 3. Continue normalizing roadmap docs and branch hygiene.
 4. Add stronger end-to-end tests proving the restored roadmap line behaves as one integrated OS extension.
+-end tests proving the restored roadmap line behaves as one integrated OS extension.
+proving the restored roadmap line behaves as one integrated OS extension.

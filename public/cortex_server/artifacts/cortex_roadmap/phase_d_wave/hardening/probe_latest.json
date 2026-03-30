@@ -1,0 +1,46 @@
+{
+  "generated_at": "2026-03-29T15:51:22.025460+00:00",
+  "profiles": [
+    {
+      "status": "completed",
+      "goal_reached": true,
+      "steps": 8,
+      "hazard_events": 0,
+      "intervention_triggered": false,
+      "bounded_actions": true,
+      "avg_distance": 1.363,
+      "final_distance": 0.1622,
+      "profile_name": "contract_baseline_v2",
+      "seed": 11
+    },
+    {
+      "status": "completed",
+      "goal_reached": true,
+      "steps": 8,
+      "hazard_events": 0,
+      "intervention_triggered": false,
+      "bounded_actions": true,
+      "avg_distance": 1.4176,
+      "final_distance": 0.1996,
+      "profile_name": "sim2real_transfer_v1",
+      "seed": 11
+    },
+    {
+      "status": "stopped",
+      "goal_reached": false,
+      "steps": 18,
+      "hazard_events": 18,
+      "intervention_triggered": true,
+      "bounded_actions": true,
+      "avg_distance": 5.0,
+      "final_distance": 5.0,
+      "profile_name": "failure_taxonomy_challenge_v1",
+      "seed": 11
+    }
+  ],
+  "gates": {
+    "phase_d_fault_injection_exercised": true,
+    "phase_d_intervention_path_seen": true,
+    "phase_d_action_bounds_hold": true
+  }
+}

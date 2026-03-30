@@ -6,6 +6,7 @@ Close the remaining gap so that Phases A–E are not merely validated roadmap sl
 ## Current state snapshot
 Already completed in meaningful part:
 - roadmap continuity docs restored for A–D
+- Phase C / R5 embodiment package restored
 - Phase D / R9 routing package restored
 - R9 integrated into live policy synthesis
 - R9 integrated into live runtime execution + explain surfaces
@@ -16,8 +17,8 @@ Already completed in meaningful part:
 - Step 1 upgraded to prefer live rolling telemetry windows
 
 Still open:
-- A–C remain mostly reference/docs continuity rather than live implementation packages
-- D + E are both integrated, but not yet unified into one generalized governance/runtime layer
+- A–B remain mostly reference/docs continuity rather than live implementation packages
+- C + D + E are all present, but not yet unified into one generalized governance/runtime layer
 - end-to-end A–E proof is still incomplete
 
 ## Target outcome
@@ -160,14 +161,14 @@ Carry restored Phase D routing into live policy synthesis, live runtime executio
 
 # Remaining highest-value work
 
-## Priority 1 — Restore Phase C embodiment surfaces
-This is the next biggest structural gap after D/E integration progress.
+## Priority 1 — Restore more of A/B implementation surfaces
+A–B are now the weakest part of the roadmap line.
 
-## Priority 2 — Restore more of A/B implementation surfaces
-A–C are still the weakest part of the roadmap line.
+## Priority 2 — Unify C + D + E into a more generalized governance layer
+The repo now has real C, D, and E restorations/integrations, but they still read as partially absorbed subsystems rather than one unified operating layer.
 
-## Priority 3 — Unify D + E into a more generalized governance layer
-The repo now has real D and E integrations, but they still read as two partially absorbed subsystems rather than one unified operating layer.
+## Priority 3 — Strengthen end-to-end proof across C/D/E
+The repo now has enough live surface area that stronger integrated proof should move the audit needle more than restoring more docs alone.
 
 ## Priority 4 — Strengthen end-to-end proof
 Add tests that demonstrate one task moving through:
@@ -184,6 +185,7 @@ The original “start here” ticket — wiring R7 into `reasoning_policy` and e
 - Step 11 runtime controls
 - Step 11 authorization + audit
 - Step 1 live telemetry baselines
+- Phase C / R5 embodiment restoration
 - Phase D / R9 restoration
 - R9 policy integration
 - R9 runtime execution integration
@@ -196,3 +198,4 @@ This plan is complete when a fresh audit can honestly conclude:
 - operator controls are real,
 - baseline evidence is operational rather than bootstrap-only,
 - and end-to-end tests prove the later phase work is truly part of the OS.
+e later phase work is truly part of the OS.
