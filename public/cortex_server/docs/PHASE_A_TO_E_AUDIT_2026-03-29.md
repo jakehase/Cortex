@@ -4,40 +4,37 @@
 Do the currently landed roadmap phases A–E meet the standard of the original Reasoning OS blueprint, or do they remain adjacent roadmap slices?
 
 ## Executive verdict
-**Not yet.**
-
-The repo **does meet the Reasoning OS standard at the core platform layer**:
-- canonical reasoning kernel objects,
-- planner graph,
-- scheduler/runtime,
-- belief/provenance store,
-- verification contracts,
-- routing-as-policy,
-- safety/approval surfaces,
-- orchestrator introspection and control paths.
-
-But **the later roadmap phases A–E do not currently meet that same standard as one integrated operating-system layer**.
+**Not yet — but the repo is meaningfully closer than it was when this audit was first drafted.**
 
 Current best characterization:
 - **Reasoning OS core:** real, implemented, tested, and passing.
-- **Phase E / R7:** real, implemented, tested, and passing as a standalone roadmap package.
-- **Phases A–D:** not present in the current live checkout as first-class landed packages.
-- **Phases A–E together:** do **not** yet constitute a fully integrated continuation of the Reasoning OS.
+- **Phase D / R9:** restored, live, tested, and integrated into both policy synthesis and runtime execution.
+- **Phase E / R7:** fully implemented, live, tested, and integrated into policy synthesis, runtime execution, explain surfaces, operator controls, and live-telemetry baselines.
+- **Phases A–C:** roadmap continuity is restored at the documentation layer, but these phases are still not live implementation packages in the current checkout.
+- **Phases A–E together:** still do **not** yet constitute a fully integrated continuation of the Reasoning OS, but the gap is now narrower and mostly concentrated in A–C restoration plus deeper D+E unification.
 
 ## Scope and method
-This audit used the live checkout at commit:
-- `0af3d8e` — `Complete Phase E R7 homeostasis roadmap`
+This audit was originally written against `0af3d8e` (`Complete Phase E R7 homeostasis roadmap`) and is now refreshed through:
+- `299bf43` — `Integrate R7 homeostasis into reasoning policy`
+- `11ce8ce` — `Enforce R7 homeostasis in runtime execution`
+- `f9cc121` — `Add Step 11 runtime operator controls`
+- `8a698e2` — `Upgrade Step 1 to live telemetry baselines`
+- `f58d578` — `Audit and authorize Step 11 runtime controls`
+- `f3992c8` — `Restore Phase D routing bootstrap surfaces`
+- `fe7e7e2` — `Integrate R9 routing into reasoning policy`
+- `fc29146` — `Carry R9 routing into runtime execution`
 
 Live checks performed:
-- reasoning-core test suite
-- Phase E / R7 test suite
+- reasoning / orchestrator regression suite
+- Phase D / R9 routing bootstrap suite
+- Phase E / R7 coverage
 - live filesystem inspection of docs, services, artifacts, and roadmap files
-- spot inspection of homeostasis integration points vs core reasoning runtime
+- spot inspection of R7/R9 integration points vs core reasoning runtime
 
 ## Live evidence
 
 ### 1) Reasoning OS core is present and passing
-Observed live modules in `cortex_server/modules/`:
+Observed live modules in `cortex_server/modules/` include:
 - `reasoning_kernel.py`
 - `reasoning_planner.py`
 - `reasoning_scheduler.py`
@@ -48,6 +45,7 @@ Observed live modules in `cortex_server/modules/`:
 - `reasoning_runtime_service.py`
 - `reasoning_runtime_workflows.py`
 - `reasoning_explain.py`
+- `reasoning_runtime_explain.py`
 - `reasoning_observability.py`
 - `reasoning_store.py`
 
@@ -55,69 +53,90 @@ Observed live router:
 - `cortex_server/routers/orchestrator.py`
 
 Validation:
-- reasoning-core suite result: **63 passed**
+- refreshed reasoning/orchestrator suite result: **146 passed**
 
 Interpretation:
 - The original `docs/REASONING_OS.md` blueprint is not just aspirational; the core OS substrate is alive.
 
-### 2) Phase E / R7 is present and passing
+### 2) Phase E / R7 is present, passing, and partially absorbed into the runtime
 Observed live roadmap package:
 - `docs/cortex_roadmap/R7_VALUE_HOMEOSTASIS.md`
 - `services/homeostasis/*`
 - `scripts/cortex_r7_step1_*` through `scripts/cortex_r7_step12_*`
 - `artifacts/cortex_roadmap/r7_value_homeostasis/step1..step12/*`
 
-Validation:
-- Phase E / R7 suite result: **27 passed**
-- aggregate runner result:
-  - `landed_steps = [1..12]`
-  - `remaining_steps = []`
-  - `step6_gate_pass = true`
-  - `step11_gate_pass = true`
-  - `step12_gate_pass = true`
+Observed live integration points:
+- `cortex_server/modules/reasoning_policy.py`
+- `cortex_server/modules/reasoning_runtime_execution.py`
+- `cortex_server/modules/reasoning_runtime_explain.py`
+- `cortex_server/modules/reasoning_runtime_service.py`
+- `cortex_server/routers/orchestrator.py`
+
+Operational upgrades now present:
+- R7 homeostasis influences live policy synthesis.
+- R7 homeostasis influences live runtime execution.
+- Step 1 prefers live telemetry windows when available.
+- Step 11 has real runtime routes, authorization, and audit trails.
 
 Interpretation:
-- Phase E is not vapor. It is a runnable, reproducible, test-backed package.
+- Phase E is no longer merely a validated sidecar package.
+- It is now a **real partially absorbed OS layer**.
 
-### 3) Phases A–D are not present as live landed packages in the current checkout
+### 3) Roadmap continuity is partially restored in the current checkout
 Observed live docs under `docs/cortex_roadmap/`:
-- `R7_VALUE_HOMEOSTASIS.md`
-
-Not observed in current checkout:
 - `ROADMAP_R1_TO_R7.md`
+- `R1_UNIFIED_WORLD_MODEL.md`
+- `R2_LIFELONG_PLASTICITY.md`
+- `R3_NEUROMODULATION_LAYER.md`
+- `R4_GLOBAL_WORKSPACE.md`
+- `R5_GROUNDED_EMBODIMENT.md`
+- `R6_METACOGNITIVE_TRUTH_ENGINE.md`
+- `R7_VALUE_HOMEOSTASIS.md`
 - `R9_ADAPTIVE_ROUTING_BRAIN.md`
-- `docs/cortex_roadmap/R1_*`
-- `docs/cortex_roadmap/R2_*`
-- `docs/cortex_roadmap/R3_*`
-- `docs/cortex_roadmap/R4_*`
-- `docs/cortex_roadmap/R5_*`
-- `docs/cortex_roadmap/R6_*`
-- `services/routing/*`
-- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/*`
 
 Interpretation:
-- Even if these existed in prior history, they are **not currently landed in the live checkout** as first-class implementation surfaces.
-- That means Phases A–D cannot presently be audited as live, integrated packages at the same confidence level as Phase E.
+- The repo now has restored roadmap continuity for A–D at the documentation layer.
+- This materially improves auditability, but docs continuity is not the same thing as live implementation parity.
+
+### 4) Phase D / R9 is restored, live, and partially absorbed into the runtime
+Observed live Phase D routing surfaces:
+- `services/routing/*`
+- `scripts/cortex_r9_*`
+- `config/cortex_roadmap/r9_*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/*`
+- `tests/test_phase_d_routing_bootstrap.py`
+
+Observed live integration points:
+- `cortex_server/modules/reasoning_policy.py`
+- `cortex_server/modules/reasoning_runtime_execution.py`
+- `cortex_server/modules/reasoning_runtime_explain.py`
+
+Validation:
+- Phase D routing bootstrap suite passes.
+- R9 now participates in live policy synthesis and runtime execution.
+
+Interpretation:
+- Phase D is no longer “missing from checkout.”
+- It is now a **restored, test-backed, partially absorbed routing layer**.
 
 ## Per-phase audit
 
 ## Phase A
-Historical roadmap meaning (from prior repo history):
+Historical roadmap meaning:
 - R6 Metacognitive truth engine
 - R4 Global workspace + local specialists
 - R1 Unified self-updating world model
 - R3 Neuromodulation layer
 
 ### Status
-**Fail as a live landed phase in the current checkout.**
+**Reference-only / docs-restored, but still fail as a live landed implementation phase.**
 
 ### Why
-- No current `docs/cortex_roadmap/R1_*`, `R3_*`, `R4_*`, or `R6_*` roadmap docs are present.
-- No corresponding current `scripts/cortex_r1_*`, `cortex_r3_*`, `cortex_r4_*`, or `cortex_r6_*` slices are present in the working tree.
-- The repo may still contain conceptually related modules, but the phase itself is not represented as a coherent landed roadmap package.
+- The roadmap docs for `R1`, `R3`, `R4`, and `R6` are present again.
+- The corresponding implementation packages are still not present as live runnable surfaces.
 
 ### Judgment
-Phase A may exist in spirit or history, but **it is not auditably landed in the current checkout as a first-class OS-integrated phase**.
+Phase A is visible again as roadmap continuity, but not yet restored as an OS-integrated implementation phase.
 
 ## Phase B
 Historical roadmap meaning:
@@ -128,12 +147,11 @@ Historical roadmap meaning:
 **Partial pass.**
 
 ### Why
-- **R7 is real and passing**.
-- The **R2 roadmap doc is restored**, but **R2 is still not present as a live landed implementation package** in the current checkout.
-- Therefore Phase B as a whole is incomplete.
+- **R7 is real, passing, and partially integrated.**
+- **R2 remains reference-only** in the current checkout.
 
 ### Judgment
-Phase B does **not** yet meet the OS standard as a whole, because only one of its two named tracks is auditable live.
+Phase B does not yet meet the OS standard as a whole, because only the R7 half is live and integrated.
 
 ## Phase C
 Historical roadmap meaning:
@@ -143,66 +161,41 @@ Historical roadmap meaning:
 **Reference-only / docs-restored, but still fail as a live landed implementation phase.**
 
 ### Why
-- The R5 roadmap doc is now restored in the live checkout.
-- But the corresponding embodiment implementation package is not restored as a current live, validated roadmap slice in this repo state.
+- The R5 roadmap doc is restored.
+- The embodiment implementation package is still not present as a live, validated phase surface.
 
 ### Judgment
 Phase C is still not auditably landed as a live implementation package.
 
 ## Phase D
-Operational meaning used during implementation history:
+Operational meaning used during implementation:
 - R9 Adaptive routing brain
 
 ### Status
-**Fail as a live landed phase in the current checkout.**
+**Partial pass as a restored and integrated live routing phase, but not yet a fully generalized OS layer.**
 
 ### Why
-- `services/routing/` is absent.
-- `docs/cortex_roadmap/R9_ADAPTIVE_ROUTING_BRAIN.md` is absent.
-- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/` is absent.
-
-### Important nuance
-Phase E currently **depends conceptually on R9-derived evidence**:
-- `services/homeostasis/baseline_regulation.py` reads R9 step artifacts.
-- `services/homeostasis/state_signal_model.py` reads R9 step10 output.
-
-But because those R9 artifacts are not present in the live checkout, Phase D is **not actually landed beside Phase E as a coequal live subsystem**.
+- `services/routing/`, `scripts/cortex_r9_*`, `config/cortex_roadmap/r9_*`, and R9 artifacts are present again.
+- `tests/test_phase_d_routing_bootstrap.py` passes.
+- R9 now influences live policy synthesis and live runtime execution.
 
 ### Judgment
-Phase D is not currently live enough to satisfy the original OS standard.
+Phase D is now materially present, test-backed, and integrated into live behavior, but it is not yet the final form of a generalized OS-native routing/governance layer.
 
 ## Phase E
 Operational meaning used during implementation:
 - R7 Value/homeostasis governor
 
 ### Status
-**Pass as a standalone roadmap package.**
+**Pass as a live and partially integrated implementation phase.**
 
-### Why it passes
-- 12-step slice exists.
-- Artifacts are present for steps 1–12.
-- Tests pass.
-- Aggregate runner passes.
-- Internal package structure is coherent.
-- Claim language in novelty packaging is disciplined rather than inflated.
+### Why
+- The 12-step package exists and is complete.
+- R7 now influences policy synthesis, runtime execution, explain surfaces, telemetry baselines, and operator controls.
+- Step 11 controls are real runtime controls with authorization and audit trails.
 
-### Why it still falls short of full Reasoning OS standard
-Phase E is mostly implemented as:
-- `services/homeostasis/*`
-- `scripts/cortex_r7_*`
-- generated `artifacts/...`
-
-It is **not deeply integrated into the main Reasoning OS runtime path**.
-
-Observed gap:
-- no meaningful integration found from `services.homeostasis` into:
-  - `cortex_server/modules/reasoning_policy.py`
-  - `cortex_server/modules/reasoning_scheduler.py`
-  - `cortex_server/modules/reasoning_runtime_service.py`
-  - `cortex_server/routers/orchestrator.py`
-
-Interpretation:
-- Phase E behaves more like a validated sidecar subsystem than a fully absorbed OS layer.
+### Judgment
+Phase E now clears the bar for “live and partially absorbed into the OS,” even though the broader A–E line still does not yet unify into one operating layer.
 
 ## Standard comparison: what the original Reasoning OS blueprint demanded
 The original `docs/REASONING_OS.md` standard is fundamentally about:
@@ -212,128 +205,39 @@ The original `docs/REASONING_OS.md` standard is fundamentally about:
 - operator introspection on live managed processes,
 - policy embedded into the real runtime, not just analyzed offline.
 
-Against that standard:
-
-### What matches
+### What now matches
 - The reasoning core itself.
-- The existence of reproducible, executable phase slices.
-- Safety- and operator-aware thinking in the newer roadmap work.
+- Real executable phase slices for D and E.
+- Policy embedded into live runtime behavior for both R7 and R9.
+- Real operator control paths and audit trails for Step 11.
+- Live telemetry preference for the Step 1 baseline.
 
-### What does not yet match
-- A–E are not represented as one continuous, live, integrated runtime layer.
-- Phase E is not wired into the main reasoning runtime/orchestrator path.
-- Phase D/R9 is missing from the checkout even though Phase E leans on its artifacts conceptually.
-- Phase E bootstrap inputs are artifact-derived, not live telemetry windows.
-- Step 11 controls are explicitly local stubs rather than real runtime mutation controls.
-
-## Additional audit findings
-
-### 1) Documentation drift remains
-`docs/cortex_roadmap/R7_VALUE_HOMEOSTASIS.md` still contains stale language such as:
-- “R7 is not fully implemented in this checkout yet.”
-- references that frame it as `Phase B2` instead of the operational `Phase E` framing used in recent implementation work
-
-Interpretation:
-- the docs were not fully reconciled after the implementation push.
-
-### 2) Branch tracking mismatch exists
-Live branch state:
-- local branch: `master`
-- pushed branch: `origin/master`
-- upstream tracking still points at `origin/main`
-
-Interpretation:
-- harmless for the audit itself, but confusing and worth normalizing.
-
-### 3) Pycache directories are present under `services/`
-Observed:
-- `services/__pycache__/`
-- `services/homeostasis/__pycache__/`
-
-Interpretation:
-- not a correctness issue, but repository hygiene should be improved.
+### What still does not match
+- A–E are still not represented as one continuous, fully integrated runtime layer.
+- Phases A–C remain mostly roadmap/reference surfaces rather than live implementation packages.
+- Phase D and Phase E are integrated into live behavior, but they are still not unified into one generalized governance layer.
+- The repo still lacks a full end-to-end proof that the entire restored roadmap line behaves as one coherent OS extension.
 
 ## Final judgment
-
-## If the question is:
+### If the question is:
 **“Does the repo meet the standard of the original Reasoning OS?”**
 
 Answer:
 - **Yes at the core OS layer.**
 
-## If the question is:
-**“Do Phases A–E, as just implemented, fit that standard?”**
+### If the question is:
+**“Do Phases A–E, as currently landed, fit that standard?”**
 
 Answer:
-- **No, not yet.**
+- **Closer, but still not fully.**
 
 More precise wording:
-- The project now has a **real Reasoning OS core** plus a **real, passing Phase E package**.
+- The project now has a **real Reasoning OS core** plus **real, passing, partially integrated Phase D and Phase E packages**.
 - But the full A–E roadmap does **not yet** read as a single integrated operating system extension.
-- It reads as **a strong set of validated roadmap slices, only partially absorbed into the OS proper**.
+- It reads as **a strong set of validated roadmap slices, with D and E now materially absorbed into the OS proper and A–C still lagging behind**.
 
-## Required remediation to pass the standard
-
-### Priority 1 — restore phase continuity in the live checkout
-Re-land or restore the live packages for:
-- Phase A roadmap docs/scripts/contracts/artifacts
-- Phase B non-R7 portion (R2)
-- Phase C (R5)
-- Phase D / R9 routing package
-
-### Priority 2 — integrate Phase E into the actual Reasoning OS execution path
-Required integration targets:
-- `cortex_server/modules/reasoning_policy.py`
-- `cortex_server/modules/reasoning_runtime_service.py`
-- `cortex_server/modules/reasoning_runtime_workflows.py`
-- `cortex_server/routers/orchestrator.py`
-- explain/analytics surfaces
-
-Desired outcome:
-- homeostasis should influence live task planning, routing, budget, safety, and rollback behavior in the primary runtime path.
-
-### Priority 3 — replace bootstrap artifacts with live operational grounding
-Current Phase E Step 1 explicitly says the baseline is artifact-derived rather than a real long-window live baseline.
-
-Required improvement:
-- true telemetry windows
-- live drift checks
-- historical comparison surfaces
-
-### Priority 4 — make Step 11 controls real
-Current controls are honest stubs.
-
-Required improvement:
-- actual freeze / rollback / resume hooks connected to runtime policy or governor state
-- audited operator action log
-- controlled permissions
-
-### Priority 5 — reconcile docs with reality
-At minimum:
-- update `docs/cortex_roadmap/R7_VALUE_HOMEOSTASIS.md`
-- restore or regenerate the missing roadmap docs
-- make phase labels internally consistent
-- make landed/not-landed language true
-
-### Priority 6 — add end-to-end integration tests
-Needed proof path:
-1. create reasoning task
-2. plan it
-3. execute via scheduler/runtime
-4. apply policy/homeostasis influence
-5. trigger safety/override when needed
-6. inspect explain/operator surface
-
-That is the missing proof that the later roadmap work is part of the OS rather than merely adjacent to it.
-
-## Recommended next action
-Create a follow-up implementation plan titled something like:
-- `docs/PHASE_A_TO_E_INTEGRATION_PLAN.md`
-
-That plan should focus on:
-- restoring missing A–D surfaces
-- wiring R7 into live runtime policy/orchestrator execution
-- normalizing documentation and branch hygiene
-- proving the integration with end-to-end tests
-h end-to-end tests
-roving the integration with end-to-end tests
+## Remaining remediation to pass the standard
+1. Restore **A–C implementation surfaces**, not just docs continuity.
+2. Tighten **D + E into one more generalized governance/runtime layer**.
+3. Continue normalizing roadmap docs and branch hygiene.
+4. Add stronger end-to-end tests proving the restored roadmap line behaves as one integrated OS extension.

@@ -1,7 +1,24 @@
 # Phase A–E Integration Plan
 
 ## Purpose
-Close the gap identified in `docs/PHASE_A_TO_E_AUDIT_2026-03-29.md` so that Phases A–E are not merely validated roadmap slices, but a genuinely integrated continuation of the Reasoning OS.
+Close the remaining gap so that Phases A–E are not merely validated roadmap slices, but a genuinely integrated continuation of the Reasoning OS.
+
+## Current state snapshot
+Already completed in meaningful part:
+- roadmap continuity docs restored for A–D
+- Phase D / R9 routing package restored
+- R9 integrated into live policy synthesis
+- R9 integrated into live runtime execution + explain surfaces
+- R7 integrated into live policy synthesis
+- R7 integrated into live runtime execution + explain surfaces
+- Step 11 runtime controls implemented
+- Step 11 authorization + audit trails implemented
+- Step 1 upgraded to prefer live rolling telemetry windows
+
+Still open:
+- A–C remain mostly reference/docs continuity rather than live implementation packages
+- D + E are both integrated, but not yet unified into one generalized governance/runtime layer
+- end-to-end A–E proof is still incomplete
 
 ## Target outcome
 At the end of this plan, the repo should support this stronger statement:
@@ -13,18 +30,20 @@ At the end of this plan, the repo should support this stronger statement:
 ### Functional
 - Phase A–D surfaces are restored or re-landed in the live checkout.
 - Phase E / R7 influences the main reasoning runtime rather than only sidecar scripts.
+- Phase D / R9 influences both live policy synthesis and live runtime execution.
 - Operator freeze / rollback / resume controls mutate real runtime policy/governor state.
 - Bootstrap artifact-derived baselines are replaced or augmented with live telemetry windows.
-- Explain/analytics surfaces can show when and why homeostasis changed a runtime decision.
+- Explain/analytics surfaces can show when and why homeostasis or routing changed a runtime decision.
 
 ### Verification
 - Existing reasoning-core tests continue to pass.
+- Existing Phase D / R9 tests continue to pass.
 - Existing Phase E / R7 tests continue to pass.
 - New end-to-end integration tests pass, covering:
   1. task creation
   2. planning
   3. scheduling/runtime execution
-  4. homeostasis/policy influence
+  4. routing + homeostasis influence
   5. safety override / rollback
   6. explain/operator inspection
 
@@ -42,25 +61,12 @@ At the end of this plan, the repo should support this stronger statement:
 ### Goal
 Reconstruct the missing phase surfaces so the live repo contains the actual roadmap lineage instead of only Phase E.
 
-### Deliverables
-- `docs/cortex_roadmap/ROADMAP_R1_TO_R7.md`
-- `docs/cortex_roadmap/R1_*.md`
-- `docs/cortex_roadmap/R2_*.md`
-- `docs/cortex_roadmap/R3_*.md`
-- `docs/cortex_roadmap/R4_*.md`
-- `docs/cortex_roadmap/R5_*.md`
-- `docs/cortex_roadmap/R6_*.md`
-- `docs/cortex_roadmap/R9_ADAPTIVE_ROUTING_BRAIN.md`
-- corresponding `config/`, `scripts/`, `artifacts/`, and `services/routing/` or equivalent implementation surfaces where they are intended to be live
+### Status
+- **Done in part:** roadmap continuity docs restored for A–D; live Phase D / R9 routing package restored with scripts, services, artifacts, contracts, and tests.
+- **Still open:** A–C remain mostly reference/docs continuity, not runnable implementation packages.
 
-### Tasks
-1. Recover historical roadmap docs from git history.
-2. Identify which historical files are still valid versus stale.
-3. Re-land only the pieces that are actually part of the intended current architecture.
-4. Mark historical-but-not-live content honestly if some tracks are archival.
-
-### Exit criteria
-- A–D are visible in the live tree as auditable phase packages.
+### Remaining exit criteria
+- A–C become visible in the live tree as auditable implementation packages, not just docs.
 
 ---
 
@@ -69,45 +75,12 @@ Reconstruct the missing phase surfaces so the live repo contains the actual road
 ### Goal
 Make homeostasis part of the actual runtime decision loop.
 
-### Primary integration targets
-- `cortex_server/modules/reasoning_policy.py`
-- `cortex_server/modules/reasoning_runtime_service.py`
-- `cortex_server/modules/reasoning_runtime_workflows.py`
-- `cortex_server/modules/reasoning_scheduler.py`
-- `cortex_server/routers/orchestrator.py`
+### Status
+- **Largely done.**
+- R7 now participates in live policy synthesis, runtime execution, explain surfaces, operator controls, and telemetry baselines.
 
-### Proposed integration shape
-
-#### 2.1 Policy synthesis hook
-Extend policy synthesis so a runtime decision may include a homeostasis envelope such as:
-- regulation mode (`normal`, `conserve`, `protective`)
-- effort depth target
-- budget class / token-depth-latency caps
-- risk-derived route guardrails
-- operator freeze or rollback state
-
-#### 2.2 Runtime application hook
-At workflow/runtime execution time:
-- derive or load current state signal snapshot
-- compute homeostasis profile
-- attach profile to runtime metadata
-- constrain route choice, budget, and execution options from that profile
-
-#### 2.3 Safety override hook
-If homeostasis or safety envelope indicates a hard override:
-- trigger freeze / fallback / rollback through the real runtime path
-- record this as an operator-visible event
-- expose it in explain/analytics surfaces
-
-### Deliverables
-- runtime-integrated homeostasis decision object
-- reasoning policy integration code
-- explain surface output showing homeostasis influences
-- tests proving the behavior
-
-### Exit criteria
-- a real orchestrator/runtime path changes behavior when homeostasis state changes
-- the change is visible in runtime metadata and explain output
+### Remaining exit criteria
+- R7 behavior continues to compose cleanly with later D/E unification work.
 
 ---
 
@@ -116,32 +89,12 @@ If homeostasis or safety envelope indicates a hard override:
 ### Goal
 Upgrade R7 Step 1 from artifact-derived scaffolding to live operational evidence.
 
-### Tasks
-1. Define telemetry schema for:
-   - latency
-   - cost
-   - rollback/failure events
-   - quality proxies
-   - operator interventions
-   - alert-noise metrics
-2. Add telemetry collection window support (e.g. rolling 7-day / 14-day snapshots).
-3. Persist baseline snapshots in a stable location.
-4. Add drift comparisons against previous windows.
-5. Differentiate clearly between:
-   - fixture-derived bootstrap
-   - replay-derived evidence
-   - shadow evidence
-   - canary evidence
-   - live telemetry evidence
+### Status
+- **Initial live rolling-window support done.**
+- Step 1 now prefers live runtime telemetry and falls back to artifact bootstrap only when needed.
 
-### Deliverables
-- live baseline collector
-- drift validator
-- updated Step 1 artifacts and contract
-- revised docs removing the bootstrap-only caveat where no longer true
-
-### Exit criteria
-- Step 1 can be defended as a real operational baseline rather than a bootstrap stand-in
+### Remaining exit criteria
+- richer live-window evidence and drift comparisons as the runtime history deepens.
 
 ---
 
@@ -150,30 +103,13 @@ Upgrade R7 Step 1 from artifact-derived scaffolding to live operational evidence
 ### Goal
 Replace local-stub operator controls with actual controlled runtime actions.
 
-### Required controls
-- freeze policy
-- rollback to baseline
-- resume governor
+### Status
+- **Done for current Step 11 scope.**
+- Freeze / rollback / resume are live runtime routes.
+- Authorization and audit trails are present.
 
-### Requirements
-- authenticated / explicitly gated control path
-- runtime state mutation with audit trail
-- operator event log entries
-- dry-run support where appropriate
-- clear no-op behavior when a control is unavailable
-
-### Integration targets
-- orchestrator runtime control endpoints
-- policy history / rollback surfaces
-- explain/operator dashboards
-
-### Deliverables
-- real control implementation
-- audit log / event stream entries
-- test coverage for freeze/rollback/resume
-
-### Exit criteria
-- Step 11 is no longer a UI/demo surface only
+### Remaining exit criteria
+- eventually fold these into a more generalized OS governance/operator layer.
 
 ---
 
@@ -182,20 +118,12 @@ Replace local-stub operator controls with actual controlled runtime actions.
 ### Goal
 Remove drift between implementation and narrative.
 
-### Immediate fixes
-- update `docs/cortex_roadmap/R7_VALUE_HOMEOSTASIS.md`
-- remove stale “not fully implemented” language
-- normalize whether R7 is described as Phase B2, Phase E, or both with explanation
-- restore or regenerate missing roadmap docs for earlier phases
-- ensure artifact paths and script names actually match the repo
+### Status
+- **In progress.**
+- Roadmap continuity is restored, but the audit/plan/docs need periodic refresh as the repo advances quickly.
 
-### Deliverables
-- internally consistent roadmap docs
-- implementation notes that match the current live tree
-- audit references from roadmap docs where useful
-
-### Exit criteria
-- a reader can trust the roadmap docs without separately reverse-engineering git history
+### Remaining exit criteria
+- roadmap docs and audits stay in sync with the live tree after each major integration slice.
 
 ---
 
@@ -204,128 +132,67 @@ Remove drift between implementation and narrative.
 ### Goal
 Prove the later phase work is part of the OS rather than adjacent to it.
 
-### Required tests
+### Status
+- **In progress.**
+- Routing/runtime/homeostasis integration tests now exist.
+- Full A–E proof is still incomplete.
 
-#### 6.1 Runtime homeostasis influence
-A test where:
-- a reasoning task is created
-- a plan is compiled
-- runtime policy is synthesized
-- homeostasis state influences effort/routing/budget
-- execution metadata shows the decision
-
-#### 6.2 Safety override / rollback
-A test where:
-- runtime enters a degraded or unsafe state
-- homeostasis requests protective/fallback behavior
-- rollback/freeze path is triggered
-- explain surface records why
-
-#### 6.3 Operator control loop
-A test where:
-- operator freeze is invoked
-- runtime policy changes
-- later resume restores normal behavior
-- audit log captures both actions
-
-#### 6.4 Explain surface proof
-A test where explain output includes:
-- state vector summary
-- chosen regulation mode
-- budget/effort implications
-- safety overrides if any
-- affected route/policy decisions
-
-### Exit criteria
-- the integration can be demonstrated without relying on roadmap prose alone
+### Remaining exit criteria
+- the integrated system can be demonstrated end to end without relying on roadmap prose alone.
 
 ---
 
-# Sequencing
+## Workstream 7 — R9 runtime absorption
 
-## Phase 1 — Documentation + continuity recovery
-- restore A–D roadmap files
-- normalize roadmap language
-- document archival vs live state honestly
+### Goal
+Carry restored Phase D routing into live policy synthesis, live runtime execution, and explain surfaces.
 
-## Phase 2 — R7 runtime integration
-- add policy/runtime hooks
-- expose explain metadata
-- preserve current R7 tests
+### Status
+- **Done for first integrated slice.**
+- R9 now participates in policy synthesis and runtime execution.
+- Runtime/explain surfaces expose selected chain and routing influence.
+- Runtime semantics were deliberately narrowed so only `research_grounded` forces sequential execution; `deliberate_council` affects runtime more lightly without breaking existing batching semantics.
 
-## Phase 3 — Real operator controls
-- convert Step 11 stubs into runtime control paths
-- add audit logging
-
-## Phase 4 — Telemetry grounding
-- implement live baseline windows and drift checks
-- upgrade Step 1 evidence quality
-
-## Phase 5 — End-to-end proof
-- add integration tests
-- publish a completion audit showing the OS standard is met end to end
+### Remaining exit criteria
+- continue harmonizing R9 with broader governance/runtime semantics rather than leaving it as an adjacent routing layer.
 
 ---
 
-# Risks
+# Remaining highest-value work
 
-## Risk 1 — Over-restoring historical roadmap files
-Historical files may not all reflect the current intended architecture.
+## Priority 1 — Restore Phase C embodiment surfaces
+This is the next biggest structural gap after D/E integration progress.
 
-**Mitigation:**
-- treat git history as source material, not truth
-- re-land only what still fits the architecture
+## Priority 2 — Restore more of A/B implementation surfaces
+A–C are still the weakest part of the roadmap line.
 
-## Risk 2 — Policy coupling becomes too invasive
-Integrating R7 into runtime policy could destabilize the existing reasoning runtime.
+## Priority 3 — Unify D + E into a more generalized governance layer
+The repo now has real D and E integrations, but they still read as two partially absorbed subsystems rather than one unified operating layer.
 
-**Mitigation:**
-- add the integration behind explicit policy metadata first
-- preserve dry-run / explain-only mode initially
-- expand to enforcement only after test coverage exists
+## Priority 4 — Strengthen end-to-end proof
+Add tests that demonstrate one task moving through:
+- planning
+- routing
+- homeostasis
+- runtime execution
+- operator intervention
+- explain/audit surfaces
 
-## Risk 3 — Operator controls become unsafe
-Real rollback/freeze paths could be dangerous if they mutate live state without auditability.
+## Ticket history note
+The original “start here” ticket — wiring R7 into `reasoning_policy` and explain surfaces — is done, and several follow-on slices are also done:
+- R7 runtime enforcement
+- Step 11 runtime controls
+- Step 11 authorization + audit
+- Step 1 live telemetry baselines
+- Phase D / R9 restoration
+- R9 policy integration
+- R9 runtime execution integration
 
-**Mitigation:**
-- explicit gates
-- structured audit logs
-- dry-run support
-- permission boundaries
-
-## Risk 4 — “Passing tests” still fail to prove OS integration
-If tests only validate sidecar scripts, the same audit failure will recur.
-
-**Mitigation:**
-- prioritize end-to-end runtime tests, not only per-step package tests
-
----
-
-# Recommended immediate next implementation ticket
-
-## Ticket 1 — Wire R7 into `reasoning_policy` and explain surfaces
-
-### Objective
-Create the first real bridge between the roadmap package and the core OS.
-
-### Scope
-- add a homeostasis decision payload into policy synthesis
-- propagate that payload through runtime/workflow metadata
-- expose it in explain output
-- add tests covering normal / conserve / protective policy outcomes
-
-### Why start here
-This is the smallest change that materially improves the audit verdict.
-It converts R7 from a sidecar package into a visible part of the Reasoning OS execution model.
-
----
-
-# Completion definition
+## Completion definition
 This plan is complete when a fresh audit can honestly conclude:
-
 - the Reasoning OS core still passes,
 - phases A–E are present and auditable in the live checkout,
-- R7 influences real runtime behavior,
+- R7 and R9 both influence real runtime behavior,
 - operator controls are real,
 - baseline evidence is operational rather than bootstrap-only,
 - and end-to-end tests prove the later phase work is truly part of the OS.
