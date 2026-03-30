@@ -2833,7 +2833,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T14:26:39.001Z",
+      "updatedAt": "2026-03-30T14:32:06.071Z",
       "history": [
         {
           "from": null,
@@ -2851,9 +2851,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 73,
+        "runs": 74,
         "failures": [],
-        "lastRunAt": "2026-03-30T14:26:39.008Z",
+        "lastRunAt": "2026-03-30T14:32:06.084Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6395,6 +6395,56 @@
       "failedAt": "2026-03-30T05:17:42.713Z",
       "failureReason": "agent_end reported failure",
       "failureSource": "runtime"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774881095656:61018e81dd368a3e",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-30T14:31:35.656Z",
+      "updatedAt": "2026-03-30T14:33:52.412Z",
+      "prompt": "System: [2026-03-30 09:28:59 CDT] Exec completed (cool-cla, code 0) :: ........................................................................ [ 40%] ........................................................................ [ 81%] .........",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’m taking that as *restore Phase A/B implementation surfaces*. I’m mapping the historical packages first so I can tell which of R1/R2/R3/R4/R6 were real recoverable code packages versus ju",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-30T14:31:35.656Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-30T14:31:35.671Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-30T14:31:37.009Z",
+          "completedAt": "2026-03-30T14:31:37.009Z",
+          "completionSummary": "System: 2026-03-30 09:28:59 CDT Exec completed (cool-cla, code 0) :: ........................................................................ 40% ........................................................................ 81% ...................… Sender (",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-03-30T14:33:52.420Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-30T14:31:37.009Z",
+      "completionSource": "agent_end"
     }
   ]
 }
