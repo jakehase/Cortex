@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T00:46:13.445Z",
+      "updatedAt": "2026-03-30T00:51:30.410Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 210,
+        "runs": 211,
         "failures": [],
-        "lastRunAt": "2026-03-30T00:46:13.453Z",
+        "lastRunAt": "2026-03-30T00:51:30.419Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6011,6 +6011,41 @@
       "failedAt": "2026-03-30T00:42:58.773Z",
       "failureReason": "on( domain=domain, chosen=chosen, rationale=rationale, confidence=float(confidence or 0.0), task_id=task_id, alternatives=list(alternatives or []), inputs=dict(inputs or {}), metrics=dict(metrics or {}), ) E pydantic_core._pydantic_core.ValidationError: 1 validation error for PolicyDecision E domain E Input should be 'routing', 'memory', 'backend', 'verification', 'safety', 'planner' or 'scheduler",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774832136582:c8293778a8a6b82f",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-30T00:55:36.582Z",
+      "updatedAt": "2026-03-30T00:55:36.591Z",
+      "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-03-29.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this flush; never",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-30T00:55:36.582Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-30T00:55:36.591Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }
