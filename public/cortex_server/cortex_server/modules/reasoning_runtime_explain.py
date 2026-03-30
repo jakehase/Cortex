@@ -266,43 +266,25 @@ def assemble_runtime_process_view(
 
 
 def default_policy_patch_preview() -> Dict[str, Any]:
-    return observability.policy_patch_preview(policy={}, hooks=[])
+    return explain_compiler.default_policy_patch_preview()
 
 
 
 def default_policy_patch_history() -> Dict[str, Any]:
-    return {"count": 0, "entries": []}
+    return explain_compiler.default_policy_patch_history()
 
 
 
 def default_self_review(*, fallback: bool = False) -> Dict[str, Any]:
-    return {
-        "score": 0.0,
-        "strengths": [],
-        "weaknesses": ["Fallback self-review"] if fallback else [],
-        "root_cause": None,
-        "summary": None,
-        "next_actions": [],
-    }
+    return explain_compiler.default_self_review(fallback=fallback)
 
 
 def default_postmortem(process_id: str, *, fallback: bool = False) -> Dict[str, Any]:
-    return {
-        "title": f"Process {process_id} postmortem",
-        "summary": "Fallback postmortem" if fallback else None,
-        "root_cause": None,
-        "recommendations": [],
-    }
+    return explain_compiler.default_postmortem(process_id, fallback=fallback)
 
 
 def default_incident_report() -> Dict[str, Any]:
-    return {
-        "incidents": [],
-        "incident_count": 0,
-        "high_severity_count": 0,
-        "root_cause": None,
-        "policy_mismatches": [],
-    }
+    return explain_compiler.default_incident_report()
 
 
 def assemble_runtime_policy_response(
@@ -328,13 +310,13 @@ def assemble_runtime_policy_response(
         "belief_influences": explained.get("belief_influences") or policy_surface_sections.get("belief_influences") or [],
         "decision_explanations": explained.get("policy_decision_explanations") or explain.policy_decision_explanations(policy, explain_belief_fn=explain_belief_fn, get_belief_fn=get_belief_fn),
         "policy_outcome_evaluation": explained.get("policy_outcome_evaluation"),
-        "policy_outcome_summary": explained.get("policy_outcome_summary") or {"overall": "observed_only", "counts": {}, "domains_by_outcome": {}, "mismatch_domains": [], "unclear_domains": [], "operator_summary": "policy outcomes unavailable"},
+        "policy_outcome_summary": explained.get("policy_outcome_summary") or explain_compiler.default_policy_outcome_summary(),
         "control_plane_summary": explained.get("control_plane_summary") or policy_surface_sections.get("control_plane_summary"),
-        "belief_evidence_summary": explained.get("belief_evidence_summary") or {"belief_count": 0, "evidence_count": 0, "source_types": {}, "avg_weighted_confidence": 0.0, "avg_weighted_freshness": 0.0, "top_belief_ids": [], "operator_summary": "no belief evidence"},
-        "contradiction_graph_summary": explained.get("contradiction_graph_summary") or {"node_count": 0, "edge_count": 0, "cluster_count": 0, "contradiction_edge_count": 0, "supersession_edge_count": 0, "conflict_count": 0, "avg_ambiguity_score": 0.0, "operator_summary": "no contradiction graph"},
-        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or {"belief_count": 0, "avg_risk_score": 0.0, "levels": {}, "top_risky_belief_ids": [], "top_risky_links": [], "operator_summary": "no epistemic risk"},
-        "decision_causality_summary": explained.get("decision_causality_summary") or {"decision_count": 0, "domains": {}, "top_belief_ids": [], "top_links": [], "avg_causal_score": 0.0, "operator_summary": "no decision causality"},
-        "epistemic_core_summary": explained.get("epistemic_core_summary") or {"evidence": {}, "contradiction_graph": {}, "epistemic_risk": {}, "decision_causality": {}, "operator_summary": "epistemic core unavailable"},
+        "belief_evidence_summary": explained.get("belief_evidence_summary") or explain_compiler.default_belief_evidence_summary(),
+        "contradiction_graph_summary": explained.get("contradiction_graph_summary") or explain_compiler.default_contradiction_graph_summary(),
+        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or explain_compiler.default_epistemic_risk_summary(),
+        "decision_causality_summary": explained.get("decision_causality_summary") or explain_compiler.default_decision_causality_summary(),
+        "epistemic_core_summary": explained.get("epistemic_core_summary") or explain_compiler.default_epistemic_core_summary(),
         "epistemic_timeline": explained.get("epistemic_timeline"),
         "incident_report": explained.get("incident_report") or default_incident_report(),
         "postmortem": explained.get("postmortem") or default_postmortem(process_id),
@@ -353,9 +335,9 @@ def assemble_runtime_self_review_response(*, process_id: str, explained: Optiona
         "process_id": process_id,
         "self_review": explained.get("self_review") or default_self_review(fallback=fallback),
         "postmortem": explained.get("postmortem") or default_postmortem(process_id, fallback=fallback),
-        "policy_outcome_summary": explained.get("policy_outcome_summary") or {"overall": "observed_only", "counts": {}, "domains_by_outcome": {}, "mismatch_domains": [], "unclear_domains": [], "operator_summary": "policy outcomes unavailable"},
-        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or {"belief_count": 0, "avg_risk_score": 0.0, "levels": {}, "top_risky_belief_ids": [], "top_risky_links": [], "operator_summary": "no epistemic risk"},
-        "epistemic_core_summary": explained.get("epistemic_core_summary") or {"evidence": {}, "contradiction_graph": {}, "epistemic_risk": {}, "decision_causality": {}, "operator_summary": "epistemic core unavailable"},
+        "policy_outcome_summary": explained.get("policy_outcome_summary") or explain_compiler.default_policy_outcome_summary(),
+        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or explain_compiler.default_epistemic_risk_summary(),
+        "epistemic_core_summary": explained.get("epistemic_core_summary") or explain_compiler.default_epistemic_core_summary(),
         "policy_patch_preview": explained.get("policy_patch_preview") or default_policy_patch_preview(),
         "policy_patch_history": explained.get("policy_patch_history") or default_policy_patch_history(),
     }
@@ -370,8 +352,8 @@ def assemble_runtime_postmortem_response(*, process_id: str, explained: Optional
         "postmortem": explained.get("postmortem") or default_postmortem(process_id, fallback=fallback),
         "execution_trace": explained.get("execution_trace") or [],
         "epistemic_timeline": explained.get("epistemic_timeline") or [],
-        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or {"belief_count": 0, "avg_risk_score": 0.0, "levels": {}, "top_risky_belief_ids": [], "top_risky_links": [], "operator_summary": "no epistemic risk"},
-        "epistemic_core_summary": explained.get("epistemic_core_summary") or {"evidence": {}, "contradiction_graph": {}, "epistemic_risk": {}, "decision_causality": {}, "operator_summary": "epistemic core unavailable"},
+        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or explain_compiler.default_epistemic_risk_summary(),
+        "epistemic_core_summary": explained.get("epistemic_core_summary") or explain_compiler.default_epistemic_core_summary(),
         "rerun_recommendations": explained.get("rerun_recommendations") or [],
         "policy_adaptation_hooks": explained.get("policy_adaptation_hooks") or [],
         "policy_patch_preview": explained.get("policy_patch_preview") or default_policy_patch_preview(),

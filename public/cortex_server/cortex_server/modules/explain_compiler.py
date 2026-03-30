@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from cortex_server.modules import reasoning_observability as observability
 from cortex_server.modules.governance_arbitration import RUNTIME_CONSTRAINT_PRECEDENCE
 from cortex_server.modules.runtime_constraint_compiler import compile_runtime_constraint_settings
 
@@ -296,10 +297,138 @@ def compile_control_plane_summary(policy: JsonDict, *, policy_outcome_evaluation
     }
 
 
+
+def default_policy_outcome_summary() -> JsonDict:
+    return {
+        "overall": "observed_only",
+        "counts": {},
+        "domains_by_outcome": {},
+        "mismatch_domains": [],
+        "unclear_domains": [],
+        "operator_summary": "policy outcomes unavailable",
+    }
+
+
+
+def default_belief_evidence_summary() -> JsonDict:
+    return {
+        "belief_count": 0,
+        "evidence_count": 0,
+        "source_types": {},
+        "avg_weighted_confidence": 0.0,
+        "avg_weighted_freshness": 0.0,
+        "top_belief_ids": [],
+        "operator_summary": "no belief evidence",
+    }
+
+
+
+def default_contradiction_graph_summary() -> JsonDict:
+    return {
+        "node_count": 0,
+        "edge_count": 0,
+        "cluster_count": 0,
+        "contradiction_edge_count": 0,
+        "supersession_edge_count": 0,
+        "conflict_count": 0,
+        "avg_ambiguity_score": 0.0,
+        "operator_summary": "no contradiction graph",
+    }
+
+
+
+def default_epistemic_risk_summary() -> JsonDict:
+    return {
+        "belief_count": 0,
+        "avg_risk_score": 0.0,
+        "levels": {},
+        "top_risky_belief_ids": [],
+        "top_risky_links": [],
+        "operator_summary": "no epistemic risk",
+    }
+
+
+
+def default_decision_causality_summary() -> JsonDict:
+    return {
+        "decision_count": 0,
+        "domains": {},
+        "top_belief_ids": [],
+        "top_links": [],
+        "avg_causal_score": 0.0,
+        "operator_summary": "no decision causality",
+    }
+
+
+
+def default_epistemic_core_summary() -> JsonDict:
+    return {
+        "evidence": {},
+        "contradiction_graph": {},
+        "epistemic_risk": {},
+        "decision_causality": {},
+        "operator_summary": "epistemic core unavailable",
+    }
+
+
+
+def default_policy_patch_preview() -> JsonDict:
+    return observability.policy_patch_preview(policy={}, hooks=[])
+
+
+
+def default_policy_patch_history() -> JsonDict:
+    return {"count": 0, "entries": []}
+
+
+
+def default_self_review(*, fallback: bool = False) -> JsonDict:
+    return {
+        "score": 0.0,
+        "strengths": [],
+        "weaknesses": ["Fallback self-review"] if fallback else [],
+        "root_cause": None,
+        "summary": None,
+        "next_actions": [],
+    }
+
+
+
+def default_postmortem(process_id: str, *, fallback: bool = False) -> JsonDict:
+    return {
+        "title": f"Process {process_id} postmortem",
+        "summary": "Fallback postmortem" if fallback else None,
+        "root_cause": None,
+        "recommendations": [],
+    }
+
+
+
+def default_incident_report() -> JsonDict:
+    return {
+        "incidents": [],
+        "incident_count": 0,
+        "high_severity_count": 0,
+        "root_cause": None,
+        "policy_mismatches": [],
+    }
+
+
 __all__ = [
     "compile_control_plane_summary",
     "compile_policy_surface_sections",
     "compile_policy_surface_summaries",
+    "default_belief_evidence_summary",
+    "default_contradiction_graph_summary",
+    "default_decision_causality_summary",
+    "default_epistemic_core_summary",
+    "default_epistemic_risk_summary",
+    "default_incident_report",
+    "default_policy_outcome_summary",
+    "default_policy_patch_history",
+    "default_policy_patch_preview",
+    "default_postmortem",
+    "default_self_review",
     "embodiment_summary",
     "homeostasis_summary",
     "modulation_summary",
