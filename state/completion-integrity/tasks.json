@@ -2833,7 +2833,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T21:06:36.758Z",
+      "updatedAt": "2026-03-30T21:11:37.798Z",
       "history": [
         {
           "from": null,
@@ -2851,9 +2851,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 152,
+        "runs": 153,
         "failures": [],
-        "lastRunAt": "2026-03-30T21:06:36.762Z",
+        "lastRunAt": "2026-03-30T21:11:37.806Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6461,11 +6461,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774884944166:00c32ff3fdac29ba",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-30T15:35:44.166Z",
-      "updatedAt": "2026-03-30T21:10:30.118Z",
+      "updatedAt": "2026-03-30T21:11:20.961Z",
       "prompt": "System: [2026-03-30 10:34:07 CDT] Exec completed (plaid-bl, code 0) :: ........................................................................ [ 40%] ........................................................................ [ 80%] .........",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "...................................................................... 100% 70 passed in 16.58s Process exited with code 0.",
       "history": [
         {
@@ -6485,6 +6485,14 @@
           "completedAt": "2026-03-30T15:35:46.227Z",
           "completionSummary": "System: 2026-03-30 10:34:07 CDT Exec completed (plaid-bl, code 0) :: ........................................................................ 40% ........................................................................ 80% ...................… Sender (",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-30T21:11:20.961Z",
+          "failedAt": "2026-03-30T21:11:20.961Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -6505,7 +6513,10 @@
         }
       },
       "completedAt": "2026-03-30T15:35:46.227Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-30T21:11:20.961Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     }
   ]
 }
