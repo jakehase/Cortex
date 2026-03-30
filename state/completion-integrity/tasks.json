@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T00:06:22.915Z",
+      "updatedAt": "2026-03-30T00:11:16.862Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 202,
+        "runs": 203,
         "failures": [],
-        "lastRunAt": "2026-03-30T00:06:22.922Z",
+        "lastRunAt": "2026-03-30T00:11:16.867Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -5955,12 +5955,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774829092721:4b62aed440df7373",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-30T00:04:52.721Z",
-      "updatedAt": "2026-03-30T00:04:52.731Z",
+      "updatedAt": "2026-03-30T00:14:50.723Z",
       "prompt": "Implement the rest of phase E",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your ",
       "history": [
         {
           "from": null,
@@ -5971,6 +5971,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-30T00:04:52.731Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-30T00:14:50.723Z",
+          "completedAt": "2026-03-30T00:14:50.723Z",
+          "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your ",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -5981,10 +5989,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-30T00:14:50.728Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-30T00:14:50.723Z",
+      "completionSource": "agent_end"
     }
   ]
 }
