@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T03:41:22.304Z",
+      "updatedAt": "2026-03-30T03:46:32.471Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 245,
+        "runs": 246,
         "failures": [],
-        "lastRunAt": "2026-03-30T03:41:22.311Z",
+        "lastRunAt": "2026-03-30T03:46:32.478Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6224,6 +6224,52 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-30T02:35:51.989Z",
       "failureReason": "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E TypeError: resume_runtime_homeostasis() takes 1 positional argument but 2 were given tests/test_reasoning_runtime_operator_controls.py:127: TypeError __ test_runtime_homeostasis_controls_deny_unauthorized_actor_and_audit_denial __ tmp_path = PosixPat",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774842636293:cc0767dde27e8b6e",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-30T03:50:36.293Z",
+      "updatedAt": "2026-03-30T03:50:42.538Z",
+      "prompt": "System: [2026-03-29 22:42:03 CDT] Exec completed (fast-kel, code 1) :: .<genexpr> at 0x7aa08a9c3a00>) tests/test_orchestrator_runtime.py:1083: AssertionError =========================== short test summary info ============================ F",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-30T03:50:36.293Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-30T03:50:36.298Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-03-30T03:50:42.538Z",
+          "failedAt": "2026-03-30T03:50:42.538Z",
+          "failureReason": "System: [2026-03-29 22:42:03 CDT] Exec completed (fast-kel, code 1) :: .<genexpr> at 0x7aa08a9c3a00>) tests/test_orchestrator_runtime.py:1083: AssertionError =========================== short test summary info ============================ FAILED test… System: [2026-03-29 22:42:25 CDT] Exec completed (plaid-or, code 0) :: ....... [100%] 7 passed in 0.74s System: [2026-03-29 22:43:23 CDT] Exec compl",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "failedAt": "2026-03-30T03:50:42.538Z",
+      "failureReason": "System: [2026-03-29 22:42:03 CDT] Exec completed (fast-kel, code 1) :: .<genexpr> at 0x7aa08a9c3a00>) tests/test_orchestrator_runtime.py:1083: AssertionError =========================== short test summary info ============================ FAILED test… System: [2026-03-29 22:42:25 CDT] Exec completed (plaid-or, code 0) :: ....... [100%] 7 passed in 0.74s System: [2026-03-29 22:43:23 CDT] Exec compl",
       "failureSource": "runtime_message"
     }
   ]
