@@ -1,17 +1,17 @@
-# Phase A–E Audit — 2026-03-29
+# Phase A–E Audit — refreshed 2026-03-30
 
 ## Audit question
 Do the currently landed roadmap phases A–E meet the standard of the original Reasoning OS blueprint, or do they remain adjacent roadmap slices?
 
 ## Executive verdict
-**Not yet — but the repo is meaningfully closer than it was when this audit was first drafted.**
+**Closer again, but still not fully unified.**
 
 Current best characterization:
 - **Reasoning OS core:** real, implemented, tested, and passing.
+- **Phases A–C:** now restored as live implementation packages with dedicated tests, not merely roadmap docs.
 - **Phase D / R9:** restored, live, tested, and integrated into both policy synthesis and runtime execution.
 - **Phase E / R7:** fully implemented, live, tested, and integrated into policy synthesis, runtime execution, explain surfaces, operator controls, and live-telemetry baselines.
-- **Phases A–C:** roadmap continuity is restored at the documentation layer, but these phases are still not live implementation packages in the current checkout.
-- **Phases A–E together:** still do **not** yet constitute a fully integrated continuation of the Reasoning OS, but the gap is now narrower and mostly concentrated in A–C restoration plus deeper D+E unification.
+- **Phases A–E together:** now read as a real family of restored subsystems around the Reasoning OS core, but still do **not yet** operate as one fully unified runtime layer because A–C are not yet absorbed into the live runtime path the way D/E are.
 
 ## Scope and method
 This audit was originally written against `0af3d8e` (`Complete Phase E R7 homeostasis roadmap`) and is now refreshed through:
@@ -23,17 +23,23 @@ This audit was originally written against `0af3d8e` (`Complete Phase E R7 homeos
 - `f3992c8` — `Restore Phase D routing bootstrap surfaces`
 - `fe7e7e2` — `Integrate R9 routing into reasoning policy`
 - `fc29146` — `Carry R9 routing into runtime execution`
+- `8323640` — `Restore Phase C embodiment surfaces`
+- `e9b08c4` — `Restore Phase A/B bootstrap surfaces`
 
-Live checks performed:
-- reasoning / orchestrator regression suite
-- Phase D / R9 routing bootstrap suite
-- Phase E / R7 coverage
-- live filesystem inspection of docs, services, artifacts, and roadmap files
-- spot inspection of R7/R9 integration points vs core reasoning runtime
+Live checks performed for this refresh:
+- broad reasoning/orchestrator/phase regression sweep
+- filesystem inspection of restored services, scripts, and tests
+- spot inspection of runtime-policy/runtime-execution wiring
+- compile sweep over newly restored A/B service packages
+
+Validation observed during this refresh:
+- representative broad suite result: **176 passed in 48.28s**
+- Phase A/B bootstrap suite result: **6 passed**
+- compile sweep for restored A/B service modules: **clean**
 
 ## Live evidence
 
-### 1) Reasoning OS core is present and passing
+### 1) Reasoning OS core is present and healthy
 Observed live modules in `cortex_server/modules/` include:
 - `reasoning_kernel.py`
 - `reasoning_planner.py`
@@ -52,13 +58,53 @@ Observed live modules in `cortex_server/modules/` include:
 Observed live router:
 - `cortex_server/routers/orchestrator.py`
 
-Validation:
-- refreshed reasoning/orchestrator suite result: **146 passed**
+Interpretation:
+- The original `docs/REASONING_OS.md` blueprint is not merely aspirational; the core OS substrate remains real and test-backed.
+
+### 2) Phases A–C are now live implementation surfaces, not just docs continuity
+Observed restored live surfaces:
+- **Phase A**
+  - `services/world_state/*`
+  - `services/modulation/*`
+  - `services/workspace/*`
+  - `services/truth_engine/*`
+  - `scripts/cortex_r1_*`
+  - `scripts/cortex_r3_*`
+  - `scripts/cortex_r4_*`
+  - `scripts/cortex_r6_*`
+- **Phase B**
+  - `services/plasticity/*`
+  - `scripts/cortex_r2_*`
+- **Phase C**
+  - `services/embodiment/*`
+  - dedicated embodiment tests
+
+Observed dedicated tests:
+- `tests/test_phase_a_bootstrap.py`
+- `tests/test_phase_b_bootstrap.py`
+- `tests/test_phase_d_embodiment.py`
 
 Interpretation:
-- The original `docs/REASONING_OS.md` blueprint is not just aspirational; the core OS substrate is alive.
+- The earlier claim that A–C were only docs-restored is no longer accurate.
+- These phases now exist as runnable, auditable, test-backed packages in the live checkout.
 
-### 2) Phase E / R7 is present, passing, and partially absorbed into the runtime
+### 3) Phase D / R9 is restored and absorbed into live runtime behavior
+Observed live Phase D routing surfaces:
+- `services/routing/*`
+- `scripts/cortex_r9_*`
+- `config/cortex_roadmap/r9_*`
+- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/*`
+- `tests/test_phase_d_routing_bootstrap.py`
+
+Observed live integration points:
+- `cortex_server/modules/reasoning_policy.py`
+- `cortex_server/modules/reasoning_runtime_execution.py`
+- `cortex_server/modules/reasoning_runtime_explain.py`
+
+Interpretation:
+- Phase D is restored, test-backed, and materially part of live routing/runtime behavior.
+
+### 4) Phase E / R7 is restored and absorbed into live runtime behavior
 Observed live roadmap package:
 - `docs/cortex_roadmap/R7_VALUE_HOMEOSTASIS.md`
 - `services/homeostasis/*`
@@ -79,45 +125,16 @@ Operational upgrades now present:
 - Step 11 has real runtime routes, authorization, and audit trails.
 
 Interpretation:
-- Phase E is no longer merely a validated sidecar package.
-- It is now a **real partially absorbed OS layer**.
+- Phase E is a real partially absorbed OS layer, not merely a validated sidecar package.
 
-### 3) Roadmap continuity is partially restored in the current checkout
-Observed live docs under `docs/cortex_roadmap/`:
-- `ROADMAP_R1_TO_R7.md`
-- `R1_UNIFIED_WORLD_MODEL.md`
-- `R2_LIFELONG_PLASTICITY.md`
-- `R3_NEUROMODULATION_LAYER.md`
-- `R4_GLOBAL_WORKSPACE.md`
-- `R5_GROUNDED_EMBODIMENT.md`
-- `R6_METACOGNITIVE_TRUTH_ENGINE.md`
-- `R7_VALUE_HOMEOSTASIS.md`
-- `R9_ADAPTIVE_ROUTING_BRAIN.md`
+### 5) The integration gap is now narrower and more specific
+Observed by live grep/inspection of runtime modules and routers:
+- clear live runtime references exist for **homeostasis** and **routing**
+- the newly restored A/B/C packages do **not yet** show comparable absorption into `reasoning_policy.py`, `reasoning_runtime_execution.py`, or the main runtime router path
 
 Interpretation:
-- The repo now has restored roadmap continuity for A–D at the documentation layer.
-- This materially improves auditability, but docs continuity is not the same thing as live implementation parity.
-
-### 4) Phase D / R9 is restored, live, and partially absorbed into the runtime
-Observed live Phase D routing surfaces:
-- `services/routing/*`
-- `scripts/cortex_r9_*`
-- `config/cortex_roadmap/r9_*`
-- `artifacts/cortex_roadmap/r9_adaptive_routing_brain/*`
-- `tests/test_phase_d_routing_bootstrap.py`
-
-Observed live integration points:
-- `cortex_server/modules/reasoning_policy.py`
-- `cortex_server/modules/reasoning_runtime_execution.py`
-- `cortex_server/modules/reasoning_runtime_explain.py`
-
-Validation:
-- Phase D routing bootstrap suite passes.
-- R9 now participates in live policy synthesis and runtime execution.
-
-Interpretation:
-- Phase D is no longer “missing from checkout.”
-- It is now a **restored, test-backed, partially absorbed routing layer**.
+- The remaining gap is no longer “missing code packages.”
+- The remaining gap is now primarily **runtime absorption and unification**.
 
 ## Per-phase audit
 
@@ -129,14 +146,15 @@ Historical roadmap meaning:
 - R3 Neuromodulation layer
 
 ### Status
-**Reference-only / docs-restored, but still fail as a live landed implementation phase.**
+**Pass as restored implementation surfaces; not yet pass as OS-integrated runtime behavior.**
 
 ### Why
-- The roadmap docs for `R1`, `R3`, `R4`, and `R6` are present again.
-- The corresponding implementation packages are still not present as live runnable surfaces.
+- Live services and scripts now exist for R1/R3/R4/R6.
+- Dedicated Phase A bootstrap tests pass.
+- However, these surfaces are not yet visibly wired into the main reasoning runtime path the way R7/R9 are.
 
 ### Judgment
-Phase A is visible again as roadmap continuity, but not yet restored as an OS-integrated implementation phase.
+Phase A is no longer reference-only. It is restored and test-backed, but still not deeply integrated into live runtime execution.
 
 ## Phase B
 Historical roadmap meaning:
@@ -144,58 +162,57 @@ Historical roadmap meaning:
 - R7 Value/homeostasis architecture
 
 ### Status
-**Partial pass.**
+**Strong partial pass.**
 
 ### Why
-- **R7 is real, passing, and partially integrated.**
-- **R2 remains reference-only** in the current checkout.
+- **R2** now exists as a live restored package with passing bootstrap tests.
+- **R7** is real, passing, and integrated into live policy/runtime behavior.
 
 ### Judgment
-Phase B does not yet meet the OS standard as a whole, because only the R7 half is live and integrated.
+Phase B is materially stronger than before, but it still does not behave as one unified phase because R2 restoration has not yet been absorbed into the runtime path the way R7 has.
 
 ## Phase C
 Historical roadmap meaning:
 - R5 Grounded embodiment loop
 
 ### Status
-**Reference-only / docs-restored, but still fail as a live landed implementation phase.**
+**Pass as restored implementation surface; not yet pass as OS-runtime-integrated phase.**
 
 ### Why
-- The R5 roadmap doc is restored.
-- The embodiment implementation package is still not present as a live, validated phase surface.
+- The embodiment package is present and test-backed.
+- However, the current main runtime modules/routers do not yet show equivalent direct absorption of embodiment into the live OS path.
 
 ### Judgment
-Phase C is still not auditably landed as a live implementation package.
+Phase C is now auditably real, but still reads as a validated subsystem rather than a core runtime layer.
 
 ## Phase D
 Operational meaning used during implementation:
 - R9 Adaptive routing brain
 
 ### Status
-**Partial pass as a restored and integrated live routing phase, but not yet a fully generalized OS layer.**
+**Pass as restored and runtime-integrated phase, with remaining generalization work.**
 
 ### Why
-- `services/routing/`, `scripts/cortex_r9_*`, `config/cortex_roadmap/r9_*`, and R9 artifacts are present again.
-- `tests/test_phase_d_routing_bootstrap.py` passes.
-- R9 now influences live policy synthesis and live runtime execution.
+- `services/routing/`, `scripts/cortex_r9_*`, config, artifacts, and tests are present.
+- R9 influences live policy synthesis and live runtime execution.
 
 ### Judgment
-Phase D is now materially present, test-backed, and integrated into live behavior, but it is not yet the final form of a generalized OS-native routing/governance layer.
+Phase D is now materially part of the operating path, though still not the final generalized OS-native governance form.
 
 ## Phase E
 Operational meaning used during implementation:
 - R7 Value/homeostasis governor
 
 ### Status
-**Pass as a live and partially integrated implementation phase.**
+**Pass as restored and runtime-integrated phase.**
 
 ### Why
 - The 12-step package exists and is complete.
-- R7 now influences policy synthesis, runtime execution, explain surfaces, telemetry baselines, and operator controls.
+- R7 influences policy synthesis, runtime execution, explain surfaces, telemetry baselines, and operator controls.
 - Step 11 controls are real runtime controls with authorization and audit trails.
 
 ### Judgment
-Phase E now clears the bar for “live and partially absorbed into the OS,” even though the broader A–E line still does not yet unify into one operating layer.
+Phase E clears the bar for live, partially absorbed OS behavior.
 
 ## Standard comparison: what the original Reasoning OS blueprint demanded
 The original `docs/REASONING_OS.md` standard is fundamentally about:
@@ -207,16 +224,17 @@ The original `docs/REASONING_OS.md` standard is fundamentally about:
 
 ### What now matches
 - The reasoning core itself.
-- Real executable phase slices for C, D, and E.
+- Live restored implementation packages for **all of A–E**.
+- Dedicated tests for restored A/B/C surfaces.
 - Policy embedded into live runtime behavior for both R7 and R9.
 - Real operator control paths and audit trails for Step 11.
 - Live telemetry preference for the Step 1 baseline.
 
 ### What still does not match
 - A–E are still not represented as one continuous, fully integrated runtime layer.
-- Phases A–C remain mostly roadmap/reference surfaces rather than live implementation packages.
-- Phase D and Phase E are integrated into live behavior, but they are still not unified into one generalized governance layer.
-- The repo still lacks a full end-to-end proof that the entire restored roadmap line behaves as one coherent OS extension.
+- A/B/C are restored, but not yet visibly absorbed into the same runtime-policy/runtime-execution path as D/E.
+- D and E are integrated into live behavior, but they are still not yet generalized into one broader governance/runtime layer with the restored earlier phases.
+- The repo still lacks a stronger end-to-end proof that the entire restored roadmap line behaves as one coherent OS extension.
 
 ## Final judgment
 ### If the question is:
@@ -229,17 +247,16 @@ Answer:
 **“Do Phases A–E, as currently landed, fit that standard?”**
 
 Answer:
-- **Closer, but still not fully.**
+- **Much closer, but still not fully.**
 
 More precise wording:
-- The project now has a **real Reasoning OS core** plus **real, passing, partially integrated Phase D and Phase E packages**.
-- But the full A–E roadmap does **not yet** read as a single integrated operating system extension.
-- It reads as **a strong set of validated roadmap slices, with D and E now materially absorbed into the OS proper and A–C still lagging behind**.
+- The project now has a **real Reasoning OS core** plus **restored, test-backed implementation packages across A–E**.
+- **D and E are the most runtime-integrated phases.**
+- **A, B, and C are now real packages, not just roadmap prose, but they still read as restored subsystems more than live governing layers.**
+- So the repo now looks like **a real OS core surrounded by increasingly credible restored phase packages**, rather than a single seamless A–E operating layer.
 
 ## Remaining remediation to pass the standard
-1. Restore **A–C implementation surfaces**, not just docs continuity.
-2. Tighten **D + E into one more generalized governance/runtime layer**.
+1. Wire restored **A/B/C** surfaces into `reasoning_policy.py`, `reasoning_runtime_execution.py`, and explain/operator surfaces where appropriate.
+2. Tighten **D + E + restored A/B/C** into one more generalized governance/runtime layer.
 3. Continue normalizing roadmap docs and branch hygiene.
 4. Add stronger end-to-end tests proving the restored roadmap line behaves as one integrated OS extension.
--end tests proving the restored roadmap line behaves as one integrated OS extension.
-proving the restored roadmap line behaves as one integrated OS extension.
