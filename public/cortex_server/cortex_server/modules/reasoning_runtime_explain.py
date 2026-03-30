@@ -316,8 +316,7 @@ def assemble_runtime_policy_response(
     workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
     metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
     policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
-    policy_surface_summaries = explain_compiler.compile_policy_surface_summaries(policy)
-    control_plane_summary = explain_compiler.compile_control_plane_summary(
+    policy_surface_sections = explain_compiler.compile_policy_surface_sections(
         policy,
         policy_outcome_evaluation=explained.get("policy_outcome_evaluation") if isinstance(explained.get("policy_outcome_evaluation"), list) else None,
     )
@@ -325,27 +324,12 @@ def assemble_runtime_policy_response(
         "success": True,
         "process_id": process_id,
         "policy": policy,
-        "routing_r9": policy.get("routing_r9") if isinstance(policy, dict) else {},
-        "routing_r9_summary": explained.get("routing_r9_summary") or policy_surface_summaries.get("routing_r9_summary"),
-        "homeostasis": policy.get("homeostasis") if isinstance(policy, dict) else {},
-        "homeostasis_summary": explained.get("homeostasis_summary") or policy_surface_summaries.get("homeostasis_summary"),
-        "world_state": policy.get("world_state") if isinstance(policy, dict) else {},
-        "world_state_summary": explained.get("world_state_summary") or policy_surface_summaries.get("world_state_summary"),
-        "modulation": policy.get("modulation") if isinstance(policy, dict) else {},
-        "modulation_summary": explained.get("modulation_summary") or policy_surface_summaries.get("modulation_summary"),
-        "workspace": policy.get("workspace") if isinstance(policy, dict) else {},
-        "workspace_summary": explained.get("workspace_summary") or policy_surface_summaries.get("workspace_summary"),
-        "truth_engine": policy.get("truth_engine") if isinstance(policy, dict) else {},
-        "truth_engine_summary": explained.get("truth_engine_summary") or policy_surface_summaries.get("truth_engine_summary"),
-        "plasticity": policy.get("plasticity") if isinstance(policy, dict) else {},
-        "plasticity_summary": explained.get("plasticity_summary") or policy_surface_summaries.get("plasticity_summary"),
-        "embodiment": policy.get("embodiment") if isinstance(policy, dict) else {},
-        "embodiment_summary": explained.get("embodiment_summary") or policy_surface_summaries.get("embodiment_summary"),
-        "belief_influences": policy.get("belief_influences") if isinstance(policy, dict) else [],
+        **policy_surface_sections,
+        "belief_influences": explained.get("belief_influences") or policy_surface_sections.get("belief_influences") or [],
         "decision_explanations": explained.get("policy_decision_explanations") or explain.policy_decision_explanations(policy, explain_belief_fn=explain_belief_fn, get_belief_fn=get_belief_fn),
         "policy_outcome_evaluation": explained.get("policy_outcome_evaluation"),
         "policy_outcome_summary": explained.get("policy_outcome_summary") or {"overall": "observed_only", "counts": {}, "domains_by_outcome": {}, "mismatch_domains": [], "unclear_domains": [], "operator_summary": "policy outcomes unavailable"},
-        "control_plane_summary": explained.get("control_plane_summary") or control_plane_summary,
+        "control_plane_summary": explained.get("control_plane_summary") or policy_surface_sections.get("control_plane_summary"),
         "belief_evidence_summary": explained.get("belief_evidence_summary") or {"belief_count": 0, "evidence_count": 0, "source_types": {}, "avg_weighted_confidence": 0.0, "avg_weighted_freshness": 0.0, "top_belief_ids": [], "operator_summary": "no belief evidence"},
         "contradiction_graph_summary": explained.get("contradiction_graph_summary") or {"node_count": 0, "edge_count": 0, "cluster_count": 0, "contradiction_edge_count": 0, "supersession_edge_count": 0, "conflict_count": 0, "avg_ambiguity_score": 0.0, "operator_summary": "no contradiction graph"},
         "epistemic_risk_summary": explained.get("epistemic_risk_summary") or {"belief_count": 0, "avg_risk_score": 0.0, "levels": {}, "top_risky_belief_ids": [], "top_risky_links": [], "operator_summary": "no epistemic risk"},
