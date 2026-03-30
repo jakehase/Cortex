@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-30T00:18:52.818145+00:00",
+  "generated_at": "2026-03-30T01:53:51.800177+00:00",
   "artifact_root": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r7_value_homeostasis",
   "headline": {
     "utility_proxy": 0.821,
@@ -556,17 +556,20 @@
     "freeze_policy": {
       "action": "freeze",
       "supported": true,
-      "mode": "local_stub"
+      "mode": "runtime_policy_patch_and_pause",
+      "route": "/runtime/homeostasis/freeze/{process_id}"
     },
     "rollback_to_baseline": {
       "action": "rollback",
       "supported": true,
-      "mode": "local_stub"
+      "mode": "runtime_policy_rollback",
+      "route": "/runtime/homeostasis/rollback/{process_id}"
     },
     "resume_governor": {
       "action": "resume",
       "supported": true,
-      "mode": "local_stub"
+      "mode": "runtime_process_resume",
+      "route": "/runtime/homeostasis/resume/{process_id}"
     }
   }
 }

@@ -27,6 +27,7 @@ ReplaceProcessWorkflowFn = Callable[..., JsonDict]
 RefreshWorkflowPolicyFn = Callable[[JsonDict], JsonDict]
 ApplyPolicyPatchPreviewFn = Callable[..., JsonDict]
 SelectPolicyPatchPreviewFn = Callable[..., JsonDict]
+ProcessActionFn = Callable[[str], JsonDict]
 
 
 
@@ -225,6 +226,173 @@ def runtime_policy_history(
     events = get_runtime_events_fn(process_id, limit=100)
     history = policy_patch_history_fn(events)
     return {"success": True, "process_id": process_id, "policy_patch_history": history}
+
+
+_HOMEOSTASIS_FREEZE_SETTINGS = [
+    "execution_mode",
+    "max_parallelism",
+    "same_tick_drain",
+    "verification_mode",
+    "retry_on_timeout",
+    "retry_max_attempts",
+]
+
+_HOMEOSTASIS_FREEZE_OVERRIDES = {
+    "execution_mode": "sequential",
+    "max_parallelism": 1,
+    "same_tick_drain": False,
+    "verification_mode": "strict",
+    "retry_on_timeout": True,
+    "retry_max_attempts": 2,
+}
+
+
+async def runtime_homeostasis_freeze_control(
+    process_id: str,
+    *,
+    get_runtime_process_fn: GetRuntimeProcessFn,
+    explain_runtime_process_fn: ExplainRuntimeProcessFn,
+    select_policy_patch_preview_fn: SelectPolicyPatchPreviewFn,
+    apply_policy_patch_preview_fn: ApplyPolicyPatchPreviewFn,
+    refresh_workflow_policy_fn: RefreshWorkflowPolicyFn,
+    replace_process_workflow_fn: ReplaceProcessWorkflowFn,
+    pause_process_fn: ProcessActionFn,
+    dry_run: bool = False,
+    load_workflow_fn: Optional[LoadWorkflowFn] = None,
+    persist_workflow_fn: Optional[PersistWorkflowFn] = None,
+) -> JsonDict:
+    process = require_runtime_process(process_id, get_runtime_process_fn=get_runtime_process_fn)
+    status = str(process.get("status") or "")
+    if status in {"completed", "failed", "cancelled"}:
+        return {
+            "success": True,
+            "process_id": process_id,
+            "control": "freeze_policy",
+            "frozen": False,
+            "dry_run": bool(dry_run),
+            "blocked_reason": "terminal_process",
+            "process": process,
+        }
+
+    patch_result = await apply_runtime_policy_patch(
+        process_id,
+        get_runtime_process_fn=get_runtime_process_fn,
+        explain_runtime_process_fn=explain_runtime_process_fn,
+        select_policy_patch_preview_fn=select_policy_patch_preview_fn,
+        apply_policy_patch_preview_fn=apply_policy_patch_preview_fn,
+        refresh_workflow_policy_fn=refresh_workflow_policy_fn,
+        replace_process_workflow_fn=replace_process_workflow_fn,
+        requested_settings=list(_HOMEOSTASIS_FREEZE_SETTINGS),
+        metadata_overrides=dict(_HOMEOSTASIS_FREEZE_OVERRIDES),
+        dry_run=bool(dry_run),
+        allow_confirmation_required=True,
+        load_workflow_fn=load_workflow_fn,
+        persist_workflow_fn=persist_workflow_fn,
+    )
+    if bool(dry_run) or not bool(patch_result.get("applied")):
+        return {
+            "success": True,
+            "process_id": process_id,
+            "control": "freeze_policy",
+            "frozen": False,
+            "dry_run": bool(dry_run),
+            "policy_result": patch_result,
+            "process": patch_result.get("process") or process,
+            "workflow": patch_result.get("workflow"),
+        }
+
+    paused = pause_process_fn(process_id)
+    return {
+        "success": True,
+        "process_id": process_id,
+        "control": "freeze_policy",
+        "frozen": True,
+        "dry_run": False,
+        "revision_id": patch_result.get("revision_id"),
+        "policy_result": patch_result,
+        "process": paused,
+        "workflow": patch_result.get("workflow"),
+    }
+
+
+async def runtime_homeostasis_rollback_control(
+    process_id: str,
+    *,
+    get_runtime_process_fn: GetRuntimeProcessFn,
+    get_runtime_events_fn: GetRuntimeEventsFn,
+    policy_patch_history_fn: PolicyPatchHistoryFn,
+    select_policy_patch_preview_fn: SelectPolicyPatchPreviewFn,
+    apply_policy_patch_preview_fn: ApplyPolicyPatchPreviewFn,
+    refresh_workflow_policy_fn: RefreshWorkflowPolicyFn,
+    replace_process_workflow_fn: ReplaceProcessWorkflowFn,
+    dry_run: bool = False,
+    allow_intervening_revisions: bool = False,
+    load_workflow_fn: Optional[LoadWorkflowFn] = None,
+    persist_workflow_fn: Optional[PersistWorkflowFn] = None,
+) -> JsonDict:
+    process = require_runtime_process(process_id, get_runtime_process_fn=get_runtime_process_fn)
+    events = get_runtime_events_fn(process_id, limit=100)
+    history = policy_patch_history_fn(events)
+    entries = list(history.get("entries") or [])
+    latest_applied = next((row for row in reversed(entries) if str((row or {}).get("kind") or "") == "policy_patch_applied"), None)
+    if not isinstance(latest_applied, dict):
+        return {
+            "success": True,
+            "process_id": process_id,
+            "control": "rollback_to_baseline",
+            "rolled_back": False,
+            "dry_run": bool(dry_run),
+            "blocked_reason": "no_policy_patch_history",
+            "policy_patch_history": history,
+            "process": process,
+        }
+
+    rollback_result = await rollback_runtime_policy_patch(
+        process_id,
+        str(latest_applied.get("revision_id") or ""),
+        get_runtime_process_fn=get_runtime_process_fn,
+        get_runtime_events_fn=get_runtime_events_fn,
+        policy_patch_history_fn=policy_patch_history_fn,
+        select_policy_patch_preview_fn=select_policy_patch_preview_fn,
+        apply_policy_patch_preview_fn=apply_policy_patch_preview_fn,
+        refresh_workflow_policy_fn=refresh_workflow_policy_fn,
+        replace_process_workflow_fn=replace_process_workflow_fn,
+        dry_run=bool(dry_run),
+        allow_confirmation_required=True,
+        allow_intervening_revisions=bool(allow_intervening_revisions),
+        load_workflow_fn=load_workflow_fn,
+        persist_workflow_fn=persist_workflow_fn,
+    )
+    rollback_result = dict(rollback_result)
+    rollback_result["control"] = "rollback_to_baseline"
+    rollback_result["target_revision_id"] = latest_applied.get("revision_id")
+    return rollback_result
+
+
+def runtime_homeostasis_resume_control(
+    process_id: str,
+    *,
+    get_runtime_process_fn: GetRuntimeProcessFn,
+    resume_process_fn: ProcessActionFn,
+) -> JsonDict:
+    process = require_runtime_process(process_id, get_runtime_process_fn=get_runtime_process_fn)
+    if str(process.get("status") or "") != "paused" and bool(process.get("enabled", True)):
+        return {
+            "success": True,
+            "process_id": process_id,
+            "control": "resume_governor",
+            "resumed": False,
+            "blocked_reason": "not_paused",
+            "process": process,
+        }
+    resumed = resume_process_fn(process_id)
+    return {
+        "success": True,
+        "process_id": process_id,
+        "control": "resume_governor",
+        "resumed": True,
+        "process": resumed,
+    }
 
 
 async def rollback_runtime_policy_patch(
@@ -897,6 +1065,9 @@ __all__ = [
     "require_runtime_process",
     "rerun_workflow_or_404",
     "rollback_runtime_policy_patch",
+    "runtime_homeostasis_freeze_control",
+    "runtime_homeostasis_resume_control",
+    "runtime_homeostasis_rollback_control",
     "runtime_analytics_compare",
     "runtime_analytics_correlation",
     "runtime_analytics_report",

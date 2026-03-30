@@ -159,6 +159,11 @@ class RuntimePolicyRollbackRequest(BaseModel):
     allow_intervening_revisions: bool = False
 
 
+class RuntimeHomeostasisControlRequest(BaseModel):
+    dry_run: bool = False
+    allow_intervening_revisions: bool = False
+
+
 class RuntimePlanRequest(BaseModel):
     graph: ReasoningPlanGraph
     options: RuntimeScheduleOptions = Field(default_factory=RuntimeScheduleOptions)
@@ -610,6 +615,58 @@ async def apply_runtime_policy_patch(process_id: str, req: Optional[RuntimePolic
         allow_confirmation_required=bool(req.allow_confirmation_required),
         load_workflow_fn=_load_workflow,
         persist_workflow_fn=_persist_workflow,
+    )
+
+
+@router.post("/runtime/homeostasis/freeze/{process_id}")
+async def freeze_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeostasisControlRequest] = None):
+    req = req or RuntimeHomeostasisControlRequest()
+    return await runtime_service.runtime_homeostasis_freeze_control(
+        process_id,
+        get_runtime_process_fn=get_runtime_process,
+        explain_runtime_process_fn=explain_runtime_process,
+        select_policy_patch_preview_fn=observability.select_policy_patch_preview,
+        apply_policy_patch_preview_fn=observability.apply_policy_patch_preview,
+        refresh_workflow_policy_fn=lambda workflow: runtime_workflows.refresh_workflow_policy(
+            workflow,
+            build_workflow_policy_fn=build_workflow_policy,
+        ),
+        replace_process_workflow_fn=replace_process_workflow,
+        pause_process_fn=pause_runtime_process,
+        dry_run=bool(req.dry_run),
+        load_workflow_fn=_load_workflow,
+        persist_workflow_fn=_persist_workflow,
+    )
+
+
+@router.post("/runtime/homeostasis/rollback/{process_id}")
+async def rollback_runtime_homeostasis(process_id: str, req: Optional[RuntimeHomeostasisControlRequest] = None):
+    req = req or RuntimeHomeostasisControlRequest()
+    return await runtime_service.runtime_homeostasis_rollback_control(
+        process_id,
+        get_runtime_process_fn=get_runtime_process,
+        get_runtime_events_fn=get_runtime_events,
+        policy_patch_history_fn=runtime_explain.policy_patch_history,
+        select_policy_patch_preview_fn=observability.select_policy_patch_preview,
+        apply_policy_patch_preview_fn=observability.apply_policy_patch_preview,
+        refresh_workflow_policy_fn=lambda workflow: runtime_workflows.refresh_workflow_policy(
+            workflow,
+            build_workflow_policy_fn=build_workflow_policy,
+        ),
+        replace_process_workflow_fn=replace_process_workflow,
+        dry_run=bool(req.dry_run),
+        allow_intervening_revisions=bool(req.allow_intervening_revisions),
+        load_workflow_fn=_load_workflow,
+        persist_workflow_fn=_persist_workflow,
+    )
+
+
+@router.post("/runtime/homeostasis/resume/{process_id}")
+async def resume_runtime_homeostasis(process_id: str):
+    return runtime_service.runtime_homeostasis_resume_control(
+        process_id,
+        get_runtime_process_fn=get_runtime_process,
+        resume_process_fn=resume_runtime_process,
     )
 
 @router.get("/runtime/incident-trends")

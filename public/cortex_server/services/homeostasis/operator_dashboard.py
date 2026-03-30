@@ -180,9 +180,9 @@ def build_dashboard_model(*, artifact_root: Path | str = ARTIFACT_ROOT) -> Dict[
             },
         },
         "controls": {
-            "freeze_policy": {"action": "freeze", "supported": True, "mode": "local_stub"},
-            "rollback_to_baseline": {"action": "rollback", "supported": True, "mode": "local_stub"},
-            "resume_governor": {"action": "resume", "supported": True, "mode": "local_stub"},
+            "freeze_policy": {"action": "freeze", "supported": True, "mode": "runtime_policy_patch_and_pause", "route": "/runtime/homeostasis/freeze/{process_id}"},
+            "rollback_to_baseline": {"action": "rollback", "supported": True, "mode": "runtime_policy_rollback", "route": "/runtime/homeostasis/rollback/{process_id}"},
+            "resume_governor": {"action": "resume", "supported": True, "mode": "runtime_process_resume", "route": "/runtime/homeostasis/resume/{process_id}"},
         },
     }
     return dashboard
@@ -278,10 +278,10 @@ def render_dashboard_html(model: Dict[str, Any]) -> str:
   </div>
   <div class='card'>
     <h2>Operator controls</h2>
-    <p>Controls are local stubs for drill/testing, not live production mutations.</p>
-    <button class='freeze' onclick=\"alert('freeze policy stub: {controls.get('freeze_policy', {}).get('mode')}')\">Freeze policy</button>
-    <button class='rollback' onclick=\"alert('rollback stub: {controls.get('rollback_to_baseline', {}).get('mode')}')\">Rollback to baseline</button>
-    <button class='resume' onclick=\"alert('resume stub: {controls.get('resume_governor', {}).get('mode')}')\">Resume governor</button>
+    <p>Controls map to real runtime endpoints for freeze, rollback, and resume. This HTML remains a dashboard surface, but the backing routes are no longer local-only stubs.</p>
+    <button class='freeze' onclick=\"alert('freeze route: {controls.get('freeze_policy', {}).get('route')} mode={controls.get('freeze_policy', {}).get('mode')}')\">Freeze policy</button>
+    <button class='rollback' onclick=\"alert('rollback route: {controls.get('rollback_to_baseline', {}).get('route')} mode={controls.get('rollback_to_baseline', {}).get('mode')}')\">Rollback to baseline</button>
+    <button class='resume' onclick=\"alert('resume route: {controls.get('resume_governor', {}).get('route')} mode={controls.get('resume_governor', {}).get('mode')}')\">Resume governor</button>
   </div>
 </body>
 </html>

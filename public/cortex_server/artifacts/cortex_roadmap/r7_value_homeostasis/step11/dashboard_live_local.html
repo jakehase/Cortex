@@ -17,7 +17,7 @@
 </head>
 <body>
   <h1>R7 Operator Dashboard</h1>
-  <p>Generated at <code>2026-03-30T00:18:52.818145+00:00</code></p>
+  <p>Generated at <code>2026-03-30T01:53:51.800177+00:00</code></p>
   <div class='card'>
     <h2>Headline</h2>
     <ul>
@@ -131,10 +131,10 @@
   </div>
   <div class='card'>
     <h2>Operator controls</h2>
-    <p>Controls are local stubs for drill/testing, not live production mutations.</p>
-    <button class='freeze' onclick="alert('freeze policy stub: local_stub')">Freeze policy</button>
-    <button class='rollback' onclick="alert('rollback stub: local_stub')">Rollback to baseline</button>
-    <button class='resume' onclick="alert('resume stub: local_stub')">Resume governor</button>
+    <p>Controls map to real runtime endpoints for freeze, rollback, and resume. This HTML remains a dashboard surface, but the backing routes are no longer local-only stubs.</p>
+    <button class='freeze' onclick="alert('freeze route: /runtime/homeostasis/freeze/{process_id} mode=runtime_policy_patch_and_pause')">Freeze policy</button>
+    <button class='rollback' onclick="alert('rollback route: /runtime/homeostasis/rollback/{process_id} mode=runtime_policy_rollback')">Rollback to baseline</button>
+    <button class='resume' onclick="alert('resume route: /runtime/homeostasis/resume/{process_id} mode=runtime_process_resume')">Resume governor</button>
   </div>
 </body>
 </html>
