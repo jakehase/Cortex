@@ -24,6 +24,8 @@ def main() -> int:
     snapshot = build_baseline_regulation_snapshot(
         r9_root=ROOT / "artifacts" / "cortex_roadmap" / "r9_adaptive_routing_brain",
         r7_root=ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis",
+        window_hours=24.0 * 14.0,
+        bucket_hours=24.0,
     )
     validation = validate_baseline_regulation_snapshot(snapshot)
     snapshot_path = ARTIFACT_DIR / "baseline_regulation_snapshot_latest.json"

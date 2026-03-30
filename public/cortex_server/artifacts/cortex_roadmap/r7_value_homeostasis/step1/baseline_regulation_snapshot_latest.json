@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-30T00:18:52.566183+00:00",
+  "generated_at": "2026-03-30T02:07:04.622587+00:00",
   "phase": "phase_e_r7_step1",
   "artifact_root": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r7_value_homeostasis",
   "source_artifacts": {
@@ -7,41 +7,125 @@
     "r9_step7": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step7/rollback_probe_latest.json",
     "r9_step10": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step10/full_rollout_probe_latest.json",
     "r9_step11": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_probe_latest.json",
-    "r9_step12": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/novelty_probe_latest.json"
+    "r9_step12": "/root/clawd/public/cortex_server/artifacts/cortex_roadmap/r9_adaptive_routing_brain/step12/novelty_probe_latest.json",
+    "runtime_source": "reasoning_scheduler.processes+events"
   },
+  "source_priority": [
+    "live_runtime_telemetry",
+    "artifact_bootstrap"
+  ],
+  "selected_source": "live_runtime_telemetry",
   "baseline_window": {
-    "mode": "artifact_derived_bootstrap_lock",
-    "note": "This is a local baseline lock from current landed R9 artifacts, not a 14-day live telemetry window."
+    "mode": "live_rolling_window",
+    "process_count": 346,
+    "bucket_count": 4,
+    "window_hours": 336.0,
+    "bucket_hours": 24.0,
+    "first_process_at": "2026-03-27T18:59:12.206758+00:00",
+    "last_process_at": "2026-03-30T02:06:35.826360+00:00",
+    "latest_event_at": "2026-03-30T02:06:35.874924+00:00",
+    "note": "Preferred baseline from live runtime telemetry over a rolling process window."
   },
   "telemetry": {
     "quality": {
-      "replay_quality_delta": null,
+      "replay_quality_delta": 0.0,
       "scoring_supported_claims": null,
-      "quality_non_regression_proxy": 1.0
+      "quality_non_regression_proxy": 0.0,
+      "live_success_rate": 0.0
     },
     "latency": {
-      "rollback_recovery_sla_met": null,
+      "rollback_recovery_sla_met": true,
       "rollback_max_recovery_seconds": null,
-      "shadow_disagreement_rate": null
+      "shadow_disagreement_rate": null,
+      "mean_step_elapsed_ms": null,
+      "p95_step_elapsed_ms": null
     },
     "reliability": {
-      "rollback_required": null,
+      "rollback_required": false,
       "runtime_health_unhealthy_dependencies": [],
-      "novelty_gate_pass": null
+      "novelty_gate_pass": false,
+      "timeout_process_count": 0,
+      "retry_exhausted_process_count": 0
     },
     "cost": {
       "autotuned_weights": {},
-      "runtime_policy": {}
+      "runtime_policy": {
+        "mode_counts": {
+          "normal": 16
+        },
+        "operator_summary": "analytics: 346 processes, success_rate=0.0, failure_rate=0.0; trend: success=flat, failure=flat, timeout=flat"
+      },
+      "mean_reasoning_depth": 2.0,
+      "tool_budget_classes": {
+        "standard": 16
+      }
     },
     "safety": {
-      "rollback_gate_pass": null,
+      "rollback_gate_pass": true,
       "risk_reasons": [],
-      "dashboard_controls_present": false
+      "dashboard_controls_present": true,
+      "operator_patch_count": 0,
+      "operator_rollback_count": 0
     },
     "operator": {
-      "dashboard_gate_pass": null,
+      "dashboard_gate_pass": true,
       "dashboard_path": null,
-      "runbook_success": null
+      "runbook_success": true,
+      "pause_event_count": 0,
+      "resume_event_count": 0
+    }
+  },
+  "bootstrap_reference": {
+    "source": "artifact_bootstrap",
+    "baseline_window": {
+      "mode": "artifact_derived_bootstrap_lock",
+      "process_count": 0,
+      "bucket_count": 0,
+      "window_hours": null,
+      "bucket_hours": null,
+      "note": "Fallback baseline from landed R9 artifacts; used when live runtime telemetry is unavailable."
+    },
+    "telemetry": {
+      "quality": {
+        "replay_quality_delta": null,
+        "scoring_supported_claims": null,
+        "quality_non_regression_proxy": 1.0,
+        "live_success_rate": null
+      },
+      "latency": {
+        "rollback_recovery_sla_met": null,
+        "rollback_max_recovery_seconds": null,
+        "shadow_disagreement_rate": null,
+        "mean_step_elapsed_ms": null,
+        "p95_step_elapsed_ms": null
+      },
+      "reliability": {
+        "rollback_required": null,
+        "runtime_health_unhealthy_dependencies": [],
+        "novelty_gate_pass": null,
+        "timeout_process_count": null,
+        "retry_exhausted_process_count": null
+      },
+      "cost": {
+        "autotuned_weights": {},
+        "runtime_policy": {},
+        "mean_reasoning_depth": null,
+        "tool_budget_classes": {}
+      },
+      "safety": {
+        "rollback_gate_pass": null,
+        "risk_reasons": [],
+        "dashboard_controls_present": false,
+        "operator_patch_count": null,
+        "operator_rollback_count": null
+      },
+      "operator": {
+        "dashboard_gate_pass": null,
+        "dashboard_path": null,
+        "runbook_success": null,
+        "pause_event_count": null,
+        "resume_event_count": null
+      }
     }
   }
 }
