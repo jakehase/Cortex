@@ -1,0 +1,11 @@
+{
+  "version": "cortex.roadmap.r9.step11.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_live_local.html",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step11/dashboard_probe_latest.json"
+  ],
+  "gates": {
+    "runbook_drill_success": true,
+    "controls_present": true
+  }
+}

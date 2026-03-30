@@ -1,0 +1,8 @@
+{
+  "version": "cortex.roadmap.r9.step1.v1",
+  "dataset_schema": ["query", "risk_flags", "quality", "historical_success", "live_chain"],
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/baseline_telemetry_dataset_latest.jsonl",
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/baseline_telemetry_probe_latest.json"
+  ]
+}

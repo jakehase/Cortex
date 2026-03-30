@@ -1,0 +1,4 @@
+{"query": "Explain TCP in one paragraph", "risk_flags": [], "quality": 0.72, "historical_success": 0.62, "live_chain": "fastlane_memory"}
+{"query": "Fix this pytest failure in orchestrator runtime analytics", "risk_flags": ["code_change"], "quality": 0.81, "historical_success": 0.71, "live_chain": "deliberate_council"}
+{"query": "Brainstorm novel product ideas unrelated to memory", "risk_flags": [], "quality": 0.75, "historical_success": 0.58, "live_chain": "creative_fractal"}
+{"query": "Research current database outage status and likely mitigation", "risk_flags": ["live_state"], "quality": 0.79, "historical_success": 0.69, "live_chain": "research_grounded"}

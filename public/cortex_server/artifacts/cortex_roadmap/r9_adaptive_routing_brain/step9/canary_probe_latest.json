@@ -1,0 +1,137 @@
+{
+  "generated_at": "2026-03-29T19:19:56.168933+00:00",
+  "stages": {
+    "stage_5": {
+      "rollout_percent": 5,
+      "decisions": [
+        {
+          "key": "qa:tcp",
+          "enabled": false,
+          "bucket": 43,
+          "rollout_percent": 5
+        },
+        {
+          "key": "coding:pytest-runtime",
+          "enabled": false,
+          "bucket": 22,
+          "rollout_percent": 5
+        },
+        {
+          "key": "creative:novel-ideas",
+          "enabled": false,
+          "bucket": 50,
+          "rollout_percent": 5
+        },
+        {
+          "key": "research:db-outage",
+          "enabled": false,
+          "bucket": 75,
+          "rollout_percent": 5
+        },
+        {
+          "key": "reminder:calendar-check",
+          "enabled": false,
+          "bucket": 77,
+          "rollout_percent": 5
+        },
+        {
+          "key": "qa:http-cache",
+          "enabled": false,
+          "bucket": 14,
+          "rollout_percent": 5
+        },
+        {
+          "key": "coding:fastapi-lifespan",
+          "enabled": false,
+          "bucket": 75,
+          "rollout_percent": 5
+        },
+        {
+          "key": "research:weather-evidence",
+          "enabled": true,
+          "bucket": 2,
+          "rollout_percent": 5
+        },
+        {
+          "key": "creative:moonshot-product",
+          "enabled": true,
+          "bucket": 1,
+          "rollout_percent": 5
+        },
+        {
+          "key": "reminder:standup-ping",
+          "enabled": false,
+          "bucket": 79,
+          "rollout_percent": 5
+        }
+      ],
+      "enabled_count": 2
+    },
+    "stage_20": {
+      "rollout_percent": 20,
+      "decisions": [
+        {
+          "key": "qa:tcp",
+          "enabled": false,
+          "bucket": 43,
+          "rollout_percent": 20
+        },
+        {
+          "key": "coding:pytest-runtime",
+          "enabled": false,
+          "bucket": 22,
+          "rollout_percent": 20
+        },
+        {
+          "key": "creative:novel-ideas",
+          "enabled": false,
+          "bucket": 50,
+          "rollout_percent": 20
+        },
+        {
+          "key": "research:db-outage",
+          "enabled": false,
+          "bucket": 75,
+          "rollout_percent": 20
+        },
+        {
+          "key": "reminder:calendar-check",
+          "enabled": false,
+          "bucket": 77,
+          "rollout_percent": 20
+        },
+        {
+          "key": "qa:http-cache",
+          "enabled": true,
+          "bucket": 14,
+          "rollout_percent": 20
+        },
+        {
+          "key": "coding:fastapi-lifespan",
+          "enabled": false,
+          "bucket": 75,
+          "rollout_percent": 20
+        },
+        {
+          "key": "research:weather-evidence",
+          "enabled": true,
+          "bucket": 2,
+          "rollout_percent": 20
+        },
+        {
+          "key": "creative:moonshot-product",
+          "enabled": true,
+          "bucket": 1,
+          "rollout_percent": 20
+        },
+        {
+          "key": "reminder:standup-ping",
+          "enabled": false,
+          "bucket": 79,
+          "rollout_percent": 20
+        }
+      ],
+      "enabled_count": 3
+    }
+  }
+}

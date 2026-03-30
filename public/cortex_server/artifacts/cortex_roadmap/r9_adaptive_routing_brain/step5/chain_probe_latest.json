@@ -1,0 +1,417 @@
+{
+  "generated_at": "2026-03-29T19:19:56.033520+00:00",
+  "case_count": 8,
+  "total_candidates": 15,
+  "all_constraints_valid": true,
+  "rows": [
+    {
+      "query": "Explain TCP in one paragraph",
+      "intent": "qa",
+      "risk_tier": "low",
+      "default_chain": "fastlane_memory",
+      "candidate_chain_ids": [
+        "fastlane_memory",
+        "deliberate_council"
+      ],
+      "validation": {
+        "intent": "qa",
+        "risk_tier": "low",
+        "default_chain": "fastlane_memory",
+        "allowed_chain_ids": [
+          "fastlane_memory",
+          "deliberate_council"
+        ],
+        "candidate_count": 2,
+        "candidate_reports": [
+          {
+            "chain_id": "fastlane_memory",
+            "levels": [
+              5,
+              34,
+              7,
+              22
+            ],
+            "required_core_levels": [
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          },
+          {
+            "chain_id": "deliberate_council",
+            "levels": [
+              5,
+              15,
+              32,
+              34
+            ],
+            "required_core_levels": [
+              5,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          }
+        ],
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "query": "Fix this pytest failure in orchestrator runtime analytics",
+      "intent": "coding",
+      "risk_tier": "medium",
+      "default_chain": "deliberate_council",
+      "candidate_chain_ids": [
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "validation": {
+        "intent": "coding",
+        "risk_tier": "medium",
+        "default_chain": "deliberate_council",
+        "allowed_chain_ids": [
+          "deliberate_council",
+          "fastlane_memory"
+        ],
+        "candidate_count": 2,
+        "candidate_reports": [
+          {
+            "chain_id": "deliberate_council",
+            "levels": [
+              5,
+              15,
+              32,
+              34
+            ],
+            "required_core_levels": [
+              5,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          },
+          {
+            "chain_id": "fastlane_memory",
+            "levels": [
+              5,
+              34,
+              7,
+              22
+            ],
+            "required_core_levels": [
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          }
+        ],
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "query": "Plan a migration roadmap for the API gateway",
+      "intent": "planning",
+      "risk_tier": "low",
+      "default_chain": "deliberate_council",
+      "candidate_chain_ids": [
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "validation": {
+        "intent": "planning",
+        "risk_tier": "low",
+        "default_chain": "deliberate_council",
+        "allowed_chain_ids": [
+          "deliberate_council",
+          "fastlane_memory"
+        ],
+        "candidate_count": 2,
+        "candidate_reports": [
+          {
+            "chain_id": "deliberate_council",
+            "levels": [
+              5,
+              15,
+              32,
+              34
+            ],
+            "required_core_levels": [
+              5,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          },
+          {
+            "chain_id": "fastlane_memory",
+            "levels": [
+              5,
+              34,
+              7,
+              22
+            ],
+            "required_core_levels": [
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          }
+        ],
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "query": "Research the latest outage status with sources",
+      "intent": "research",
+      "risk_tier": "medium",
+      "default_chain": "research_grounded",
+      "candidate_chain_ids": [
+        "research_grounded",
+        "deliberate_council",
+        "fastlane_memory"
+      ],
+      "validation": {
+        "intent": "research",
+        "risk_tier": "medium",
+        "default_chain": "research_grounded",
+        "allowed_chain_ids": [
+          "research_grounded",
+          "deliberate_council",
+          "fastlane_memory"
+        ],
+        "candidate_count": 3,
+        "candidate_reports": [
+          {
+            "chain_id": "research_grounded",
+            "levels": [
+              2,
+              5,
+              34,
+              7,
+              22
+            ],
+            "required_core_levels": [
+              2,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          },
+          {
+            "chain_id": "deliberate_council",
+            "levels": [
+              5,
+              15,
+              32,
+              34
+            ],
+            "required_core_levels": [
+              5,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          },
+          {
+            "chain_id": "fastlane_memory",
+            "levels": [
+              5,
+              34,
+              7,
+              22
+            ],
+            "required_core_levels": [
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          }
+        ],
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "query": "Brainstorm novel product ideas unrelated to memory",
+      "intent": "creative",
+      "risk_tier": "low",
+      "default_chain": "creative_fractal",
+      "candidate_chain_ids": [
+        "creative_fractal",
+        "deliberate_council"
+      ],
+      "validation": {
+        "intent": "creative",
+        "risk_tier": "low",
+        "default_chain": "creative_fractal",
+        "allowed_chain_ids": [
+          "creative_fractal",
+          "deliberate_council"
+        ],
+        "candidate_count": 2,
+        "candidate_reports": [
+          {
+            "chain_id": "creative_fractal",
+            "levels": [
+              13,
+              29,
+              32,
+              34
+            ],
+            "required_core_levels": [
+              32,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          },
+          {
+            "chain_id": "deliberate_council",
+            "levels": [
+              5,
+              15,
+              32,
+              34
+            ],
+            "required_core_levels": [
+              5,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          }
+        ],
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "query": "Remind me in 20 minutes to check the deploy",
+      "intent": "reminder",
+      "risk_tier": "low",
+      "default_chain": "safe_reminder",
+      "candidate_chain_ids": [
+        "safe_reminder",
+        "fastlane_memory"
+      ],
+      "validation": {
+        "intent": "reminder",
+        "risk_tier": "low",
+        "default_chain": "safe_reminder",
+        "allowed_chain_ids": [
+          "safe_reminder",
+          "fastlane_memory"
+        ],
+        "candidate_count": 2,
+        "candidate_reports": [
+          {
+            "chain_id": "safe_reminder",
+            "levels": [
+              5,
+              34
+            ],
+            "required_core_levels": [
+              5,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          },
+          {
+            "chain_id": "fastlane_memory",
+            "levels": [
+              5,
+              34,
+              7,
+              22
+            ],
+            "required_core_levels": [
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          }
+        ],
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "query": "Implement a security change in production auth flow",
+      "intent": "coding",
+      "risk_tier": "high",
+      "default_chain": "deliberate_council",
+      "candidate_chain_ids": [
+        "deliberate_council"
+      ],
+      "validation": {
+        "intent": "coding",
+        "risk_tier": "high",
+        "default_chain": "deliberate_council",
+        "allowed_chain_ids": [
+          "deliberate_council"
+        ],
+        "candidate_count": 1,
+        "candidate_reports": [
+          {
+            "chain_id": "deliberate_council",
+            "levels": [
+              5,
+              15,
+              32,
+              34
+            ],
+            "required_core_levels": [
+              5,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          }
+        ],
+        "valid": true,
+        "violations": []
+      }
+    },
+    {
+      "query": "Draft creative branding for a bank product",
+      "intent": "creative",
+      "risk_tier": "critical",
+      "default_chain": "deliberate_council",
+      "candidate_chain_ids": [
+        "deliberate_council"
+      ],
+      "validation": {
+        "intent": "creative",
+        "risk_tier": "critical",
+        "default_chain": "deliberate_council",
+        "allowed_chain_ids": [
+          "deliberate_council"
+        ],
+        "candidate_count": 1,
+        "candidate_reports": [
+          {
+            "chain_id": "deliberate_council",
+            "levels": [
+              5,
+              15,
+              32,
+              34
+            ],
+            "required_core_levels": [
+              5,
+              34
+            ],
+            "missing_core_levels": [],
+            "allowed": true
+          }
+        ],
+        "valid": true,
+        "violations": []
+      }
+    }
+  ]
+}

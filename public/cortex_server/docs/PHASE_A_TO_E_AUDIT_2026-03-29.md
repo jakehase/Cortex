@@ -129,7 +129,7 @@ Historical roadmap meaning:
 
 ### Why
 - **R7 is real and passing**.
-- **R2 is not present as a live landed roadmap package** in the current checkout.
+- The **R2 roadmap doc is restored**, but **R2 is still not present as a live landed implementation package** in the current checkout.
 - Therefore Phase B as a whole is incomplete.
 
 ### Judgment
@@ -140,14 +140,14 @@ Historical roadmap meaning:
 - R5 Grounded embodiment loop
 
 ### Status
-**Fail as a live landed phase in the current checkout.**
+**Reference-only / docs-restored, but still fail as a live landed implementation phase.**
 
 ### Why
-- No live R5 roadmap doc/package is present.
-- No current grounded embodiment roadmap slice is present in the top-level roadmap tree.
+- The R5 roadmap doc is now restored in the live checkout.
+- But the corresponding embodiment implementation package is not restored as a current live, validated roadmap slice in this repo state.
 
 ### Judgment
-Phase C is not currently auditably landed.
+Phase C is still not auditably landed as a live implementation package.
 
 ## Phase D
 Operational meaning used during implementation history:
@@ -335,3 +335,5 @@ That plan should focus on:
 - wiring R7 into live runtime policy/orchestrator execution
 - normalizing documentation and branch hygiene
 - proving the integration with end-to-end tests
+h end-to-end tests
+roving the integration with end-to-end tests

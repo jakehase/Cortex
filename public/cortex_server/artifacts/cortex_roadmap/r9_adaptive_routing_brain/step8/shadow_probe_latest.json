@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-03-29T19:19:56.137101+00:00",
+  "shadow": {
+    "rows": 4,
+    "disagreement_rate": 0.0,
+    "decisions": [
+      {
+        "query": "Explain TCP in one paragraph",
+        "live": "fastlane_memory",
+        "shadow": "fastlane_memory"
+      },
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics",
+        "live": "deliberate_council",
+        "shadow": "deliberate_council"
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory",
+        "live": "creative_fractal",
+        "shadow": "creative_fractal"
+      },
+      {
+        "query": "Research current database outage status and likely mitigation",
+        "live": "research_grounded",
+        "shadow": "research_grounded"
+      }
+    ]
+  },
+  "dataset_path": "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/baseline_telemetry_dataset_latest.jsonl"
+}

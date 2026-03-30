@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-03-29T19:19:55.871041+00:00",
+  "rows": 4,
+  "intents": [
+    "qa",
+    "coding",
+    "creative",
+    "research"
+  ],
+  "dataset_path": "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step1/baseline_telemetry_dataset_latest.jsonl",
+  "complete": true
+}

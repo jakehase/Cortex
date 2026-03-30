@@ -1,0 +1,11 @@
+{
+  "version": "cortex.roadmap.r9.step4.v1",
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step4/replay_probe_latest.json"
+  ],
+  "requiredWeights": ["quality", "latency", "cost", "risk"],
+  "gates": {
+    "offline_replay_success": true,
+    "quality_delta_positive": true
+  }
+}

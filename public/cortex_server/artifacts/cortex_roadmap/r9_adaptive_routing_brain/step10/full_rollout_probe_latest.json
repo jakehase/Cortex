@@ -1,0 +1,136 @@
+{
+  "generated_at": "2026-03-29T19:19:56.200585+00:00",
+  "replay": {
+    "success": true,
+    "rows": 4,
+    "baseline_avg_quality": 0.7675,
+    "adaptive_avg_quality": 0.825,
+    "quality_delta": 0.0575,
+    "decisions": [
+      {
+        "query": "Explain TCP in one paragraph",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.589
+      },
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7752
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8479
+      },
+      {
+        "query": "Research current database outage status and likely mitigation",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9174
+      }
+    ],
+    "native_replay": {
+      "success": true,
+      "rows": 4,
+      "baseline": {
+        "avg_quality": 0.8193,
+        "avg_tokens": 480
+      },
+      "bandit": {
+        "avg_quality": 0.7697,
+        "avg_tokens": 420
+      },
+      "delta": {
+        "quality": -0.0496,
+        "tokens": -60
+      },
+      "quality_delta": -0.0496,
+      "token_delta": -60
+    }
+  },
+  "significance": {
+    "rows": 4,
+    "delta": 0.0575,
+    "p_value": 0.4202,
+    "significant": false
+  },
+  "shadow": {
+    "rows": 4,
+    "disagreement_rate": 0.0,
+    "decisions": [
+      {
+        "query": "Explain TCP in one paragraph",
+        "live": "fastlane_memory",
+        "shadow": "fastlane_memory"
+      },
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics",
+        "live": "deliberate_council",
+        "shadow": "deliberate_council"
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory",
+        "live": "creative_fractal",
+        "shadow": "creative_fractal"
+      },
+      {
+        "query": "Research current database outage status and likely mitigation",
+        "live": "research_grounded",
+        "shadow": "research_grounded"
+      }
+    ]
+  },
+  "autotuned": {
+    "weights": {
+      "quality": 1.35,
+      "latency": 0.08,
+      "cost": 0.06,
+      "risk": 0.23
+    },
+    "updated": true,
+    "failures": 1,
+    "avg_latency": 1.3667,
+    "avg_cost": 1.2333
+  },
+  "runtime_policy": {
+    "complexity_hard_threshold": 0.42,
+    "l9_auto_activation_threshold": 0.3,
+    "fastlane_escalation_threshold": 0.72,
+    "repair_pass_enabled": true,
+    "autotune_enabled": true,
+    "autotune_version": "nexus.autotune.v2"
+  },
+  "runtime_hint": {
+    "archetype": "coding",
+    "baseline_policy": "deliberate_council",
+    "stage": "shadow",
+    "recommended_policy": null,
+    "rollout_percent": 0,
+    "apply_recommendation": false,
+    "reason": "baseline_only_or_no_stronger_candidate",
+    "decision_confidence": 0.8,
+    "evidence": {
+      "candidate_count": 180,
+      "baseline_count": 180
+    },
+    "updated_at": "2026-03-29T19:03:44.855705+00:00"
+  },
+  "runtime_health": {
+    "version": "route_health.v1",
+    "dependency_count": 4,
+    "unhealthy_dependencies": [
+      "architect"
+    ]
+  },
+  "rollback": {
+    "rollback_required": false,
+    "reasons": [],
+    "reason_count": 0,
+    "max_allowed_recovery_seconds": 60.0,
+    "recovery_seconds": null,
+    "sla_breached": false
+  }
+}

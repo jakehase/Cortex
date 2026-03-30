@@ -1,0 +1,436 @@
+{
+  "generated_at": "2026-03-30T03:33:22.942685+00:00",
+  "policy_spec": {
+    "version": "r9.scoring_policy.v1",
+    "weights": {
+      "quality": 1.35,
+      "latency": 0.08,
+      "cost": 0.06,
+      "risk": 0.18
+    },
+    "objectives": {
+      "maximize": [
+        "expected_quality"
+      ],
+      "minimize": [
+        "latency",
+        "cost",
+        "risk"
+      ]
+    },
+    "quality_factors": [
+      "complexity",
+      "historical_success",
+      "creative_fit",
+      "research_fit",
+      "coding_or_risk_fit",
+      "reminder_fit",
+      "runtime_policy_thresholds",
+      "outcome_tuner_hint"
+    ],
+    "utility_formula": "quality*Wq - latency*Wl - cost*Wc - risk*Wr"
+  },
+  "dataset_path": "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/replay_dataset_latest.jsonl",
+  "offline_gate": {
+    "success": true,
+    "quality_delta_positive": true,
+    "quality_delta": 0.0549
+  },
+  "explanations": [
+    {
+      "query": "Explain TCP in one paragraph",
+      "intent": "qa",
+      "risk_tier": "low",
+      "selected_chain": "fastlane_memory",
+      "utility_gap_to_second": 0.183,
+      "top_candidates": [
+        {
+          "chain_id": "fastlane_memory",
+          "levels": [
+            5,
+            34,
+            7,
+            22
+          ],
+          "policy": "fastlane",
+          "description": "Fastlane with memory context reinforcement",
+          "latency": 1.0,
+          "cost": 1.0,
+          "risk": 0.1,
+          "required_core_levels": [
+            34
+          ],
+          "estimated_quality": 0.5573,
+          "utility": 0.5944,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0437,
+            "historical_success": 0.0536,
+            "runtime_fastlane_penalty": -0.04
+          },
+          "utility_terms": {
+            "weighted_quality": 0.7524,
+            "weighted_latency": 0.08,
+            "weighted_cost": 0.06,
+            "weighted_risk": 0.018
+          }
+        },
+        {
+          "chain_id": "deliberate_council",
+          "levels": [
+            5,
+            15,
+            32,
+            34
+          ],
+          "policy": "deliberate",
+          "description": "Multi-perspective path for tradeoffs and constraints",
+          "latency": 2.8,
+          "cost": 2.4,
+          "risk": 0.15,
+          "required_core_levels": [
+            5,
+            34
+          ],
+          "estimated_quality": 0.5973,
+          "utility": 0.4114,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0437,
+            "historical_success": 0.0536,
+            "coding_or_risk_fit": 0.0
+          },
+          "utility_terms": {
+            "weighted_quality": 0.8064,
+            "weighted_latency": 0.224,
+            "weighted_cost": 0.144,
+            "weighted_risk": 0.027
+          }
+        }
+      ]
+    },
+    {
+      "query": "Implement a python API bug fix with unit test coverage",
+      "intent": "coding",
+      "risk_tier": "medium",
+      "selected_chain": "deliberate_council",
+      "utility_gap_to_second": 0.384,
+      "top_candidates": [
+        {
+          "chain_id": "deliberate_council",
+          "levels": [
+            5,
+            15,
+            32,
+            34
+          ],
+          "policy": "deliberate",
+          "description": "Multi-perspective path for tradeoffs and constraints",
+          "latency": 2.8,
+          "cost": 2.4,
+          "risk": 0.15,
+          "required_core_levels": [
+            5,
+            34
+          ],
+          "estimated_quality": 0.8811,
+          "utility": 0.7945,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0875,
+            "historical_success": 0.0536,
+            "coding_or_risk_fit": 0.24
+          },
+          "utility_terms": {
+            "weighted_quality": 1.1895,
+            "weighted_latency": 0.224,
+            "weighted_cost": 0.144,
+            "weighted_risk": 0.027
+          }
+        },
+        {
+          "chain_id": "fastlane_memory",
+          "levels": [
+            5,
+            34,
+            7,
+            22
+          ],
+          "policy": "fastlane",
+          "description": "Fastlane with memory context reinforcement",
+          "latency": 1.0,
+          "cost": 1.0,
+          "risk": 0.1,
+          "required_core_levels": [
+            34
+          ],
+          "estimated_quality": 0.4211,
+          "utility": 0.4105,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0875,
+            "historical_success": 0.0536,
+            "fastlane_penalty": -0.18,
+            "runtime_fastlane_penalty": -0.04
+          },
+          "utility_terms": {
+            "weighted_quality": 0.5685,
+            "weighted_latency": 0.08,
+            "weighted_cost": 0.06,
+            "weighted_risk": 0.018
+          }
+        }
+      ]
+    },
+    {
+      "query": "Research the latest outage status with sources",
+      "intent": "research",
+      "risk_tier": "medium",
+      "selected_chain": "research_grounded",
+      "utility_gap_to_second": 0.1444,
+      "top_candidates": [
+        {
+          "chain_id": "research_grounded",
+          "levels": [
+            2,
+            5,
+            34,
+            7,
+            22
+          ],
+          "policy": "research",
+          "description": "Grounded research path with live evidence emphasis",
+          "latency": 2.9,
+          "cost": 2.2,
+          "risk": 0.12,
+          "required_core_levels": [
+            2,
+            34
+          ],
+          "estimated_quality": 0.9548,
+          "utility": 0.9034,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0612,
+            "historical_success": 0.0536,
+            "research_fit": 0.26,
+            "live_state_bonus": 0.08
+          },
+          "utility_terms": {
+            "weighted_quality": 1.289,
+            "weighted_latency": 0.232,
+            "weighted_cost": 0.132,
+            "weighted_risk": 0.0216
+          }
+        },
+        {
+          "chain_id": "deliberate_council",
+          "levels": [
+            5,
+            15,
+            32,
+            34
+          ],
+          "policy": "deliberate",
+          "description": "Multi-perspective path for tradeoffs and constraints",
+          "latency": 2.8,
+          "cost": 2.4,
+          "risk": 0.15,
+          "required_core_levels": [
+            5,
+            34
+          ],
+          "estimated_quality": 0.8548,
+          "utility": 0.759,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0612,
+            "historical_success": 0.0536,
+            "coding_or_risk_fit": 0.24
+          },
+          "utility_terms": {
+            "weighted_quality": 1.154,
+            "weighted_latency": 0.224,
+            "weighted_cost": 0.144,
+            "weighted_risk": 0.027
+          }
+        },
+        {
+          "chain_id": "fastlane_memory",
+          "levels": [
+            5,
+            34,
+            7,
+            22
+          ],
+          "policy": "fastlane",
+          "description": "Fastlane with memory context reinforcement",
+          "latency": 1.0,
+          "cost": 1.0,
+          "risk": 0.1,
+          "required_core_levels": [
+            34
+          ],
+          "estimated_quality": 0.3949,
+          "utility": 0.375,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0612,
+            "historical_success": 0.0536,
+            "fastlane_penalty": -0.18,
+            "runtime_fastlane_penalty": -0.04
+          },
+          "utility_terms": {
+            "weighted_quality": 0.533,
+            "weighted_latency": 0.08,
+            "weighted_cost": 0.06,
+            "weighted_risk": 0.018
+          }
+        }
+      ]
+    },
+    {
+      "query": "Brainstorm novel product ideas unrelated to memory",
+      "intent": "creative",
+      "risk_tier": "low",
+      "selected_chain": "creative_fractal",
+      "utility_gap_to_second": 0.4226,
+      "top_candidates": [
+        {
+          "chain_id": "creative_fractal",
+          "levels": [
+            13,
+            29,
+            32,
+            34
+          ],
+          "policy": "creative",
+          "description": "Recursive ideation/synthesis path",
+          "latency": 2.4,
+          "cost": 2.1,
+          "risk": 0.18,
+          "required_core_levels": [
+            32,
+            34
+          ],
+          "estimated_quality": 0.8949,
+          "utility": 0.8576,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0612,
+            "historical_success": 0.0536,
+            "creative_fit": 0.28
+          },
+          "utility_terms": {
+            "weighted_quality": 1.208,
+            "weighted_latency": 0.192,
+            "weighted_cost": 0.126,
+            "weighted_risk": 0.0324
+          }
+        },
+        {
+          "chain_id": "deliberate_council",
+          "levels": [
+            5,
+            15,
+            32,
+            34
+          ],
+          "policy": "deliberate",
+          "description": "Multi-perspective path for tradeoffs and constraints",
+          "latency": 2.8,
+          "cost": 2.4,
+          "risk": 0.15,
+          "required_core_levels": [
+            5,
+            34
+          ],
+          "estimated_quality": 0.6149,
+          "utility": 0.435,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0612,
+            "historical_success": 0.0536,
+            "coding_or_risk_fit": 0.0
+          },
+          "utility_terms": {
+            "weighted_quality": 0.83,
+            "weighted_latency": 0.224,
+            "weighted_cost": 0.144,
+            "weighted_risk": 0.027
+          }
+        }
+      ]
+    },
+    {
+      "query": "Remind me in 20 minutes to check the deploy",
+      "intent": "reminder",
+      "risk_tier": "low",
+      "selected_chain": "safe_reminder",
+      "utility_gap_to_second": 0.31,
+      "top_candidates": [
+        {
+          "chain_id": "safe_reminder",
+          "levels": [
+            5,
+            34
+          ],
+          "policy": "reminder",
+          "description": "Low-risk reminder path",
+          "latency": 1.1,
+          "cost": 0.8,
+          "risk": 0.05,
+          "required_core_levels": [
+            5,
+            34
+          ],
+          "estimated_quality": 0.8123,
+          "utility": 0.9517,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0788,
+            "historical_success": 0.0536,
+            "reminder_fit": 0.18
+          },
+          "utility_terms": {
+            "weighted_quality": 1.0967,
+            "weighted_latency": 0.088,
+            "weighted_cost": 0.048,
+            "weighted_risk": 0.009
+          }
+        },
+        {
+          "chain_id": "fastlane_memory",
+          "levels": [
+            5,
+            34,
+            7,
+            22
+          ],
+          "policy": "fastlane",
+          "description": "Fastlane with memory context reinforcement",
+          "latency": 1.0,
+          "cost": 1.0,
+          "risk": 0.1,
+          "required_core_levels": [
+            34
+          ],
+          "estimated_quality": 0.5923,
+          "utility": 0.6417,
+          "quality_components": {
+            "base": 0.5,
+            "complexity": 0.0788,
+            "historical_success": 0.0536,
+            "runtime_fastlane_penalty": -0.04
+          },
+          "utility_terms": {
+            "weighted_quality": 0.7997,
+            "weighted_latency": 0.08,
+            "weighted_cost": 0.06,
+            "weighted_risk": 0.018
+          }
+        }
+      ]
+    }
+  ]
+}

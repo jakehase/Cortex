@@ -1,0 +1,28 @@
+{
+  "version": "cortex.roadmap.r9.step3.v1",
+  "requiredFields": [
+    "intent",
+    "archetype",
+    "risk_tier",
+    "route_taxonomy_version",
+    "allowed_chain_ids",
+    "complexity",
+    "uncertainty",
+    "urgency",
+    "route_context"
+  ],
+  "requiredRouteContextFields": [
+    "latency_plan",
+    "runtime_policy",
+    "outcome_hint",
+    "health",
+    "prefetch_enabled",
+    "cheap_route",
+    "budget_pressure_after_ms",
+    "timeout_pressure",
+    "recent_level_efficacy"
+  ],
+  "artifacts": [
+    "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step3/feature_probe_latest.json"
+  ]
+}

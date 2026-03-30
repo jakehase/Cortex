@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-03-29T19:19:56.235598+00:00",
+  "artifact_root": "/root/clawd/artifacts/cortex_roadmap/r9_adaptive_routing_brain",
+  "claims": [
+    {
+      "claim_id": "r9-claim-01",
+      "title": "Dynamic multi-objective route scoring is explicit and inspectable",
+      "status": "supported",
+      "evidence": [
+        "step4/replay_probe_latest.json#policy_spec",
+        "services/routing/adaptive_router_policy.py"
+      ],
+      "notes": "Weights, objectives, utility formula, and per-candidate utility terms are exposed directly."
+    },
+    {
+      "claim_id": "r9-claim-02",
+      "title": "Candidate generation enforces risk- and taxonomy-aware hard constraints",
+      "status": "supported",
+      "evidence": [
+        "step5/chain_probe_latest.json",
+        "services/routing/chain_candidate_generator.py"
+      ],
+      "notes": "Allowed chains and required core levels are validated per case."
+    },
+    {
+      "claim_id": "r9-claim-03",
+      "title": "Bootstrap routing policy shows positive replay lift on reproducible fixture data",
+      "status": "supported",
+      "evidence": [
+        "step6/replay_dataset_latest.jsonl",
+        "step6/replay_probe_latest.json"
+      ],
+      "notes": "Primary replay score is bootstrap-scored; native bandit replay is supplemental only."
+    },
+    {
+      "claim_id": "r9-claim-04",
+      "title": "Rollback envelope triggers correctly under synthetic failure drills",
+      "status": "supported",
+      "evidence": [
+        "step7/rollback_probe_latest.json",
+        "services/routing/safety_rollback_guard.py"
+      ],
+      "notes": "Quality regression, latency spike, and risk violation all trigger rollback under SLA in the drill suite."
+    },
+    {
+      "claim_id": "r9-claim-05",
+      "title": "Operator-facing control plane exists for local observability and runbook drills",
+      "status": "supported",
+      "evidence": [
+        "step11/dashboard_live_local.html",
+        "step11/dashboard_probe_latest.json",
+        "services/routing/operator_dashboard.py"
+      ],
+      "notes": "Controls are local stubs, so this supports observability/runbook claims rather than production control claims."
+    },
+    {
+      "claim_id": "r9-claim-06",
+      "title": "Production rollout is complete and proven on live traffic",
+      "status": "not_supported",
+      "evidence": [
+        "step9/canary_probe_latest.json",
+        "step10/full_rollout_probe_latest.json"
+      ],
+      "notes": "Current repo evidence supports a bootstrap/controlled rollout slice, not a strong claim of mature live production deployment."
+    }
+  ],
+  "summary": {
+    "supported": 5,
+    "partial": 0,
+    "not_supported": 1
+  }
+}

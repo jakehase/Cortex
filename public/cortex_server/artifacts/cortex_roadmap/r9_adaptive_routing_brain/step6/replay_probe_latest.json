@@ -1,0 +1,583 @@
+{
+  "generated_at": "2026-03-29T19:19:56.100164+00:00",
+  "dataset_path": "artifacts/cortex_roadmap/r9_adaptive_routing_brain/step6/replay_dataset_latest.jsonl",
+  "rows": 90,
+  "replay": {
+    "success": true,
+    "rows": 90,
+    "baseline_avg_quality": 0.7573,
+    "adaptive_avg_quality": 0.8122,
+    "quality_delta": 0.0549,
+    "decisions": [
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:0]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.787
+      },
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:1]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7902
+      },
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:2]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7848
+      },
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:3]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7881
+      },
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:4]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7892
+      },
+      {
+        "query": "Fix this pytest failure in orchestrator runtime analytics [fixture:00:5]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7859
+      },
+      {
+        "query": "Implement a python API bug fix with unit test coverage [fixture:01:0]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.8095
+      },
+      {
+        "query": "Implement a python API bug fix with unit test coverage [fixture:01:1]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.8128
+      },
+      {
+        "query": "Implement a python API bug fix with unit test coverage [fixture:01:2]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.8074
+      },
+      {
+        "query": "Implement a python API bug fix with unit test coverage [fixture:01:3]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.8106
+      },
+      {
+        "query": "Implement a python API bug fix with unit test coverage [fixture:01:4]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.8117
+      },
+      {
+        "query": "Implement a python API bug fix with unit test coverage [fixture:01:5]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.8085
+      },
+      {
+        "query": "Refactor the auth middleware and preserve test coverage [fixture:02:0]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7838
+      },
+      {
+        "query": "Refactor the auth middleware and preserve test coverage [fixture:02:1]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.787
+      },
+      {
+        "query": "Refactor the auth middleware and preserve test coverage [fixture:02:2]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7816
+      },
+      {
+        "query": "Refactor the auth middleware and preserve test coverage [fixture:02:3]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7848
+      },
+      {
+        "query": "Refactor the auth middleware and preserve test coverage [fixture:02:4]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7859
+      },
+      {
+        "query": "Refactor the auth middleware and preserve test coverage [fixture:02:5]",
+        "baseline_chain": "deliberate_council",
+        "selected_chain": "deliberate_council",
+        "utility": 0.7827
+      },
+      {
+        "query": "Research current database outage status and likely mitigation [fixture:03:0]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9292
+      },
+      {
+        "query": "Research current database outage status and likely mitigation [fixture:03:1]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9325
+      },
+      {
+        "query": "Research current database outage status and likely mitigation [fixture:03:2]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9271
+      },
+      {
+        "query": "Research current database outage status and likely mitigation [fixture:03:3]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9303
+      },
+      {
+        "query": "Research current database outage status and likely mitigation [fixture:03:4]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9314
+      },
+      {
+        "query": "Research current database outage status and likely mitigation [fixture:03:5]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9282
+      },
+      {
+        "query": "Research the latest outage status with sources [fixture:04:0]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9207
+      },
+      {
+        "query": "Research the latest outage status with sources [fixture:04:1]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9239
+      },
+      {
+        "query": "Research the latest outage status with sources [fixture:04:2]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9185
+      },
+      {
+        "query": "Research the latest outage status with sources [fixture:04:3]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9217
+      },
+      {
+        "query": "Research the latest outage status with sources [fixture:04:4]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9228
+      },
+      {
+        "query": "Research the latest outage status with sources [fixture:04:5]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9196
+      },
+      {
+        "query": "Compare current vendor pricing with sources [fixture:05:0]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9034
+      },
+      {
+        "query": "Compare current vendor pricing with sources [fixture:05:1]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9067
+      },
+      {
+        "query": "Compare current vendor pricing with sources [fixture:05:2]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9013
+      },
+      {
+        "query": "Compare current vendor pricing with sources [fixture:05:3]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9045
+      },
+      {
+        "query": "Compare current vendor pricing with sources [fixture:05:4]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9056
+      },
+      {
+        "query": "Compare current vendor pricing with sources [fixture:05:5]",
+        "baseline_chain": "research_grounded",
+        "selected_chain": "research_grounded",
+        "utility": 0.9024
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory [fixture:06:0]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8597
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory [fixture:06:1]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.863
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory [fixture:06:2]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8576
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory [fixture:06:3]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8608
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory [fixture:06:4]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8619
+      },
+      {
+        "query": "Brainstorm novel product ideas unrelated to memory [fixture:06:5]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8587
+      },
+      {
+        "query": "Brainstorm three weird but plausible startup concepts [fixture:07:0]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8619
+      },
+      {
+        "query": "Brainstorm three weird but plausible startup concepts [fixture:07:1]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8651
+      },
+      {
+        "query": "Brainstorm three weird but plausible startup concepts [fixture:07:2]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8597
+      },
+      {
+        "query": "Brainstorm three weird but plausible startup concepts [fixture:07:3]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.863
+      },
+      {
+        "query": "Brainstorm three weird but plausible startup concepts [fixture:07:4]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8641
+      },
+      {
+        "query": "Brainstorm three weird but plausible startup concepts [fixture:07:5]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8608
+      },
+      {
+        "query": "Come up with creative names for a devtool [fixture:08:0]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8705
+      },
+      {
+        "query": "Come up with creative names for a devtool [fixture:08:1]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8737
+      },
+      {
+        "query": "Come up with creative names for a devtool [fixture:08:2]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8683
+      },
+      {
+        "query": "Come up with creative names for a devtool [fixture:08:3]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8716
+      },
+      {
+        "query": "Come up with creative names for a devtool [fixture:08:4]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8726
+      },
+      {
+        "query": "Come up with creative names for a devtool [fixture:08:5]",
+        "baseline_chain": "creative_fractal",
+        "selected_chain": "creative_fractal",
+        "utility": 0.8694
+      },
+      {
+        "query": "Remind me in 20 minutes to check the deploy [fixture:09:0]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9624
+      },
+      {
+        "query": "Remind me in 20 minutes to check the deploy [fixture:09:1]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9656
+      },
+      {
+        "query": "Remind me in 20 minutes to check the deploy [fixture:09:2]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9602
+      },
+      {
+        "query": "Remind me in 20 minutes to check the deploy [fixture:09:3]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9635
+      },
+      {
+        "query": "Remind me in 20 minutes to check the deploy [fixture:09:4]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9646
+      },
+      {
+        "query": "Remind me in 20 minutes to check the deploy [fixture:09:5]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9613
+      },
+      {
+        "query": "Remind me tomorrow morning to email the vendor [fixture:10:0]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9517
+      },
+      {
+        "query": "Remind me tomorrow morning to email the vendor [fixture:10:1]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9549
+      },
+      {
+        "query": "Remind me tomorrow morning to email the vendor [fixture:10:2]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9495
+      },
+      {
+        "query": "Remind me tomorrow morning to email the vendor [fixture:10:3]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9528
+      },
+      {
+        "query": "Remind me tomorrow morning to email the vendor [fixture:10:4]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9538
+      },
+      {
+        "query": "Remind me tomorrow morning to email the vendor [fixture:10:5]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "safe_reminder",
+        "utility": 0.9506
+      },
+      {
+        "query": "Set a reminder for lunch to call the contractor [fixture:11:0]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6502
+      },
+      {
+        "query": "Set a reminder for lunch to call the contractor [fixture:11:1]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6535
+      },
+      {
+        "query": "Set a reminder for lunch to call the contractor [fixture:11:2]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6481
+      },
+      {
+        "query": "Set a reminder for lunch to call the contractor [fixture:11:3]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6513
+      },
+      {
+        "query": "Set a reminder for lunch to call the contractor [fixture:11:4]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6524
+      },
+      {
+        "query": "Set a reminder for lunch to call the contractor [fixture:11:5]",
+        "baseline_chain": "safe_reminder",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6492
+      },
+      {
+        "query": "Explain TCP in one paragraph [fixture:12:0]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6008
+      },
+      {
+        "query": "Explain TCP in one paragraph [fixture:12:1]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6041
+      },
+      {
+        "query": "Explain TCP in one paragraph [fixture:12:2]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.5987
+      },
+      {
+        "query": "Explain TCP in one paragraph [fixture:12:3]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6019
+      },
+      {
+        "query": "Explain TCP in one paragraph [fixture:12:4]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.603
+      },
+      {
+        "query": "Explain TCP in one paragraph [fixture:12:5]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.5998
+      },
+      {
+        "query": "Summarize what Redis is for in simple terms [fixture:13:0]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6352
+      },
+      {
+        "query": "Summarize what Redis is for in simple terms [fixture:13:1]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6384
+      },
+      {
+        "query": "Summarize what Redis is for in simple terms [fixture:13:2]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.633
+      },
+      {
+        "query": "Summarize what Redis is for in simple terms [fixture:13:3]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6363
+      },
+      {
+        "query": "Summarize what Redis is for in simple terms [fixture:13:4]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6374
+      },
+      {
+        "query": "Summarize what Redis is for in simple terms [fixture:13:5]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "fastlane_memory",
+        "utility": 0.6341
+      },
+      {
+        "query": "What does HTTP 502 mean? [fixture:14:0]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "research_grounded",
+        "utility": 0.7761
+      },
+      {
+        "query": "What does HTTP 502 mean? [fixture:14:1]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "research_grounded",
+        "utility": 0.7793
+      },
+      {
+        "query": "What does HTTP 502 mean? [fixture:14:2]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "research_grounded",
+        "utility": 0.7739
+      },
+      {
+        "query": "What does HTTP 502 mean? [fixture:14:3]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "research_grounded",
+        "utility": 0.7772
+      },
+      {
+        "query": "What does HTTP 502 mean? [fixture:14:4]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "research_grounded",
+        "utility": 0.7782
+      },
+      {
+        "query": "What does HTTP 502 mean? [fixture:14:5]",
+        "baseline_chain": "fastlane_memory",
+        "selected_chain": "research_grounded",
+        "utility": 0.775
+      }
+    ],
+    "native_replay": {
+      "success": true,
+      "rows": 90,
+      "baseline": {
+        "avg_quality": 0.7954,
+        "avg_tokens": 480
+      },
+      "bandit": {
+        "avg_quality": 0.7746,
+        "avg_tokens": 429
+      },
+      "delta": {
+        "quality": -0.0208,
+        "tokens": -51
+      },
+      "quality_delta": -0.0208,
+      "token_delta": -51
+    }
+  },
+  "significance": {
+    "rows": 90,
+    "delta": 0.0549,
+    "p_value": 0.0326,
+    "significant": true
+  },
+  "gate_pass": true,
+  "notes": [
+    "Fixture replay dataset is synthetic but reproducible.",
+    "Native bandit replay, when available, is reported only as supplemental evidence."
+  ]
+}
