@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from cortex_server.modules import reasoning_explain as explain
 from cortex_server.modules import reasoning_observability as observability
 from cortex_server.modules.governance_arbitration import RUNTIME_CONSTRAINT_PRECEDENCE
 from cortex_server.modules.reasoning_contracts import ExplainAtom, model_dump_compat
@@ -486,6 +487,27 @@ def compile_runtime_shared_response_sections(explained: Optional[JsonDict], *, p
 
 
 
+def compile_epistemic_summary_sections(*, belief_explanations: Optional[List[JsonDict]] = None, decision_explanations: Optional[List[JsonDict]] = None) -> JsonDict:
+    belief_explanations = [dict(row) for row in (belief_explanations or []) if isinstance(row, dict)]
+    decision_explanations = [dict(row) for row in (decision_explanations or []) if isinstance(row, dict)]
+    belief_evidence = explain.belief_evidence_summary(belief_explanations) if belief_explanations else default_belief_evidence_summary()
+    contradiction_graph = explain.contradiction_graph_summary(belief_explanations) if belief_explanations else default_contradiction_graph_summary()
+    decision_causality = explain.decision_causality_summary(decision_explanations) if decision_explanations else default_decision_causality_summary()
+    epistemic_risk = explain.epistemic_risk_summary(belief_explanations) if belief_explanations else default_epistemic_risk_summary()
+    epistemic_core = explain.epistemic_core_summary(
+        belief_explanations=belief_explanations,
+        decision_explanations=decision_explanations,
+    ) if (belief_explanations or decision_explanations) else default_epistemic_core_summary()
+    return {
+        "belief_evidence_summary": belief_evidence,
+        "contradiction_graph_summary": contradiction_graph,
+        "decision_causality_summary": decision_causality,
+        "epistemic_risk_summary": epistemic_risk,
+        "epistemic_core_summary": epistemic_core,
+    }
+
+
+
 def compile_runtime_policy_response_sections(explained: Optional[JsonDict], *, process_id: str) -> JsonDict:
     explained = explained if isinstance(explained, dict) else {}
     sections = compile_runtime_shared_response_sections(explained, process_id=process_id)
@@ -520,6 +542,7 @@ def compile_runtime_postmortem_response_sections(explained: Optional[JsonDict], 
 
 __all__ = [
     "compile_control_plane_summary",
+    "compile_epistemic_summary_sections",
     "compile_explain_atoms",
     "compile_policy_surface_sections",
     "compile_policy_surface_summaries",

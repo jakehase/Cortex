@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cortex_server.modules.explain_compiler import compile_control_plane_summary, compile_explain_atoms, compile_policy_surface_summaries
+from cortex_server.modules.explain_compiler import compile_control_plane_summary, compile_epistemic_summary_sections, compile_explain_atoms, compile_policy_surface_summaries
 from cortex_server.modules.governance_compiler import compile_workflow_policy
 from tests.test_reasoning_restored_phase_integration import RESTORED_METADATA
 
@@ -78,3 +78,34 @@ def test_compile_explain_atoms_surfaces_domain_and_control_plane_atoms():
     assert by_id["explain_atom:truth_engine"]["outcome"] == "match"
     assert by_id["explain_atom:control_plane"]["subsystem"] == "control_plane"
     assert "constraint_decision_count" in by_id["explain_atom:control_plane"]["metadata"]
+
+
+
+def test_compile_epistemic_summary_sections_surfaces_evidence_risk_and_core():
+    belief_explanations = [
+        {
+            "belief": {"claim_id": "claim-1", "confidence": 0.8, "freshness": 0.7, "subject": "svc", "predicate": "status"},
+            "evidence_bundle": {"evidence_count": 2, "source_types": {"monitor": 2}, "weighted_confidence": 0.8, "weighted_freshness": 0.7},
+            "contradiction_summary": {"conflict_count": 1, "ambiguity_score": 0.2},
+            "contradiction_cluster": {"subject": "svc", "predicate": "status", "ambiguity_score": 0.2},
+            "lineage_graph": {"nodes": [{"claim_id": "claim-1"}], "edges": [{"from": "claim-0", "to": "claim-1", "kind": "supersedes"}]},
+            "epistemic_risk": {"risk_level": "medium", "risk_score": 0.33},
+        }
+    ]
+    decision_explanations = [
+        {
+            "domain": "truth_engine",
+            "decision_causality": {"rows": [{"claim_id": "claim-1", "causal_score": 0.88}]},
+        }
+    ]
+
+    sections = compile_epistemic_summary_sections(
+        belief_explanations=belief_explanations,
+        decision_explanations=decision_explanations,
+    )
+
+    assert sections["belief_evidence_summary"]["belief_count"] == 1
+    assert sections["contradiction_graph_summary"]["conflict_count"] == 1
+    assert sections["decision_causality_summary"]["decision_count"] == 1
+    assert sections["epistemic_risk_summary"]["belief_count"] == 1
+    assert sections["epistemic_core_summary"]["operator_summary"]

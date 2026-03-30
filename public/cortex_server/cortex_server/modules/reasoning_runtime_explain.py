@@ -151,10 +151,7 @@ def assemble_runtime_process_explain(
     )
     policy_outcome_summary = explain.policy_outcome_summary(policy_evaluation)
     policy_decision_explanations = explain.policy_decision_explanations(policy, explain_belief_fn=explain_belief_fn, get_belief_fn=get_belief_fn)
-    belief_evidence_summary = explain.belief_evidence_summary(belief_explanations)
-    contradiction_graph_summary = explain.contradiction_graph_summary(belief_explanations)
-    decision_causality_summary = explain.decision_causality_summary(policy_decision_explanations)
-    epistemic_core_summary = explain.epistemic_core_summary(
+    epistemic_sections = explain_compiler.compile_epistemic_summary_sections(
         belief_explanations=belief_explanations,
         decision_explanations=policy_decision_explanations,
     )
@@ -222,10 +219,7 @@ def assemble_runtime_process_explain(
         "beliefs": belief_rows,
         "belief_summary": summary,
         "belief_explanations": belief_explanations,
-        "belief_evidence_summary": belief_evidence_summary,
-        "contradiction_graph_summary": contradiction_graph_summary,
-        "decision_causality_summary": decision_causality_summary,
-        "epistemic_core_summary": epistemic_core_summary,
+        **epistemic_sections,
         "step_belief_influences": step_influences,
         "execution_trace": execution_trace_rows,
         "epistemic_timeline": epistemic_timeline,
