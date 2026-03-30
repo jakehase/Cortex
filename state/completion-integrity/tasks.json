@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T05:11:11.805Z",
+      "updatedAt": "2026-03-30T05:16:27.409Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 263,
+        "runs": 264,
         "failures": [],
-        "lastRunAt": "2026-03-30T05:11:11.813Z",
+        "lastRunAt": "2026-03-30T05:16:27.412Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6322,11 +6322,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774847262698:c40dbdf1a1e34fcb",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-30T05:07:42.698Z",
-      "updatedAt": "2026-03-30T05:07:44.043Z",
+      "updatedAt": "2026-03-30T05:17:42.713Z",
       "prompt": "System: [2026-03-29 23:59:09 CDT] Exec completed (mellow-g, code 0) :: ........................................................................ [ 48%] ........................................................................ [ 96%] ..... [10",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "System: 2026-03-29 23:59:09 CDT Exec completed (mellow-g, code 0) :: ........................................................................ 48% ........................................................................ 96% ..... 100% 149 pa… Sender (",
       "history": [
         {
@@ -6346,6 +6346,14 @@
           "completedAt": "2026-03-30T05:07:44.043Z",
           "completionSummary": "System: 2026-03-29 23:59:09 CDT Exec completed (mellow-g, code 0) :: ........................................................................ 48% ........................................................................ 96% ..... 100% 149 pa… Sender (",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-30T05:17:42.713Z",
+          "failedAt": "2026-03-30T05:17:42.713Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -6366,7 +6374,10 @@
         }
       },
       "completedAt": "2026-03-30T05:07:44.043Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-30T05:17:42.713Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     }
   ]
 }
