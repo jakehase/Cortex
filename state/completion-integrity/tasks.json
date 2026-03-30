@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T05:01:27.231Z",
+      "updatedAt": "2026-03-30T05:06:16.082Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 261,
+        "runs": 262,
         "failures": [],
-        "lastRunAt": "2026-03-30T05:01:27.234Z",
+        "lastRunAt": "2026-03-30T05:06:16.089Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6317,6 +6317,56 @@
       "failedAt": "2026-03-30T04:36:53.720Z",
       "failureReason": "System: [2026-03-29 23:15:49 CDT] Exec completed (swift-re, code 1) :: e) E E At index 2 diff: 'parallel' != 'sequential' E Use -v to get more diff tests/test_reasoning_runtime_r9_integration.py:121: AssertionError =========================== short t… System: [2026-03-29 23:16:38 CDT] Exec completed (fresh-da, code 0) :: ........... [100%] 11 passed in 0.78s System: [2026-03-29 23:17:40 CDT] Exec",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774847262698:c40dbdf1a1e34fcb",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-30T05:07:42.698Z",
+      "updatedAt": "2026-03-30T05:07:44.043Z",
+      "prompt": "System: [2026-03-29 23:59:09 CDT] Exec completed (mellow-g, code 0) :: ........................................................................ [ 48%] ........................................................................ [ 96%] ..... [10",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "System: 2026-03-29 23:59:09 CDT Exec completed (mellow-g, code 0) :: ........................................................................ 48% ........................................................................ 96% ..... 100% 149 pa… Sender (",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-30T05:07:42.698Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-30T05:07:42.703Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-30T05:07:44.043Z",
+          "completedAt": "2026-03-30T05:07:44.043Z",
+          "completionSummary": "System: 2026-03-29 23:59:09 CDT Exec completed (mellow-g, code 0) :: ........................................................................ 48% ........................................................................ 96% ..... 100% 149 pa… Sender (",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-30T05:07:44.045Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "completedAt": "2026-03-30T05:07:44.043Z",
+      "completionSource": "runtime_message"
     }
   ]
 }
