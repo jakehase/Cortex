@@ -1,0 +1,10 @@
+{
+  "version": "workspace.bus.v1",
+  "message": {
+    "topic": "string",
+    "origin": "string",
+    "payload": "object",
+    "salience": "number",
+    "targets": ["string"]
+  }
+}
