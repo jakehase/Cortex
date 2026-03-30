@@ -108,12 +108,60 @@ def _homeostasis_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDi
 
 
 
+def _restored_phase_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
+    policy = policy if isinstance(policy, dict) else {}
+    settings = dict(settings or {})
+    explicit_timeout = settings.get("step_timeout_seconds") is not None
+
+    if bool(settings.get("world_state_runtime_enforce")) and list(settings.get("world_state_low_confidence_entities") or []):
+        settings["verification_mode"] = "strict"
+        settings["world_state_runtime_enforced"] = True
+
+    if bool(settings.get("modulation_runtime_enforce")) and bool(settings.get("modulation_deep_reasoning_required")):
+        settings["max_parallelism"] = min(2, max(1, int(settings.get("max_parallelism", 1) or 1)))
+        settings["same_tick_drain"] = False
+        if not explicit_timeout:
+            depth = int(settings.get("modulation_reasoning_depth", 1) or 1)
+            settings["step_timeout_seconds"] = max(6.0, min(12.0, 3.0 + float(depth)))
+        settings["modulation_runtime_enforced"] = True
+
+    if bool(settings.get("workspace_runtime_enforce")) and str(settings.get("workspace_selected_specialist") or "") == "planner":
+        settings["same_tick_drain"] = False
+        settings["workspace_runtime_enforced"] = True
+
+    if bool(settings.get("truth_engine_runtime_enforce")):
+        action = str(settings.get("truth_guard_action") or "allow")
+        if action in {"clarify", "block"}:
+            settings["verification_mode"] = "strict"
+            settings["same_tick_drain"] = False
+            if action == "block":
+                settings["max_parallelism"] = 1
+            settings["truth_engine_runtime_enforced"] = True
+
+    if bool(settings.get("plasticity_runtime_enforce")) and bool(settings.get("plasticity_alert")):
+        settings["same_tick_drain"] = False
+        settings["max_parallelism"] = min(2, max(1, int(settings.get("max_parallelism", 1) or 1)))
+        settings["plasticity_runtime_enforced"] = True
+
+    if bool(settings.get("embodiment_runtime_enforce")) and bool(settings.get("embodiment_pause_noncritical_work")):
+        settings["execution_mode"] = "sequential"
+        settings["max_parallelism"] = 1
+        settings["same_tick_drain"] = False
+        settings["verification_mode"] = "strict"
+        settings["step_timeout_seconds"] = max(10.0, float(settings.get("step_timeout_seconds") or 0.0))
+        settings["embodiment_runtime_enforced"] = True
+
+    return settings
+
+
+
 def workflow_policy_settings(workflow_metadata: Optional[JsonDict]) -> JsonDict:
     metadata = dict(workflow_metadata or {})
     policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
     settings = policy.get("settings") if isinstance(policy.get("settings"), dict) else {}
     settings = _r9_runtime_overlay(policy, dict(settings))
-    return _homeostasis_runtime_overlay(policy, settings)
+    settings = _homeostasis_runtime_overlay(policy, settings)
+    return _restored_phase_runtime_overlay(policy, settings)
 
 
 
@@ -185,6 +233,141 @@ def runtime_homeostasis_summary(workflow_metadata: Optional[JsonDict]) -> JsonDi
             "step_timeout_seconds": applied.get("step_timeout_seconds"),
             "retry_max_attempts": applied.get("retry_max_attempts"),
             "retry_on_timeout": applied.get("retry_on_timeout"),
+        },
+    }
+
+
+
+def runtime_world_state_summary(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    metadata = dict(workflow_metadata or {})
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    world_state = policy.get("world_state") if isinstance(policy.get("world_state"), dict) else {}
+    if not world_state:
+        return {"enabled": False}
+    applied = workflow_policy_settings(workflow_metadata)
+    return {
+        "enabled": bool(world_state.get("enabled")),
+        "entity_count": int(world_state.get("entity_count", 0) or 0),
+        "kind_set": list(world_state.get("kind_set") or []),
+        "avg_confidence": world_state.get("avg_confidence"),
+        "max_confidence": world_state.get("max_confidence"),
+        "low_confidence_entities": list(world_state.get("low_confidence_entities") or []),
+        "runtime_controls": {
+            "verification_mode": applied.get("verification_mode"),
+            "same_tick_drain": applied.get("same_tick_drain"),
+        },
+    }
+
+
+
+def runtime_modulation_summary(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    metadata = dict(workflow_metadata or {})
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    modulation = policy.get("modulation") if isinstance(policy.get("modulation"), dict) else {}
+    profile = modulation.get("profile") if isinstance(modulation.get("profile"), dict) else {}
+    state = modulation.get("state") if isinstance(modulation.get("state"), dict) else {}
+    if not modulation:
+        return {"enabled": False}
+    applied = workflow_policy_settings(workflow_metadata)
+    return {
+        "enabled": bool(modulation.get("enabled")),
+        "tempo": profile.get("tempo"),
+        "reasoning_depth": profile.get("reasoning_depth"),
+        "deep_reasoning_required": bool(profile.get("deep_reasoning_required")),
+        "focus_gain": state.get("focus_gain"),
+        "learning_gain": state.get("learning_gain"),
+        "runtime_controls": {
+            "max_parallelism": applied.get("max_parallelism"),
+            "same_tick_drain": applied.get("same_tick_drain"),
+            "step_timeout_seconds": applied.get("step_timeout_seconds"),
+        },
+    }
+
+
+
+def runtime_workspace_summary(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    metadata = dict(workflow_metadata or {})
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    workspace = policy.get("workspace") if isinstance(policy.get("workspace"), dict) else {}
+    if not workspace:
+        return {"enabled": False}
+    applied = workflow_policy_settings(workflow_metadata)
+    return {
+        "enabled": bool(workspace.get("enabled")),
+        "selected": workspace.get("selected"),
+        "broadcast_count": int(workspace.get("broadcast_count", 0) or 0),
+        "broadcast_topics": [str(row.get("topic") or "") for row in (workspace.get("broadcast_payload") or []) if isinstance(row, dict) and str(row.get("topic") or "").strip()],
+        "runtime_controls": {
+            "same_tick_drain": applied.get("same_tick_drain"),
+            "execution_mode": applied.get("execution_mode"),
+        },
+    }
+
+
+
+def runtime_truth_engine_summary(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    metadata = dict(workflow_metadata or {})
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    truth_engine = policy.get("truth_engine") if isinstance(policy.get("truth_engine"), dict) else {}
+    if not truth_engine:
+        return {"enabled": False}
+    applied = workflow_policy_settings(workflow_metadata)
+    return {
+        "enabled": bool(truth_engine.get("enabled")),
+        "guard_action": truth_engine.get("guard_action"),
+        "calibrated_confidence": truth_engine.get("calibrated_confidence"),
+        "contradiction_count": truth_engine.get("contradiction_count"),
+        "runtime_controls": {
+            "verification_mode": applied.get("verification_mode"),
+            "same_tick_drain": applied.get("same_tick_drain"),
+            "max_parallelism": applied.get("max_parallelism"),
+        },
+    }
+
+
+
+def runtime_plasticity_summary(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    metadata = dict(workflow_metadata or {})
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    plasticity = policy.get("plasticity") if isinstance(policy.get("plasticity"), dict) else {}
+    metrics = plasticity.get("metrics") if isinstance(plasticity.get("metrics"), dict) else {}
+    if not plasticity:
+        return {"enabled": False}
+    applied = workflow_policy_settings(workflow_metadata)
+    return {
+        "enabled": bool(plasticity.get("enabled")),
+        "alert": bool(plasticity.get("alert")),
+        "rollback_recommended": bool(plasticity.get("rollback_recommended")),
+        "reasons": list(plasticity.get("reasons") or []),
+        "retention_regression_after_update": metrics.get("retention_regression_after_update"),
+        "forward_transfer_gain": metrics.get("forward_transfer_gain"),
+        "runtime_controls": {
+            "same_tick_drain": applied.get("same_tick_drain"),
+            "max_parallelism": applied.get("max_parallelism"),
+        },
+    }
+
+
+
+def runtime_embodiment_summary(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    metadata = dict(workflow_metadata or {})
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    embodiment = policy.get("embodiment") if isinstance(policy.get("embodiment"), dict) else {}
+    regulation = embodiment.get("regulation") if isinstance(embodiment.get("regulation"), dict) else {}
+    if not embodiment:
+        return {"enabled": False}
+    applied = workflow_policy_settings(workflow_metadata)
+    return {
+        "enabled": bool(embodiment.get("enabled")),
+        "risk": embodiment.get("risk"),
+        "pause_noncritical_work": bool(embodiment.get("pause_noncritical_work")),
+        "regulation_mode": regulation.get("mode"),
+        "runtime_controls": {
+            "execution_mode": applied.get("execution_mode"),
+            "max_parallelism": applied.get("max_parallelism"),
+            "same_tick_drain": applied.get("same_tick_drain"),
+            "verification_mode": applied.get("verification_mode"),
+            "step_timeout_seconds": applied.get("step_timeout_seconds"),
         },
     }
 
@@ -283,7 +466,14 @@ async def execute_single_step(
     headers = step.get("headers", {})
     step_timeout = effective_step_timeout(step, workflow_metadata, step_timeout_max_s=step_timeout_max_s)
     policy_settings = workflow_policy_settings(workflow_metadata)
+    routing_summary = runtime_routing_summary(workflow_metadata)
     homeostasis_summary = runtime_homeostasis_summary(workflow_metadata)
+    world_state_summary = runtime_world_state_summary(workflow_metadata)
+    modulation_summary = runtime_modulation_summary(workflow_metadata)
+    workspace_summary = runtime_workspace_summary(workflow_metadata)
+    truth_engine_summary = runtime_truth_engine_summary(workflow_metadata)
+    plasticity_summary = runtime_plasticity_summary(workflow_metadata)
+    embodiment_summary = runtime_embodiment_summary(workflow_metadata)
 
     validate_endpoint_fn(step.get("endpoint", ""))
 
@@ -296,6 +486,16 @@ async def execute_single_step(
         "filters": belief_context.get("filters"),
     }
     request_view = {"payload": payload, "headers": redact_headers_fn(headers), "timeout_s": step_timeout}
+    phase_runtime_summaries = {
+        "routing": routing_summary,
+        "homeostasis": homeostasis_summary,
+        "world_state": world_state_summary,
+        "modulation": modulation_summary,
+        "workspace": workspace_summary,
+        "truth_engine": truth_engine_summary,
+        "plasticity": plasticity_summary,
+        "embodiment": embodiment_summary,
+    }
 
     if not bool(safety.get("allow")):
         return {
@@ -313,6 +513,7 @@ async def execute_single_step(
             "safety": safety,
             "elapsed_ms": 0.0,
             "success": False,
+            **phase_runtime_summaries,
         }
 
     blocked_by = dependency_failures(step, results_by_node)
@@ -333,6 +534,7 @@ async def execute_single_step(
             "safety": safety,
             "elapsed_ms": 0.0,
             "success": False,
+            **phase_runtime_summaries,
         }
 
     contracts = list(step.get("contracts") or [])
@@ -354,6 +556,7 @@ async def execute_single_step(
             "safety": safety,
             "elapsed_ms": 0.0,
             "success": False,
+            **phase_runtime_summaries,
         }
 
     pre_verification = evaluate_contracts(
@@ -377,11 +580,11 @@ async def execute_single_step(
             "error_code": "pre_verification_failed",
             "verification": {"pre": pre_verification, "post": {"ok": True, "count": 0, "results": []}},
             "policy": policy_settings,
-            "homeostasis": homeostasis_summary,
             "belief_context": compact_belief_context,
             "safety": safety,
             "elapsed_ms": 0.0,
             "success": False,
+            **phase_runtime_summaries,
         }
 
     t0 = time.monotonic()
@@ -412,10 +615,9 @@ async def execute_single_step(
             "elapsed_ms": elapsed,
             "success": 200 <= resp.status_code < 400,
             "policy": policy_settings,
-            "routing": routing_summary,
-            "homeostasis": homeostasis_summary,
             "belief_context": compact_belief_context,
             "safety": safety,
+            **phase_runtime_summaries,
         }
         post_verification = evaluate_contracts(
             contracts,
@@ -451,6 +653,7 @@ async def execute_single_step(
             "safety": safety,
             "elapsed_ms": elapsed,
             "success": False,
+            **phase_runtime_summaries,
         }
     except Exception as exc:
         elapsed = round((time.monotonic() - t0) * 1000, 1)
@@ -466,11 +669,11 @@ async def execute_single_step(
             "error": str(exc)[:300],
             "verification": {"pre": pre_verification, "post": {"ok": False, "count": 0, "results": []}},
             "policy": policy_settings,
-            "homeostasis": homeostasis_summary,
             "belief_context": compact_belief_context,
             "safety": safety,
             "elapsed_ms": elapsed,
             "success": False,
+            **phase_runtime_summaries,
         }
 
 
@@ -613,6 +816,18 @@ async def execute_step_with_retry(
             result["routing"] = runtime_routing_summary(workflow_metadata)
         if not isinstance(result.get("homeostasis"), dict):
             result["homeostasis"] = runtime_homeostasis_summary(workflow_metadata)
+        if not isinstance(result.get("world_state"), dict):
+            result["world_state"] = runtime_world_state_summary(workflow_metadata)
+        if not isinstance(result.get("modulation"), dict):
+            result["modulation"] = runtime_modulation_summary(workflow_metadata)
+        if not isinstance(result.get("workspace"), dict):
+            result["workspace"] = runtime_workspace_summary(workflow_metadata)
+        if not isinstance(result.get("truth_engine"), dict):
+            result["truth_engine"] = runtime_truth_engine_summary(workflow_metadata)
+        if not isinstance(result.get("plasticity"), dict):
+            result["plasticity"] = runtime_plasticity_summary(workflow_metadata)
+        if not isinstance(result.get("embodiment"), dict):
+            result["embodiment"] = runtime_embodiment_summary(workflow_metadata)
         result = enrich_failure(result)
         result["attempts"] = attempts
         result["max_attempts"] = max_attempts
@@ -769,6 +984,12 @@ __all__ = [
     "retry_result_matches_policy",
     "runtime_homeostasis_summary",
     "runtime_routing_summary",
+    "runtime_world_state_summary",
+    "runtime_modulation_summary",
+    "runtime_workspace_summary",
+    "runtime_truth_engine_summary",
+    "runtime_plasticity_summary",
+    "runtime_embodiment_summary",
     "step_retry_settings",
     "trim_response_body",
     "workflow_deadline_at",

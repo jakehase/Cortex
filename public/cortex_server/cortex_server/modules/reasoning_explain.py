@@ -127,7 +127,13 @@ def execution_trace(process: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "homeostasis_prefer_chain": ((result.get("homeostasis") or {}).get("prefer_chain") if isinstance(result.get("homeostasis"), dict) else None),
                 "routing_selected_chain": ((result.get("routing") or {}).get("selected_chain") if isinstance(result.get("routing"), dict) else None),
                 "routing_override_reason": ((result.get("routing") or {}).get("override_reason") if isinstance(result.get("routing"), dict) else None),
-                "runtime_step_timeout_seconds": (((result.get("homeostasis") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("homeostasis") or {}).get("runtime_controls"), dict) else (((result.get("routing") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("routing") or {}).get("runtime_controls"), dict) else None)),
+                "world_state_entity_count": ((result.get("world_state") or {}).get("entity_count") if isinstance(result.get("world_state"), dict) else None),
+                "modulation_tempo": ((result.get("modulation") or {}).get("tempo") if isinstance(result.get("modulation"), dict) else None),
+                "workspace_selected": ((result.get("workspace") or {}).get("selected") if isinstance(result.get("workspace"), dict) else None),
+                "truth_guard_action": ((result.get("truth_engine") or {}).get("guard_action") if isinstance(result.get("truth_engine"), dict) else None),
+                "plasticity_alert": ((result.get("plasticity") or {}).get("alert") if isinstance(result.get("plasticity"), dict) else None),
+                "embodiment_risk": ((result.get("embodiment") or {}).get("risk") if isinstance(result.get("embodiment"), dict) else None),
+                "runtime_step_timeout_seconds": (((result.get("homeostasis") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("homeostasis") or {}).get("runtime_controls"), dict) else (((result.get("routing") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("routing") or {}).get("runtime_controls"), dict) else (((result.get("embodiment") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("embodiment") or {}).get("runtime_controls"), dict) else None))),
             }
         )
     return trace
@@ -273,6 +279,101 @@ def policy_outcome_evaluation(*, policy: Dict[str, Any], process: Dict[str, Any]
                 "mode_match": str(observed.get("mode") or "") == str(chosen or ""),
                 "prefer_chain_match": expected.get("prefer_chain") == observed.get("prefer_chain"),
                 "reasoning_depth_match": expected.get("reasoning_depth") == observed.get("reasoning_depth"),
+            }
+        elif domain == "world_state":
+            expected = {
+                "tracked": chosen,
+                "entity_count": (decision.get("inputs") or {}).get("entity_count"),
+            }
+            observed = {
+                "entity_count": settings.get("world_state_entity_count"),
+                "avg_confidence": settings.get("world_state_avg_confidence"),
+                "low_confidence_entities": settings.get("world_state_low_confidence_entities"),
+                "verification_mode": settings.get("verification_mode"),
+            }
+            outcome = "match" if (chosen == "tracked" and int(observed.get("entity_count", 0) or 0) >= 1) or (chosen == "empty" and int(observed.get("entity_count", 0) or 0) == 0) else "mismatch"
+            comparison = {
+                "entity_count_match": int(observed.get("entity_count", 0) or 0) == int(expected.get("entity_count", 0) or 0),
+                "tracked_match": outcome == "match",
+            }
+        elif domain == "modulation":
+            expected = {
+                "tempo": chosen,
+                "reasoning_depth": (decision.get("inputs") or {}).get("reasoning_depth"),
+            }
+            observed = {
+                "tempo": settings.get("modulation_tempo"),
+                "reasoning_depth": settings.get("modulation_reasoning_depth"),
+                "deep_reasoning_required": settings.get("modulation_deep_reasoning_required"),
+                "step_timeout_seconds": settings.get("step_timeout_seconds"),
+            }
+            outcome = "match" if observed.get("tempo") == chosen else "mismatch"
+            comparison = {
+                "tempo_match": observed.get("tempo") == chosen,
+                "reasoning_depth_match": observed.get("reasoning_depth") == expected.get("reasoning_depth"),
+            }
+        elif domain == "workspace":
+            expected = {
+                "selected": chosen,
+                "broadcast_count": (decision.get("inputs") or {}).get("broadcast_count"),
+            }
+            observed = {
+                "selected": settings.get("workspace_selected_specialist"),
+                "broadcast_count": settings.get("workspace_broadcast_count"),
+                "same_tick_drain": settings.get("same_tick_drain"),
+            }
+            outcome = "match" if observed.get("selected") == chosen else "mismatch"
+            comparison = {
+                "selected_match": observed.get("selected") == chosen,
+                "broadcast_count_match": observed.get("broadcast_count") == expected.get("broadcast_count"),
+            }
+        elif domain == "truth_engine":
+            expected = {
+                "guard_action": chosen,
+                "calibrated_confidence": (decision.get("inputs") or {}).get("calibrated_confidence"),
+            }
+            observed = {
+                "guard_action": settings.get("truth_guard_action"),
+                "calibrated_confidence": settings.get("truth_calibrated_confidence"),
+                "contradiction_count": settings.get("truth_contradiction_count"),
+                "verification_mode": settings.get("verification_mode"),
+            }
+            outcome = "match" if observed.get("guard_action") == chosen else "mismatch"
+            comparison = {
+                "guard_action_match": observed.get("guard_action") == chosen,
+                "confidence_match": observed.get("calibrated_confidence") == expected.get("calibrated_confidence"),
+            }
+        elif domain == "plasticity":
+            expected = {
+                "state": chosen,
+                "rollback_recommended": (decision.get("inputs") or {}).get("rollback_recommended"),
+            }
+            observed = {
+                "alert": settings.get("plasticity_alert"),
+                "rollback_recommended": settings.get("plasticity_rollback_recommended"),
+                "reasons": settings.get("plasticity_reasons"),
+            }
+            observed_state = "alert" if bool(observed.get("alert")) else "stable"
+            outcome = "match" if observed_state == chosen else "mismatch"
+            comparison = {
+                "state_match": observed_state == chosen,
+                "rollback_match": observed.get("rollback_recommended") == expected.get("rollback_recommended"),
+            }
+        elif domain == "embodiment":
+            expected = {
+                "risk": chosen,
+                "pause_noncritical_work": (decision.get("inputs") or {}).get("pause_noncritical_work"),
+            }
+            observed = {
+                "risk": settings.get("embodiment_risk"),
+                "pause_noncritical_work": settings.get("embodiment_pause_noncritical_work"),
+                "execution_mode": settings.get("execution_mode"),
+                "verification_mode": settings.get("verification_mode"),
+            }
+            outcome = "match" if observed.get("risk") == chosen else "mismatch"
+            comparison = {
+                "risk_match": observed.get("risk") == chosen,
+                "pause_match": observed.get("pause_noncritical_work") == expected.get("pause_noncritical_work"),
             }
         evaluations.append({
             "domain": domain,
