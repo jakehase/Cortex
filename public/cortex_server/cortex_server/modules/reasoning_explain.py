@@ -125,7 +125,9 @@ def execution_trace(process: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "produced_belief_count": int(result.get("produced_belief_count", 0) or 0),
                 "homeostasis_mode": ((result.get("homeostasis") or {}).get("mode") if isinstance(result.get("homeostasis"), dict) else None),
                 "homeostasis_prefer_chain": ((result.get("homeostasis") or {}).get("prefer_chain") if isinstance(result.get("homeostasis"), dict) else None),
-                "runtime_step_timeout_seconds": (((result.get("homeostasis") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("homeostasis") or {}).get("runtime_controls"), dict) else None),
+                "routing_selected_chain": ((result.get("routing") or {}).get("selected_chain") if isinstance(result.get("routing"), dict) else None),
+                "routing_override_reason": ((result.get("routing") or {}).get("override_reason") if isinstance(result.get("routing"), dict) else None),
+                "runtime_step_timeout_seconds": (((result.get("homeostasis") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("homeostasis") or {}).get("runtime_controls"), dict) else (((result.get("routing") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("routing") or {}).get("runtime_controls"), dict) else None)),
             }
         )
     return trace

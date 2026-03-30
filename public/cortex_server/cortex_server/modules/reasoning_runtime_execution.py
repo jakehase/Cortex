@@ -25,6 +25,9 @@ ExecuteStepWithRetryFn = Callable[..., Awaitable[JsonDict]]
 WorkflowPolicySettingsFn = Callable[[Optional[JsonDict]], JsonDict]
 CancelledStepResultFn = Callable[[JsonDict], JsonDict]
 
+_R9_DELIBERATE_CHAINS = {"deliberate_council", "research_grounded"}
+_R9_FASTLANE_CHAINS = {"fastlane_memory", "safe_reminder"}
+
 
 def trim_response_body(body: Any, *, max_chars: int) -> Any:
     if isinstance(body, str):
@@ -33,6 +36,34 @@ def trim_response_body(body: Any, *, max_chars: int) -> Any:
         return json.loads(json.dumps(body)[:max_chars])
     except Exception:
         return str(body)[:max_chars]
+
+
+
+def _r9_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
+    policy = policy if isinstance(policy, dict) else {}
+    settings = dict(settings or {})
+    routing_r9 = policy.get("routing_r9") if isinstance(policy.get("routing_r9"), dict) else {}
+    if not bool(routing_r9.get("enabled")):
+        return settings
+
+    selected_chain = str(settings.get("routing_selected_chain") or routing_r9.get("selected_chain") or "")
+    explicit_timeout = settings.get("step_timeout_seconds") is not None
+    if selected_chain in _R9_DELIBERATE_CHAINS:
+        if selected_chain == "research_grounded":
+            settings["execution_mode"] = "sequential"
+            settings["same_tick_drain"] = False
+            settings["retry_on_timeout"] = True
+            settings["retry_max_attempts"] = max(2, int(settings.get("retry_max_attempts", 1) or 1))
+            if not explicit_timeout:
+                settings["step_timeout_seconds"] = 8.0
+        elif not explicit_timeout:
+            settings["step_timeout_seconds"] = 6.0
+        settings["routing_runtime_enforced"] = True
+    elif selected_chain in _R9_FASTLANE_CHAINS:
+        if not explicit_timeout:
+            settings["step_timeout_seconds"] = 5.0 if selected_chain == "safe_reminder" else 4.0
+        settings["routing_runtime_enforced"] = True
+    return settings
 
 
 
@@ -81,7 +112,8 @@ def workflow_policy_settings(workflow_metadata: Optional[JsonDict]) -> JsonDict:
     metadata = dict(workflow_metadata or {})
     policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
     settings = policy.get("settings") if isinstance(policy.get("settings"), dict) else {}
-    return _homeostasis_runtime_overlay(policy, dict(settings))
+    settings = _r9_runtime_overlay(policy, dict(settings))
+    return _homeostasis_runtime_overlay(policy, settings)
 
 
 
@@ -96,6 +128,33 @@ def effective_step_timeout(step: JsonDict, workflow_metadata: Optional[JsonDict]
         return min(step_timeout_max_s, max(0.1, float(chosen)))
     except Exception:
         return step_timeout_max_s
+
+
+
+def runtime_routing_summary(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    metadata = dict(workflow_metadata or {})
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    routing_r9 = policy.get("routing_r9") if isinstance(policy.get("routing_r9"), dict) else {}
+    if not routing_r9:
+        return {"enabled": False}
+    applied = workflow_policy_settings(workflow_metadata)
+    return {
+        "enabled": bool(routing_r9.get("enabled")),
+        "selected_chain": applied.get("routing_selected_chain") or routing_r9.get("selected_chain"),
+        "default_chain": routing_r9.get("default_chain"),
+        "allowed_chain_ids": list(routing_r9.get("allowed_chain_ids") or []),
+        "coarse_choice": routing_r9.get("coarse_choice"),
+        "utility": routing_r9.get("utility"),
+        "estimated_quality": routing_r9.get("estimated_quality"),
+        "override_reason": applied.get("routing_override_reason"),
+        "runtime_controls": {
+            "execution_mode": applied.get("execution_mode"),
+            "same_tick_drain": applied.get("same_tick_drain"),
+            "step_timeout_seconds": applied.get("step_timeout_seconds"),
+            "retry_max_attempts": applied.get("retry_max_attempts"),
+            "retry_on_timeout": applied.get("retry_on_timeout"),
+        },
+    }
 
 
 
@@ -353,6 +412,7 @@ async def execute_single_step(
             "elapsed_ms": elapsed,
             "success": 200 <= resp.status_code < 400,
             "policy": policy_settings,
+            "routing": routing_summary,
             "homeostasis": homeostasis_summary,
             "belief_context": compact_belief_context,
             "safety": safety,
@@ -549,6 +609,8 @@ async def execute_step_with_retry(
             }
         if not isinstance(result.get("policy"), dict):
             result["policy"] = workflow_policy_settings(workflow_metadata)
+        if not isinstance(result.get("routing"), dict):
+            result["routing"] = runtime_routing_summary(workflow_metadata)
         if not isinstance(result.get("homeostasis"), dict):
             result["homeostasis"] = runtime_homeostasis_summary(workflow_metadata)
         result = enrich_failure(result)
@@ -705,6 +767,8 @@ __all__ = [
     "execute_step_with_retry",
     "execute_workflow",
     "retry_result_matches_policy",
+    "runtime_homeostasis_summary",
+    "runtime_routing_summary",
     "step_retry_settings",
     "trim_response_body",
     "workflow_deadline_at",

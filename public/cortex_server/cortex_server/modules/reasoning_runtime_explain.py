@@ -50,6 +50,31 @@ def policy_patch_history(events: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 
+def _routing_r9_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
+    policy = policy if isinstance(policy, dict) else {}
+    routing_r9 = policy.get("routing_r9") if isinstance(policy.get("routing_r9"), dict) else {}
+    if not routing_r9:
+        return {
+            "enabled": False,
+            "selected_chain": None,
+            "operator_summary": "r9 routing unavailable",
+        }
+    return {
+        "enabled": bool(routing_r9.get("enabled")),
+        "selected_chain": routing_r9.get("selected_chain"),
+        "default_chain": routing_r9.get("default_chain"),
+        "allowed_chain_ids": list(routing_r9.get("allowed_chain_ids") or []),
+        "coarse_choice": routing_r9.get("coarse_choice"),
+        "utility": routing_r9.get("utility"),
+        "estimated_quality": routing_r9.get("estimated_quality"),
+        "operator_summary": (
+            f"r9 chain={routing_r9.get('selected_chain')} coarse={routing_r9.get('coarse_choice')} "
+            f"utility={routing_r9.get('utility')}"
+        ),
+    }
+
+
+
 def _homeostasis_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
     policy = policy if isinstance(policy, dict) else {}
     homeostasis = policy.get("homeostasis") if isinstance(policy.get("homeostasis"), dict) else {}
@@ -240,6 +265,8 @@ def assemble_runtime_process_explain(
         "process_id": process_id,
         "process": process,
         "policy": policy,
+        "routing_r9": policy.get("routing_r9") if isinstance(policy, dict) else {},
+        "routing_r9_summary": _routing_r9_summary(policy),
         "homeostasis": policy.get("homeostasis") if isinstance(policy, dict) else {},
         "homeostasis_summary": _homeostasis_summary(policy),
         "policy_belief_influences": policy.get("belief_influences") if isinstance(policy, dict) else [],
@@ -348,6 +375,8 @@ def assemble_runtime_policy_response(
         "success": True,
         "process_id": process_id,
         "policy": policy,
+        "routing_r9": policy.get("routing_r9") if isinstance(policy, dict) else {},
+        "routing_r9_summary": explained.get("routing_r9_summary") or _routing_r9_summary(policy),
         "homeostasis": policy.get("homeostasis") if isinstance(policy, dict) else {},
         "homeostasis_summary": explained.get("homeostasis_summary") or _homeostasis_summary(policy),
         "belief_influences": policy.get("belief_influences") if isinstance(policy, dict) else [],
