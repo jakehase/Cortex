@@ -218,6 +218,7 @@ def assemble_runtime_process_explain(
         "policy_decision_explanations": policy_decision_explanations,
         "policy_outcome_evaluation": policy_evaluation,
         "policy_outcome_summary": policy_outcome_summary,
+        "explain_atoms": policy_surface_sections.get("explain_atoms") or explain_compiler.compile_explain_atoms(policy, policy_outcome_evaluation=policy_evaluation),
         "beliefs": belief_rows,
         "belief_summary": summary,
         "belief_explanations": belief_explanations,
@@ -312,6 +313,7 @@ def assemble_runtime_policy_response(
         "decision_explanations": explained.get("policy_decision_explanations") or explain.policy_decision_explanations(policy, explain_belief_fn=explain_belief_fn, get_belief_fn=get_belief_fn),
         "policy_outcome_evaluation": explained.get("policy_outcome_evaluation"),
         "control_plane_summary": explained.get("control_plane_summary") or policy_surface_sections.get("control_plane_summary"),
+        "explain_atoms": explained.get("explain_atoms") or policy_surface_sections.get("explain_atoms") or explain_compiler.compile_explain_atoms(policy, policy_outcome_evaluation=explained.get("policy_outcome_evaluation") if isinstance(explained.get("policy_outcome_evaluation"), list) else None),
         "epistemic_timeline": explained.get("epistemic_timeline"),
         **response_sections,
     }

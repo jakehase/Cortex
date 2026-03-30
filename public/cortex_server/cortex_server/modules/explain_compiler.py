@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from cortex_server.modules import reasoning_observability as observability
 from cortex_server.modules.governance_arbitration import RUNTIME_CONSTRAINT_PRECEDENCE
+from cortex_server.modules.reasoning_contracts import ExplainAtom, model_dump_compat
 from cortex_server.modules.runtime_constraint_compiler import compile_runtime_constraint_settings
 
 
@@ -253,6 +254,7 @@ def compile_policy_surface_sections(policy: JsonDict, *, policy_outcome_evaluati
         "belief_influences": policy.get("belief_influences") if isinstance(policy.get("belief_influences"), list) else [],
         "subsystem_activations": [dict(row) for row in (policy.get("subsystem_activations") or []) if isinstance(row, dict)],
         "control_plane_summary": compile_control_plane_summary(policy, policy_outcome_evaluation=policy_outcome_evaluation),
+        "explain_atoms": compile_explain_atoms(policy, policy_outcome_evaluation=policy_outcome_evaluation),
     }
 
 
@@ -295,6 +297,61 @@ def compile_control_plane_summary(policy: JsonDict, *, policy_outcome_evaluation
             f"constraint_decisions={len(decisions)} mismatches={len(mismatches)}"
         ),
     }
+
+
+
+def compile_explain_atoms(policy: JsonDict, *, policy_outcome_evaluation: Optional[List[JsonDict]] = None) -> List[JsonDict]:
+    policy = policy if isinstance(policy, dict) else {}
+    rows = [dict(row) for row in (policy_outcome_evaluation or []) if isinstance(row, dict)]
+    control_plane = compile_control_plane_summary(policy, policy_outcome_evaluation=rows)
+    atoms: List[JsonDict] = []
+    for row in rows:
+        domain = str(row.get("domain") or "unknown")
+        chosen = row.get("chosen")
+        outcome = str(row.get("outcome") or "observed")
+        expected = row.get("expected") if isinstance(row.get("expected"), dict) else {}
+        observed = row.get("observed") if isinstance(row.get("observed"), dict) else {}
+        comparison = row.get("comparison") if isinstance(row.get("comparison"), dict) else {}
+        mismatch_reason = None
+        if outcome == "mismatch":
+            mismatch_reason = ", ".join(sorted([str(key) for key, value in comparison.items() if value is False])) or "comparison_mismatch"
+        atoms.append(
+            model_dump_compat(
+                ExplainAtom(
+                    explain_id=f"explain_atom:{domain}",
+                    subsystem=domain,
+                    title=f"{domain} outcome={outcome}",
+                    expected_effect=f"chosen={chosen}; expected={expected}",
+                    observed_effect=f"observed={observed}",
+                    outcome=outcome if outcome in {"match", "mismatch", "observed", "unclear"} else "observed",
+                    mismatch_reason=mismatch_reason,
+                    metadata={
+                        "chosen": chosen,
+                        "comparison": comparison,
+                        "operator_summary": row.get("operator_summary"),
+                    },
+                )
+            )
+        )
+    atoms.append(
+        model_dump_compat(
+            ExplainAtom(
+                explain_id="explain_atom:control_plane",
+                subsystem="control_plane",
+                title="control plane constraint summary",
+                expected_effect=f"precedence={control_plane.get('constraint_precedence')}",
+                observed_effect=f"owners={control_plane.get('constraint_field_owners')}",
+                outcome="observed",
+                metadata={
+                    "constraint_decision_count": len(control_plane.get("constraint_decisions") or []),
+                    "active_subsystems": list(control_plane.get("active_subsystems") or []),
+                    "mismatch_domains": list(control_plane.get("mismatch_domains") or []),
+                    "operator_summary": control_plane.get("operator_summary"),
+                },
+            )
+        )
+    )
+    return atoms
 
 
 
@@ -463,6 +520,7 @@ def compile_runtime_postmortem_response_sections(explained: Optional[JsonDict], 
 
 __all__ = [
     "compile_control_plane_summary",
+    "compile_explain_atoms",
     "compile_policy_surface_sections",
     "compile_policy_surface_summaries",
     "compile_runtime_policy_response_sections",
