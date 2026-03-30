@@ -236,6 +236,26 @@ def compile_policy_surface_summaries(policy: JsonDict) -> JsonDict:
 
 
 
+def compile_policy_surface_sections(policy: JsonDict, *, policy_outcome_evaluation: Optional[List[JsonDict]] = None) -> JsonDict:
+    policy = policy if isinstance(policy, dict) else {}
+    summaries = compile_policy_surface_summaries(policy)
+    return {
+        "routing_r9": policy.get("routing_r9") if isinstance(policy.get("routing_r9"), dict) else {},
+        "homeostasis": policy.get("homeostasis") if isinstance(policy.get("homeostasis"), dict) else {},
+        "world_state": policy.get("world_state") if isinstance(policy.get("world_state"), dict) else {},
+        "modulation": policy.get("modulation") if isinstance(policy.get("modulation"), dict) else {},
+        "workspace": policy.get("workspace") if isinstance(policy.get("workspace"), dict) else {},
+        "truth_engine": policy.get("truth_engine") if isinstance(policy.get("truth_engine"), dict) else {},
+        "plasticity": policy.get("plasticity") if isinstance(policy.get("plasticity"), dict) else {},
+        "embodiment": policy.get("embodiment") if isinstance(policy.get("embodiment"), dict) else {},
+        **summaries,
+        "belief_influences": policy.get("belief_influences") if isinstance(policy.get("belief_influences"), list) else [],
+        "subsystem_activations": [dict(row) for row in (policy.get("subsystem_activations") or []) if isinstance(row, dict)],
+        "control_plane_summary": compile_control_plane_summary(policy, policy_outcome_evaluation=policy_outcome_evaluation),
+    }
+
+
+
 def _infer_constraint_field_owners(settings: JsonDict, field_owners: JsonDict, precedence: List[str]) -> JsonDict:
     owners = dict(field_owners or {})
     settings = settings if isinstance(settings, dict) else {}
@@ -278,6 +298,7 @@ def compile_control_plane_summary(policy: JsonDict, *, policy_outcome_evaluation
 
 __all__ = [
     "compile_control_plane_summary",
+    "compile_policy_surface_sections",
     "compile_policy_surface_summaries",
     "embodiment_summary",
     "homeostasis_summary",

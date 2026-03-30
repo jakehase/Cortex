@@ -51,203 +51,6 @@ def policy_patch_history(events: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 
-def _routing_r9_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
-    policy = policy if isinstance(policy, dict) else {}
-    routing_r9 = policy.get("routing_r9") if isinstance(policy.get("routing_r9"), dict) else {}
-    if not routing_r9:
-        return {
-            "enabled": False,
-            "selected_chain": None,
-            "operator_summary": "r9 routing unavailable",
-        }
-    return {
-        "enabled": bool(routing_r9.get("enabled")),
-        "selected_chain": routing_r9.get("selected_chain"),
-        "default_chain": routing_r9.get("default_chain"),
-        "allowed_chain_ids": list(routing_r9.get("allowed_chain_ids") or []),
-        "coarse_choice": routing_r9.get("coarse_choice"),
-        "utility": routing_r9.get("utility"),
-        "estimated_quality": routing_r9.get("estimated_quality"),
-        "operator_summary": (
-            f"r9 chain={routing_r9.get('selected_chain')} coarse={routing_r9.get('coarse_choice')} "
-            f"utility={routing_r9.get('utility')}"
-        ),
-    }
-
-
-
-def _homeostasis_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
-    policy = policy if isinstance(policy, dict) else {}
-    homeostasis = policy.get("homeostasis") if isinstance(policy.get("homeostasis"), dict) else {}
-    effort = homeostasis.get("effort") if isinstance(homeostasis.get("effort"), dict) else {}
-    guardrails = homeostasis.get("guardrails") if isinstance(homeostasis.get("guardrails"), dict) else {}
-    if not homeostasis:
-        return {
-            "enabled": False,
-            "mode": None,
-            "intent": None,
-            "risk_tier": None,
-            "prefer_chain": None,
-            "reasoning_depth": None,
-            "operator_summary": "homeostasis unavailable",
-        }
-    return {
-        "enabled": bool(homeostasis.get("enabled")),
-        "mode": homeostasis.get("mode"),
-        "intent": homeostasis.get("intent"),
-        "risk_tier": homeostasis.get("risk_tier"),
-        "prefer_chain": guardrails.get("prefer_chain"),
-        "reasoning_depth": effort.get("reasoning_depth"),
-        "human_review_required": bool(effort.get("human_review_required")),
-        "escalation_recommended": bool(effort.get("escalation_recommended")),
-        "mode_reasons": list(homeostasis.get("mode_reasons") or []),
-        "operator_summary": (
-            f"homeostasis mode={homeostasis.get('mode')} intent={homeostasis.get('intent')} "
-            f"risk={homeostasis.get('risk_tier')} prefer_chain={guardrails.get('prefer_chain')} "
-            f"depth={effort.get('reasoning_depth')}"
-        ),
-    }
-
-
-
-def _world_state_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
-    policy = policy if isinstance(policy, dict) else {}
-    world_state = policy.get("world_state") if isinstance(policy.get("world_state"), dict) else {}
-    if not world_state:
-        return {
-            "enabled": False,
-            "entity_count": 0,
-            "operator_summary": "world state unavailable",
-        }
-    return {
-        "enabled": bool(world_state.get("enabled")),
-        "entity_count": int(world_state.get("entity_count", 0) or 0),
-        "kind_set": list(world_state.get("kind_set") or []),
-        "avg_confidence": world_state.get("avg_confidence"),
-        "max_confidence": world_state.get("max_confidence"),
-        "low_confidence_entities": list(world_state.get("low_confidence_entities") or []),
-        "operator_summary": (
-            f"world_state entities={world_state.get('entity_count', 0)} "
-            f"avg_conf={world_state.get('avg_confidence')} low_conf={len(world_state.get('low_confidence_entities') or [])}"
-        ),
-    }
-
-
-
-def _modulation_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
-    policy = policy if isinstance(policy, dict) else {}
-    modulation = policy.get("modulation") if isinstance(policy.get("modulation"), dict) else {}
-    profile = modulation.get("profile") if isinstance(modulation.get("profile"), dict) else {}
-    state = modulation.get("state") if isinstance(modulation.get("state"), dict) else {}
-    if not modulation:
-        return {
-            "enabled": False,
-            "tempo": None,
-            "reasoning_depth": None,
-            "operator_summary": "modulation unavailable",
-        }
-    return {
-        "enabled": bool(modulation.get("enabled")),
-        "tempo": profile.get("tempo"),
-        "reasoning_depth": profile.get("reasoning_depth"),
-        "deep_reasoning_required": bool(profile.get("deep_reasoning_required")),
-        "focus_gain": state.get("focus_gain"),
-        "learning_gain": state.get("learning_gain"),
-        "operator_summary": (
-            f"modulation tempo={profile.get('tempo')} depth={profile.get('reasoning_depth')} "
-            f"deep={profile.get('deep_reasoning_required')}"
-        ),
-    }
-
-
-
-def _workspace_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
-    policy = policy if isinstance(policy, dict) else {}
-    workspace = policy.get("workspace") if isinstance(policy.get("workspace"), dict) else {}
-    if not workspace:
-        return {
-            "enabled": False,
-            "selected": None,
-            "operator_summary": "workspace unavailable",
-        }
-    return {
-        "enabled": bool(workspace.get("enabled")),
-        "selected": workspace.get("selected"),
-        "broadcast_count": int(workspace.get("broadcast_count", 0) or 0),
-        "broadcast_topics": [str(row.get("topic") or "") for row in (workspace.get("broadcast_payload") or []) if isinstance(row, dict) and str(row.get("topic") or "").strip()],
-        "operator_summary": f"workspace specialist={workspace.get('selected')} broadcasts={workspace.get('broadcast_count', 0)}",
-    }
-
-
-
-def _truth_engine_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
-    policy = policy if isinstance(policy, dict) else {}
-    truth_engine = policy.get("truth_engine") if isinstance(policy.get("truth_engine"), dict) else {}
-    if not truth_engine:
-        return {
-            "enabled": False,
-            "guard_action": None,
-            "operator_summary": "truth engine unavailable",
-        }
-    return {
-        "enabled": bool(truth_engine.get("enabled")),
-        "guard_action": truth_engine.get("guard_action"),
-        "calibrated_confidence": truth_engine.get("calibrated_confidence"),
-        "contradiction_count": truth_engine.get("contradiction_count"),
-        "operator_summary": (
-            f"truth_engine action={truth_engine.get('guard_action')} conf={truth_engine.get('calibrated_confidence')} "
-            f"contradictions={truth_engine.get('contradiction_count')}"
-        ),
-    }
-
-
-
-def _plasticity_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
-    policy = policy if isinstance(policy, dict) else {}
-    plasticity = policy.get("plasticity") if isinstance(policy.get("plasticity"), dict) else {}
-    metrics = plasticity.get("metrics") if isinstance(plasticity.get("metrics"), dict) else {}
-    if not plasticity:
-        return {
-            "enabled": False,
-            "alert": False,
-            "operator_summary": "plasticity unavailable",
-        }
-    return {
-        "enabled": bool(plasticity.get("enabled")),
-        "alert": bool(plasticity.get("alert")),
-        "rollback_recommended": bool(plasticity.get("rollback_recommended")),
-        "reasons": list(plasticity.get("reasons") or []),
-        "retention_regression_after_update": metrics.get("retention_regression_after_update"),
-        "forward_transfer_gain": metrics.get("forward_transfer_gain"),
-        "operator_summary": (
-            f"plasticity alert={plasticity.get('alert')} rollback={plasticity.get('rollback_recommended')} "
-            f"reasons={list(plasticity.get('reasons') or [])}"
-        ),
-    }
-
-
-
-def _embodiment_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
-    policy = policy if isinstance(policy, dict) else {}
-    embodiment = policy.get("embodiment") if isinstance(policy.get("embodiment"), dict) else {}
-    regulation = embodiment.get("regulation") if isinstance(embodiment.get("regulation"), dict) else {}
-    if not embodiment:
-        return {
-            "enabled": False,
-            "risk": None,
-            "operator_summary": "embodiment unavailable",
-        }
-    return {
-        "enabled": bool(embodiment.get("enabled")),
-        "risk": embodiment.get("risk"),
-        "pause_noncritical_work": bool(embodiment.get("pause_noncritical_work")),
-        "regulation_mode": regulation.get("mode"),
-        "operator_summary": (
-            f"embodiment risk={embodiment.get('risk')} pause_noncritical={embodiment.get('pause_noncritical_work')} "
-            f"regulation={regulation.get('mode')}"
-        ),
-    }
-
 
 
 def assemble_runtime_process_explain(
@@ -355,8 +158,7 @@ def assemble_runtime_process_explain(
         belief_explanations=belief_explanations,
         decision_explanations=policy_decision_explanations,
     )
-    policy_surface_summaries = explain_compiler.compile_policy_surface_summaries(policy)
-    control_plane_summary = explain_compiler.compile_control_plane_summary(
+    policy_surface_sections = explain_compiler.compile_policy_surface_sections(
         policy,
         policy_outcome_evaluation=policy_evaluation,
     )
@@ -411,27 +213,11 @@ def assemble_runtime_process_explain(
         "process_id": process_id,
         "process": process,
         "policy": policy,
-        "routing_r9": policy.get("routing_r9") if isinstance(policy, dict) else {},
-        "routing_r9_summary": policy_surface_summaries.get("routing_r9_summary"),
-        "homeostasis": policy.get("homeostasis") if isinstance(policy, dict) else {},
-        "homeostasis_summary": policy_surface_summaries.get("homeostasis_summary"),
-        "world_state": policy.get("world_state") if isinstance(policy, dict) else {},
-        "world_state_summary": policy_surface_summaries.get("world_state_summary"),
-        "modulation": policy.get("modulation") if isinstance(policy, dict) else {},
-        "modulation_summary": policy_surface_summaries.get("modulation_summary"),
-        "workspace": policy.get("workspace") if isinstance(policy, dict) else {},
-        "workspace_summary": policy_surface_summaries.get("workspace_summary"),
-        "truth_engine": policy.get("truth_engine") if isinstance(policy, dict) else {},
-        "truth_engine_summary": policy_surface_summaries.get("truth_engine_summary"),
-        "plasticity": policy.get("plasticity") if isinstance(policy, dict) else {},
-        "plasticity_summary": policy_surface_summaries.get("plasticity_summary"),
-        "embodiment": policy.get("embodiment") if isinstance(policy, dict) else {},
-        "embodiment_summary": policy_surface_summaries.get("embodiment_summary"),
+        **policy_surface_sections,
         "policy_belief_influences": policy.get("belief_influences") if isinstance(policy, dict) else [],
         "policy_decision_explanations": policy_decision_explanations,
         "policy_outcome_evaluation": policy_evaluation,
         "policy_outcome_summary": policy_outcome_summary,
-        "control_plane_summary": control_plane_summary,
         "beliefs": belief_rows,
         "belief_summary": summary,
         "belief_explanations": belief_explanations,
