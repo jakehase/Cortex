@@ -2867,7 +2867,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:25:51.235Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T01:01:14.551Z",
+      "updatedAt": "2026-03-30T01:06:28.571Z",
       "history": [
         {
           "from": null,
@@ -2885,9 +2885,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 213,
+        "runs": 214,
         "failures": [],
-        "lastRunAt": "2026-03-30T01:01:14.558Z",
+        "lastRunAt": "2026-03-30T01:06:28.580Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6071,6 +6071,52 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-30T00:56:17.481Z",
       "failureReason": "System: [2026-03-29 19:42:54 CDT] Exec completed (briny-tr, code 1) :: _runtime_policy_explain_includes_operator_summaries FAILED tests/test_orchestrator_runtime.py::test_policy_explain_includes_policy_outcome_evaluation FAILED tests/test_orchestrato… System: [2026-03-29 19:43:45 CDT] Exec completed (mild-cru, code 1) :: r object test_runtime_policy_explain_route_returns_decision_belief_links.<loc",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774832939784:6a90e580c197ddde",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-30T01:08:59.784Z",
+      "updatedAt": "2026-03-30T01:09:04.721Z",
+      "prompt": "System: [2026-03-29 20:01:27 CDT] Exec completed (sharp-cl, code 1) :: protective\" E AssertionError: assert None == 'protective' tests/test_reasoning_runtime_homeostasis.py:139: AssertionError =========================== short test summary ",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-30T01:08:59.784Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-30T01:08:59.788Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-03-30T01:09:04.721Z",
+          "failedAt": "2026-03-30T01:09:04.721Z",
+          "failureReason": "System: [2026-03-29 20:01:27 CDT] Exec completed (sharp-cl, code 1) :: protective\" E AssertionError: assert None == 'protective' tests/test_reasoning_runtime_homeostasis.py:139: AssertionError =========================== short test summary info =====… System: [2026-03-29 20:01:48 CDT] Exec completed (vivid-cr, code 0) :: ........... [100%] 11 passed, 45 deselected in 1.94s System: [2026-03-29 20:0",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "failedAt": "2026-03-30T01:09:04.721Z",
+      "failureReason": "System: [2026-03-29 20:01:27 CDT] Exec completed (sharp-cl, code 1) :: protective\" E AssertionError: assert None == 'protective' tests/test_reasoning_runtime_homeostasis.py:139: AssertionError =========================== short test summary info =====… System: [2026-03-29 20:01:48 CDT] Exec completed (vivid-cr, code 0) :: ........... [100%] 11 passed, 45 deselected in 1.94s System: [2026-03-29 20:0",
       "failureSource": "runtime_message"
     }
   ]
