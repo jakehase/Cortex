@@ -1,11 +1,115 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from cortex_server.modules.latency_budget_governor import classify_task_archetype
 from cortex_server.modules.reasoning_beliefs import select_influential_beliefs
 from cortex_server.modules.reasoning_kernel import build_policy_decision, model_dump_compat
 from cortex_server.modules.routing_autotune import get_policy_snapshot
+
+
+def _infer_homeostasis_intent(*, archetype: str, query: str, metadata: Dict[str, Any]) -> str:
+    explicit = str(metadata.get("homeostasis_intent") or metadata.get("intent") or "").strip().lower()
+    if explicit in {"qa", "coding", "planning", "research", "creative", "reminder"}:
+        return explicit
+    q = str(query or "").lower()
+    if "remind" in q or "reminder" in q:
+        return "reminder"
+    if "research" in q or "investigate" in q or "look up" in q:
+        return "research"
+    return {
+        "coding": "coding",
+        "planning": "planning",
+        "ops_triage": "research",
+    }.get(str(archetype or ""), "qa")
+
+
+def _infer_homeostasis_risk_tier(*, archetype: str, metadata: Dict[str, Any], has_contracts: bool, long_running: bool) -> str:
+    explicit = str(metadata.get("homeostasis_risk_tier") or metadata.get("risk_tier") or "").strip().lower()
+    if explicit in {"low", "medium", "high", "critical"}:
+        return explicit
+    if bool(metadata.get("requires_preflight")):
+        return "critical"
+    if has_contracts or str(archetype or "") in {"coding", "ops_triage"}:
+        return "high"
+    if long_running:
+        return "medium"
+    return "low"
+
+
+def _load_homeostasis_bundle(*, archetype: str, query: str, metadata: Dict[str, Any], has_contracts: bool, long_running: bool) -> Dict[str, Any]:
+    if metadata.get("enable_homeostasis_policy") is False:
+        return {"enabled": False, "reason": "disabled_by_metadata"}
+
+    intent = _infer_homeostasis_intent(archetype=archetype, query=query, metadata=metadata)
+    risk_tier = _infer_homeostasis_risk_tier(archetype=archetype, metadata=metadata, has_contracts=has_contracts, long_running=long_running)
+    state_snapshot = metadata.get("homeostasis_state_snapshot") if isinstance(metadata.get("homeostasis_state_snapshot"), dict) else None
+    observed_load = metadata.get("homeostasis_observed_load") if isinstance(metadata.get("homeostasis_observed_load"), dict) else {}
+    profile_override = metadata.get("homeostasis_profile") if isinstance(metadata.get("homeostasis_profile"), dict) else None
+
+    profile: Optional[Dict[str, Any]] = None
+    source = "override"
+    if profile_override is not None:
+        profile = dict(profile_override)
+    else:
+        try:
+            from services.homeostasis.adaptive_effort_controller import choose_effort_profile
+        except Exception as exc:  # pragma: no cover - defensive import guard
+            return {
+                "enabled": False,
+                "reason": f"import_failed:{exc.__class__.__name__}",
+                "intent": intent,
+                "risk_tier": risk_tier,
+            }
+        try:
+            profile = choose_effort_profile(
+                intent=intent,
+                risk_tier=risk_tier,
+                state_snapshot=state_snapshot,
+                observed_load=observed_load,
+            )
+            source = "adaptive_effort_controller"
+        except Exception as exc:  # pragma: no cover - defensive runtime guard
+            return {
+                "enabled": False,
+                "reason": f"profile_failed:{exc.__class__.__name__}",
+                "intent": intent,
+                "risk_tier": risk_tier,
+            }
+
+    profile = dict(profile or {})
+    effort = profile.get("effort") if isinstance(profile.get("effort"), dict) else {}
+    guardrails = profile.get("guardrails") if isinstance(profile.get("guardrails"), dict) else {}
+    state_vector = state_snapshot.get("smoothed_state_vector") if isinstance(state_snapshot, dict) and isinstance(state_snapshot.get("smoothed_state_vector"), dict) else {}
+    return {
+        "enabled": True,
+        "source": source,
+        "intent": intent,
+        "risk_tier": risk_tier,
+        "mode": str(profile.get("mode") or "normal"),
+        "mode_reasons": [str(x) for x in (profile.get("mode_reasons") or []) if str(x).strip()],
+        "effort": dict(effort),
+        "guardrails": dict(guardrails),
+        "budget_reference": dict(profile.get("budget_reference") or {}),
+        "state_vector": dict(state_vector),
+        "observed_load": dict(observed_load or {}),
+        "profile": profile,
+    }
+
+
+def _routing_choice_from_homeostasis(bundle: Dict[str, Any], default_choice: str) -> str:
+    if not bool(bundle.get("enabled")):
+        return default_choice
+    mode = str(bundle.get("mode") or "normal")
+    guardrails = bundle.get("guardrails") if isinstance(bundle.get("guardrails"), dict) else {}
+    prefer_chain = str(guardrails.get("prefer_chain") or "")
+    if mode == "protective":
+        return "deliberate"
+    if bool(guardrails.get("block_fastlane")):
+        return "deliberate"
+    if prefer_chain in {"deliberate_council", "research_grounded"}:
+        return "deliberate"
+    return default_choice
 
 
 def build_workflow_policy(*, name: str, goal: str = "", description: str = "", steps: List[Dict[str, Any]] | None = None, metadata: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -56,6 +160,14 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
     else:
         verification_mode = "strict" if has_contracts or archetype in {"coding", "planning", "ops_triage"} else "basic"
 
+    homeostasis = _load_homeostasis_bundle(
+        archetype=archetype,
+        query=query,
+        metadata=metadata,
+        has_contracts=has_contracts,
+        long_running=long_running,
+    )
+
     risk_flags: List[str] = []
     if has_contracts:
         risk_flags.append("verification")
@@ -66,30 +178,75 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
     if execution_mode == "parallel":
         risk_flags.append("parallelizable")
 
+    routing_choice = "deliberate" if archetype in {"coding", "planning", "ops_triage"} or dependency_density >= 0.5 else "fastlane"
+    if bool(homeostasis.get("enabled")):
+        routing_choice = _routing_choice_from_homeostasis(homeostasis, routing_choice)
+        mode = str(homeostasis.get("mode") or "normal")
+        if mode == "protective":
+            execution_mode = "sequential"
+            max_parallelism = 1
+            verification_mode = "strict"
+            risk_flags.append("homeostasis_protective")
+        elif mode == "conserve":
+            max_parallelism = min(max_parallelism, 2)
+            risk_flags.append("homeostasis_conserve")
+        else:
+            risk_flags.append("homeostasis_normal")
+        if bool(((homeostasis.get("effort") or {}).get("human_review_required"))):
+            risk_flags.append("homeostasis_human_review")
+        if bool(((homeostasis.get("effort") or {}).get("escalation_recommended"))):
+            risk_flags.append("homeostasis_escalation")
+
+    risk_flags = sorted(set(risk_flags))
+    homeostasis_mode = str(homeostasis.get("mode") or "unavailable")
+    homeostasis_guardrails = homeostasis.get("guardrails") if isinstance(homeostasis.get("guardrails"), dict) else {}
+    homeostasis_effort = homeostasis.get("effort") if isinstance(homeostasis.get("effort"), dict) else {}
+
     decisions = [
         build_policy_decision(
             domain="routing",
-            chosen="deliberate" if archetype in {"coding", "planning", "ops_triage"} or dependency_density >= 0.5 else "fastlane",
-            rationale=f"archetype={archetype}, dependency_density={dependency_density:.2f}",
+            chosen=routing_choice,
+            rationale=(
+                f"archetype={archetype}, dependency_density={dependency_density:.2f}, "
+                f"homeostasis_mode={homeostasis_mode}, prefer_chain={homeostasis_guardrails.get('prefer_chain')}"
+            ),
             confidence=0.78,
             alternatives=["fastlane", "deliberate"],
-            inputs={"archetype": archetype, "dependency_density": round(dependency_density, 3), "route_policy": route_policy, "belief_ids": belief_ids},
+            inputs={
+                "archetype": archetype,
+                "dependency_density": round(dependency_density, 3),
+                "route_policy": route_policy,
+                "belief_ids": belief_ids,
+                "homeostasis_mode": homeostasis_mode,
+                "homeostasis_prefer_chain": homeostasis_guardrails.get("prefer_chain"),
+                "homeostasis_block_fastlane": bool(homeostasis_guardrails.get("block_fastlane")),
+            },
         ),
         build_policy_decision(
             domain="scheduler",
             chosen="managed_runtime" if long_running or dependency_density > 0 else "immediate",
-            rationale=f"long_running={long_running}, has_waits={has_waits}",
+            rationale=f"long_running={long_running}, has_waits={has_waits}, homeostasis_mode={homeostasis_mode}",
             confidence=0.8,
             alternatives=["immediate", "managed_runtime"],
-            inputs={"cadence_seconds": cadence_seconds, "has_waits": has_waits, "execution_mode": execution_mode, "belief_ids": belief_ids},
+            inputs={
+                "cadence_seconds": cadence_seconds,
+                "has_waits": has_waits,
+                "execution_mode": execution_mode,
+                "belief_ids": belief_ids,
+                "homeostasis_mode": homeostasis_mode,
+            },
         ),
         build_policy_decision(
             domain="verification",
             chosen=verification_mode,
-            rationale=f"contracts={has_contracts}",
+            rationale=f"contracts={has_contracts}, homeostasis_mode={homeostasis_mode}",
             confidence=0.76,
             alternatives=["basic", "strict"],
-            inputs={"contracts_present": has_contracts, "belief_ids": belief_ids},
+            inputs={
+                "contracts_present": has_contracts,
+                "belief_ids": belief_ids,
+                "homeostasis_human_review_required": bool(homeostasis_effort.get("human_review_required")),
+            },
         ),
         build_policy_decision(
             domain="memory",
@@ -100,6 +257,36 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
             inputs={"cadence_seconds": cadence_seconds, "belief_ids": belief_ids},
         ),
     ]
+    if bool(homeostasis.get("enabled")):
+        decisions.append(
+            {
+                "domain": "homeostasis",
+                "chosen": homeostasis_mode,
+                "rationale": (
+                    f"intent={homeostasis.get('intent')}, risk_tier={homeostasis.get('risk_tier')}, "
+                    f"prefer_chain={homeostasis_guardrails.get('prefer_chain')}"
+                ),
+                "confidence": 0.81,
+                "alternatives": ["normal", "conserve", "protective"],
+                "inputs": {
+                    "intent": homeostasis.get("intent"),
+                    "risk_tier": homeostasis.get("risk_tier"),
+                    "belief_ids": belief_ids,
+                    "mode_reasons": list(homeostasis.get("mode_reasons") or []),
+                    "state_vector": dict(homeostasis.get("state_vector") or {}),
+                    "reasoning_depth": homeostasis_effort.get("reasoning_depth"),
+                    "tempo": homeostasis_effort.get("tempo"),
+                    "tool_budget_class": homeostasis_effort.get("tool_budget_class"),
+                    "human_review_required": bool(homeostasis_effort.get("human_review_required")),
+                    "escalation_recommended": bool(homeostasis_effort.get("escalation_recommended")),
+                    "prefer_chain": homeostasis_guardrails.get("prefer_chain"),
+                    "allowed_chains": list(homeostasis_guardrails.get("allowed_chains") or []),
+                    "block_fastlane": bool(homeostasis_guardrails.get("block_fastlane")),
+                    "source": homeostasis.get("source"),
+                },
+                "metrics": {},
+            }
+        )
 
     settings = {
         "execution_mode": execution_mode,
@@ -115,6 +302,15 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
         "retry_on_status_codes": [int(x) for x in (metadata.get("retry_on_status_codes") or []) if str(x).strip()],
         "retry_on_error_types": [str(x).lower() for x in (metadata.get("retry_on_error_types") or []) if str(x).strip()],
         "workflow_deadline_seconds": metadata.get("workflow_deadline_seconds"),
+        "homeostasis_mode": homeostasis_mode,
+        "homeostasis_intent": homeostasis.get("intent"),
+        "homeostasis_risk_tier": homeostasis.get("risk_tier"),
+        "homeostasis_reasoning_depth": homeostasis_effort.get("reasoning_depth"),
+        "homeostasis_tool_budget_class": homeostasis_effort.get("tool_budget_class"),
+        "homeostasis_prefer_chain": homeostasis_guardrails.get("prefer_chain"),
+        "homeostasis_block_fastlane": bool(homeostasis_guardrails.get("block_fastlane")),
+        "homeostasis_human_review_required": bool(homeostasis_effort.get("human_review_required")),
+        "homeostasis_escalation_recommended": bool(homeostasis_effort.get("escalation_recommended")),
     }
 
     return {
@@ -126,8 +322,9 @@ def build_workflow_policy(*, name: str, goal: str = "", description: str = "", s
         "long_running": long_running,
         "risk_flags": risk_flags,
         "route_policy_snapshot": route_policy,
+        "homeostasis": homeostasis,
         "settings": settings,
-        "decisions": [model_dump_compat(d) for d in decisions],
+        "decisions": [model_dump_compat(d) if not isinstance(d, dict) else dict(d) for d in decisions],
     }
 
 

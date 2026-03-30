@@ -49,6 +49,40 @@ def policy_patch_history(events: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 
+def _homeostasis_summary(policy: Dict[str, Any]) -> Dict[str, Any]:
+    policy = policy if isinstance(policy, dict) else {}
+    homeostasis = policy.get("homeostasis") if isinstance(policy.get("homeostasis"), dict) else {}
+    effort = homeostasis.get("effort") if isinstance(homeostasis.get("effort"), dict) else {}
+    guardrails = homeostasis.get("guardrails") if isinstance(homeostasis.get("guardrails"), dict) else {}
+    if not homeostasis:
+        return {
+            "enabled": False,
+            "mode": None,
+            "intent": None,
+            "risk_tier": None,
+            "prefer_chain": None,
+            "reasoning_depth": None,
+            "operator_summary": "homeostasis unavailable",
+        }
+    return {
+        "enabled": bool(homeostasis.get("enabled")),
+        "mode": homeostasis.get("mode"),
+        "intent": homeostasis.get("intent"),
+        "risk_tier": homeostasis.get("risk_tier"),
+        "prefer_chain": guardrails.get("prefer_chain"),
+        "reasoning_depth": effort.get("reasoning_depth"),
+        "human_review_required": bool(effort.get("human_review_required")),
+        "escalation_recommended": bool(effort.get("escalation_recommended")),
+        "mode_reasons": list(homeostasis.get("mode_reasons") or []),
+        "operator_summary": (
+            f"homeostasis mode={homeostasis.get('mode')} intent={homeostasis.get('intent')} "
+            f"risk={homeostasis.get('risk_tier')} prefer_chain={guardrails.get('prefer_chain')} "
+            f"depth={effort.get('reasoning_depth')}"
+        ),
+    }
+
+
+
 def assemble_runtime_process_explain(
     *,
     process_id: str,
@@ -205,6 +239,8 @@ def assemble_runtime_process_explain(
         "process_id": process_id,
         "process": process,
         "policy": policy,
+        "homeostasis": policy.get("homeostasis") if isinstance(policy, dict) else {},
+        "homeostasis_summary": _homeostasis_summary(policy),
         "policy_belief_influences": policy.get("belief_influences") if isinstance(policy, dict) else [],
         "policy_decision_explanations": policy_decision_explanations,
         "policy_outcome_evaluation": policy_evaluation,
@@ -311,6 +347,8 @@ def assemble_runtime_policy_response(
         "success": True,
         "process_id": process_id,
         "policy": policy,
+        "homeostasis": policy.get("homeostasis") if isinstance(policy, dict) else {},
+        "homeostasis_summary": explained.get("homeostasis_summary") or _homeostasis_summary(policy),
         "belief_influences": policy.get("belief_influences") if isinstance(policy, dict) else [],
         "decision_explanations": explained.get("policy_decision_explanations") or explain.policy_decision_explanations(policy, explain_belief_fn=explain_belief_fn, get_belief_fn=get_belief_fn),
         "policy_outcome_evaluation": explained.get("policy_outcome_evaluation"),

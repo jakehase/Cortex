@@ -208,12 +208,41 @@ def policy_outcome_evaluation(*, policy: Dict[str, Any], process: Dict[str, Any]
             comparison = {"belief_activity_present": observed["belief_count"] >= 0, "drift_changed_steps": drift_changed}
         elif domain == "routing":
             expected_mode = "parallel" if str(chosen or "") == "deliberate" else "sequential"
-            observed = {"dependency_density": policy.get("dependency_density"), "parallelism": settings.get("max_parallelism"), "execution_mode": settings.get("execution_mode")}
+            observed = {
+                "dependency_density": policy.get("dependency_density"),
+                "parallelism": settings.get("max_parallelism"),
+                "execution_mode": settings.get("execution_mode"),
+                "homeostasis_prefer_chain": settings.get("homeostasis_prefer_chain"),
+            }
             expected = {"execution_mode": expected_mode}
             observed_mode = str(settings.get("execution_mode") or "")
             if observed_mode:
                 outcome = "match" if observed_mode == expected_mode else "mismatch"
             comparison = {"execution_mode_match": observed_mode == expected_mode if observed_mode else None}
+        elif domain == "homeostasis":
+            homeostasis = policy.get("homeostasis") if isinstance(policy.get("homeostasis"), dict) else {}
+            effort = homeostasis.get("effort") if isinstance(homeostasis.get("effort"), dict) else {}
+            guardrails = homeostasis.get("guardrails") if isinstance(homeostasis.get("guardrails"), dict) else {}
+            expected = {
+                "mode": chosen,
+                "prefer_chain": (decision.get("inputs") or {}).get("prefer_chain"),
+                "reasoning_depth": (decision.get("inputs") or {}).get("reasoning_depth"),
+            }
+            observed = {
+                "mode": settings.get("homeostasis_mode") or homeostasis.get("mode"),
+                "intent": settings.get("homeostasis_intent") or homeostasis.get("intent"),
+                "risk_tier": settings.get("homeostasis_risk_tier") or homeostasis.get("risk_tier"),
+                "prefer_chain": settings.get("homeostasis_prefer_chain") or guardrails.get("prefer_chain"),
+                "reasoning_depth": settings.get("homeostasis_reasoning_depth") or effort.get("reasoning_depth"),
+                "human_review_required": settings.get("homeostasis_human_review_required"),
+                "escalation_recommended": settings.get("homeostasis_escalation_recommended"),
+            }
+            outcome = "match" if str(observed.get("mode") or "") == str(chosen or "") else "mismatch"
+            comparison = {
+                "mode_match": str(observed.get("mode") or "") == str(chosen or ""),
+                "prefer_chain_match": expected.get("prefer_chain") == observed.get("prefer_chain"),
+                "reasoning_depth_match": expected.get("reasoning_depth") == observed.get("reasoning_depth"),
+            }
         evaluations.append({
             "domain": domain,
             "chosen": chosen,
