@@ -2833,7 +2833,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-30T20:36:30.847Z",
+      "updatedAt": "2026-03-30T20:41:55.313Z",
       "history": [
         {
           "from": null,
@@ -2851,9 +2851,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 146,
+        "runs": 147,
         "failures": [],
-        "lastRunAt": "2026-03-30T20:36:30.855Z",
+        "lastRunAt": "2026-03-30T20:41:55.321Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6461,12 +6461,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774884944166:00c32ff3fdac29ba",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-30T15:35:44.166Z",
-      "updatedAt": "2026-03-30T20:40:47.818Z",
+      "updatedAt": "2026-03-30T20:45:53.850Z",
       "prompt": "System: [2026-03-30 10:34:07 CDT] Exec completed (plaid-bl, code 0) :: ........................................................................ [ 40%] ........................................................................ [ 80%] .........",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "System: 2026-03-30 15:24:19 CDT Exec completed (neat-oce, code 0) :: .............................................................. 100% System: 2026-03-30 15:25:34 CDT Exec completed (tide-zep, code 0) :: ........................................................................ 3",
+      "completionSummary": "............................................................... 100% 63 passed in 14.69s Process exited with code 0.",
       "history": [
         {
           "from": null,
@@ -6496,9 +6496,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 40,
+        "runs": 43,
         "failures": [],
-        "lastRunAt": "2026-03-30T20:40:47.822Z",
+        "lastRunAt": "2026-03-30T20:45:53.857Z",
         "lastDetails": {
           "source": "runtime_message",
           "signal": "completed"
