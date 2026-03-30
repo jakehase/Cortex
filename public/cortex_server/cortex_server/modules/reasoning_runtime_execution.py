@@ -36,11 +36,52 @@ def trim_response_body(body: Any, *, max_chars: int) -> Any:
 
 
 
+def _homeostasis_runtime_overlay(policy: JsonDict, settings: JsonDict) -> JsonDict:
+    policy = policy if isinstance(policy, dict) else {}
+    settings = dict(settings or {})
+    homeostasis = policy.get("homeostasis") if isinstance(policy.get("homeostasis"), dict) else {}
+    if not bool(homeostasis.get("enabled")):
+        return settings
+
+    effort = homeostasis.get("effort") if isinstance(homeostasis.get("effort"), dict) else {}
+    guardrails = homeostasis.get("guardrails") if isinstance(homeostasis.get("guardrails"), dict) else {}
+    mode = str(settings.get("homeostasis_mode") or homeostasis.get("mode") or "normal")
+    reasoning_depth = int(settings.get("homeostasis_reasoning_depth") or effort.get("reasoning_depth") or 1)
+    human_review_required = bool(settings.get("homeostasis_human_review_required", effort.get("human_review_required")))
+    escalation_recommended = bool(settings.get("homeostasis_escalation_recommended", effort.get("escalation_recommended")))
+    prefer_chain = str(settings.get("homeostasis_prefer_chain") or guardrails.get("prefer_chain") or "")
+    explicit_timeout = settings.get("step_timeout_seconds") is not None
+
+    if mode == "protective":
+        settings["execution_mode"] = "sequential"
+        settings["max_parallelism"] = 1
+        settings["same_tick_drain"] = False
+        settings["verification_mode"] = "strict"
+        settings["retry_on_timeout"] = True
+        settings["retry_max_attempts"] = max(2, int(settings.get("retry_max_attempts", 1) or 1))
+        if not explicit_timeout:
+            settings["step_timeout_seconds"] = max(8.0, min(18.0, 4.0 + float(reasoning_depth) * 2.0))
+    elif mode == "conserve":
+        settings["max_parallelism"] = min(2, max(1, int(settings.get("max_parallelism", 1) or 1)))
+        if settings.get("execution_mode") == "parallel":
+            settings["execution_mode"] = "parallel"
+        if not explicit_timeout:
+            settings["step_timeout_seconds"] = max(4.0, min(8.0, 3.0 + float(reasoning_depth)))
+        if prefer_chain in {"fastlane_memory", "safe_reminder"}:
+            settings["same_tick_drain"] = False
+    elif human_review_required or escalation_recommended:
+        settings["same_tick_drain"] = False
+
+    settings["homeostasis_runtime_enforced"] = True
+    return settings
+
+
+
 def workflow_policy_settings(workflow_metadata: Optional[JsonDict]) -> JsonDict:
     metadata = dict(workflow_metadata or {})
     policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
     settings = policy.get("settings") if isinstance(policy.get("settings"), dict) else {}
-    return dict(settings)
+    return _homeostasis_runtime_overlay(policy, dict(settings))
 
 
 
@@ -55,6 +96,38 @@ def effective_step_timeout(step: JsonDict, workflow_metadata: Optional[JsonDict]
         return min(step_timeout_max_s, max(0.1, float(chosen)))
     except Exception:
         return step_timeout_max_s
+
+
+
+def runtime_homeostasis_summary(workflow_metadata: Optional[JsonDict]) -> JsonDict:
+    metadata = dict(workflow_metadata or {})
+    policy = metadata.get("policy") if isinstance(metadata.get("policy"), dict) else {}
+    homeostasis = policy.get("homeostasis") if isinstance(policy.get("homeostasis"), dict) else {}
+    if not homeostasis:
+        return {"enabled": False}
+    effort = homeostasis.get("effort") if isinstance(homeostasis.get("effort"), dict) else {}
+    guardrails = homeostasis.get("guardrails") if isinstance(homeostasis.get("guardrails"), dict) else {}
+    applied = workflow_policy_settings(workflow_metadata)
+    return {
+        "enabled": bool(homeostasis.get("enabled")),
+        "mode": homeostasis.get("mode"),
+        "intent": homeostasis.get("intent"),
+        "risk_tier": homeostasis.get("risk_tier"),
+        "prefer_chain": guardrails.get("prefer_chain"),
+        "allowed_chains": list(guardrails.get("allowed_chains") or []),
+        "reasoning_depth": effort.get("reasoning_depth"),
+        "human_review_required": bool(effort.get("human_review_required")),
+        "escalation_recommended": bool(effort.get("escalation_recommended")),
+        "runtime_controls": {
+            "execution_mode": applied.get("execution_mode"),
+            "max_parallelism": applied.get("max_parallelism"),
+            "same_tick_drain": applied.get("same_tick_drain"),
+            "verification_mode": applied.get("verification_mode"),
+            "step_timeout_seconds": applied.get("step_timeout_seconds"),
+            "retry_max_attempts": applied.get("retry_max_attempts"),
+            "retry_on_timeout": applied.get("retry_on_timeout"),
+        },
+    }
 
 
 
@@ -151,6 +224,7 @@ async def execute_single_step(
     headers = step.get("headers", {})
     step_timeout = effective_step_timeout(step, workflow_metadata, step_timeout_max_s=step_timeout_max_s)
     policy_settings = workflow_policy_settings(workflow_metadata)
+    homeostasis_summary = runtime_homeostasis_summary(workflow_metadata)
 
     validate_endpoint_fn(step.get("endpoint", ""))
 
@@ -244,6 +318,7 @@ async def execute_single_step(
             "error_code": "pre_verification_failed",
             "verification": {"pre": pre_verification, "post": {"ok": True, "count": 0, "results": []}},
             "policy": policy_settings,
+            "homeostasis": homeostasis_summary,
             "belief_context": compact_belief_context,
             "safety": safety,
             "elapsed_ms": 0.0,
@@ -278,6 +353,7 @@ async def execute_single_step(
             "elapsed_ms": elapsed,
             "success": 200 <= resp.status_code < 400,
             "policy": policy_settings,
+            "homeostasis": homeostasis_summary,
             "belief_context": compact_belief_context,
             "safety": safety,
         }
@@ -330,6 +406,7 @@ async def execute_single_step(
             "error": str(exc)[:300],
             "verification": {"pre": pre_verification, "post": {"ok": False, "count": 0, "results": []}},
             "policy": policy_settings,
+            "homeostasis": homeostasis_summary,
             "belief_context": compact_belief_context,
             "safety": safety,
             "elapsed_ms": elapsed,
@@ -448,6 +525,8 @@ async def execute_step_with_retry(
     while attempts < max_attempts:
         if deadline_exceeded(deadline_at):
             result = deadline_result(step, step_index=step_index, deadline_at=deadline_at, redact_headers_fn=redact_headers_fn)
+            result["policy"] = workflow_policy_settings(workflow_metadata)
+            result["homeostasis"] = runtime_homeostasis_summary(workflow_metadata)
             result["attempts"] = attempts
             result["max_attempts"] = max_attempts
             result["retry_count"] = max(0, attempts)
@@ -468,6 +547,10 @@ async def execute_step_with_retry(
                 "selected_count": len(backfilled_context.get("selected_ids") or []),
                 "filters": backfilled_context.get("filters"),
             }
+        if not isinstance(result.get("policy"), dict):
+            result["policy"] = workflow_policy_settings(workflow_metadata)
+        if not isinstance(result.get("homeostasis"), dict):
+            result["homeostasis"] = runtime_homeostasis_summary(workflow_metadata)
         result = enrich_failure(result)
         result["attempts"] = attempts
         result["max_attempts"] = max_attempts

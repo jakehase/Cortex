@@ -123,6 +123,9 @@ def execution_trace(process: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "error": result.get("error") or node.get("last_error"),
                 "error_code": result.get("error_code") or node.get("last_error_code"),
                 "produced_belief_count": int(result.get("produced_belief_count", 0) or 0),
+                "homeostasis_mode": ((result.get("homeostasis") or {}).get("mode") if isinstance(result.get("homeostasis"), dict) else None),
+                "homeostasis_prefer_chain": ((result.get("homeostasis") or {}).get("prefer_chain") if isinstance(result.get("homeostasis"), dict) else None),
+                "runtime_step_timeout_seconds": (((result.get("homeostasis") or {}).get("runtime_controls") or {}).get("step_timeout_seconds") if isinstance((result.get("homeostasis") or {}).get("runtime_controls"), dict) else None),
             }
         )
     return trace
