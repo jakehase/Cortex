@@ -302,6 +302,7 @@ def assemble_runtime_policy_response(
         policy,
         policy_outcome_evaluation=explained.get("policy_outcome_evaluation") if isinstance(explained.get("policy_outcome_evaluation"), list) else None,
     )
+    response_sections = explain_compiler.compile_runtime_policy_response_sections(explained, process_id=process_id)
     return {
         "success": True,
         "process_id": process_id,
@@ -310,55 +311,25 @@ def assemble_runtime_policy_response(
         "belief_influences": explained.get("belief_influences") or policy_surface_sections.get("belief_influences") or [],
         "decision_explanations": explained.get("policy_decision_explanations") or explain.policy_decision_explanations(policy, explain_belief_fn=explain_belief_fn, get_belief_fn=get_belief_fn),
         "policy_outcome_evaluation": explained.get("policy_outcome_evaluation"),
-        "policy_outcome_summary": explained.get("policy_outcome_summary") or explain_compiler.default_policy_outcome_summary(),
         "control_plane_summary": explained.get("control_plane_summary") or policy_surface_sections.get("control_plane_summary"),
-        "belief_evidence_summary": explained.get("belief_evidence_summary") or explain_compiler.default_belief_evidence_summary(),
-        "contradiction_graph_summary": explained.get("contradiction_graph_summary") or explain_compiler.default_contradiction_graph_summary(),
-        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or explain_compiler.default_epistemic_risk_summary(),
-        "decision_causality_summary": explained.get("decision_causality_summary") or explain_compiler.default_decision_causality_summary(),
-        "epistemic_core_summary": explained.get("epistemic_core_summary") or explain_compiler.default_epistemic_core_summary(),
         "epistemic_timeline": explained.get("epistemic_timeline"),
-        "incident_report": explained.get("incident_report") or default_incident_report(),
-        "postmortem": explained.get("postmortem") or default_postmortem(process_id),
-        "rerun_recommendations": explained.get("rerun_recommendations") or [],
-        "policy_adaptation_hooks": explained.get("policy_adaptation_hooks") or [],
-        "policy_patch_preview": explained.get("policy_patch_preview") or default_policy_patch_preview(),
-        "policy_patch_history": explained.get("policy_patch_history") or default_policy_patch_history(),
-        "self_review": explained.get("self_review") or default_self_review(),
+        **response_sections,
     }
 
 
 def assemble_runtime_self_review_response(*, process_id: str, explained: Optional[Dict[str, Any]] = None, fallback: bool = False) -> Dict[str, Any]:
-    explained = explained if isinstance(explained, dict) else {}
     return {
         "success": True,
         "process_id": process_id,
-        "self_review": explained.get("self_review") or default_self_review(fallback=fallback),
-        "postmortem": explained.get("postmortem") or default_postmortem(process_id, fallback=fallback),
-        "policy_outcome_summary": explained.get("policy_outcome_summary") or explain_compiler.default_policy_outcome_summary(),
-        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or explain_compiler.default_epistemic_risk_summary(),
-        "epistemic_core_summary": explained.get("epistemic_core_summary") or explain_compiler.default_epistemic_core_summary(),
-        "policy_patch_preview": explained.get("policy_patch_preview") or default_policy_patch_preview(),
-        "policy_patch_history": explained.get("policy_patch_history") or default_policy_patch_history(),
+        **explain_compiler.compile_runtime_shared_response_sections(explained, process_id=process_id, fallback=fallback),
     }
 
 
 def assemble_runtime_postmortem_response(*, process_id: str, explained: Optional[Dict[str, Any]] = None, fallback: bool = False) -> Dict[str, Any]:
-    explained = explained if isinstance(explained, dict) else {}
     return {
         "success": True,
         "process_id": process_id,
-        "incident_report": explained.get("incident_report") or default_incident_report(),
-        "postmortem": explained.get("postmortem") or default_postmortem(process_id, fallback=fallback),
-        "execution_trace": explained.get("execution_trace") or [],
-        "epistemic_timeline": explained.get("epistemic_timeline") or [],
-        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or explain_compiler.default_epistemic_risk_summary(),
-        "epistemic_core_summary": explained.get("epistemic_core_summary") or explain_compiler.default_epistemic_core_summary(),
-        "rerun_recommendations": explained.get("rerun_recommendations") or [],
-        "policy_adaptation_hooks": explained.get("policy_adaptation_hooks") or [],
-        "policy_patch_preview": explained.get("policy_patch_preview") or default_policy_patch_preview(),
-        "policy_patch_history": explained.get("policy_patch_history") or default_policy_patch_history(),
-        "self_review": explained.get("self_review") or default_self_review(fallback=fallback),
+        **explain_compiler.compile_runtime_postmortem_response_sections(explained, process_id=process_id, fallback=fallback),
     }
 
 

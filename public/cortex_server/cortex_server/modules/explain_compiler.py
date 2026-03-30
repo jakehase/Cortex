@@ -414,10 +414,60 @@ def default_incident_report() -> JsonDict:
     }
 
 
+
+def compile_runtime_shared_response_sections(explained: Optional[JsonDict], *, process_id: str, fallback: bool = False) -> JsonDict:
+    explained = explained if isinstance(explained, dict) else {}
+    return {
+        "self_review": explained.get("self_review") or default_self_review(fallback=fallback),
+        "postmortem": explained.get("postmortem") or default_postmortem(process_id, fallback=fallback),
+        "policy_outcome_summary": explained.get("policy_outcome_summary") or default_policy_outcome_summary(),
+        "epistemic_risk_summary": explained.get("epistemic_risk_summary") or default_epistemic_risk_summary(),
+        "epistemic_core_summary": explained.get("epistemic_core_summary") or default_epistemic_core_summary(),
+        "policy_patch_preview": explained.get("policy_patch_preview") or default_policy_patch_preview(),
+        "policy_patch_history": explained.get("policy_patch_history") or default_policy_patch_history(),
+    }
+
+
+
+def compile_runtime_policy_response_sections(explained: Optional[JsonDict], *, process_id: str) -> JsonDict:
+    explained = explained if isinstance(explained, dict) else {}
+    sections = compile_runtime_shared_response_sections(explained, process_id=process_id)
+    sections.update(
+        {
+            "belief_evidence_summary": explained.get("belief_evidence_summary") or default_belief_evidence_summary(),
+            "contradiction_graph_summary": explained.get("contradiction_graph_summary") or default_contradiction_graph_summary(),
+            "decision_causality_summary": explained.get("decision_causality_summary") or default_decision_causality_summary(),
+            "incident_report": explained.get("incident_report") or default_incident_report(),
+            "rerun_recommendations": explained.get("rerun_recommendations") or [],
+            "policy_adaptation_hooks": explained.get("policy_adaptation_hooks") or [],
+        }
+    )
+    return sections
+
+
+
+def compile_runtime_postmortem_response_sections(explained: Optional[JsonDict], *, process_id: str, fallback: bool = False) -> JsonDict:
+    explained = explained if isinstance(explained, dict) else {}
+    sections = compile_runtime_shared_response_sections(explained, process_id=process_id, fallback=fallback)
+    sections.update(
+        {
+            "incident_report": explained.get("incident_report") or default_incident_report(),
+            "execution_trace": explained.get("execution_trace") or [],
+            "epistemic_timeline": explained.get("epistemic_timeline") or [],
+            "rerun_recommendations": explained.get("rerun_recommendations") or [],
+            "policy_adaptation_hooks": explained.get("policy_adaptation_hooks") or [],
+        }
+    )
+    return sections
+
+
 __all__ = [
     "compile_control_plane_summary",
     "compile_policy_surface_sections",
     "compile_policy_surface_summaries",
+    "compile_runtime_policy_response_sections",
+    "compile_runtime_postmortem_response_sections",
+    "compile_runtime_shared_response_sections",
     "default_belief_evidence_summary",
     "default_contradiction_graph_summary",
     "default_decision_causality_summary",
