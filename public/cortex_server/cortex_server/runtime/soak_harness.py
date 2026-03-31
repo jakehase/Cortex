@@ -323,6 +323,14 @@ class RuntimeSoakHarness:
             revision_id=stale_revision_id,
             payload={"objective": "act on stale revision"},
         )
+        accepted = self.mailbox.receive(
+            to_agent=agent_id,
+            process_id=process_id,
+            expected_revision_id=current_revision_id,
+            reject_stale_revision=True,
+        )
+        stored = self.mailbox.list(process_id=process_id, to_agent=agent_id)
+        stored_message = next((row for row in stored if row.message_id == message.message_id), None)
         guard = detect_stale_revision(current_revision_id, message.revision_id, source="mailbox")
         if guard["stale_revision"]:
             self.journal.append(
@@ -339,25 +347,38 @@ class RuntimeSoakHarness:
             "scenario": "stale_revision",
             "process_id": process_id,
             "message_id": message.message_id,
+            "accepted_count": len(accepted),
+            "delivery_status": stored_message.delivery_status if stored_message else None,
+            "rejection_metadata": dict(stored_message.metadata or {}) if stored_message else {},
             **guard,
         }
 
-    def run_suite(self, *, process_prefix: str = "soak", wait_seconds: float = 0.0) -> JsonDict:
-        pause_resume = self.run_pause_resume_scenario(process_id=f"{process_prefix}_pause_resume", wait_seconds=wait_seconds)
+    def run_suite(self, *, process_prefix: str = "soak", wait_seconds: float = 0.0, elapsed_waits: Optional[list[float]] = None) -> JsonDict:
+        wait_matrix = [float(wait_seconds or 0.0)]
+        for value in (elapsed_waits or []):
+            seconds = float(value or 0.0)
+            if seconds not in wait_matrix:
+                wait_matrix.append(seconds)
+        pause_resume_runs = [
+            self.run_pause_resume_scenario(process_id=f"{process_prefix}_pause_resume_{idx}", wait_seconds=seconds)
+            for idx, seconds in enumerate(wait_matrix, start=1)
+        ]
         restart_recovery = self.run_restart_recovery_scenario(process_id=f"{process_prefix}_restart_recovery")
         stale_agent = self.run_stale_agent_scenario(process_id=f"{process_prefix}_stale_agent")
         stale_revision = self.run_stale_revision_scenario(process_id=f"{process_prefix}_stale_revision")
-        scenarios = [pause_resume, restart_recovery, stale_agent, stale_revision]
+        scenarios = [*pause_resume_runs, restart_recovery, stale_agent, stale_revision]
         success = all(
             row.get("resumed_without_loss", True)
             and row.get("recovered_from_tail", True)
             and row.get("stale_detected", True)
             and row.get("stale_revision", True)
+            and (row.get("accepted_count", 0) == 0 if row.get("scenario") == "stale_revision" else True)
             for row in scenarios
         )
         return {
             "success": success,
             "scenario_count": len(scenarios),
+            "wait_matrix_seconds": wait_matrix,
             "scenarios": scenarios,
             "operator_summary": f"runtime soak harness {'passed' if success else 'failed'} with {len(scenarios)} scenarios",
         }

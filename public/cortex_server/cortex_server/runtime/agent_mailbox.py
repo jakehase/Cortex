@@ -147,20 +147,50 @@ class AgentMailbox:
             filtered.append(row)
         return filtered
 
-    def receive(self, *, to_agent: str, process_id: Optional[str] = None, include_inflight: bool = False) -> List[AgentMessage]:
+    def receive(
+        self,
+        *,
+        to_agent: str,
+        process_id: Optional[str] = None,
+        include_inflight: bool = False,
+        expected_revision_id: Optional[str] = None,
+        reject_stale_revision: bool = False,
+    ) -> List[AgentMessage]:
         claimable_statuses = ["queued"] + (["inflight"] if include_inflight else [])
         rows = self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=claimable_statuses)
         updated = self._read_all()
         by_id = {row.message_id: row for row in updated}
         now = _now_iso()
+        expected = str(expected_revision_id or "").strip() or None
         for row in rows:
             stored = by_id.get(row.message_id)
-            if stored and stored.delivery_status == "queued":
+            if not stored:
+                continue
+            observed = str(stored.revision_id or "").strip() or None
+            stale_revision = bool(expected and observed and observed != expected)
+            if stale_revision:
+                metadata = dict(stored.metadata or {})
+                metadata.update(
+                    {
+                        "rejection_reason": "stale_revision",
+                        "expected_revision_id": expected,
+                        "observed_revision_id": observed,
+                    }
+                )
+                stored.metadata = metadata
+                if reject_stale_revision and stored.delivery_status != "dead_letter":
+                    stored.delivery_status = "dead_letter"
+                    stored.dead_lettered_at = now
+                continue
+            if stored.delivery_status == "queued":
                 stored.delivery_status = "inflight"
                 stored.attempt_count += 1
                 stored.last_attempt_at = now
         self._write_all(list(by_id.values()))
-        return self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=["inflight"])
+        accepted = self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=["inflight"])
+        if expected:
+            accepted = [row for row in accepted if not row.revision_id or str(row.revision_id).strip() == expected]
+        return accepted
 
     def _mutate(self, message_id: str, mutate_fn) -> AgentMessage:
         rows = self._read_all()

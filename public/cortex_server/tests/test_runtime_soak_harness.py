@@ -54,6 +54,9 @@ def test_runtime_soak_harness_detects_stale_revision_messages(tmp_path):
     report = harness.run_stale_revision_scenario(process_id="proc_stale_rev", current_revision_id="rev_9", stale_revision_id="rev_8")
 
     assert report["accepted"] is False
+    assert report["accepted_count"] == 0
+    assert report["delivery_status"] == "dead_letter"
+    assert report["rejection_metadata"]["rejection_reason"] == "stale_revision"
     assert report["stale_revision"] is True
     assert report["expected_revision_id"] == "rev_9"
     assert report["observed_revision_id"] == "rev_8"
@@ -63,8 +66,9 @@ def test_runtime_soak_harness_detects_stale_revision_messages(tmp_path):
 def test_runtime_soak_harness_suite_runs_all_core_scenarios(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
 
-    report = harness.run_suite(process_prefix="durable")
+    report = harness.run_suite(process_prefix="durable", elapsed_waits=[0.01, 0.02])
 
     assert report["success"] is True
-    assert report["scenario_count"] == 4
-    assert len(report["scenarios"]) == 4
+    assert report["scenario_count"] == 6
+    assert report["wait_matrix_seconds"] == [0.0, 0.01, 0.02]
+    assert len(report["scenarios"]) == 6

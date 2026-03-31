@@ -71,3 +71,33 @@ def test_agent_mailbox_missing_message_raises(tmp_path: Path):
     mailbox = AgentMailbox(tmp_path / "runtime" / "mailbox.json")
     with pytest.raises(KeyError):
         mailbox.acknowledge("msg_missing")
+
+
+
+def test_agent_mailbox_rejects_stale_revision_on_receive(tmp_path: Path):
+    mailbox = AgentMailbox(tmp_path / "runtime" / "mailbox.json")
+
+    sent = mailbox.send(
+        process_id="proc_123",
+        from_agent="coordinator",
+        to_agent="researcher",
+        kind="handoff",
+        payload={"objective": "Investigate"},
+        revision_id="rev_1",
+    )
+
+    accepted = mailbox.receive(
+        to_agent="researcher",
+        process_id="proc_123",
+        expected_revision_id="rev_2",
+        reject_stale_revision=True,
+    )
+    stored = mailbox.list(process_id="proc_123", to_agent="researcher")
+
+    assert accepted == []
+    assert len(stored) == 1
+    assert stored[0].message_id == sent.message_id
+    assert stored[0].delivery_status == "dead_letter"
+    assert stored[0].metadata["rejection_reason"] == "stale_revision"
+    assert stored[0].metadata["expected_revision_id"] == "rev_2"
+    assert stored[0].metadata["observed_revision_id"] == "rev_1"
