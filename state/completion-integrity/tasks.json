@@ -2833,7 +2833,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T01:56:53.837Z",
+      "updatedAt": "2026-03-31T02:01:26.741Z",
       "history": [
         {
           "from": null,
@@ -2851,9 +2851,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 210,
+        "runs": 211,
         "failures": [],
-        "lastRunAt": "2026-03-31T01:56:53.844Z",
+        "lastRunAt": "2026-03-31T02:01:26.748Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6583,12 +6583,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774920401525:e84cf6f57e9ca18e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T01:26:41.525Z",
-      "updatedAt": "2026-03-31T01:54:45.701Z",
+      "updatedAt": "2026-03-31T02:05:58.430Z",
       "prompt": "No that’s fine, push 5d19ae5f now and then continue on the current roadmap",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’m taking that as *restore Phase A/B implementation surfaces*. I’m mapping the historical packages first so I can tell which of R1/R2/R3/R4/R6 were real recoverable code packages versus ju",
+      "completionSummary": "System: 2026-03-30 20:52:14 CDT Exec completed (marine-v, code 0) :: ........................................................................ 84% ............. 100% 85 passed in 16.94s System: 2026-03-30 20:54:41 CDT Exec completed (good-fal, code 0) :: ..........................",
       "history": [
         {
           "from": null,
@@ -6618,16 +6618,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 3,
+        "runs": 4,
         "failures": [],
-        "lastRunAt": "2026-03-31T01:54:45.704Z",
+        "lastRunAt": "2026-03-31T02:05:58.433Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-31T01:30:54.345Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
