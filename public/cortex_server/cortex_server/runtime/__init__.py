@@ -1,5 +1,6 @@
 from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
+from cortex_server.runtime.context_views import HandoffContextView, WorkingContextView, compile_handoff_context_view, compile_working_context_view
 from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffContract, HandoffEvidenceRef
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
@@ -12,6 +13,7 @@ __all__ = [
     "AgentMessage",
     "AgentSupervisor",
     "HandoffArtifactRef",
+    "HandoffContextView",
     "HandoffContract",
     "HandoffEvidenceRef",
     "OpenDecision",
@@ -21,4 +23,7 @@ __all__ = [
     "ProcessSnapshotStore",
     "SharedProcessState",
     "SharedProcessStateStore",
+    "WorkingContextView",
+    "compile_handoff_context_view",
+    "compile_working_context_view",
 ]
