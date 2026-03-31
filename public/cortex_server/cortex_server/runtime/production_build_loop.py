@@ -106,6 +106,41 @@ class ProductionCheckpointPolicy(BaseModel):
         return number
 
 
+class ProductionPassBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_auto_chain_passes: int = 4
+    max_stage_advances_per_pass: int = 1
+    validation_mode: str = "focused"
+    broaden_validation_on_stage_change: bool = True
+    broaden_validation_on_completion_candidate: bool = True
+    broader_validation_checkpoints: List[str] = Field(default_factory=list)
+
+    @field_validator("max_auto_chain_passes", "max_stage_advances_per_pass")
+    @classmethod
+    def _validate_positive_budget(cls, value: int) -> int:
+        number = int(value or 0)
+        if number <= 0:
+            raise ValueError("budget values must be positive")
+        return number
+
+    @field_validator("validation_mode")
+    @classmethod
+    def _validate_validation_mode(cls, value: str) -> str:
+        text = str(value or "").strip().lower()
+        if text not in {"focused", "broad"}:
+            raise ValueError("validation_mode must be 'focused' or 'broad'")
+        return text
+
+    @field_validator("broader_validation_checkpoints")
+    @classmethod
+    def _validate_checkpoints(cls, values: List[str]) -> List[str]:
+        cleaned = [str(value or "").strip() for value in (values or [])]
+        if any(not value for value in cleaned):
+            raise ValueError("broader_validation_checkpoints must not contain empty values")
+        return cleaned
+
+
 class ProductionStageGate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -159,6 +194,7 @@ class ProductionBuildContract(BaseModel):
     controller_lease_seconds: int = 180
     worker_lease_seconds: int = 180
     checkpoint_policy: ProductionCheckpointPolicy = Field(default_factory=ProductionCheckpointPolicy)
+    execution_budget: ProductionPassBudget = Field(default_factory=ProductionPassBudget)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("contract_id", "process_id", "objective", "target_environment", "controller_scope")
@@ -222,6 +258,9 @@ class ProductionBuildLoopState(BaseModel):
     last_checkpoint_at: Optional[str] = None
     true_blockers: List[Dict[str, Any]] = Field(default_factory=list)
     completion: Dict[str, Any] = Field(default_factory=dict)
+    next_action: Dict[str, Any] = Field(default_factory=dict)
+    continuation: Dict[str, Any] = Field(default_factory=dict)
+    last_pass: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("loop_id", "contract_id", "process_id", "status")
@@ -427,6 +466,121 @@ def _dedupe_rows(rows: Sequence[str]) -> List[str]:
 
 def _report_blocker_key(blocker: Dict[str, Any]) -> str:
     return f"{blocker.get('source')}|{blocker.get('summary')}"
+
+
+
+def _int_budget(value: Any, *, default: int = 0) -> int:
+    try:
+        return max(0, int(value or 0))
+    except Exception:
+        return default
+
+
+
+def _production_validation_scope(
+    contract: "ProductionBuildContract",
+    *,
+    budget: "ProductionPassBudget",
+    previous_state: Optional["ProductionBuildLoopState"],
+    state: "ProductionBuildLoopState",
+    blockers: Sequence[Dict[str, Any]],
+    stage_changes: Sequence[Dict[str, Any]],
+) -> str:
+    if budget.validation_mode == "broad":
+        return "broad"
+    if blockers:
+        return "broad"
+    if budget.broaden_validation_on_completion_candidate and state.current_stage == contract.target_environment:
+        return "broad"
+    if budget.broaden_validation_on_stage_change and stage_changes:
+        return "broad"
+    checkpoints = set(_dedupe_rows(list(budget.broader_validation_checkpoints or []) + [contract.target_environment]))
+    if state.current_stage in checkpoints:
+        return "broad"
+    if previous_state is not None and previous_state.status in {"blocked", "completed"}:
+        return "broad"
+    return "focused"
+
+
+
+def _production_next_action(
+    contract: "ProductionBuildContract",
+    *,
+    state: "ProductionBuildLoopState",
+    blockers: Sequence[Dict[str, Any]],
+    completion: Dict[str, Any],
+    budget: "ProductionPassBudget",
+    pass_index: int,
+    next_stage: Optional[str],
+    snapshot: Optional[ProcessSnapshot],
+    budget_exhausted: bool,
+) -> Dict[str, Any]:
+    budget_payload = budget.model_dump() if hasattr(budget, "model_dump") else budget.dict()
+    if bool(completion.get("all_required_satisfied")) and not blockers:
+        return {
+            "kind": "completed",
+            "status": "completed",
+            "summary": f"Production build loop complete for {contract.process_id}",
+            "pass_index": pass_index,
+            "budget": budget_payload,
+        }
+    if blockers:
+        if any(bool(row.get("requires_human")) for row in blockers):
+            return {
+                "kind": "needs_human_decision",
+                "status": "blocked",
+                "summary": str(blockers[0].get("summary") or "Human decision required"),
+                "blockers": [dict(row) for row in blockers],
+                "pass_index": pass_index,
+                "budget": budget_payload,
+            }
+        return {
+            "kind": "blocked",
+            "status": "blocked",
+            "summary": str(blockers[0].get("summary") or "Production delivery blocked"),
+            "blockers": [dict(row) for row in blockers],
+            "pass_index": pass_index,
+            "budget": budget_payload,
+        }
+    if next_stage:
+        return {
+            "kind": "promote_stage",
+            "status": "active",
+            "stage": next_stage,
+            "summary": f"Promote release toward {next_stage}",
+            "pass_index": pass_index,
+            "budget_exhausted": bool(budget_exhausted),
+            "budget": budget_payload,
+        }
+    if snapshot is not None and str(snapshot.lifecycle_state or "") != "completed":
+        return {
+            "kind": "await_worker_progress",
+            "status": "active",
+            "lifecycle_state": snapshot.lifecycle_state,
+            "summary": f"Await production worker progress for lifecycle={snapshot.lifecycle_state}",
+            "pass_index": pass_index,
+            "budget": budget_payload,
+        }
+    return {
+        "kind": "await_validation_evidence",
+        "status": "active",
+        "summary": f"Await broader validation evidence for {contract.process_id}",
+        "pass_index": pass_index,
+        "budget": budget_payload,
+    }
+
+
+
+def _production_continuation(*, status: str, blockers: Sequence[Dict[str, Any]], next_action: Dict[str, Any]) -> Dict[str, Any]:
+    if status == "completed":
+        return {"mode": "stop", "terminal": True, "reason": "completed", "status": status}
+    if blockers:
+        reason = "needs_human_decision" if any(bool(row.get("requires_human")) for row in blockers) else "blocked"
+        return {"mode": "stop", "terminal": True, "reason": reason, "status": status}
+    next_kind = str(next_action.get("kind") or "").strip()
+    if next_kind == "promote_stage":
+        return {"mode": "continue_now", "terminal": False, "reason": next_kind, "status": status}
+    return {"mode": "await_external_progress", "terminal": False, "reason": next_kind or "await_external_progress", "status": status}
 
 
 
@@ -1186,6 +1340,7 @@ def advance_production_release_loop(
     supervisor: AgentSupervisor,
     release_store: ReleaseWorkflowStore,
     controller_id: str,
+    budget: Optional[ProductionPassBudget] = None,
 ) -> JsonDict:
     release_state = release_store.load(contract.process_id)
     if release_state is None:
@@ -1194,10 +1349,14 @@ def advance_production_release_loop(
     actions_taken: List[JsonDict] = []
     stage_changes: List[JsonDict] = []
     last_gate: Optional[JsonDict] = None
+    stage_advances = 0
+    stage_advance_limit = max(1, int((budget.max_stage_advances_per_pass if budget is not None else 1) or 1))
 
     for _ in range(len(_stage_plan(contract)) + 1):
         next_stage = _next_stage(contract, release_state.current_stage)
         if not next_stage:
+            break
+        if stage_advances >= stage_advance_limit:
             break
         gate_spec = _stage_gate_for(contract, next_stage)
         handoff_dispatch = _maybe_dispatch_release_handoff(
@@ -1294,17 +1453,26 @@ def advance_production_release_loop(
             actor=controller_id,
             provenance={"scenario": "production_build_loop", "action": "capture_release_fencepost", "stage": next_stage, "iteration": loop_state.iteration_count + 1},
         )
+        stage_advances += 1
         stage_changes.append({"from_stage": promoted.get("previous_stage"), "to_stage": next_stage})
         actions_taken.append({"action": "advance_release_stage", "from_stage": promoted.get("previous_stage"), "to_stage": next_stage})
         actions_taken.append({"action": "capture_release_fencepost", "stage": next_stage, "fencepost_id": release_fencepost.fencepost_id})
         if next_stage == contract.target_environment:
             break
 
-    return {"state": release_state, "actions_taken": actions_taken, "last_gate": last_gate, "stage_changes": stage_changes}
+    return {
+        "state": release_state,
+        "actions_taken": actions_taken,
+        "last_gate": last_gate,
+        "stage_changes": stage_changes,
+        "stage_advances": stage_advances,
+        "stage_budget_exhausted": stage_advances >= stage_advance_limit and bool(_next_stage(contract, release_state.current_stage)),
+        "next_stage": _next_stage(contract, release_state.current_stage),
+    }
 
 
 
-def reconcile_production_build_loop(
+def _reconcile_production_build_loop_pass(
     contract: ProductionBuildContract,
     *,
     loop_store: ProductionBuildLoopStore,
@@ -1317,10 +1485,12 @@ def reconcile_production_build_loop(
     controller_id: str,
     controller_session_id: str,
     now: Optional[datetime] = None,
+    pass_index: int = 1,
 ) -> JsonDict:
     loop_store.save_contract(contract)
     previous_state = loop_store.load_state(contract.process_id)
     state = previous_state or ProductionBuildLoopState(contract_id=contract.contract_id, process_id=contract.process_id)
+    budget = contract.execution_budget
 
     ownership = _claim_controller(
         contract,
@@ -1383,8 +1553,10 @@ def reconcile_production_build_loop(
         supervisor=supervisor,
         release_store=release_store,
         controller_id=controller_id,
+        budget=budget,
     )
     release_state = release_progress.get("state") or release_state
+    stage_changes = list(release_progress.get("stage_changes") or [])
 
     blockers = detect_true_blockers(
         contract,
@@ -1392,21 +1564,54 @@ def reconcile_production_build_loop(
         shared_state=shared_state,
         release_state=release_state,
     )
-    completion = evaluate_production_completion(
+    validation_scope = _production_validation_scope(
         contract,
-        snapshot=snapshot,
-        shared_state=shared_state,
-        dependability_report=dependability.get("after") or dependability.get("before"),
-        release_state=release_state,
+        budget=budget,
+        previous_state=previous_state,
+        state=ProductionBuildLoopState(**{**_state_dump(state), "current_stage": release_state.current_stage if release_state else state.current_stage}),
+        blockers=blockers,
+        stage_changes=stage_changes,
     )
+    if validation_scope == "broad":
+        completion = evaluate_production_completion(
+            contract,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            dependability_report=dependability.get("after") or dependability.get("before"),
+            release_state=release_state,
+        )
+    else:
+        completion = dict(previous_state.completion or {}) if previous_state is not None else {"all_required_satisfied": False, "criteria": []}
+        completion.update(
+            {
+                "all_required_satisfied": False,
+                "validation_scope": validation_scope,
+                "criteria": list(completion.get("criteria") or []),
+            }
+        )
+
     completed = bool(completion.get("all_required_satisfied")) and not blockers
     status = "completed" if completed else ("blocked" if blockers else "active")
-
     next_iteration = int(state.iteration_count or 0) + 1
     all_actions = ownership_actions + list(dependability.get("actions_taken") or []) + list(worker_recovery.get("actions_taken") or []) + list(release_progress.get("actions_taken") or [])
-    stage_changes = list(release_progress.get("stage_changes") or [])
     previous_blocker_keys = {_report_blocker_key(row) for row in (state.true_blockers or [])}
     current_blocker_keys = {_report_blocker_key(row) for row in blockers}
+    budget_exhausted = bool(release_progress.get("stage_budget_exhausted"))
+
+    next_action = _production_next_action(
+        contract,
+        state=ProductionBuildLoopState(**{**_state_dump(state), "current_stage": release_state.current_stage if release_state else state.current_stage}),
+        blockers=blockers,
+        completion=completion,
+        budget=budget,
+        pass_index=pass_index,
+        next_stage=release_progress.get("next_stage"),
+        snapshot=snapshot,
+        budget_exhausted=budget_exhausted,
+    )
+    continuation = _production_continuation(status=status, blockers=blockers, next_action=next_action)
+    pass_objective = str(next_action.get("summary") or next_action.get("kind") or contract.objective)
+    pass_budget = budget.model_dump() if hasattr(budget, "model_dump") else budget.dict()
 
     report_reasons: List[str] = []
     if previous_state is None:
@@ -1456,6 +1661,12 @@ def reconcile_production_build_loop(
                     "reasons": _dedupe_rows(report_reasons),
                     "dependability_success": bool((dependability.get("after") or dependability.get("before") or {}).get("success")),
                     "release_safe_push": bool((release_progress.get("last_gate") or {}).get("safe_push")) if release_progress.get("last_gate") is not None else None,
+                    "pass_index": pass_index,
+                    "pass_objective": pass_objective,
+                    "pass_budget": pass_budget,
+                    "validation_scope": validation_scope,
+                    "continuation": dict(continuation),
+                    "next_action": dict(next_action),
                 },
             )
         )
@@ -1476,12 +1687,26 @@ def reconcile_production_build_loop(
         last_checkpoint_at=report_record.recorded_at if report_record else state.last_checkpoint_at,
         true_blockers=blockers,
         completion=completion,
+        next_action=next_action,
+        continuation=continuation,
+        last_pass={
+            "index": pass_index,
+            "objective": pass_objective,
+            "budget": pass_budget,
+            "validation_scope": validation_scope,
+            "budget_exhausted": budget_exhausted,
+            "stage_advances": _int_budget(release_progress.get("stage_advances")),
+        },
         metadata={
             **dict(state.metadata or {}),
             "objective": contract.objective,
             "last_dependability_success": bool((dependability.get("after") or dependability.get("before") or {}).get("success")),
             "last_report_reasons": _dedupe_rows(report_reasons),
             "last_actions": all_actions,
+            "pass_budget": pass_budget,
+            "pass_objective": pass_objective,
+            "validation_scope": validation_scope,
+            "continuation_mode": continuation.get("mode"),
         },
     )
     loop_store.save_state(updated_state)
@@ -1503,7 +1728,86 @@ def reconcile_production_build_loop(
         "blockers": blockers,
         "completion": completion,
         "operator_summary": summary,
+        "next_action": next_action,
+        "continuation": continuation,
     }
+
+
+def reconcile_production_build_loop(
+    contract: ProductionBuildContract,
+    *,
+    loop_store: ProductionBuildLoopStore,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    journal: ProcessJournal,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    release_store: ReleaseWorkflowStore,
+    controller_id: str,
+    controller_session_id: str,
+    now: Optional[datetime] = None,
+) -> JsonDict:
+    final_result: Optional[JsonDict] = None
+    chained_passes = 0
+    max_passes = max(1, int(contract.execution_budget.max_auto_chain_passes or 1))
+
+    for pass_index in range(1, max_passes + 1):
+        chained_passes = pass_index
+        final_result = _reconcile_production_build_loop_pass(
+            contract,
+            loop_store=loop_store,
+            snapshot_store=snapshot_store,
+            shared_state_store=shared_state_store,
+            journal=journal,
+            mailbox=mailbox,
+            supervisor=supervisor,
+            release_store=release_store,
+            controller_id=controller_id,
+            controller_session_id=controller_session_id,
+            now=now,
+            pass_index=pass_index,
+        )
+        continuation = dict(final_result.get("continuation") or {})
+        if continuation.get("mode") != "continue_now":
+            break
+
+    if final_result is None:
+        raise ValueError("production build loop reconciliation produced no result")
+
+    if chained_passes >= max_passes and dict(final_result.get("continuation") or {}).get("mode") == "continue_now":
+        persisted_state = loop_store.load_state(contract.process_id)
+        if persisted_state is not None:
+            continuation = dict(persisted_state.continuation or {})
+            continuation["reason"] = "auto_chain_budget_exhausted"
+            next_action = dict(persisted_state.next_action or {})
+            next_action["budget_exhausted"] = True
+            persisted_state = ProductionBuildLoopState(
+                **{
+                    **_state_dump(persisted_state),
+                    "continuation": continuation,
+                    "next_action": next_action,
+                    "last_pass": {
+                        **dict(persisted_state.last_pass or {}),
+                        "auto_chain_budget_exhausted": True,
+                        "chained_passes": chained_passes,
+                    },
+                    "metadata": {
+                        **dict(persisted_state.metadata or {}),
+                        "chained_passes": chained_passes,
+                        "auto_chain_budget_exhausted": True,
+                    },
+                }
+            )
+            loop_store.save_state(persisted_state)
+            final_result["state"] = _state_dump(persisted_state)
+            final_result["continuation"] = continuation
+            final_result["next_action"] = next_action
+
+    final_result["chained_passes"] = chained_passes
+    final_state = dict(final_result.get("state") or {})
+    final_state.setdefault("metadata", {})["chained_passes"] = chained_passes
+    final_result["state"] = final_state
+    return final_result
 
 
 __all__ = [
@@ -1515,6 +1819,7 @@ __all__ = [
     "ProductionBuildLoopStore",
     "ProductionCheckpointPolicy",
     "ProductionCompletionCriterion",
+    "ProductionPassBudget",
     "ProductionStageGate",
     "advance_production_release_loop",
     "detect_true_blockers",

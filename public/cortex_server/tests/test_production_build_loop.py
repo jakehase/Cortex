@@ -9,6 +9,7 @@ from cortex_server.runtime.production_build_loop import (
     ProductionBuildLoopState,
     ProductionBuildLoopStore,
     ProductionCompletionCriterion,
+    ProductionPassBudget,
     ProductionStageGate,
     reconcile_production_build_loop,
 )
@@ -196,6 +197,103 @@ def test_production_loop_persists_through_intermediate_milestones_until_completi
     assert second["report"]["kind"] == "completed"
     assert any(report.stage == "canary_verified" for report in reports)
     assert reports[-1].kind == "completed"
+
+
+
+def test_production_loop_auto_chains_across_stage_promotions_with_bounded_pass_budget(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_prod_autochain"
+    artifact_bundle = f"artifact_release_bundle:{process_id}"
+    artifact_smoke = f"artifact_smoke_report:{process_id}"
+
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    shared_state = harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=list(seeded["shared_state"].active_plan_node_ids),
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state={**dict(seeded["shared_state"].world_state), "release_stage": "build_verified"},
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=[],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "release_seed"},
+    )
+    harness.journal.append(
+        process_id=process_id,
+        kind="artifact_written",
+        revision_id=shared_state.revision_id,
+        actor="builder",
+        payload={"artifact_id": artifact_bundle},
+    )
+    harness.journal.append(
+        process_id=process_id,
+        kind="artifact_written",
+        revision_id=shared_state.revision_id,
+        actor="verifier",
+        payload={"artifact_id": artifact_smoke},
+    )
+    snapshot = harness._checkpoint_from_journal(
+        process_id=process_id,
+        metadata={"release_stage": "build_verified"},
+        world_state_overrides={"release_stage": "build_verified", "verification": "passed"},
+    )
+
+    release_state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:auto-chain-prod",
+        target_environment="production",
+        revision_id=shared_state.revision_id,
+        current_stage="build_verified",
+        status="preparing",
+    )
+    release_state = record_release_fencepost(
+        release_state,
+        capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
+    )
+    harness.release_store.save(release_state, actor="builder", provenance={"phase": "build_verified"})
+
+    loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    contract = _contract(
+        process_id,
+        completion_criteria=[
+            ProductionCompletionCriterion(criterion_id="bundle", summary="Release bundle must exist", kind="artifact_present", artifact_id=artifact_bundle),
+            ProductionCompletionCriterion(criterion_id="smoke", summary="Smoke report must exist", kind="artifact_present", artifact_id=artifact_smoke),
+            ProductionCompletionCriterion(criterion_id="release", summary="Release must reach production", kind="release_stage", stage="production"),
+        ],
+        stage_gates=[
+            ProductionStageGate(stage="canary_verified", required_fencepost_stages=["build_verified"], required_artifacts=[artifact_bundle], require_dependability=False),
+            ProductionStageGate(stage="production", required_fencepost_stages=["build_verified", "canary_verified"], required_artifacts=[artifact_bundle, artifact_smoke], require_dependability=False),
+        ],
+    ).model_copy(update={"execution_budget": ProductionPassBudget(max_auto_chain_passes=3, max_stage_advances_per_pass=1)})
+
+    result = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-auto-chain",
+    )
+
+    persisted = loop_store.load_state(process_id)
+
+    assert result["state"]["status"] == "completed"
+    assert result["state"]["current_stage"] == "production"
+    assert result["chained_passes"] >= 2
+    assert result["continuation"]["mode"] == "stop"
+    assert persisted is not None
+    assert persisted.last_pass["budget"]["max_stage_advances_per_pass"] == 1
+    assert persisted.next_action["kind"] == "completed"
 
 
 

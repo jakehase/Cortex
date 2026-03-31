@@ -317,6 +317,8 @@ def _resolve_runtime_delivery_contract(
         payload["blocker_rules"] = list(request.blocker_rules)
     if request.dependability_profile is not None:
         payload["dependability_profile"] = request.dependability_profile
+    if request.execution_budget is not None:
+        payload["execution_budget"] = dict(request.execution_budget)
     payload.setdefault("dependability_profile", "24h")
 
     merged_metadata = dict(payload.get("metadata") or {})
@@ -360,6 +362,10 @@ def _runtime_delivery_projection(
         "latest_report_status": latest_report.status if latest_report is not None else None,
         "true_blocker_count": len(loop_state.true_blockers) if loop_state is not None else 0,
         "completion_ready": bool(completion.get("all_required_satisfied")) if completion else None,
+        "continuation": dict(loop_state.continuation or {}) if loop_state is not None else {},
+        "next_action": dict(loop_state.next_action or {}) if loop_state is not None else {},
+        "last_pass": dict(loop_state.last_pass or {}) if loop_state is not None else {},
+        "execution_budget": model_dump_compat(contract.execution_budget) if contract is not None and getattr(contract, "execution_budget", None) is not None else None,
     }
 
 
@@ -413,6 +419,8 @@ def _sync_runtime_process_delivery_state(
         desired_metadata["release_status"] = release_state.status
     if shared_state is not None:
         desired_metadata["delivery_revision_id"] = shared_state.revision_id
+    if loop_state is not None:
+        desired_metadata["delivery_continuation_mode"] = loop_state.continuation.get("mode") if isinstance(loop_state.continuation, dict) else None
     if contract is not None:
         desired_metadata["production_build_loop"] = model_dump_compat(contract)
 
@@ -619,6 +627,8 @@ def _resolve_runtime_roadmap_contract(
         payload["dependability_profile"] = request.dependability_profile
     if request.reporting_policy is not None:
         payload["reporting_policy"] = dict(request.reporting_policy)
+    if request.execution_budget is not None:
+        payload["execution_budget"] = dict(request.execution_budget)
     payload.setdefault("dependability_profile", "24h")
 
     if not payload.get("phases") and not payload.get("tasks"):
@@ -657,6 +667,10 @@ def _runtime_roadmap_projection(
         "latest_report_kind": (latest_report or {}).get("kind") if latest_report is not None else None,
         "true_blocker_count": len((state or {}).get("true_blockers") or []),
         "completion_ready": bool(completion.get("all_required_satisfied")) if completion else None,
+        "continuation": dict((state or {}).get("continuation") or {}),
+        "next_action": dict((state or {}).get("next_action") or {}),
+        "last_pass": dict((state or {}).get("last_pass") or {}),
+        "execution_budget": model_dump_compat(contract.execution_budget) if contract is not None and getattr(contract, "execution_budget", None) is not None else None,
     }
 
 
@@ -708,6 +722,7 @@ def _sync_runtime_process_roadmap_state(
     if state is not None:
         desired_metadata["roadmap_status"] = state.status
         desired_metadata["roadmap_active_phase"] = state.active_phase_id
+        desired_metadata["roadmap_continuation_mode"] = state.continuation.get("mode") if isinstance(state.continuation, dict) else None
 
     if desired_metadata != metadata:
         process = replace_process_workflow(
@@ -854,6 +869,7 @@ class RuntimeDeliveryReconcileRequest(BaseModel):
     completion_criteria: Optional[List[Dict[str, Any]]] = None
     blocker_rules: Optional[List[Dict[str, Any]]] = None
     dependability_profile: Optional[Any] = None
+    execution_budget: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     candidate_ref: Optional[str] = None
     initial_release_stage: Optional[str] = None
@@ -881,6 +897,7 @@ class RuntimeRoadmapReconcileRequest(BaseModel):
     blocker_rules: Optional[List[Dict[str, Any]]] = None
     dependability_profile: Optional[Any] = None
     reporting_policy: Optional[Dict[str, Any]] = None
+    execution_budget: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     bootstrap_runtime_state: bool = True
     controller_id: str = "cortex"

@@ -8,6 +8,7 @@ from cortex_server.runtime.roadmap_executor import (
     RoadmapExecutionState,
     RoadmapExecutionStore,
     RoadmapObjectiveContract,
+    RoadmapPassBudget,
     RoadmapPhaseDefinition,
     RoadmapSuccessCriterion,
     RoadmapTaskDefinition,
@@ -371,6 +372,81 @@ def test_roadmap_executor_persists_through_mixed_phases_until_true_completion(tm
     assert reports[-1].kind == "completed"
     assert any(task["task_id"] == "release_prep" and task["status"] == "completed" for task in final["state"]["task_states"])
     assert any(task["task_id"] == "polish" and task["status"] == "completed" for task in final["state"]["task_states"])
+
+
+
+def test_roadmap_executor_auto_chains_across_phase_completion_without_natural_pause(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_roadmap_autochain"
+    loop_store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="feature_build", agent_id="builder")
+
+    shared_state = harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=["refactor"],
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state={**dict(seeded["shared_state"].world_state), "feature_done": True, "bugfix_done": True},
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=[],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "foundation_complete"},
+    )
+    harness.release_store.save(
+        ReleaseWorkflowState(
+            process_id=process_id,
+            candidate_ref="build:auto-chain",
+            target_environment="production",
+            revision_id=shared_state.revision_id,
+            current_stage="build_verified",
+            status="preparing",
+        ),
+        actor="builder",
+        provenance={"phase": "seed_release"},
+    )
+
+    contract = _contract(process_id).model_copy(
+        update={
+            "execution_budget": RoadmapPassBudget(
+                max_auto_chain_passes=4,
+                max_task_completions_per_pass=1,
+                max_phase_transitions_per_pass=1,
+                max_task_dispatches_per_pass=1,
+            )
+        }
+    )
+
+    result = reconcile_roadmap_execution(
+        contract,
+        roadmap_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-auto-chain",
+        journal=harness.journal,
+    )
+
+    persisted = loop_store.load_state(process_id)
+
+    assert result["state"]["status"] == "active"
+    assert result["state"]["active_phase_id"] == "hardening"
+    assert "refactor" in result["state"]["active_task_ids"]
+    assert result["chained_passes"] >= 2
+    assert any(phase["phase_id"] == "foundation" and phase["status"] == "completed" for phase in result["state"]["phase_states"])
+    assert result["continuation"]["mode"] == "await_external_progress"
+    assert persisted is not None
+    assert persisted.last_pass["budget"]["max_task_completions_per_pass"] == 1
+    assert persisted.next_action["kind"] == "await_worker_progress"
+    assert "refactor" in persisted.next_action["task_ids"]
 
 
 

@@ -7,6 +7,7 @@ from cortex_server.runtime import (
     RoadmapExecutionState,
     RoadmapExecutionStore,
     RoadmapObjectiveContract,
+    RoadmapPassBudget,
     RoadmapPhaseDefinition,
     RoadmapPhaseState,
     RoadmapReportingPolicy,
@@ -29,6 +30,7 @@ def test_runtime_package_exports_roadmap_executor_helpers():
     assert RoadmapExecutionState is not None
     assert RoadmapExecutionStore is not None
     assert RoadmapObjectiveContract is not None
+    assert RoadmapPassBudget is not None
     assert RoadmapPhaseDefinition is not None
     assert RoadmapPhaseState is not None
     assert RoadmapReportingPolicy is not None
