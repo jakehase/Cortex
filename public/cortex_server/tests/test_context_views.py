@@ -81,6 +81,8 @@ def test_compile_working_context_view_merges_snapshot_shared_state_and_handoff()
     assert "artifact-1" in view.artifact_refs and "artifact-2" in view.artifact_refs
     assert "Is it isolated?" in view.open_questions and "What changed recently?" in view.open_questions
     assert "full artifact body omitted" in view.explicit_omissions
+    assert view.metadata["revision_guard"]["stale_revision"] is True
+    assert view.metadata["stale_handoff_revision"] is True
 
 
 
@@ -126,3 +128,27 @@ def test_compile_handoff_context_view_surfaces_transfer_packet():
     assert view.world_state["service"] == "degraded"
     assert view.world_state["region"] == "us-central"
     assert "claim-1" in view.belief_refs and "claim-2" in view.belief_refs
+    assert view.metadata["revision_guard"]["stale_revision"] is True
+    assert view.metadata["stale_handoff_revision"] is True
+
+
+
+def test_context_views_can_reject_stale_handoff_revision():
+    snapshot = ProcessSnapshot(process_id="proc_123", snapshot_id="snap_1", lifecycle_state="running")
+    state = SharedProcessState(process_id="proc_123", state_id="state_1", revision_id="rev_5")
+    handoff = HandoffContract(
+        process_id="proc_123",
+        from_agent="coordinator",
+        to_agent="researcher",
+        source_revision="rev_4",
+        objective="Collect confirming evidence",
+        expected_output="Return evidence",
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="stale revision detected"):
+        compile_working_context_view(snapshot=snapshot, shared_state=state, handoff=handoff, reject_stale_revision=True)
+
+    with pytest.raises(ValueError, match="stale revision detected"):
+        compile_handoff_context_view(handoff=handoff, shared_state=state, snapshot=snapshot, reject_stale_revision=True)

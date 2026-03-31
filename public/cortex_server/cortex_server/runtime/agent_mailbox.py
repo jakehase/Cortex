@@ -31,6 +31,7 @@ class AgentMessage(BaseModel):
     causal_parent_ids: List[str] = Field(default_factory=list)
     handoff_id: Optional[str] = None
     revision_id: Optional[str] = None
+    dedupe_key: Optional[str] = None
     created_at: str = Field(default_factory=_now_iso)
     delivery_status: str = "queued"
     attempt_count: int = 0
@@ -46,6 +47,16 @@ class AgentMessage(BaseModel):
         if not value:
             raise ValueError("must be non-empty")
         return value
+
+    @field_validator("dedupe_key")
+    @classmethod
+    def _validate_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("dedupe_key must be non-empty when provided")
+        return text
 
     @field_validator("created_at", "last_attempt_at", "acked_at", "dead_lettered_at")
     @classmethod
@@ -120,6 +131,17 @@ class AgentMailbox:
         else:
             record = AgentMessage(**kwargs)
         rows = self._read_all()
+        if record.dedupe_key:
+            for row in rows:
+                if (
+                    row.process_id == record.process_id
+                    and row.from_agent == record.from_agent
+                    and row.to_agent == record.to_agent
+                    and row.kind == record.kind
+                    and row.dedupe_key == record.dedupe_key
+                    and row.delivery_status != "dead_letter"
+                ):
+                    return row
         rows.append(record)
         self._write_all(rows)
         return record
@@ -207,6 +229,33 @@ class AgentMailbox:
 
     def retry(self, message_id: str) -> AgentMessage:
         return self._mutate(message_id, lambda row: (setattr(row, "delivery_status", "queued"), setattr(row, "dead_lettered_at", None)))
+
+    def recover_dead_letter(
+        self,
+        message_id: str,
+        *,
+        revision_id: Optional[str] = None,
+        recovery_reason: str = "operator_requeue",
+    ) -> AgentMessage:
+        now = _now_iso()
+
+        def _recover(row: AgentMessage):
+            previous_metadata = dict(row.metadata or {})
+            previous_count = int(previous_metadata.get("recovery_count", 0) or 0)
+            row.delivery_status = "queued"
+            row.dead_lettered_at = None
+            row.last_attempt_at = now
+            if revision_id is not None:
+                row.revision_id = str(revision_id or "").strip() or None
+            row.metadata = {
+                **previous_metadata,
+                "recovered_from_status": "dead_letter",
+                "recovery_reason": str(recovery_reason or "operator_requeue").strip() or "operator_requeue",
+                "recovery_count": previous_count + 1,
+                "recovered_at": now,
+            }
+
+        return self._mutate(message_id, _recover)
 
     def dead_letter(self, message_id: str) -> AgentMessage:
         now = _now_iso()

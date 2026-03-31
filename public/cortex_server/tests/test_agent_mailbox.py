@@ -101,3 +101,51 @@ def test_agent_mailbox_rejects_stale_revision_on_receive(tmp_path: Path):
     assert stored[0].metadata["rejection_reason"] == "stale_revision"
     assert stored[0].metadata["expected_revision_id"] == "rev_2"
     assert stored[0].metadata["observed_revision_id"] == "rev_1"
+
+
+
+def test_agent_mailbox_send_dedupes_by_dedupe_key(tmp_path: Path):
+    mailbox = AgentMailbox(tmp_path / "runtime" / "mailbox.json")
+
+    first = mailbox.send(
+        process_id="proc_123",
+        from_agent="coordinator",
+        to_agent="researcher",
+        kind="handoff",
+        dedupe_key="handoff:step1:rev2",
+        payload={"objective": "Investigate"},
+    )
+    second = mailbox.send(
+        process_id="proc_123",
+        from_agent="coordinator",
+        to_agent="researcher",
+        kind="handoff",
+        dedupe_key="handoff:step1:rev2",
+        payload={"objective": "Investigate again"},
+    )
+
+    assert first.message_id == second.message_id
+    assert len(mailbox.list(process_id="proc_123", to_agent="researcher")) == 1
+
+
+
+def test_agent_mailbox_can_recover_dead_letters(tmp_path: Path):
+    mailbox = AgentMailbox(tmp_path / "runtime" / "mailbox.json")
+
+    sent = mailbox.send(
+        process_id="proc_123",
+        from_agent="coordinator",
+        to_agent="researcher",
+        kind="handoff",
+        revision_id="rev_1",
+        payload={"objective": "Investigate"},
+    )
+    mailbox.dead_letter(sent.message_id)
+
+    recovered = mailbox.recover_dead_letter(sent.message_id, revision_id="rev_2", recovery_reason="align_revision")
+
+    assert recovered.delivery_status == "queued"
+    assert recovered.revision_id == "rev_2"
+    assert recovered.metadata["recovered_from_status"] == "dead_letter"
+    assert recovered.metadata["recovery_reason"] == "align_revision"
+    assert recovered.metadata["recovery_count"] == 1

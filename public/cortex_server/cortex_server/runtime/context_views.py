@@ -35,6 +35,27 @@ def _dedupe_strs(values: Iterable[str]) -> List[str]:
     return rows
 
 
+
+def revision_guard(*, expected_revision_id: str, observed_revision_id: str, source: str = "handoff") -> Dict[str, Any]:
+    expected = str(expected_revision_id or "").strip()
+    observed = str(observed_revision_id or "").strip()
+    if not expected or not observed:
+        raise ValueError("revision guard requires non-empty expected and observed revision ids")
+    stale = expected != observed
+    return {
+        "source": str(source or "handoff").strip() or "handoff",
+        "expected_revision_id": expected,
+        "observed_revision_id": observed,
+        "stale_revision": stale,
+        "accepted": not stale,
+        "operator_summary": (
+            f"stale revision detected from {source}: expected {expected}, observed {observed}"
+            if stale
+            else f"revision accepted from {source}: {observed}"
+        ),
+    }
+
+
 class WorkingContextView(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -115,6 +136,7 @@ def compile_working_context_view(
     handoff: Optional[HandoffContract] = None,
     max_recent_events: int = 20,
     explicit_omissions: Optional[List[str]] = None,
+    reject_stale_revision: bool = False,
 ) -> WorkingContextView:
     if snapshot.process_id != shared_state.process_id:
         raise ValueError("snapshot and shared_state must refer to the same process_id")
@@ -133,6 +155,13 @@ def compile_working_context_view(
         artifact_refs.extend([row.artifact_id for row in handoff.relevant_artifacts])
     belief_refs = list(snapshot.belief_refs) + list(shared_state.belief_refs)
     open_questions = list(shared_state.open_questions) + (list(handoff.open_questions) if handoff else [])
+    revision_check = revision_guard(
+        expected_revision_id=shared_state.revision_id,
+        observed_revision_id=handoff.source_revision,
+        source="handoff",
+    ) if handoff else None
+    if revision_check and revision_check["stale_revision"] and reject_stale_revision:
+        raise ValueError(revision_check["operator_summary"])
     return WorkingContextView(
         process_id=snapshot.process_id,
         revision_id=shared_state.revision_id,
@@ -157,6 +186,8 @@ def compile_working_context_view(
         metadata={
             "event_tail_count": len(trimmed),
             "source_revision": handoff.source_revision if handoff else None,
+            "revision_guard": revision_check,
+            "stale_handoff_revision": bool(revision_check and revision_check.get("stale_revision")),
         },
     )
 
@@ -167,11 +198,19 @@ def compile_handoff_context_view(
     handoff: HandoffContract,
     shared_state: SharedProcessState,
     snapshot: Optional[ProcessSnapshot] = None,
+    reject_stale_revision: bool = False,
 ) -> HandoffContextView:
     if handoff.process_id != shared_state.process_id:
         raise ValueError("handoff and shared_state must refer to the same process_id")
     if snapshot and snapshot.process_id != handoff.process_id:
         raise ValueError("snapshot process_id must match handoff/shared_state")
+    revision_check = revision_guard(
+        expected_revision_id=shared_state.revision_id,
+        observed_revision_id=handoff.source_revision,
+        source="handoff",
+    )
+    if revision_check["stale_revision"] and reject_stale_revision:
+        raise ValueError(revision_check["operator_summary"])
     return HandoffContextView(
         handoff_id=handoff.handoff_id,
         process_id=handoff.process_id,
@@ -194,6 +233,8 @@ def compile_handoff_context_view(
         metadata={
             "timeout_seconds": handoff.timeout_seconds,
             "lease_seconds": handoff.lease_seconds,
+            "revision_guard": revision_check,
+            "stale_handoff_revision": bool(revision_check.get("stale_revision")),
         },
     )
 
@@ -203,4 +244,5 @@ __all__ = [
     "WorkingContextView",
     "compile_handoff_context_view",
     "compile_working_context_view",
+    "revision_guard",
 ]

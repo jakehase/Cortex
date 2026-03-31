@@ -353,26 +353,87 @@ class RuntimeSoakHarness:
             **guard,
         }
 
+    def run_elapsed_wait_profile(self, *, process_prefix: str = "soak", elapsed_waits: Optional[list[float]] = None) -> list[JsonDict]:
+        wait_matrix = [0.0]
+        for value in (elapsed_waits or []):
+            seconds = float(value or 0.0)
+            if seconds not in wait_matrix:
+                wait_matrix.append(seconds)
+        return [
+            self.run_pause_resume_scenario(process_id=f"{process_prefix}_pause_resume_{idx}", wait_seconds=seconds)
+            for idx, seconds in enumerate(wait_matrix, start=1)
+        ]
+
+    def run_dead_letter_recovery_scenario(
+        self,
+        *,
+        process_id: str,
+        current_revision_id: str = "rev_2",
+        stale_revision_id: str = "rev_1",
+        recovered_revision_id: Optional[str] = None,
+        agent_id: str = "planner",
+        node_id: str = "step1",
+    ) -> JsonDict:
+        self._seed_waiting_process(process_id=process_id, revision_id=current_revision_id, node_id=node_id, agent_id=agent_id)
+        recovered_revision = str(recovered_revision_id or current_revision_id).strip() or current_revision_id
+        message = self.mailbox.send(
+            process_id=process_id,
+            from_agent="coordinator",
+            to_agent=agent_id,
+            kind="handoff",
+            revision_id=stale_revision_id,
+            dedupe_key=f"recover:{process_id}:{agent_id}",
+            payload={"objective": "recover stale delivery"},
+        )
+        first_receive = self.mailbox.receive(
+            to_agent=agent_id,
+            process_id=process_id,
+            expected_revision_id=current_revision_id,
+            reject_stale_revision=True,
+        )
+        recovered = self.mailbox.recover_dead_letter(
+            message.message_id,
+            revision_id=recovered_revision,
+            recovery_reason="align_revision_and_requeue",
+        )
+        second_receive = self.mailbox.receive(
+            to_agent=agent_id,
+            process_id=process_id,
+            expected_revision_id=current_revision_id,
+            reject_stale_revision=True,
+        )
+        return {
+            "scenario": "dead_letter_recovery",
+            "process_id": process_id,
+            "message_id": message.message_id,
+            "first_receive_count": len(first_receive),
+            "recovered_revision_id": recovered.revision_id,
+            "recovery_count": int((recovered.metadata or {}).get("recovery_count", 0) or 0),
+            "recovery_reason": (recovered.metadata or {}).get("recovery_reason"),
+            "second_receive_count": len(second_receive),
+            "recovery_succeeded": len(second_receive) == 1 and str(second_receive[0].revision_id or "") == current_revision_id,
+            "operator_summary": f"dead-letter recovery {'ok' if len(second_receive) == 1 else 'failed'} for {process_id}",
+        }
+
     def run_suite(self, *, process_prefix: str = "soak", wait_seconds: float = 0.0, elapsed_waits: Optional[list[float]] = None) -> JsonDict:
         wait_matrix = [float(wait_seconds or 0.0)]
         for value in (elapsed_waits or []):
             seconds = float(value or 0.0)
             if seconds not in wait_matrix:
                 wait_matrix.append(seconds)
-        pause_resume_runs = [
-            self.run_pause_resume_scenario(process_id=f"{process_prefix}_pause_resume_{idx}", wait_seconds=seconds)
-            for idx, seconds in enumerate(wait_matrix, start=1)
-        ]
+        pause_resume_runs = self.run_elapsed_wait_profile(process_prefix=process_prefix, elapsed_waits=wait_matrix)
         restart_recovery = self.run_restart_recovery_scenario(process_id=f"{process_prefix}_restart_recovery")
         stale_agent = self.run_stale_agent_scenario(process_id=f"{process_prefix}_stale_agent")
         stale_revision = self.run_stale_revision_scenario(process_id=f"{process_prefix}_stale_revision")
-        scenarios = [*pause_resume_runs, restart_recovery, stale_agent, stale_revision]
+        dead_letter_recovery = self.run_dead_letter_recovery_scenario(process_id=f"{process_prefix}_dead_letter_recovery")
+        scenarios = [*pause_resume_runs, restart_recovery, stale_agent, stale_revision, dead_letter_recovery]
         success = all(
             row.get("resumed_without_loss", True)
             and row.get("recovered_from_tail", True)
             and row.get("stale_detected", True)
             and row.get("stale_revision", True)
             and (row.get("accepted_count", 0) == 0 if row.get("scenario") == "stale_revision" else True)
+            and row.get("recovery_succeeded", True)
             for row in scenarios
         )
         return {

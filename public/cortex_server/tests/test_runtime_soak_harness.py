@@ -69,6 +69,31 @@ def test_runtime_soak_harness_suite_runs_all_core_scenarios(tmp_path):
     report = harness.run_suite(process_prefix="durable", elapsed_waits=[0.01, 0.02])
 
     assert report["success"] is True
-    assert report["scenario_count"] == 6
+    assert report["scenario_count"] == 7
     assert report["wait_matrix_seconds"] == [0.0, 0.01, 0.02]
-    assert len(report["scenarios"]) == 6
+    assert len(report["scenarios"]) == 7
+
+
+
+def test_runtime_soak_harness_can_recover_dead_letters(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+
+    report = harness.run_dead_letter_recovery_scenario(process_id="proc_dead_letter")
+
+    assert report["first_receive_count"] == 0
+    assert report["recovery_count"] == 1
+    assert report["recovered_revision_id"] == "rev_2"
+    assert report["second_receive_count"] == 1
+    assert report["recovery_succeeded"] is True
+
+
+
+def test_runtime_soak_harness_elapsed_wait_profile_runs_multiple_waits(tmp_path):
+    waits = []
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: waits.append(seconds))
+
+    reports = harness.run_elapsed_wait_profile(process_prefix="profile", elapsed_waits=[0.05, 0.1, 0.25])
+
+    assert len(reports) == 4
+    assert waits == [0.05, 0.1, 0.25]
+    assert all(row["resumed_without_loss"] is True for row in reports)
