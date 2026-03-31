@@ -65,6 +65,8 @@ from cortex_server.runtime import (
     ProductionBuildLoopStore,
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
+    RoadmapExecutionStore,
+    RoadmapObjectiveContract,
     SharedProcessState,
     SharedProcessStateStore,
     apply_release_rollback_restore,
@@ -73,6 +75,7 @@ from cortex_server.runtime import (
     evaluate_production_completion,
     record_release_fencepost,
     reconcile_production_build_loop,
+    reconcile_roadmap_execution,
 )
 
 router = APIRouter()
@@ -117,6 +120,7 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         "supervisor": AgentSupervisor(root / "leases.json"),
         "release_store": ReleaseWorkflowStore(root / "release_workflow"),
         "loop_store": ProductionBuildLoopStore(root / "production_build_loop"),
+        "roadmap_store": RoadmapExecutionStore(root / "roadmap_executor"),
     }
 
 
@@ -133,6 +137,13 @@ def _validate_production_contract(payload: Dict[str, Any]) -> ProductionBuildCon
     if hasattr(ProductionBuildContract, "model_validate"):
         return ProductionBuildContract.model_validate(payload)
     return ProductionBuildContract.parse_obj(payload)
+
+
+
+def _validate_roadmap_contract(payload: Dict[str, Any]) -> RoadmapObjectiveContract:
+    if hasattr(RoadmapObjectiveContract, "model_validate"):
+        return RoadmapObjectiveContract.model_validate(payload)
+    return RoadmapObjectiveContract.parse_obj(payload)
 
 
 
@@ -533,6 +544,211 @@ def _runtime_delivery_status_payload(process_id: str, *, process: Dict[str, Any]
 
 
 
+def _default_roadmap_tasks(process: Dict[str, Any]) -> Dict[str, Any]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    steps = list(workflow.get("steps") or [])
+    phase_id = "runtime_workflow"
+    tasks: List[Dict[str, Any]] = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        task_id = str(step.get("node_id") or f"step_{index + 1}").strip() or f"step_{index + 1}"
+        metadata = step.get("metadata") if isinstance(step.get("metadata"), dict) else {}
+        tasks.append(
+            {
+                "task_id": task_id,
+                "phase_id": phase_id,
+                "title": str(step.get("title") or task_id).strip() or task_id,
+                "summary": str(step.get("payload", {}).get("message") or step.get("endpoint") or task_id),
+                "work_type": str(metadata.get("work_type") or "feature").strip() or "feature",
+                "depends_on": list(step.get("depends_on") or []),
+                "success_criteria": list(step.get("success_criteria") or []),
+                "quality_gates": [{
+                    "criterion_id": f"runtime-node:{task_id}",
+                    "summary": f"Runtime node {task_id} must complete",
+                    "kind": "runtime_node_completed",
+                    "task_id": task_id,
+                }],
+                "metadata": dict(metadata),
+            }
+        )
+    phases = [
+        {
+            "phase_id": phase_id,
+            "title": str(workflow.get("name") or "Runtime workflow roadmap").strip() or "Runtime workflow roadmap",
+            "summary": "Derived from runtime workflow steps",
+        }
+    ] if tasks else []
+    return {"phases": phases, "tasks": tasks}
+
+
+
+def _resolve_runtime_roadmap_contract(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    request: RuntimeRoadmapReconcileRequest,
+) -> RoadmapObjectiveContract:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    workflow_contract = metadata.get("roadmap_executor") if isinstance(metadata.get("roadmap_executor"), dict) else {}
+    stored_contract = stores["roadmap_store"].load_contract(process_id)
+
+    payload: Dict[str, Any] = {}
+    if stored_contract is not None:
+        payload.update(model_dump_compat(stored_contract))
+    elif workflow_contract:
+        payload.update(dict(workflow_contract))
+    if isinstance(request.contract, dict):
+        payload.update(dict(request.contract))
+
+    payload["process_id"] = process_id
+    payload.setdefault("objective", str(workflow.get("name") or request.objective or f"Drive {process_id} to roadmap completion"))
+    if request.objective:
+        payload["objective"] = request.objective
+    if request.success_criteria is not None:
+        payload["success_criteria"] = list(request.success_criteria)
+    if request.phases is not None:
+        payload["phases"] = list(request.phases)
+    if request.tasks is not None:
+        payload["tasks"] = list(request.tasks)
+    if request.blocker_rules is not None:
+        payload["blocker_rules"] = list(request.blocker_rules)
+    if request.dependability_profile is not None:
+        payload["dependability_profile"] = request.dependability_profile
+    if request.reporting_policy is not None:
+        payload["reporting_policy"] = dict(request.reporting_policy)
+    payload.setdefault("dependability_profile", "24h")
+
+    if not payload.get("phases") and not payload.get("tasks"):
+        derived = _default_roadmap_tasks(process)
+        payload["phases"] = derived["phases"]
+        payload["tasks"] = derived["tasks"]
+
+    merged_metadata = dict(payload.get("metadata") or {})
+    merged_metadata.update(dict(request.metadata or {}))
+    payload["metadata"] = merged_metadata
+    return _validate_roadmap_contract(payload)
+
+
+
+def _runtime_roadmap_projection(
+    *,
+    contract: Optional[RoadmapObjectiveContract],
+    state: Optional[Dict[str, Any]],
+    latest_report: Optional[Dict[str, Any]],
+    snapshot: Optional[ProcessSnapshot],
+    shared_state: Optional[SharedProcessState],
+) -> Dict[str, Any]:
+    completion = dict((state or {}).get("completion") or {})
+    return {
+        "objective_id": contract.objective_id if contract is not None else None,
+        "objective": contract.objective if contract is not None else None,
+        "status": (state or {}).get("status"),
+        "iteration_count": int((state or {}).get("iteration_count", 0) or 0),
+        "checkpoint_count": int((state or {}).get("checkpoint_count", 0) or 0),
+        "recovery_count": int((state or {}).get("recovery_count", 0) or 0),
+        "active_phase_id": (state or {}).get("active_phase_id"),
+        "active_task_ids": list((state or {}).get("active_task_ids") or []),
+        "current_revision_id": shared_state.revision_id if shared_state is not None else None,
+        "current_snapshot_id": snapshot.snapshot_id if snapshot is not None else None,
+        "latest_report_id": (latest_report or {}).get("report_id") if latest_report is not None else None,
+        "latest_report_kind": (latest_report or {}).get("kind") if latest_report is not None else None,
+        "true_blocker_count": len((state or {}).get("true_blockers") or []),
+        "completion_ready": bool(completion.get("all_required_satisfied")) if completion else None,
+    }
+
+
+
+def _sync_runtime_process_roadmap_state(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    event_kind: str,
+    event_payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    snapshot = stores["snapshot_store"].load(process_id)
+    shared_state = stores["shared_state_store"].load(process_id)
+    contract = stores["roadmap_store"].load_contract(process_id)
+    state = stores["roadmap_store"].load_state(process_id)
+    reports = stores["roadmap_store"].reports(process_id)
+    latest_report = reports[-1] if reports else None
+
+    if snapshot is not None:
+        process = sync_process_progress(
+            process_id,
+            lifecycle_state=snapshot.lifecycle_state,
+            active_nodes=snapshot.active_steps,
+            waiting_nodes=snapshot.waiting_steps,
+            completed_nodes=snapshot.completed_steps,
+            failed_nodes=snapshot.failed_steps,
+            enabled=(snapshot.lifecycle_state != "failed"),
+            event_kind=f"{event_kind}.progress",
+            event_payload={
+                **dict(event_payload or {}),
+                "snapshot_id": snapshot.snapshot_id,
+                "shared_state_revision_id": shared_state.revision_id if shared_state is not None else None,
+            },
+        )
+
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = dict(workflow.get("metadata") or {})
+    desired_metadata = dict(metadata)
+    desired_metadata["runtime_roadmap"] = _runtime_roadmap_projection(
+        contract=contract,
+        state=model_dump_compat(state) if state is not None else None,
+        latest_report=model_dump_compat(latest_report) if latest_report is not None else None,
+        snapshot=snapshot,
+        shared_state=shared_state,
+    )
+    if contract is not None:
+        desired_metadata["roadmap_executor"] = model_dump_compat(contract)
+    if state is not None:
+        desired_metadata["roadmap_status"] = state.status
+        desired_metadata["roadmap_active_phase"] = state.active_phase_id
+
+    if desired_metadata != metadata:
+        process = replace_process_workflow(
+            process_id,
+            {
+                "name": workflow.get("name"),
+                "metadata": desired_metadata,
+                "steps": list(workflow.get("steps") or []),
+            },
+            event_kind=event_kind,
+            event_payload=dict(event_payload or {}),
+        )
+    elif event_kind:
+        process = record_runtime_event(process_id, event_kind, dict(event_payload or {}))
+    refreshed = get_runtime_process(process_id)
+    return refreshed or process
+
+
+
+def _runtime_roadmap_status_payload(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
+    snapshot = stores["snapshot_store"].load(process_id)
+    shared_state = stores["shared_state_store"].load(process_id)
+    contract = stores["roadmap_store"].load_contract(process_id)
+    state = stores["roadmap_store"].load_state(process_id)
+    reports = stores["roadmap_store"].reports(process_id)
+    latest_report = reports[-1] if reports else None
+    return {
+        "success": True,
+        "process_id": process_id,
+        "process": process,
+        "contract": model_dump_compat(contract) if contract is not None else None,
+        "state": model_dump_compat(state) if state is not None else None,
+        "snapshot": model_dump_compat(snapshot) if snapshot is not None else None,
+        "shared_state": model_dump_compat(shared_state) if shared_state is not None else None,
+        "report_count": len(reports),
+        "latest_report": model_dump_compat(latest_report) if latest_report is not None else None,
+        "recent_reports": [model_dump_compat(report) for report in reports[-5:]],
+    }
+
+
+
 def _persist_workflow(workflow: Dict[str, Any]) -> Dict[str, Any]:
     return runtime_workflows.persist_workflow(
         workflow,
@@ -654,6 +870,22 @@ class RuntimeDeliveryRollbackRequest(BaseModel):
     reason: str = "operator_requested"
     actor: str = "cortex"
     new_revision_id: Optional[str] = None
+
+
+class RuntimeRoadmapReconcileRequest(BaseModel):
+    contract: Optional[Dict[str, Any]] = None
+    objective: Optional[str] = None
+    success_criteria: Optional[List[Dict[str, Any]]] = None
+    phases: Optional[List[Dict[str, Any]]] = None
+    tasks: Optional[List[Dict[str, Any]]] = None
+    blocker_rules: Optional[List[Dict[str, Any]]] = None
+    dependability_profile: Optional[Any] = None
+    reporting_policy: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    bootstrap_runtime_state: bool = True
+    controller_id: str = "cortex"
+    controller_session_id: Optional[str] = None
+    now_iso: Optional[str] = None
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -1145,6 +1377,64 @@ async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDe
             "report": model_dump_compat(rollback_checkpoint["report"]),
         } if rollback_checkpoint is not None else None,
         "delivery": _runtime_delivery_status_payload(process_id, process=process, stores=stores),
+    }
+
+
+@router.get("/runtime/roadmap/{process_id}")
+async def get_runtime_roadmap_status(process_id: str):
+    process = get_runtime_process(process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+    stores = _runtime_delivery_stores()
+    return _runtime_roadmap_status_payload(process_id, process=process, stores=stores)
+
+
+@router.post("/runtime/roadmap/reconcile/{process_id}")
+async def reconcile_runtime_roadmap(process_id: str, request: Optional[RuntimeRoadmapReconcileRequest] = None):
+    request = request or RuntimeRoadmapReconcileRequest()
+    process = get_runtime_process(process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+    stores = _runtime_delivery_stores()
+    if request.bootstrap_runtime_state:
+        _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
+    snapshot = stores["snapshot_store"].load(process_id)
+    shared_state = stores["shared_state_store"].load(process_id)
+    if snapshot is None or shared_state is None:
+        raise HTTPException(status_code=400, detail=f"runtime roadmap state missing for {process_id}; enable bootstrap_runtime_state to initialize it")
+    contract = _resolve_runtime_roadmap_contract(process_id, process=process, stores=stores, request=request)
+    reconciled = reconcile_roadmap_execution(
+        contract,
+        roadmap_store=stores["roadmap_store"],
+        snapshot_store=stores["snapshot_store"],
+        shared_state_store=stores["shared_state_store"],
+        mailbox=stores["mailbox"],
+        supervisor=stores["supervisor"],
+        release_store=stores["release_store"],
+        controller_id=request.controller_id,
+        controller_session_id=request.controller_session_id or f"runtime-roadmap:{process_id}",
+        journal=stores["journal"],
+        now=_parse_optional_dt(request.now_iso),
+    )
+    process = _sync_runtime_process_roadmap_state(
+        process_id,
+        process=process,
+        stores=stores,
+        event_kind="runtime_roadmap_reconciled",
+        event_payload={
+            "controller_id": request.controller_id,
+            "controller_session_id": request.controller_session_id or f"runtime-roadmap:{process_id}",
+            "status": reconciled["state"].get("status") if isinstance(reconciled.get("state"), dict) else None,
+            "active_phase_id": reconciled["state"].get("active_phase_id") if isinstance(reconciled.get("state"), dict) else None,
+        },
+    )
+    return {
+        "success": True,
+        "process_id": process_id,
+        "process": process,
+        "contract": model_dump_compat(contract),
+        **reconciled,
+        "roadmap": _runtime_roadmap_status_payload(process_id, process=process, stores=stores),
     }
 
 
