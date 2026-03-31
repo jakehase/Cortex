@@ -5,6 +5,10 @@ from typing import Any, Callable, Dict, List, Optional
 from cortex_server.modules import reasoning_explain as explain
 from cortex_server.modules import reasoning_observability as observability
 from cortex_server.modules.explain_surface_compiler import compile_explain_atoms, compile_policy_surface_sections
+from cortex_server.runtime.handoff_contract import HandoffContract
+from cortex_server.runtime.process_resume import compile_runtime_resume_state
+from cortex_server.runtime.process_snapshot import ProcessSnapshot
+from cortex_server.runtime.shared_process_state import SharedProcessState
 
 
 JsonDict = Dict[str, Any]
@@ -242,6 +246,51 @@ def default_incident_report() -> JsonDict:
 
 
 
+def _model_dump_compat(model: Any) -> JsonDict:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    if hasattr(model, "dict"):
+        return model.dict()
+    return dict(model or {})
+
+
+
+def compile_runtime_resume_sections(
+    *,
+    snapshot: Optional[ProcessSnapshot] = None,
+    shared_state: Optional[SharedProcessState] = None,
+    recent_events: Optional[List[Any]] = None,
+    mailbox_messages: Optional[List[Any]] = None,
+    leases: Optional[List[Any]] = None,
+    handoff: Optional[HandoffContract] = None,
+) -> JsonDict:
+    if snapshot is None or shared_state is None:
+        return {
+            "runtime_resume_state": None,
+            "runtime_resume_available": False,
+            "runtime_resume_operator_summary": "durable resume state unavailable",
+        }
+
+    resume_state = compile_runtime_resume_state(
+        snapshot=snapshot,
+        shared_state=shared_state,
+        recent_events=recent_events,
+        mailbox_messages=mailbox_messages,
+        leases=leases,
+        handoff=handoff,
+    )
+    return {
+        "runtime_resume_state": _model_dump_compat(resume_state),
+        "runtime_resume_available": True,
+        "runtime_resume_operator_summary": (
+            f"resume ready from {resume_state.lifecycle_state} snapshot {resume_state.source_snapshot_id} "
+            f"rev {resume_state.revision_id} with {resume_state.queued_messages} queued messages and "
+            f"{len(resume_state.active_leases)} active leases"
+        ),
+    }
+
+
+
 def compile_runtime_shared_response_sections(explained: Optional[JsonDict], *, process_id: str, fallback: bool = False) -> JsonDict:
     explained = explained if isinstance(explained, dict) else {}
     return {
@@ -389,6 +438,12 @@ def compile_runtime_process_sections(
     explain_belief_fn: ExplainBeliefFn,
     get_belief_fn: GetBeliefFn,
     select_influential_beliefs_fn: SelectInfluentialBeliefsFn,
+    snapshot: Optional[ProcessSnapshot] = None,
+    shared_state: Optional[SharedProcessState] = None,
+    recent_events: Optional[List[Any]] = None,
+    mailbox_messages: Optional[List[Any]] = None,
+    leases: Optional[List[Any]] = None,
+    handoff: Optional[HandoffContract] = None,
 ) -> JsonDict:
     process = process if isinstance(process, dict) else {}
     workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
@@ -442,9 +497,18 @@ def compile_runtime_process_sections(
         step_influences=step_influences,
         belief_summary=summary,
     )
+    resume_sections = compile_runtime_resume_sections(
+        snapshot=snapshot,
+        shared_state=shared_state,
+        recent_events=recent_events,
+        mailbox_messages=mailbox_messages,
+        leases=leases,
+        handoff=handoff,
+    )
     return {
         "process": process,
         "policy": policy,
+        **resume_sections,
         **policy_surface_sections,
         "policy_belief_influences": policy.get("belief_influences") if isinstance(policy, dict) else [],
         "policy_decision_explanations": policy_decision_explanations,
@@ -475,6 +539,7 @@ __all__ = [
     "compile_runtime_policy_response_sections",
     "compile_runtime_postmortem_response_sections",
     "compile_runtime_process_sections",
+    "compile_runtime_resume_sections",
     "compile_runtime_shared_response_sections",
     "compile_step_belief_influences",
     "default_belief_evidence_summary",

@@ -29,6 +29,12 @@ def assemble_runtime_process_explain(
     explain_belief_fn: ExplainBeliefFn,
     get_belief_fn: GetBeliefFn,
     select_influential_beliefs_fn: SelectInfluentialBeliefsFn,
+    snapshot: Optional[Any] = None,
+    shared_state: Optional[Any] = None,
+    recent_events: Optional[List[Any]] = None,
+    mailbox_messages: Optional[List[Any]] = None,
+    leases: Optional[List[Any]] = None,
+    handoff: Optional[Any] = None,
 ) -> Dict[str, Any]:
     return {
         "success": True,
@@ -40,6 +46,12 @@ def assemble_runtime_process_explain(
             explain_belief_fn=explain_belief_fn,
             get_belief_fn=get_belief_fn,
             select_influential_beliefs_fn=select_influential_beliefs_fn,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            recent_events=recent_events,
+            mailbox_messages=mailbox_messages,
+            leases=leases,
+            handoff=handoff,
         ),
     }
 
@@ -55,6 +67,12 @@ def assemble_runtime_process_view(
     explain_belief_fn: ExplainBeliefFn,
     get_belief_fn: GetBeliefFn,
     select_influential_beliefs_fn: SelectInfluentialBeliefsFn,
+    snapshot: Optional[Any] = None,
+    shared_state: Optional[Any] = None,
+    recent_events: Optional[List[Any]] = None,
+    mailbox_messages: Optional[List[Any]] = None,
+    leases: Optional[List[Any]] = None,
+    handoff: Optional[Any] = None,
 ) -> Dict[str, Any]:
     explained = assemble_runtime_process_explain(
         process_id=process_id,
@@ -64,6 +82,12 @@ def assemble_runtime_process_view(
         explain_belief_fn=explain_belief_fn,
         get_belief_fn=get_belief_fn,
         select_influential_beliefs_fn=select_influential_beliefs_fn,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        recent_events=recent_events,
+        mailbox_messages=mailbox_messages,
+        leases=leases,
+        handoff=handoff,
     )
     explained["events"] = get_runtime_events_fn(process_id, limit=events_limit)
     explained["policy_patch_history"] = policy_patch_history(explained.get("events") or [])

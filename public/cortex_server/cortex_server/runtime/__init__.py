@@ -4,6 +4,7 @@ from cortex_server.runtime.context_views import HandoffContextView, WorkingConte
 from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffContract, HandoffEvidenceRef
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
+from cortex_server.runtime.process_resume import RuntimeResumeState, compile_runtime_resume_state, load_runtime_resume_state
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
 
@@ -21,9 +22,12 @@ __all__ = [
     "ProcessJournal",
     "ProcessSnapshot",
     "ProcessSnapshotStore",
+    "RuntimeResumeState",
     "SharedProcessState",
     "SharedProcessStateStore",
     "WorkingContextView",
     "compile_handoff_context_view",
+    "compile_runtime_resume_state",
     "compile_working_context_view",
+    "load_runtime_resume_state",
 ]
