@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T19:39:04.364Z",
+      "updatedAt": "2026-03-31T19:44:03.037Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 64,
+        "runs": 65,
         "failures": [],
-        "lastRunAt": "2026-03-31T19:39:04.369Z",
+        "lastRunAt": "2026-03-31T19:44:03.044Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -7135,12 +7135,12 @@
       "id": "agent:main:subagent:0084fa16-f105-4455-ac56-4256be4f3d31:1774985426877:800ed88f30b0d3b1",
       "sessionKey": "agent:main:subagent:0084fa16-f105-4455-ac56-4256be4f3d31",
       "createdAt": "2026-03-31T19:30:26.877Z",
-      "updatedAt": "2026-03-31T19:30:26.882Z",
+      "updatedAt": "2026-03-31T19:48:35.803Z",
       "prompt": "[Tue 2026-03-31 14:30 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Implement the next layer in /root/clawd/public/cortex_server: a ",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Tue 2026-03-31 14:30 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Implement the next layer in /root/clawd/public/cortex_server: a general durable roadmap-to-completion executor",
       "history": [
         {
           "from": null,
@@ -7151,6 +7151,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-31T19:30:26.882Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-31T19:48:35.803Z",
+          "completedAt": "2026-03-31T19:48:35.803Z",
+          "completionSummary": "Tue 2026-03-31 14:30 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Implement the next layer in /root/clawd/public/cortex_server: a general durable roadmap-to-completion executor",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -7161,10 +7169,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-31T19:48:35.807Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-31T19:48:35.803Z",
+      "completionSource": "agent_end"
     }
   ]
 }
