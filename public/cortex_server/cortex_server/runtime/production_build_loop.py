@@ -1,0 +1,1382 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
+from uuid import uuid4
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+
+from cortex_server.runtime.agent_mailbox import AgentMailbox
+from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
+from cortex_server.runtime.dependability import compile_dependability_repair_plan, load_dependability_report
+from cortex_server.runtime.process_journal import ProcessJournal
+from cortex_server.runtime.process_replay import replay_from_journal
+from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
+from cortex_server.runtime.release_workflow import (
+    ReleaseWorkflowState,
+    ReleaseWorkflowStore,
+    advance_release_workflow,
+    evaluate_release_promotion_gate,
+    repair_release_workflow,
+)
+from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
+
+
+JsonDict = Dict[str, Any]
+
+
+BUILTIN_BLOCKER_PREFIXES = ("BLOCKER:", "HUMAN:")
+
+
+class ProductionCompletionCriterion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    criterion_id: str
+    summary: str
+    kind: str
+    required: bool = True
+    stage: Optional[str] = None
+    artifact_id: Optional[str] = None
+    world_state_key: Optional[str] = None
+    expected_value: Optional[Any] = None
+    allowed_values: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("criterion_id", "summary", "kind")
+    @classmethod
+    def _validate_non_empty(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("must be non-empty")
+        return text
+
+    @field_validator("allowed_values")
+    @classmethod
+    def _validate_allowed_values(cls, values: List[str]) -> List[str]:
+        cleaned = [str(value or "").strip() for value in (values or [])]
+        if any(not value for value in cleaned):
+            raise ValueError("allowed_values must not contain empty values")
+        return cleaned
+
+
+class ProductionBlockerRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    blocker_id: str
+    summary: str
+    source: str
+    requires_human: bool = True
+    terminal: bool = True
+    owner: Optional[str] = None
+    question_prefix: Optional[str] = None
+    metadata_key: Optional[str] = None
+    metadata_value: Optional[str] = None
+    decision_title: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("blocker_id", "summary", "source")
+    @classmethod
+    def _validate_non_empty(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("must be non-empty")
+        return text
+
+
+class ProductionCheckpointPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    report_every_iterations: int = 1
+    report_on_stage_change: bool = True
+    report_on_recovery: bool = True
+    report_on_blocker_change: bool = True
+
+    @field_validator("report_every_iterations")
+    @classmethod
+    def _validate_positive(cls, value: int) -> int:
+        number = int(value or 0)
+        if number <= 0:
+            raise ValueError("report_every_iterations must be positive")
+        return number
+
+
+class ProductionStageGate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: str
+    required_fencepost_stages: List[str] = Field(default_factory=list)
+    required_artifacts: List[str] = Field(default_factory=list)
+    required_handoff_count: int = 0
+    allowed_active_agents: List[str] = Field(default_factory=list)
+    allowed_lifecycle_states: List[str] = Field(default_factory=lambda: ["waiting", "running", "completed"])
+    require_dependability: bool = True
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("stage")
+    @classmethod
+    def _validate_stage(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("stage must be non-empty")
+        return text
+
+    @field_validator("required_handoff_count")
+    @classmethod
+    def _validate_handoff_count(cls, value: int) -> int:
+        number = int(value or 0)
+        if number < 0:
+            raise ValueError("required_handoff_count must be non-negative")
+        return number
+
+    @field_validator("required_fencepost_stages", "required_artifacts", "allowed_active_agents", "allowed_lifecycle_states")
+    @classmethod
+    def _validate_rows(cls, values: List[str]) -> List[str]:
+        cleaned = [str(value or "").strip() for value in (values or [])]
+        if any(not value for value in cleaned):
+            raise ValueError("list values must not contain empty rows")
+        return cleaned
+
+
+class ProductionBuildContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_id: str = Field(default_factory=lambda: f"contract_{uuid4().hex[:16]}")
+    process_id: str
+    objective: str
+    target_environment: str = "production"
+    promotion_stages: List[str] = Field(default_factory=list)
+    stage_gates: List[ProductionStageGate] = Field(default_factory=list)
+    completion_criteria: List[ProductionCompletionCriterion] = Field(default_factory=list)
+    blocker_rules: List[ProductionBlockerRule] = Field(default_factory=list)
+    dependability_profile: str | JsonDict = "24h"
+    controller_scope: str = "production_build_loop"
+    controller_lease_seconds: int = 180
+    worker_lease_seconds: int = 180
+    checkpoint_policy: ProductionCheckpointPolicy = Field(default_factory=ProductionCheckpointPolicy)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("contract_id", "process_id", "objective", "target_environment", "controller_scope")
+    @classmethod
+    def _validate_non_empty(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("must be non-empty")
+        return text
+
+    @field_validator("promotion_stages")
+    @classmethod
+    def _validate_promotion_stages(cls, values: List[str]) -> List[str]:
+        cleaned = [str(value or "").strip() for value in (values or [])]
+        if any(not value for value in cleaned):
+            raise ValueError("promotion_stages must not contain empty values")
+        return cleaned
+
+    @field_validator("controller_lease_seconds", "worker_lease_seconds")
+    @classmethod
+    def _validate_positive(cls, value: int) -> int:
+        number = int(value or 0)
+        if number <= 0:
+            raise ValueError("lease seconds must be positive")
+        return number
+
+
+class BuildLoopControllerOwner(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    controller_id: str
+    session_id: str
+    lease_id: str
+    claimed_at: str
+    heartbeat_at: str
+
+    @field_validator("controller_id", "session_id", "lease_id", "claimed_at", "heartbeat_at")
+    @classmethod
+    def _validate_non_empty(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("must be non-empty")
+        return text
+
+
+class ProductionBuildLoopState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    loop_id: str = Field(default_factory=lambda: f"loop_{uuid4().hex[:16]}")
+    contract_id: str
+    process_id: str
+    status: str = "active"
+    iteration_count: int = 0
+    checkpoint_count: int = 0
+    recovery_count: int = 0
+    controller: Optional[BuildLoopControllerOwner] = None
+    current_revision_id: Optional[str] = None
+    current_snapshot_id: Optional[str] = None
+    current_stage: Optional[str] = None
+    latest_report_id: Optional[str] = None
+    last_checkpoint_at: Optional[str] = None
+    true_blockers: List[Dict[str, Any]] = Field(default_factory=list)
+    completion: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("loop_id", "contract_id", "process_id", "status")
+    @classmethod
+    def _validate_non_empty(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("must be non-empty")
+        return text
+
+    @field_validator("iteration_count", "checkpoint_count", "recovery_count")
+    @classmethod
+    def _validate_non_negative(cls, value: int) -> int:
+        number = int(value or 0)
+        if number < 0:
+            raise ValueError("counts must be non-negative")
+        return number
+
+
+class ProductionBuildLoopReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    report_id: str = Field(default_factory=lambda: f"report_{uuid4().hex[:16]}")
+    loop_id: str
+    contract_id: str
+    process_id: str
+    iteration: int
+    kind: str
+    status: str
+    summary: str
+    recorded_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"))
+    controller_id: Optional[str] = None
+    controller_session_id: Optional[str] = None
+    stage: Optional[str] = None
+    actions_taken: List[Dict[str, Any]] = Field(default_factory=list)
+    blockers: List[Dict[str, Any]] = Field(default_factory=list)
+    completion: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("report_id", "loop_id", "contract_id", "process_id", "kind", "status", "summary", "recorded_at")
+    @classmethod
+    def _validate_non_empty(cls, value: str) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("must be non-empty")
+        return text
+
+    @field_validator("iteration")
+    @classmethod
+    def _validate_iteration(cls, value: int) -> int:
+        number = int(value or 0)
+        if number < 0:
+            raise ValueError("iteration must be non-negative")
+        return number
+
+
+class ProductionBuildLoopStore:
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+
+    def _root(self) -> Path:
+        return self.path if not self.path.suffix else self.path.parent / self.path.stem
+
+    def _contract_target(self, process_id: str) -> Path:
+        return self._root() / "contracts" / f"{process_id}.json"
+
+    def _state_target(self, process_id: str) -> Path:
+        return self._root() / "state" / f"{process_id}.json"
+
+    def _history_target(self, process_id: str) -> Path:
+        return self._root() / "history" / f"{process_id}.jsonl"
+
+    def _report_target(self, process_id: str) -> Path:
+        return self._root() / "reports" / f"{process_id}.jsonl"
+
+    def save_contract(self, contract: ProductionBuildContract | Dict[str, Any]) -> ProductionBuildContract:
+        record = _contract_validate(contract if isinstance(contract, dict) else _contract_dump(contract))
+        target = self._contract_target(record.process_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(_contract_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        return record
+
+    def load_contract(self, process_id: str) -> Optional[ProductionBuildContract]:
+        target = self._contract_target(process_id)
+        if not target.exists():
+            return None
+        return _contract_validate(json.loads(target.read_text(encoding="utf-8")))
+
+    def save_state(self, state: ProductionBuildLoopState | Dict[str, Any]) -> ProductionBuildLoopState:
+        record = _state_validate(state if isinstance(state, dict) else _state_dump(state))
+        target = self._state_target(record.process_id)
+        current = self.load_state(record.process_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(_state_dump(record), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        history_row = {
+            "ts": _now_iso(),
+            "loop_id": record.loop_id,
+            "contract_id": record.contract_id,
+            "process_id": record.process_id,
+            "status": record.status,
+            "iteration_count": record.iteration_count,
+            "checkpoint_count": record.checkpoint_count,
+            "recovery_count": record.recovery_count,
+            "previous_status": current.status if current else None,
+            "state": _state_dump(record),
+        }
+        history_target = self._history_target(record.process_id)
+        history_target.parent.mkdir(parents=True, exist_ok=True)
+        with history_target.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(history_row, sort_keys=True) + "\n")
+        return record
+
+    def load_state(self, process_id: str) -> Optional[ProductionBuildLoopState]:
+        target = self._state_target(process_id)
+        if not target.exists():
+            return None
+        return _state_validate(json.loads(target.read_text(encoding="utf-8")))
+
+    def append_report(self, report: ProductionBuildLoopReport | Dict[str, Any]) -> ProductionBuildLoopReport:
+        record = _report_validate(report if isinstance(report, dict) else _report_dump(report))
+        target = self._report_target(record.process_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(_report_dump(record), sort_keys=True) + "\n")
+        return record
+
+    def reports(self, process_id: str) -> List[ProductionBuildLoopReport]:
+        target = self._report_target(process_id)
+        if not target.exists():
+            return []
+        rows: List[ProductionBuildLoopReport] = []
+        with target.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                text = line.strip()
+                if not text:
+                    continue
+                rows.append(_report_validate(json.loads(text)))
+        return rows
+
+
+
+def _contract_validate(data: Dict[str, Any]) -> ProductionBuildContract:
+    if hasattr(ProductionBuildContract, "model_validate"):
+        return ProductionBuildContract.model_validate(data)
+    return ProductionBuildContract.parse_obj(data)
+
+
+
+def _contract_dump(model: ProductionBuildContract) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+
+def _state_validate(data: Dict[str, Any]) -> ProductionBuildLoopState:
+    if hasattr(ProductionBuildLoopState, "model_validate"):
+        return ProductionBuildLoopState.model_validate(data)
+    return ProductionBuildLoopState.parse_obj(data)
+
+
+
+def _state_dump(model: ProductionBuildLoopState) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+
+def _report_validate(data: Dict[str, Any]) -> ProductionBuildLoopReport:
+    if hasattr(ProductionBuildLoopReport, "model_validate"):
+        return ProductionBuildLoopReport.model_validate(data)
+    return ProductionBuildLoopReport.parse_obj(data)
+
+
+
+def _report_dump(model: ProductionBuildLoopReport) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+
+def _now(now: Optional[datetime] = None) -> datetime:
+    return now or datetime.now(timezone.utc)
+
+
+
+def _now_iso(now: Optional[datetime] = None) -> str:
+    return _now(now).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+
+def _dedupe_rows(rows: Sequence[str]) -> List[str]:
+    out: List[str] = []
+    for row in rows or []:
+        text = str(row or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+
+def _report_blocker_key(blocker: Dict[str, Any]) -> str:
+    return f"{blocker.get('source')}|{blocker.get('summary')}"
+
+
+
+def _checkpoint_from_journal(
+    *,
+    process_id: str,
+    snapshot_store: ProcessSnapshotStore,
+    journal: ProcessJournal,
+    metadata: Optional[Dict[str, Any]] = None,
+    runtime_policy_overrides: Optional[Dict[str, Any]] = None,
+    world_state_overrides: Optional[Dict[str, Any]] = None,
+) -> ProcessSnapshot:
+    previous = snapshot_store.load(process_id)
+    replayed = replay_from_journal(journal, process_id)
+    previous_metadata = dict(previous.metadata) if previous else {}
+    checkpoint_count = int(previous_metadata.get("checkpoint_count", 0) or 0) + 1
+    return snapshot_store.save(
+        ProcessSnapshot(
+            process_id=process_id,
+            last_event_id=replayed.get("last_event_id"),
+            event_count=int(replayed.get("event_count", 0) or 0),
+            lifecycle_state=str(replayed.get("lifecycle_state") or "created"),
+            active_steps=list(replayed.get("active_steps") or []),
+            waiting_steps=list(replayed.get("waiting_steps") or []),
+            completed_steps=list(replayed.get("completed_steps") or []),
+            failed_steps=list(replayed.get("failed_steps") or []),
+            assigned_agents=dict(replayed.get("assigned_agents") or {}),
+            runtime_policy={
+                **dict(replayed.get("runtime_policy") or {}),
+                **dict(runtime_policy_overrides or {}),
+            },
+            world_state={
+                **dict(replayed.get("world_state") or {}),
+                **dict(world_state_overrides or {}),
+            },
+            belief_refs=list(replayed.get("belief_refs") or []),
+            artifact_refs=list(replayed.get("artifact_refs") or []),
+            metadata={
+                **previous_metadata,
+                "checkpoint_count": checkpoint_count,
+                **dict(metadata or {}),
+            },
+        )
+    )
+
+
+
+def _stage_plan(contract: ProductionBuildContract) -> List[str]:
+    explicit = _dedupe_rows(list(contract.promotion_stages or []))
+    if explicit:
+        if contract.target_environment not in explicit:
+            return explicit + [contract.target_environment]
+        return explicit
+    return _dedupe_rows(["build_verified", "canary_verified", contract.target_environment])
+
+
+
+def _stage_rank_map(contract: ProductionBuildContract) -> Dict[str, int]:
+    return {stage: idx for idx, stage in enumerate(_stage_plan(contract))}
+
+
+
+def _release_artifact_ids(snapshot: ProcessSnapshot, release_state: Optional[ReleaseWorkflowState]) -> List[str]:
+    release_artifacts = [
+        str(row.get("artifact_id") or "")
+        for row in ((release_state.metadata or {}).get("release_artifacts") or [])
+        if isinstance(row, dict)
+    ] if release_state else []
+    return _dedupe_rows(list(snapshot.artifact_refs) + release_artifacts)
+
+
+
+def evaluate_production_completion(
+    contract: ProductionBuildContract,
+    *,
+    snapshot: ProcessSnapshot,
+    shared_state: SharedProcessState,
+    dependability_report: Optional[JsonDict] = None,
+    release_state: Optional[ReleaseWorkflowState] = None,
+) -> JsonDict:
+    if snapshot.process_id != contract.process_id or shared_state.process_id != contract.process_id:
+        raise ValueError("completion evaluation requires matching process ids")
+
+    rank_map = _stage_rank_map(contract)
+    current_stage = str(release_state.current_stage or "").strip() if release_state else ""
+    artifact_ids = set(_release_artifact_ids(snapshot, release_state))
+    criteria_rows: List[JsonDict] = []
+
+    for criterion in contract.completion_criteria:
+        satisfied = False
+        observed: Any = None
+        detail: Optional[str] = None
+        kind = criterion.kind
+        if kind == "dependability":
+            observed = bool((dependability_report or {}).get("success"))
+            satisfied = bool(observed)
+            detail = (dependability_report or {}).get("operator_summary")
+        elif kind == "release_stage":
+            target_stage = str(criterion.stage or criterion.expected_value or "").strip()
+            comparison = str((criterion.metadata or {}).get("comparison") or "at_least").strip() or "at_least"
+            observed = current_stage or None
+            if current_stage and target_stage:
+                if comparison == "equals":
+                    satisfied = current_stage == target_stage
+                else:
+                    satisfied = rank_map.get(current_stage, -1) >= rank_map.get(target_stage, -1)
+            detail = f"release stage {current_stage or 'missing'} vs {target_stage or 'unset'}"
+        elif kind == "artifact_present":
+            artifact_id = str(criterion.artifact_id or criterion.expected_value or "").strip()
+            observed = artifact_id if artifact_id in artifact_ids else None
+            satisfied = bool(observed)
+            detail = f"artifact {'present' if satisfied else 'missing'}: {artifact_id}"
+        elif kind == "open_questions_clear":
+            observed = list(shared_state.open_questions)
+            satisfied = len(shared_state.open_questions) == 0
+            detail = f"open questions={len(shared_state.open_questions)}"
+        elif kind == "operator_holds_clear":
+            holds = list(release_state.operator_holds) if release_state else []
+            observed = holds
+            satisfied = len(holds) == 0
+            detail = f"operator holds={len(holds)}"
+        elif kind == "world_state":
+            key = str(criterion.world_state_key or "").strip()
+            observed = shared_state.world_state.get(key, snapshot.world_state.get(key)) if key else None
+            allowed_values = list(criterion.allowed_values or [])
+            if allowed_values:
+                satisfied = str(observed) in allowed_values
+            else:
+                satisfied = observed == criterion.expected_value
+            detail = f"world state {key}={observed!r}"
+        elif kind == "lifecycle_state":
+            observed = snapshot.lifecycle_state
+            allowed_values = list(criterion.allowed_values or [])
+            if allowed_values:
+                satisfied = snapshot.lifecycle_state in allowed_values
+            else:
+                expected = str(criterion.expected_value or criterion.stage or "").strip()
+                satisfied = snapshot.lifecycle_state == expected
+            detail = f"lifecycle={snapshot.lifecycle_state}"
+        else:
+            detail = f"unsupported criterion kind: {kind}"
+
+        criteria_rows.append(
+            {
+                "criterion_id": criterion.criterion_id,
+                "summary": criterion.summary,
+                "kind": kind,
+                "required": bool(criterion.required),
+                "satisfied": bool(satisfied),
+                "observed": observed,
+                "detail": detail,
+            }
+        )
+
+    required_rows = [row for row in criteria_rows if row.get("required")]
+    satisfied_required = [row for row in required_rows if row.get("satisfied")]
+    return {
+        "process_id": contract.process_id,
+        "current_stage": current_stage or None,
+        "criteria": criteria_rows,
+        "required_total": len(required_rows),
+        "required_satisfied": len(satisfied_required),
+        "all_required_satisfied": len(required_rows) == len(satisfied_required),
+        "operator_summary": (
+            f"completion {'ready' if len(required_rows) == len(satisfied_required) else 'pending'} for {contract.process_id}: "
+            f"{len(satisfied_required)}/{len(required_rows)} required criteria satisfied"
+        ),
+    }
+
+
+
+def _decision_requires_human(decision: OpenDecision) -> bool:
+    metadata = dict(decision.metadata or {})
+    owner = str(decision.owner or "").strip().lower()
+    return bool(metadata.get("requires_human") or metadata.get("blocking") or owner in {"human", "operator", "user"})
+
+
+
+def detect_true_blockers(
+    contract: ProductionBuildContract,
+    *,
+    snapshot: ProcessSnapshot,
+    shared_state: SharedProcessState,
+    release_state: Optional[ReleaseWorkflowState] = None,
+) -> List[JsonDict]:
+    blockers: List[JsonDict] = []
+
+    for hold in list(release_state.operator_holds) if release_state else []:
+        blockers.append(
+            {
+                "source": "release_hold",
+                "summary": str(hold),
+                "requires_human": True,
+                "terminal": True,
+            }
+        )
+
+    for decision in shared_state.open_decisions:
+        if decision.status == "resolved":
+            continue
+        if _decision_requires_human(decision):
+            blockers.append(
+                {
+                    "source": "open_decision",
+                    "summary": decision.title,
+                    "requires_human": True,
+                    "terminal": True,
+                    "decision_id": decision.decision_id,
+                }
+            )
+
+    for question in shared_state.open_questions:
+        if any(str(question).startswith(prefix) for prefix in BUILTIN_BLOCKER_PREFIXES):
+            blockers.append(
+                {
+                    "source": "open_question",
+                    "summary": str(question),
+                    "requires_human": True,
+                    "terminal": True,
+                }
+            )
+
+    for rule in contract.blocker_rules:
+        if rule.source == "release_hold":
+            for hold in list(release_state.operator_holds) if release_state else []:
+                blockers.append(
+                    {
+                        "source": rule.source,
+                        "summary": str(hold),
+                        "requires_human": bool(rule.requires_human),
+                        "terminal": bool(rule.terminal),
+                        "rule_id": rule.blocker_id,
+                    }
+                )
+        elif rule.source == "open_question_prefix":
+            prefix = str(rule.question_prefix or "").strip()
+            if not prefix:
+                continue
+            for question in shared_state.open_questions:
+                if str(question).startswith(prefix):
+                    blockers.append(
+                        {
+                            "source": rule.source,
+                            "summary": str(question),
+                            "requires_human": bool(rule.requires_human),
+                            "terminal": bool(rule.terminal),
+                            "rule_id": rule.blocker_id,
+                        }
+                    )
+        elif rule.source == "open_decision":
+            for decision in shared_state.open_decisions:
+                if decision.status == "resolved":
+                    continue
+                if rule.owner and str(decision.owner or "").strip() != str(rule.owner or "").strip():
+                    continue
+                if rule.decision_title and str(decision.title or "").strip() != str(rule.decision_title or "").strip():
+                    continue
+                if rule.metadata_key:
+                    observed = (decision.metadata or {}).get(rule.metadata_key)
+                    if rule.metadata_value is not None and str(observed) != str(rule.metadata_value):
+                        continue
+                    if rule.metadata_value is None and not observed:
+                        continue
+                blockers.append(
+                    {
+                        "source": rule.source,
+                        "summary": decision.title,
+                        "requires_human": bool(rule.requires_human),
+                        "terminal": bool(rule.terminal),
+                        "decision_id": decision.decision_id,
+                        "rule_id": rule.blocker_id,
+                    }
+                )
+
+    deduped: List[JsonDict] = []
+    seen = set()
+    for blocker in blockers:
+        key = _report_blocker_key(blocker)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(blocker)
+    return deduped
+
+
+
+def _claim_controller(
+    contract: ProductionBuildContract,
+    *,
+    previous_state: Optional[ProductionBuildLoopState],
+    supervisor: AgentSupervisor,
+    controller_id: str,
+    controller_session_id: str,
+    now: Optional[datetime] = None,
+) -> JsonDict:
+    scope = f"{contract.controller_scope}:{contract.process_id}"
+    current_time = _now(now)
+    supervisor.reclaim_stale(now=current_time)
+
+    stale_scope_leases = [
+        row
+        for row in supervisor.list(process_id=contract.process_id, status="stale")
+        if row.scope == scope
+    ]
+    actions: List[JsonDict] = []
+    for row in stale_scope_leases:
+        resolved = supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "controller_takeover"})
+        actions.append({"action": "release_stale_controller", "lease_id": resolved.lease_id})
+
+    active_scope_leases = [
+        row
+        for row in supervisor.list(process_id=contract.process_id, status="active")
+        if row.scope == scope
+    ]
+    lease: Optional[AgentLease] = None
+    recovery = False
+
+    for row in active_scope_leases:
+        session = str((row.metadata or {}).get("session_id") or "").strip()
+        if row.agent_id == controller_id and session == controller_session_id:
+            lease = supervisor.heartbeat(row.lease_id, lease_seconds=contract.controller_lease_seconds)
+            actions.append({"action": "heartbeat_controller", "lease_id": lease.lease_id})
+            break
+
+    if lease is None and active_scope_leases:
+        row = active_scope_leases[0]
+        lease = row
+        actions.append(
+            {
+                "action": "controller_already_owned",
+                "lease_id": row.lease_id,
+                "owner": row.agent_id,
+                "session_id": (row.metadata or {}).get("session_id"),
+            }
+        )
+    elif lease is None:
+        lease = supervisor.assign(
+            process_id=contract.process_id,
+            scope=scope,
+            agent_id=controller_id,
+            lease_seconds=contract.controller_lease_seconds,
+            metadata={
+                "session_id": controller_session_id,
+                "contract_id": contract.contract_id,
+                "objective": contract.objective,
+            },
+        )
+        actions.append({"action": "claim_controller", "lease_id": lease.lease_id})
+        previous_session = str(previous_state.controller.session_id if previous_state and previous_state.controller else "").strip()
+        if previous_session and previous_session != controller_session_id:
+            recovery = True
+
+    owner = BuildLoopControllerOwner(
+        controller_id=lease.agent_id,
+        session_id=str((lease.metadata or {}).get("session_id") or controller_session_id),
+        lease_id=lease.lease_id,
+        claimed_at=lease.assigned_at,
+        heartbeat_at=lease.heartbeat_at,
+    )
+    return {
+        "owner": owner,
+        "actions": actions,
+        "recovery": recovery,
+        "owned_by_current_session": owner.controller_id == controller_id and owner.session_id == controller_session_id,
+    }
+
+
+
+def repair_production_dependability(
+    contract: ProductionBuildContract,
+    *,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    journal: ProcessJournal,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    controller_id: str,
+    now: Optional[datetime] = None,
+) -> JsonDict:
+    before = load_dependability_report(
+        process_id=contract.process_id,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
+        journal=journal,
+        mailbox=mailbox,
+        supervisor=supervisor,
+        profile=contract.dependability_profile,
+        now=now,
+    )
+    actions_taken: List[JsonDict] = []
+    if before.get("success"):
+        return {
+            "before": before,
+            "after": before,
+            "actions_taken": actions_taken,
+            "repair_plan": compile_dependability_repair_plan(before),
+            "success": True,
+        }
+
+    current_time = _now(now)
+    plan = compile_dependability_repair_plan(before)
+    shared_state = shared_state_store.load(contract.process_id)
+    current_revision_id = shared_state.revision_id if shared_state else None
+
+    reclaimed = supervisor.reclaim_stale(now=current_time)
+    if reclaimed:
+        actions_taken.append({"action": "reclaim_stale", "lease_ids": [row.lease_id for row in reclaimed if row.process_id == contract.process_id]})
+
+    stale_leases = supervisor.list(process_id=contract.process_id, status="stale")
+    if stale_leases:
+        resolved_ids: List[str] = []
+        for row in stale_leases:
+            resolved = supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "production_dependability_repair"})
+            resolved_ids.append(resolved.lease_id)
+        actions_taken.append({"action": "resolve_stale_leases", "lease_ids": resolved_ids})
+
+    dead_letters = mailbox.list(process_id=contract.process_id, delivery_statuses=["dead_letter"])
+    recovered_ids: List[str] = []
+    acked_ids: List[str] = []
+    for row in dead_letters:
+        recovered = mailbox.recover_dead_letter(
+            row.message_id,
+            revision_id=current_revision_id,
+            recovery_reason="production_loop_revision_realign",
+        )
+        recovered_ids.append(recovered.message_id)
+        accepted = mailbox.receive(
+            to_agent=recovered.to_agent,
+            process_id=contract.process_id,
+            include_inflight=True,
+            expected_revision_id=current_revision_id,
+            reject_stale_revision=True,
+        )
+        for accepted_row in accepted:
+            if accepted_row.message_id == recovered.message_id:
+                mailbox.acknowledge(accepted_row.message_id)
+                acked_ids.append(accepted_row.message_id)
+    if recovered_ids:
+        actions_taken.append({"action": "recover_dead_letters", "message_ids": recovered_ids, "acked_ids": acked_ids})
+
+    if any(check in before.get("failing_checks", []) for check in ["checkpoint_freshness_ok", "snapshot_event_gap_ok", "replay_matches_snapshot"]):
+        checkpoint = _checkpoint_from_journal(
+            process_id=contract.process_id,
+            snapshot_store=snapshot_store,
+            journal=journal,
+            metadata={"production_dependability_repaired": True},
+            runtime_policy_overrides={"production_dependability_repaired": True},
+            world_state_overrides={"production_dependability_repaired": True},
+        )
+        actions_taken.append({"action": "checkpoint_from_journal", "snapshot_id": checkpoint.snapshot_id})
+
+    snapshot = snapshot_store.load(contract.process_id)
+    shared_state = shared_state_store.load(contract.process_id)
+    if snapshot and shared_state and any(check in before.get("failing_checks", []) for check in ["revision_history_ok", "revision_head_ok", "replay_matches_shared_state"]):
+        history_count = len(shared_state_store.history(contract.process_id)) + 1
+        refreshed_revision = f"{shared_state.revision_id}.repair{history_count}"
+        refreshed = shared_state_store.save(
+            SharedProcessState(
+                process_id=contract.process_id,
+                revision_id=refreshed_revision,
+                goals=list(shared_state.goals),
+                active_plan_node_ids=list(snapshot.active_steps or snapshot.waiting_steps or shared_state.active_plan_node_ids),
+                open_decisions=list(shared_state.open_decisions),
+                runtime_constraints={**dict(shared_state.runtime_constraints), "production_dependability_repaired": True},
+                world_state={**dict(shared_state.world_state), **dict(snapshot.world_state), "production_dependability_repaired": True},
+                belief_refs=_dedupe_rows(list(shared_state.belief_refs) + list(snapshot.belief_refs)),
+                open_questions=list(shared_state.open_questions),
+                agent_ownership={**dict(shared_state.agent_ownership), **dict(snapshot.assigned_agents)},
+                operator_overrides=dict(shared_state.operator_overrides),
+                metadata={**dict(shared_state.metadata), "production_dependability_repaired": True, "repair_actor": controller_id},
+            ),
+            expected_revision_id=shared_state.revision_id,
+            actor=controller_id,
+            provenance={"scenario": "production_build_loop", "action": "refresh_shared_state_revision"},
+        )
+        current_revision_id = refreshed.revision_id
+        actions_taken.append({"action": "refresh_shared_state_revision", "revision_id": refreshed.revision_id})
+
+    after = load_dependability_report(
+        process_id=contract.process_id,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
+        journal=journal,
+        mailbox=mailbox,
+        supervisor=supervisor,
+        profile=contract.dependability_profile,
+        now=now,
+    )
+    return {
+        "before": before,
+        "after": after,
+        "actions_taken": actions_taken,
+        "repair_plan": plan,
+        "success": bool(after.get("success")),
+    }
+
+
+
+def recover_production_worker(
+    contract: ProductionBuildContract,
+    *,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    journal: ProcessJournal,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    controller_id: str,
+) -> JsonDict:
+    snapshot = snapshot_store.load(contract.process_id)
+    shared_state = shared_state_store.load(contract.process_id)
+    if snapshot is None or shared_state is None:
+        raise ValueError("snapshot and shared state are required for worker recovery")
+
+    node_candidates = _dedupe_rows(
+        list(shared_state.active_plan_node_ids)
+        + list(snapshot.waiting_steps)
+        + list(snapshot.active_steps)
+        + list(shared_state.agent_ownership.keys())
+    )
+    if not node_candidates:
+        return {"recovered": False, "actions_taken": []}
+
+    node_id = node_candidates[0]
+    agent_id = (
+        str(shared_state.agent_ownership.get(node_id) or "").strip()
+        or str(snapshot.assigned_agents.get(node_id) or "").strip()
+        or str((contract.metadata or {}).get("default_worker_id") or "").strip()
+        or controller_id
+    )
+
+    actions_taken: List[JsonDict] = []
+    active_scope_leases = [
+        row
+        for row in supervisor.list(process_id=contract.process_id, status="active")
+        if row.scope == node_id
+    ]
+    if not active_scope_leases:
+        lease = supervisor.assign(
+            process_id=contract.process_id,
+            scope=node_id,
+            agent_id=agent_id,
+            lease_seconds=contract.worker_lease_seconds,
+            metadata={"recovered_by": controller_id, "objective": contract.objective},
+        )
+        actions_taken.append({"action": "assign_worker_lease", "lease_id": lease.lease_id, "node_id": node_id, "agent_id": agent_id})
+    else:
+        lease = active_scope_leases[0]
+
+    handoff = mailbox.send(
+        process_id=contract.process_id,
+        from_agent=controller_id,
+        to_agent=agent_id,
+        kind="handoff",
+        revision_id=shared_state.revision_id,
+        dedupe_key=f"production_resume:{contract.process_id}:{shared_state.revision_id}:{node_id}",
+        payload={
+            "objective": contract.objective,
+            "node_id": node_id,
+            "loop_scope": contract.controller_scope,
+        },
+    )
+    accepted = mailbox.receive(
+        to_agent=agent_id,
+        process_id=contract.process_id,
+        include_inflight=True,
+        expected_revision_id=shared_state.revision_id,
+        reject_stale_revision=True,
+    )
+    if any(row.message_id == handoff.message_id for row in accepted):
+        mailbox.acknowledge(handoff.message_id)
+    actions_taken.append({"action": "dispatch_resume_handoff", "message_id": handoff.message_id, "agent_id": agent_id})
+
+    if snapshot.lifecycle_state in {"waiting", "blocked", "created", "rolled_back"}:
+        latest = journal.latest(process_id=contract.process_id)
+        parents = [latest.event_id] if latest is not None else []
+        resumed = journal.append(
+            process_id=contract.process_id,
+            kind="process_resumed",
+            actor=controller_id,
+            revision_id=shared_state.revision_id,
+            causal_parent_ids=parents,
+            payload={"node_id": node_id, "recovery_reason": "worker_watchdog_resume"},
+        )
+        journal.append(
+            process_id=contract.process_id,
+            kind="agent_assigned",
+            actor=controller_id,
+            revision_id=shared_state.revision_id,
+            causal_parent_ids=[resumed.event_id],
+            payload={"node_id": node_id, "agent_id": agent_id, "scope": node_id},
+        )
+        journal.append(
+            process_id=contract.process_id,
+            kind="step_started",
+            actor=controller_id,
+            revision_id=shared_state.revision_id,
+            causal_parent_ids=[resumed.event_id],
+            payload={"node_id": node_id},
+        )
+        checkpoint = _checkpoint_from_journal(
+            process_id=contract.process_id,
+            snapshot_store=snapshot_store,
+            journal=journal,
+            metadata={"worker_watchdog_resumed": True, "worker_watchdog_node_id": node_id},
+            world_state_overrides={"worker_watchdog_resumed": True, "worker_watchdog_node_id": node_id},
+        )
+        actions_taken.append({"action": "resume_process", "snapshot_id": checkpoint.snapshot_id, "node_id": node_id})
+
+    return {"recovered": bool(actions_taken), "actions_taken": actions_taken}
+
+
+
+def _stage_gate_for(contract: ProductionBuildContract, stage: str) -> ProductionStageGate:
+    for gate in contract.stage_gates:
+        if gate.stage == stage:
+            return gate
+    return ProductionStageGate(stage=stage)
+
+
+
+def _next_stage(contract: ProductionBuildContract, current_stage: Optional[str]) -> Optional[str]:
+    plan = _stage_plan(contract)
+    current = str(current_stage or "").strip()
+    if not plan:
+        return None
+    if not current:
+        return plan[0]
+    if current not in plan:
+        return plan[0]
+    current_index = plan.index(current)
+    return plan[current_index + 1] if current_index + 1 < len(plan) else None
+
+
+
+def advance_production_release_loop(
+    contract: ProductionBuildContract,
+    *,
+    loop_state: ProductionBuildLoopState,
+    snapshot: ProcessSnapshot,
+    shared_state: SharedProcessState,
+    dependability_report: JsonDict,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    release_store: ReleaseWorkflowStore,
+    controller_id: str,
+) -> JsonDict:
+    release_state = release_store.load(contract.process_id)
+    if release_state is None:
+        return {"state": None, "actions_taken": [], "last_gate": None, "stage_changes": []}
+
+    actions_taken: List[JsonDict] = []
+    stage_changes: List[JsonDict] = []
+    last_gate: Optional[JsonDict] = None
+
+    for _ in range(len(_stage_plan(contract)) + 1):
+        next_stage = _next_stage(contract, release_state.current_stage)
+        if not next_stage:
+            break
+        gate_spec = _stage_gate_for(contract, next_stage)
+        allowed_active_agents = _dedupe_rows(
+            list(gate_spec.allowed_active_agents)
+            + [controller_id]
+            + list(snapshot.assigned_agents.values())
+            + list(shared_state.agent_ownership.values())
+        )
+        gate = evaluate_release_promotion_gate(
+            state=release_state,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            target_stage=next_stage,
+            mailbox_messages=mailbox.list(process_id=contract.process_id),
+            leases=supervisor.list(process_id=contract.process_id),
+            dependability_report=dependability_report,
+            required_fencepost_stages=list(gate_spec.required_fencepost_stages),
+            required_artifacts=list(gate_spec.required_artifacts),
+            required_handoff_count=int(gate_spec.required_handoff_count or 0),
+            allowed_active_agents=allowed_active_agents,
+            allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
+            require_dependability=bool(gate_spec.require_dependability),
+        )
+        last_gate = gate
+        if not gate.get("safe_push"):
+            repaired = repair_release_workflow(
+                release_state,
+                snapshot=snapshot,
+                shared_state=shared_state,
+                mailbox=mailbox,
+                supervisor=supervisor,
+                gate=gate,
+                target_stage=next_stage,
+                dependability_report=dependability_report,
+                required_fencepost_stages=list(gate_spec.required_fencepost_stages),
+                required_artifacts=list(gate_spec.required_artifacts),
+                required_handoff_count=int(gate_spec.required_handoff_count or 0),
+                allowed_active_agents=allowed_active_agents,
+                allowed_lifecycle_states=list(gate_spec.allowed_lifecycle_states),
+                require_dependability=bool(gate_spec.require_dependability),
+            )
+            release_state = release_store.save(
+                repaired["state"],
+                actor=controller_id,
+                provenance={"scenario": "production_build_loop", "action": "repair_release_workflow", "iteration": loop_state.iteration_count + 1},
+            )
+            last_gate = repaired.get("gate_after") or gate
+            actions_taken.append(
+                {
+                    "action": "repair_release_workflow",
+                    "target_stage": next_stage,
+                    "success": bool(repaired.get("success")),
+                    "repair_actions": list(repaired.get("actions_taken") or []),
+                }
+            )
+            if not bool((last_gate or {}).get("safe_push")):
+                break
+
+        promoted = advance_release_workflow(
+            release_state,
+            gate=last_gate,
+            next_stage=next_stage,
+            actor=controller_id,
+        )
+        if not promoted.get("promoted"):
+            break
+        release_state = release_store.save(
+            promoted["state"],
+            actor=controller_id,
+            provenance={"scenario": "production_build_loop", "action": "advance_release_stage", "iteration": loop_state.iteration_count + 1},
+        )
+        stage_changes.append({"from_stage": promoted.get("previous_stage"), "to_stage": next_stage})
+        actions_taken.append({"action": "advance_release_stage", "from_stage": promoted.get("previous_stage"), "to_stage": next_stage})
+        if next_stage == contract.target_environment:
+            break
+
+    return {"state": release_state, "actions_taken": actions_taken, "last_gate": last_gate, "stage_changes": stage_changes}
+
+
+
+def reconcile_production_build_loop(
+    contract: ProductionBuildContract,
+    *,
+    loop_store: ProductionBuildLoopStore,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    journal: ProcessJournal,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    release_store: ReleaseWorkflowStore,
+    controller_id: str,
+    controller_session_id: str,
+    now: Optional[datetime] = None,
+) -> JsonDict:
+    loop_store.save_contract(contract)
+    previous_state = loop_store.load_state(contract.process_id)
+    state = previous_state or ProductionBuildLoopState(contract_id=contract.contract_id, process_id=contract.process_id)
+
+    ownership = _claim_controller(
+        contract,
+        previous_state=previous_state,
+        supervisor=supervisor,
+        controller_id=controller_id,
+        controller_session_id=controller_session_id,
+        now=now,
+    )
+    controller = ownership["owner"]
+    ownership_actions = list(ownership.get("actions") or [])
+
+    snapshot = snapshot_store.load(contract.process_id)
+    shared_state = shared_state_store.load(contract.process_id)
+    if snapshot is None or shared_state is None:
+        raise ValueError("snapshot and shared state are required for production build loop")
+
+    dependability = repair_production_dependability(
+        contract,
+        snapshot_store=snapshot_store,
+        shared_state_store=shared_state_store,
+        journal=journal,
+        mailbox=mailbox,
+        supervisor=supervisor,
+        controller_id=controller_id,
+        now=now,
+    )
+    snapshot = snapshot_store.load(contract.process_id) or snapshot
+    shared_state = shared_state_store.load(contract.process_id) or shared_state
+    release_state = release_store.load(contract.process_id)
+
+    blockers_before_recovery = detect_true_blockers(
+        contract,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        release_state=release_state,
+    )
+
+    worker_recovery = {"recovered": False, "actions_taken": []}
+    if not blockers_before_recovery and snapshot.lifecycle_state != "completed":
+        worker_recovery = recover_production_worker(
+            contract,
+            snapshot_store=snapshot_store,
+            shared_state_store=shared_state_store,
+            journal=journal,
+            mailbox=mailbox,
+            supervisor=supervisor,
+            controller_id=controller_id,
+        )
+        snapshot = snapshot_store.load(contract.process_id) or snapshot
+        shared_state = shared_state_store.load(contract.process_id) or shared_state
+
+    release_progress = advance_production_release_loop(
+        contract,
+        loop_state=state,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        dependability_report=dependability.get("after") or dependability.get("before") or {},
+        mailbox=mailbox,
+        supervisor=supervisor,
+        release_store=release_store,
+        controller_id=controller_id,
+    )
+    release_state = release_progress.get("state") or release_state
+
+    blockers = detect_true_blockers(
+        contract,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        release_state=release_state,
+    )
+    completion = evaluate_production_completion(
+        contract,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        dependability_report=dependability.get("after") or dependability.get("before"),
+        release_state=release_state,
+    )
+    completed = bool(completion.get("all_required_satisfied")) and not blockers
+    status = "completed" if completed else ("blocked" if blockers else "active")
+
+    next_iteration = int(state.iteration_count or 0) + 1
+    all_actions = ownership_actions + list(dependability.get("actions_taken") or []) + list(worker_recovery.get("actions_taken") or []) + list(release_progress.get("actions_taken") or [])
+    stage_changes = list(release_progress.get("stage_changes") or [])
+    previous_blocker_keys = {_report_blocker_key(row) for row in (state.true_blockers or [])}
+    current_blocker_keys = {_report_blocker_key(row) for row in blockers}
+
+    report_reasons: List[str] = []
+    if previous_state is None:
+        report_reasons.append("initial")
+    if next_iteration % int(contract.checkpoint_policy.report_every_iterations or 1) == 0:
+        report_reasons.append("iteration_interval")
+    if status != state.status:
+        report_reasons.append("status_change")
+    if contract.checkpoint_policy.report_on_stage_change and stage_changes:
+        report_reasons.append("stage_change")
+    if contract.checkpoint_policy.report_on_recovery and (ownership.get("recovery") or worker_recovery.get("recovered")):
+        report_reasons.append("recovery")
+    if contract.checkpoint_policy.report_on_blocker_change and previous_blocker_keys != current_blocker_keys:
+        report_reasons.append("blocker_change")
+    if completed:
+        report_reasons.append("completed")
+    if status == "blocked":
+        report_reasons.append("blocked")
+
+    report_kind = "completed" if completed else ("blocked" if status == "blocked" else ("recovery" if "recovery" in report_reasons else "checkpoint"))
+    summary = (
+        f"production build loop completed for {contract.process_id}"
+        if completed
+        else f"production build loop blocked for {contract.process_id}: {len(blockers)} true blockers"
+        if status == "blocked"
+        else f"production build loop active for {contract.process_id}: stage={release_state.current_stage if release_state else 'n/a'}"
+    )
+
+    report_record: Optional[ProductionBuildLoopReport] = None
+    if report_reasons:
+        report_record = loop_store.append_report(
+            ProductionBuildLoopReport(
+                loop_id=state.loop_id,
+                contract_id=contract.contract_id,
+                process_id=contract.process_id,
+                iteration=next_iteration,
+                kind=report_kind,
+                status=status,
+                summary=summary,
+                controller_id=controller.controller_id,
+                controller_session_id=controller.session_id,
+                stage=release_state.current_stage if release_state else None,
+                actions_taken=all_actions,
+                blockers=blockers,
+                completion=completion,
+                metadata={
+                    "reasons": _dedupe_rows(report_reasons),
+                    "dependability_success": bool((dependability.get("after") or dependability.get("before") or {}).get("success")),
+                    "release_safe_push": bool((release_progress.get("last_gate") or {}).get("safe_push")) if release_progress.get("last_gate") is not None else None,
+                },
+            )
+        )
+
+    updated_state = ProductionBuildLoopState(
+        loop_id=state.loop_id,
+        contract_id=contract.contract_id,
+        process_id=contract.process_id,
+        status=status,
+        iteration_count=next_iteration,
+        checkpoint_count=int(state.checkpoint_count or 0) + (1 if report_record is not None else 0),
+        recovery_count=int(state.recovery_count or 0) + (1 if ownership.get("recovery") else 0),
+        controller=controller,
+        current_revision_id=shared_state.revision_id,
+        current_snapshot_id=snapshot.snapshot_id,
+        current_stage=release_state.current_stage if release_state else None,
+        latest_report_id=report_record.report_id if report_record else state.latest_report_id,
+        last_checkpoint_at=report_record.recorded_at if report_record else state.last_checkpoint_at,
+        true_blockers=blockers,
+        completion=completion,
+        metadata={
+            **dict(state.metadata or {}),
+            "objective": contract.objective,
+            "last_dependability_success": bool((dependability.get("after") or dependability.get("before") or {}).get("success")),
+            "last_report_reasons": _dedupe_rows(report_reasons),
+            "last_actions": all_actions,
+        },
+    )
+    loop_store.save_state(updated_state)
+
+    if status in {"blocked", "completed"}:
+        supervisor.resolve(controller.lease_id, status="released", metadata={"resolution": status})
+
+    return {
+        "contract": _contract_dump(contract),
+        "state": _state_dump(updated_state),
+        "report": _report_dump(report_record) if report_record is not None else None,
+        "dependability": dependability,
+        "release": {
+            "state": release_state.model_dump() if release_state and hasattr(release_state, "model_dump") else release_state.dict() if release_state else None,
+            "last_gate": release_progress.get("last_gate"),
+            "stage_changes": stage_changes,
+        },
+        "actions_taken": all_actions,
+        "blockers": blockers,
+        "completion": completion,
+        "operator_summary": summary,
+    }
+
+
+__all__ = [
+    "BuildLoopControllerOwner",
+    "ProductionBlockerRule",
+    "ProductionBuildContract",
+    "ProductionBuildLoopReport",
+    "ProductionBuildLoopState",
+    "ProductionBuildLoopStore",
+    "ProductionCheckpointPolicy",
+    "ProductionCompletionCriterion",
+    "ProductionStageGate",
+    "advance_production_release_loop",
+    "detect_true_blockers",
+    "evaluate_production_completion",
+    "reconcile_production_build_loop",
+    "recover_production_worker",
+    "repair_production_dependability",
+    "ValidationError",
+]
