@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T18:34:41.474Z",
+      "updatedAt": "2026-03-31T18:39:24.892Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 51,
+        "runs": 52,
         "failures": [],
-        "lastRunAt": "2026-03-31T18:34:41.477Z",
+        "lastRunAt": "2026-03-31T18:39:24.899Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6878,12 +6878,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-03-31T18:38:43.271Z",
+      "updatedAt": "2026-03-31T18:39:02.600Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "..................... 100% 21 passed in 0.74s Process exited with code 0.",
+      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’ve got the final substrate pieces written. Running focused validation first because this touched shared-state persistence, soak profiles, and runtime exports. ``` How’s this going? result",
       "history": [
         {
           "from": null,
@@ -6913,16 +6913,16 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 24,
+        "runs": 25,
         "failures": [],
-        "lastRunAt": "2026-03-31T18:38:43.274Z",
+        "lastRunAt": "2026-03-31T18:39:02.607Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "completedAt": "2026-03-31T15:14:19.071Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     },
     {
       "id": "agent:main:subagent:b5800b1f-1c37-4ed0-8eed-fbeff6165aad:1774972961529:5975d6e5a80d4f15",
