@@ -2760,18 +2760,26 @@
       "createdAt": "2026-03-19T10:00:51.110Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T13:36:49.603Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:40:51.267Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T14:07:17.817Z",
+      "updatedAt": "2026-03-31T14:22:55.311Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T13:36:49.603Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-31T14:22:55.311Z",
+          "failedAt": "2026-03-31T14:22:55.311Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -2783,16 +2791,19 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 18,
+        "runs": 19,
         "failures": [],
-        "lastRunAt": "2026-03-31T14:07:17.824Z",
+        "lastRunAt": "2026-03-31T14:11:45.031Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
         }
       },
       "trustTier": "normal",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-03-31T14:22:55.311Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914751116",
@@ -6800,12 +6811,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774960417211:5f302a02d1b19e5f",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T12:33:37.211Z",
-      "updatedAt": "2026-03-31T14:00:24.037Z",
+      "updatedAt": "2026-03-31T14:22:54.756Z",
       "prompt": "Okay do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
-      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’ve got the final substrate pieces written. Running focused validation first because this touched shared-state persistence, soak profiles, and runtime exports. ``` How’s this going? result",
+      "status": "failed",
+      "completionSummary": "────────────────────────────────────────────────┬────────┬─────────┬──────────────┬────────────────────────────────┐ │ Key │ Kind │ Age │ Model │ Tokens │ ├───────────────────────────────────────────────────┼────────┼─────────┼──────────────┼────────────────────────────────┤ │ ag",
       "history": [
         {
           "from": null,
@@ -6824,6 +6835,14 @@
           "completedAt": "2026-03-31T12:34:35.863Z",
           "completionSummary": "........................................................................ 82% ............... 100% 87 passed in 15.80s Process exited with code 0.",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-31T14:22:54.756Z",
+          "failedAt": "2026-03-31T14:22:54.756Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -6835,16 +6854,19 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 10,
+        "runs": 11,
         "failures": [],
-        "lastRunAt": "2026-03-31T14:00:24.047Z",
+        "lastRunAt": "2026-03-31T14:12:05.638Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-31T12:34:35.863Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-31T14:22:54.756Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
     }
   ]
 }
