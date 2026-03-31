@@ -70,3 +70,15 @@ def test_agent_supervisor_blocks_duplicate_active_claims_and_reuses_same_agent_c
     supervisor.reclaim_stale(now=datetime.now(timezone.utc) + timedelta(seconds=180))
     replacement = supervisor.assign(process_id="proc_123", scope="step1", agent_id="researcher", lease_seconds=60)
     assert replacement.agent_id == "researcher"
+
+
+
+def test_agent_supervisor_can_resolve_stale_leases_with_metadata(tmp_path: Path):
+    supervisor = AgentSupervisor(tmp_path / "runtime" / "leases.json")
+
+    lease = supervisor.assign(process_id="proc_123", scope="step1", agent_id="planner", lease_seconds=1)
+    supervisor.reclaim_stale(now=datetime.now(timezone.utc) + timedelta(seconds=10))
+    resolved = supervisor.resolve(lease.lease_id, status="released", metadata={"resolution": "watchdog_recovered"})
+
+    assert resolved.status == "released"
+    assert resolved.metadata["resolution"] == "watchdog_recovered"

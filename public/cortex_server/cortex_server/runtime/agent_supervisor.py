@@ -149,6 +149,16 @@ class AgentSupervisor:
     def release(self, lease_id: str) -> AgentLease:
         return self._mutate(lease_id, lambda row: setattr(row, "status", "released"))
 
+    def resolve(self, lease_id: str, *, status: str = "released", metadata: Optional[Dict[str, Any]] = None) -> AgentLease:
+        resolved_status = str(status or "").strip() or "released"
+
+        def _apply(row: AgentLease) -> None:
+            row.status = resolved_status
+            if metadata:
+                row.metadata = {**dict(row.metadata or {}), **dict(metadata)}
+
+        return self._mutate(lease_id, _apply)
+
     def reclaim_stale(self, *, now: Optional[datetime] = None) -> List[AgentLease]:
         now_dt = now or _now()
         rows = self._read_all()

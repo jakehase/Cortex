@@ -261,6 +261,49 @@ def compile_dependability_report(
 
 
 
+def compile_dependability_repair_plan(report: JsonDict) -> JsonDict:
+    failing_checks = [str(name or "").strip() for name in (report.get("failing_checks") or []) if str(name or "").strip()]
+    actions: List[JsonDict] = []
+
+    def _add(check: str, action: str, detail: str) -> None:
+        actions.append({"check": check, "action": action, "detail": detail})
+
+    for check in failing_checks:
+        if check in {"checkpoint_freshness_ok", "snapshot_event_gap_ok", "replay_matches_snapshot"}:
+            _add(check, "checkpoint_from_journal", "rebuild the process snapshot from journal replay and refresh checkpoint metadata")
+        elif check in {"dead_letter_budget_ok", "acked_handoffs_ok"}:
+            _add(check, "recover_dead_letters", "realign dead-lettered handoffs to the current revision and acknowledge recovered deliveries")
+        elif check in {"stale_lease_budget_ok", "lease_heartbeat_ok"}:
+            _add(check, "resolve_stale_leases", "reclaim stale leases, then resolve or release them so scope ownership can continue safely")
+        elif check in {"revision_history_ok", "revision_head_ok", "replay_matches_shared_state"}:
+            _add(check, "refresh_shared_state_revision", "write a new shared-state revision anchored to the latest replayed checkpoint and preserve provenance")
+        elif check in {"multi_agent_coverage_ok", "handoff_coverage_ok"}:
+            _add(check, "expand_campaign_coverage", "increase agent participation and handoff count before considering the run unattended-ready")
+        elif check == "inflight_age_ok":
+            _add(check, "drain_inflight_messages", "re-deliver or acknowledge stuck inflight mailbox entries before they age out")
+        elif check == "completed_or_waiting_ok":
+            _add(check, "restore_safe_lifecycle_state", "move the process back to a resumable waiting/running/completed lifecycle state")
+        else:
+            _add(check, "manual_review", "inspect the failing dependability invariant and decide on a targeted operator repair")
+
+    deduped: List[JsonDict] = []
+    seen = set()
+    for row in actions:
+        key = (row["action"], row["detail"])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return {
+        "failing_checks": failing_checks,
+        "actions": deduped,
+        "operator_summary": (
+            f"dependability repair plan: {len(failing_checks)} failing checks, {len(deduped)} recommended actions"
+        ),
+    }
+
+
+
 def load_dependability_report(
     *,
     process_id: str,
@@ -295,6 +338,7 @@ def load_dependability_report(
 __all__ = [
     "UNATTENDED_PROFILES",
     "build_unattended_profile",
+    "compile_dependability_repair_plan",
     "compile_dependability_report",
     "load_dependability_report",
 ]

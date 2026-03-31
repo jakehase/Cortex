@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentSupervisor
-from cortex_server.runtime.dependability import build_unattended_profile, load_dependability_report
+from cortex_server.runtime.dependability import build_unattended_profile, compile_dependability_repair_plan, load_dependability_report
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_resume import load_runtime_resume_state
@@ -1002,6 +1002,220 @@ class RuntimeSoakHarness:
             "operator_summary": (
                 f"unattended campaign {'ok' if dependability.get('success') else 'failed'} for {process_id}: "
                 f"cycles={total_cycles}, agents={len(agents)}, profile={profile_spec.get('profile')}"
+            ),
+        }
+
+    def inject_unattended_failures(
+        self,
+        *,
+        process_id: str,
+        profile: str | Dict[str, Any] = "24h",
+        stale_agent_id: str = "watchdog-helper",
+        stale_scope: str = "postflight",
+        stale_message_agent: str = "planner",
+    ) -> JsonDict:
+        profile_spec = build_unattended_profile(profile) if isinstance(profile, str) else dict(profile or {})
+        snapshot = self.snapshot_store.load(process_id)
+        shared_state = self.shared_state_store.load(process_id)
+        if snapshot is None or shared_state is None:
+            raise ValueError("snapshot and shared state are required to inject unattended failures")
+        stale_lease = self.supervisor.assign(
+            process_id=process_id,
+            scope=stale_scope,
+            agent_id=stale_agent_id,
+            lease_seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180),
+            metadata={"campaign": True, "injected": True, "fault": "stale_lease"},
+        )
+        self.supervisor.reclaim_stale(
+            now=self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1)
+        )
+        stale_message = self.mailbox.send(
+            process_id=process_id,
+            from_agent="fault-injector",
+            to_agent=stale_message_agent,
+            kind="handoff",
+            revision_id="rev_fault_old",
+            dedupe_key=f"fault:{process_id}:dead-letter",
+            payload={"objective": "inject stale dead letter"},
+        )
+        self.mailbox.receive(
+            to_agent=stale_message_agent,
+            process_id=process_id,
+            expected_revision_id=shared_state.revision_id,
+            reject_stale_revision=True,
+        )
+        drift_event = self.journal.append(
+            process_id=process_id,
+            kind="world_state_updated",
+            revision_id=shared_state.revision_id,
+            actor="fault-injector",
+            payload={"world_state": {"status": "drifted", "fault_injected": True}},
+        )
+        snapshot.event_count = max(0, int(snapshot.event_count or 0) - 5)
+        snapshot.metadata = {**dict(snapshot.metadata or {}), "fault_injected": True, "last_fault_event_id": drift_event.event_id}
+        self.snapshot_store.save(snapshot)
+        before = load_dependability_report(
+            process_id=process_id,
+            snapshot_store=self.snapshot_store,
+            shared_state_store=self.shared_state_store,
+            journal=self.journal,
+            mailbox=self.mailbox,
+            supervisor=self.supervisor,
+            profile=profile_spec,
+            now=self.clock_fn(),
+        )
+        return {
+            "process_id": process_id,
+            "profile": profile_spec,
+            "stale_lease_id": stale_lease.lease_id,
+            "stale_message_id": stale_message.message_id,
+            "dependability_before_repair": before,
+            "operator_summary": f"injected unattended failures for {process_id}",
+        }
+
+    def reconcile_unattended_process(
+        self,
+        *,
+        process_id: str,
+        profile: str | Dict[str, Any] = "24h",
+    ) -> JsonDict:
+        profile_spec = build_unattended_profile(profile) if isinstance(profile, str) else dict(profile or {})
+        before = load_dependability_report(
+            process_id=process_id,
+            snapshot_store=self.snapshot_store,
+            shared_state_store=self.shared_state_store,
+            journal=self.journal,
+            mailbox=self.mailbox,
+            supervisor=self.supervisor,
+            profile=profile_spec,
+            now=self.clock_fn(),
+        )
+        repair_plan = compile_dependability_repair_plan(before)
+        actions_taken: List[JsonDict] = []
+        shared_state = self.shared_state_store.load(process_id)
+        current_revision_id = shared_state.revision_id if shared_state else None
+
+        active_leases = self.supervisor.list(process_id=process_id, status="active")
+        if active_leases:
+            reclaimed = self.supervisor.reclaim_stale(
+                now=self.clock_fn() + timedelta(seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180) + 1)
+            )
+            if reclaimed:
+                actions_taken.append({"action": "reclaim_stale", "lease_ids": [row.lease_id for row in reclaimed]})
+        stale_leases = self.supervisor.list(process_id=process_id, status="stale")
+        if stale_leases:
+            resolved_ids: List[str] = []
+            for row in stale_leases:
+                resolved = self.supervisor.resolve(row.lease_id, status="released", metadata={"resolution": "watchdog_recovered"})
+                resolved_ids.append(resolved.lease_id)
+            actions_taken.append({"action": "resolve_stale_leases", "lease_ids": resolved_ids})
+
+        dead_letters = self.mailbox.list(process_id=process_id, delivery_statuses=["dead_letter"])
+        recovered_ids: List[str] = []
+        acked_ids: List[str] = []
+        for row in dead_letters:
+            recovered = self.mailbox.recover_dead_letter(
+                row.message_id,
+                revision_id=current_revision_id,
+                recovery_reason="watchdog_revision_realign",
+            )
+            recovered_ids.append(recovered.message_id)
+            if recovered.to_agent:
+                accepted = self.mailbox.receive(
+                    to_agent=recovered.to_agent,
+                    process_id=process_id,
+                    expected_revision_id=current_revision_id,
+                    reject_stale_revision=True,
+                )
+                for accepted_row in accepted:
+                    if accepted_row.message_id == recovered.message_id:
+                        self.mailbox.acknowledge(accepted_row.message_id)
+                        acked_ids.append(accepted_row.message_id)
+        if recovered_ids:
+            actions_taken.append({"action": "recover_dead_letters", "message_ids": recovered_ids, "acked_ids": acked_ids})
+
+        if any(check in before.get("failing_checks", []) for check in ["checkpoint_freshness_ok", "snapshot_event_gap_ok", "replay_matches_snapshot"]):
+            checkpoint = self._checkpoint_from_journal(
+                process_id=process_id,
+                metadata={"watchdog_reconciled": True},
+                runtime_policy_overrides={"watchdog_reconciled": True},
+                world_state_overrides={"watchdog_reconciled": True},
+            )
+            actions_taken.append({"action": "checkpoint_from_journal", "snapshot_id": checkpoint.snapshot_id})
+
+        snapshot = self.snapshot_store.load(process_id)
+        shared_state = self.shared_state_store.load(process_id)
+        if snapshot and shared_state and any(check in before.get("failing_checks", []) for check in ["revision_history_ok", "revision_head_ok", "replay_matches_shared_state"]):
+            next_revision_index = len(self.shared_state_store.history(process_id)) + 1
+            refreshed = self._campaign_shared_state(
+                process_id=process_id,
+                revision_id=f"rev_repair_{next_revision_index}",
+                expected_revision_id=shared_state.revision_id,
+                active_node_ids=list(snapshot.active_steps or snapshot.waiting_steps),
+                completed_node_ids=list(snapshot.completed_steps),
+                belief_refs=list(snapshot.belief_refs),
+                owner_map=dict(snapshot.assigned_agents),
+                world_state={**dict(snapshot.world_state), "watchdog_repaired": True},
+                profile_spec=profile_spec,
+                cycle_index=int((snapshot.metadata or {}).get("campaign_cycle", next_revision_index) or next_revision_index),
+                actor="watchdog",
+                final=snapshot.lifecycle_state == "completed",
+            )
+            current_revision_id = refreshed.revision_id
+            actions_taken.append({"action": "refresh_shared_state_revision", "revision_id": refreshed.revision_id})
+
+        after = load_dependability_report(
+            process_id=process_id,
+            snapshot_store=self.snapshot_store,
+            shared_state_store=self.shared_state_store,
+            journal=self.journal,
+            mailbox=self.mailbox,
+            supervisor=self.supervisor,
+            profile=profile_spec,
+            now=self.clock_fn(),
+        )
+        return {
+            "process_id": process_id,
+            "profile": profile_spec,
+            "repair_plan": repair_plan,
+            "actions_taken": actions_taken,
+            "dependability_before": before,
+            "dependability_after": after,
+            "success": bool(after.get("success")),
+            "operator_summary": (
+                f"watchdog reconciliation {'ok' if after.get('success') else 'failed'} for {process_id}: "
+                f"actions={len(actions_taken)}"
+            ),
+        }
+
+    def run_self_healing_unattended_campaign(
+        self,
+        profile: str,
+        *,
+        process_prefix: Optional[str] = None,
+        cycle_count: Optional[int] = None,
+        agent_ids: Optional[List[str]] = None,
+        node_ids: Optional[List[str]] = None,
+    ) -> JsonDict:
+        campaign = self.run_unattended_campaign(
+            profile,
+            process_prefix=process_prefix,
+            cycle_count=cycle_count,
+            agent_ids=agent_ids,
+            node_ids=node_ids,
+        )
+        injected = self.inject_unattended_failures(process_id=campaign["process_id"], profile=campaign["profile"])
+        repaired = self.reconcile_unattended_process(process_id=campaign["process_id"], profile=campaign["profile"])
+        return {
+            "scenario": "self_healing_unattended_campaign",
+            "process_id": campaign["process_id"],
+            "profile": campaign["profile"],
+            "campaign": campaign,
+            "injected": injected,
+            "repaired": repaired,
+            "success": bool(repaired.get("success")),
+            "operator_summary": (
+                f"self-healing unattended campaign {'ok' if repaired.get('success') else 'failed'} for {campaign['process_id']}"
             ),
         }
 

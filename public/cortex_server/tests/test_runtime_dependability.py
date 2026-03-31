@@ -4,6 +4,7 @@ from cortex_server.runtime import (
     UNATTENDED_PROFILES,
     RuntimeSoakHarness,
     build_unattended_profile,
+    compile_dependability_repair_plan,
     compile_dependability_report,
     load_dependability_report,
 )
@@ -13,6 +14,7 @@ from cortex_server.runtime import (
 def test_runtime_package_exports_dependability_helpers():
     assert UNATTENDED_PROFILES is not None
     assert build_unattended_profile is not None
+    assert compile_dependability_repair_plan is not None
     assert compile_dependability_report is not None
     assert load_dependability_report is not None
 
@@ -31,6 +33,26 @@ def test_runtime_soak_harness_unattended_campaign_reports_dependability(tmp_path
     assert report["dependability"]["revisions"]["history_count"] >= 6
     assert report["dependability"]["checks"]["replay_matches_snapshot"] is True
     assert len(report["timeline"]) == report["cycle_count"]
+
+
+
+def test_dependability_repair_plan_maps_failing_checks_to_actions():
+    plan = compile_dependability_repair_plan(
+        {
+            "failing_checks": [
+                "checkpoint_freshness_ok",
+                "dead_letter_budget_ok",
+                "stale_lease_budget_ok",
+                "revision_head_ok",
+            ]
+        }
+    )
+
+    actions = [row["action"] for row in plan["actions"]]
+    assert "checkpoint_from_journal" in actions
+    assert "recover_dead_letters" in actions
+    assert "resolve_stale_leases" in actions
+    assert "refresh_shared_state_revision" in actions
 
 
 
@@ -71,3 +93,17 @@ def test_dependability_report_flags_dead_letters_and_checkpoint_drift(tmp_path):
     assert "dead_letter_budget_ok" in report["failing_checks"]
     assert "snapshot_event_gap_ok" in report["failing_checks"]
     assert "multi_agent_coverage_ok" in report["failing_checks"]
+
+
+
+def test_runtime_soak_harness_self_heals_injected_unattended_failures(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+
+    report = harness.run_self_healing_unattended_campaign("24h", process_prefix="campaign_self_heal")
+
+    assert report["campaign"]["success"] is True
+    assert report["injected"]["dependability_before_repair"]["success"] is False
+    assert report["repaired"]["dependability_before"]["success"] is False
+    assert report["repaired"]["dependability_after"]["success"] is True
+    assert any(row["action"] == "recover_dead_letters" for row in report["repaired"]["actions_taken"])
+    assert any(row["action"] == "checkpoint_from_journal" for row in report["repaired"]["actions_taken"])

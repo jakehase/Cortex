@@ -1,7 +1,7 @@
 from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.context_views import HandoffContextView, WorkingContextView, compile_handoff_context_view, compile_working_context_view, revision_guard
-from cortex_server.runtime.dependability import UNATTENDED_PROFILES, build_unattended_profile, compile_dependability_report, load_dependability_report
+from cortex_server.runtime.dependability import UNATTENDED_PROFILES, build_unattended_profile, compile_dependability_repair_plan, compile_dependability_report, load_dependability_report
 from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffContract, HandoffEvidenceRef
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
@@ -36,6 +36,7 @@ __all__ = [
     "build_soak_profile",
     "build_unattended_profile",
     "compile_audit_playback",
+    "compile_dependability_repair_plan",
     "compile_dependability_report",
     "compile_handoff_context_view",
     "compile_runtime_resume_state",
