@@ -1,4 +1,5 @@
 from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage
+from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffContract, HandoffEvidenceRef
 from cortex_server.runtime.process_event import ProcessEvent
 from cortex_server.runtime.process_journal import ProcessJournal
@@ -6,8 +7,10 @@ from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnaps
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
 
 __all__ = [
+    "AgentLease",
     "AgentMailbox",
     "AgentMessage",
+    "AgentSupervisor",
     "HandoffArtifactRef",
     "HandoffContract",
     "HandoffEvidenceRef",
