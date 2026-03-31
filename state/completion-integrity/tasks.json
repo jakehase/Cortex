@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T14:59:00.887Z",
+      "updatedAt": "2026-03-31T15:04:18.010Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 8,
+        "runs": 9,
         "failures": [],
-        "lastRunAt": "2026-03-31T14:59:00.895Z",
+        "lastRunAt": "2026-03-31T15:04:18.017Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6873,6 +6873,41 @@
       "failedAt": "2026-03-31T14:22:54.756Z",
       "failureReason": "agent_end reported failure",
       "failureSource": "runtime"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-31T15:06:37.026Z",
+      "updatedAt": "2026-03-31T15:06:37.030Z",
+      "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-31T15:06:37.026Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-31T15:06:37.030Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }
