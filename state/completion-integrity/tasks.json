@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T16:09:44.753Z",
+      "updatedAt": "2026-03-31T16:14:21.865Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 22,
+        "runs": 23,
         "failures": [],
-        "lastRunAt": "2026-03-31T16:09:44.761Z",
+        "lastRunAt": "2026-03-31T16:14:21.869Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6928,12 +6928,12 @@
       "id": "agent:main:subagent:b5800b1f-1c37-4ed0-8eed-fbeff6165aad:1774972961529:5975d6e5a80d4f15",
       "sessionKey": "agent:main:subagent:b5800b1f-1c37-4ed0-8eed-fbeff6165aad",
       "createdAt": "2026-03-31T16:02:41.529Z",
-      "updatedAt": "2026-03-31T16:02:41.537Z",
+      "updatedAt": "2026-03-31T16:18:32.262Z",
       "prompt": "[Tue 2026-03-31 11:02 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Continue hardening /root/clawd/public/cortex_server for true pro",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Tue 2026-03-31 11:02 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Continue hardening /root/clawd/public/cortex_server for true production-grade days/weeks unattended multi-agen",
       "history": [
         {
           "from": null,
@@ -6944,6 +6944,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-31T16:02:41.537Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-31T16:17:36.066Z",
+          "completedAt": "2026-03-31T16:17:36.066Z",
+          "completionSummary": "................ 100% 56 passed in 15.38s Process exited with code 0.",
+          "completionSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -6954,10 +6962,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-03-31T16:18:32.266Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-31T16:17:36.066Z",
+      "completionSource": "agent_end"
     }
   ]
 }
