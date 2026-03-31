@@ -2799,7 +2799,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:35:51.241Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T12:27:11.006Z",
+      "updatedAt": "2026-03-31T12:31:54.833Z",
       "history": [
         {
           "from": null,
@@ -2817,9 +2817,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 42,
+        "runs": 43,
         "failures": [],
-        "lastRunAt": "2026-03-31T12:27:11.009Z",
+        "lastRunAt": "2026-03-31T12:31:54.836Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6778,6 +6778,56 @@
       "failedAt": "2026-03-31T05:16:51.220Z",
       "failureReason": "agent_end reported failure",
       "failureSource": "runtime"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1774960417211:5f302a02d1b19e5f",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-03-31T12:33:37.211Z",
+      "updatedAt": "2026-03-31T12:34:51.021Z",
+      "prompt": "Okay do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’ve got the final substrate pieces written. Running focused validation first because this touched shared-state persistence, soak profiles, and runtime exports. ``` How’s this going? result",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-31T12:33:37.211Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-31T12:33:37.215Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-31T12:34:35.863Z",
+          "completedAt": "2026-03-31T12:34:35.863Z",
+          "completionSummary": "........................................................................ 82% ............... 100% 87 passed in 15.80s Process exited with code 0.",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-03-31T12:34:51.025Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-31T12:34:35.863Z",
+      "completionSource": "agent_end"
     }
   ]
 }
