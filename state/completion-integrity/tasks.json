@@ -2833,7 +2833,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T00:56:35.438Z",
+      "updatedAt": "2026-03-31T01:01:41.369Z",
       "history": [
         {
           "from": null,
@@ -2851,9 +2851,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 198,
+        "runs": 199,
         "failures": [],
-        "lastRunAt": "2026-03-31T00:56:35.441Z",
+        "lastRunAt": "2026-03-31T01:01:41.372Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6522,12 +6522,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774918142907:2d9e4190430c78df",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T00:49:02.907Z",
-      "updatedAt": "2026-03-31T01:01:02.523Z",
+      "updatedAt": "2026-03-31T01:03:25.110Z",
       "prompt": "yes do it, make sure you have on the roadmap all of these things you just mentioned",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’m taking that as *restore Phase A/B implementation surfaces*. I’m mapping the historical packages first so I can tell which of R1/R2/R3/R4/R6 were real recoverable code packages versus ju",
+      "completionSummary": "System: 2026-03-30 19:53:13 CDT Exec completed (kind-sab, code 0) :: ........................................................................ 96% ... 100% 75 passed in 16.74s System: 2026-03-30 19:57:18 CDT Exec completed (young-du, code 0) :: ....................................",
       "history": [
         {
           "from": null,
@@ -6557,16 +6557,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-03-31T01:01:02.530Z",
+        "lastRunAt": "2026-03-31T01:03:25.113Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-31T00:50:55.299Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
