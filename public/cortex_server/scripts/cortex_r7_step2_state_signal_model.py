@@ -10,9 +10,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from services.homeostasis.artifact_paths import display_path, resolve_r7_root, resolve_r9_root
 from services.homeostasis.state_signal_model import build_state_signal_snapshot, validate_state_signal_snapshot
 
-ARTIFACT_DIR = ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis" / "step2"
+R7_ROOT = resolve_r7_root()
+R9_ROOT = resolve_r9_root()
+ARTIFACT_DIR = R7_ROOT / "step2"
 
 
 def now_iso() -> str:
@@ -22,8 +25,8 @@ def now_iso() -> str:
 def main() -> int:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     snapshot = build_state_signal_snapshot(
-        r7_root=ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis",
-        r9_root=ROOT / "artifacts" / "cortex_roadmap" / "r9_adaptive_routing_brain",
+        r7_root=R7_ROOT,
+        r9_root=R9_ROOT,
     )
     validation = validate_state_signal_snapshot(snapshot)
     snapshot_path = ARTIFACT_DIR / "state_signal_snapshot_latest.json"
@@ -31,7 +34,7 @@ def main() -> int:
     snapshot_path.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
     payload = {
         "generated_at": now_iso(),
-        "snapshot_path": str(snapshot_path.relative_to(ROOT)),
+        "snapshot_path": display_path(snapshot_path),
         "validation": validation,
         "gate_pass": bool(validation.get("valid")),
     }

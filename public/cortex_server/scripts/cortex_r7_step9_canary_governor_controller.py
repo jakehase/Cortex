@@ -10,9 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from services.homeostasis.artifact_paths import resolve_r7_root
 from services.homeostasis.canary_governor_controller import evaluate_canary_governor
 
-ARTIFACT_DIR = ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis" / "step9"
+R7_ROOT = resolve_r7_root()
+ARTIFACT_DIR = R7_ROOT / "step9"
 
 
 def now_iso() -> str:
@@ -21,7 +23,7 @@ def now_iso() -> str:
 
 def main() -> int:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    canary = evaluate_canary_governor(shadow_probe_path=ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis" / "step8" / "shadow_governor_probe_latest.json")
+    canary = evaluate_canary_governor(shadow_probe_path=R7_ROOT / "step8" / "shadow_governor_probe_latest.json")
     probe_path = ARTIFACT_DIR / "canary_governor_probe_latest.json"
     payload = {
         "generated_at": now_iso(),

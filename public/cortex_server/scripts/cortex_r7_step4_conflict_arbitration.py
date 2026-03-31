@@ -10,11 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from services.homeostasis.artifact_paths import resolve_r7_root, resolve_r9_root
 from services.homeostasis.conflict_arbitration_v2 import run_conflict_arbitration_benchmark
 from services.homeostasis.state_signal_model import build_state_signal_snapshot
 from services.homeostasis.value_hierarchy_compiler import compile_value_hierarchy, load_hierarchy_spec
 
-ARTIFACT_DIR = ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis" / "step4"
+R7_ROOT = resolve_r7_root()
+R9_ROOT = resolve_r9_root()
+ARTIFACT_DIR = R7_ROOT / "step4"
 
 PROTECTIVE_STATE = {
     "smoothed_state_vector": {
@@ -145,8 +148,8 @@ def main() -> int:
     spec = load_hierarchy_spec(ROOT / "services" / "homeostasis" / "objective_hierarchy.json")
     compiled = compile_value_hierarchy(spec)
     live_state = build_state_signal_snapshot(
-        r7_root=ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis",
-        r9_root=ROOT / "artifacts" / "cortex_roadmap" / "r9_adaptive_routing_brain",
+        r7_root=R7_ROOT,
+        r9_root=R9_ROOT,
     )
     cases = [dict(case, state_snapshot=live_state if case.get("case_id") == "live_state_context_uses_current_signal_profile" else case.get("state_snapshot")) for case in BENCHMARK_CASES]
     benchmark = run_conflict_arbitration_benchmark(compiled, cases, state_snapshot=live_state)

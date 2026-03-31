@@ -10,9 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from services.homeostasis.artifact_paths import resolve_r7_root
 from services.homeostasis.shadow_governor_runner import run_shadow_governor
 
-ARTIFACT_DIR = ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis" / "step8"
+R7_ROOT = resolve_r7_root()
+ARTIFACT_DIR = R7_ROOT / "step8"
 
 PROTECTIVE_BAD = {"smoothed_state_vector": {"urgency": 0.74, "risk_pressure": 0.77, "fatigue": 0.42, "timeout_pressure": 0.35, "error_pressure": 0.69, "budget_pressure": 0.38, "escalation_debt": 0.46}, "signal_health": {"anomaly_tags": ["dependency_degraded", "runtime_health_warning"]}}
 PROTECTIVE_SOFT = {"smoothed_state_vector": {"urgency": 0.63, "risk_pressure": 0.62, "fatigue": 0.38, "timeout_pressure": 0.61, "error_pressure": 0.41, "budget_pressure": 0.35, "escalation_debt": 0.49}, "signal_health": {"anomaly_tags": ["dependency_degraded"]}}

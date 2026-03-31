@@ -10,9 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from services.homeostasis.artifact_paths import resolve_r7_root
 from services.homeostasis.adaptive_effort_controller import run_effort_controller_benchmark
 
-ARTIFACT_DIR = ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis" / "step6"
+R7_ROOT = resolve_r7_root()
+ARTIFACT_DIR = R7_ROOT / "step6"
 
 PROTECTIVE = {"smoothed_state_vector": {"urgency": 0.72, "risk_pressure": 0.74, "fatigue": 0.41, "timeout_pressure": 0.33, "error_pressure": 0.66, "budget_pressure": 0.38, "escalation_debt": 0.44}}
 CONSERVE = {"smoothed_state_vector": {"urgency": 0.32, "risk_pressure": 0.28, "fatigue": 0.61, "timeout_pressure": 0.59, "error_pressure": 0.21, "budget_pressure": 0.66, "escalation_debt": 0.57}}

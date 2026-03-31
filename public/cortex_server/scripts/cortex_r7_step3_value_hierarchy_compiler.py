@@ -10,9 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from services.homeostasis.artifact_paths import display_path, resolve_r7_root
 from services.homeostasis.value_hierarchy_compiler import compile_value_hierarchy, load_hierarchy_spec, run_hierarchy_replay
 
-ARTIFACT_DIR = ROOT / "artifacts" / "cortex_roadmap" / "r7_value_homeostasis" / "step3"
+R7_ROOT = resolve_r7_root()
+ARTIFACT_DIR = R7_ROOT / "step3"
 
 REPLAY_CASES = [
     {
@@ -72,7 +74,7 @@ def main() -> int:
     compiled_path.write_text(json.dumps(compiled, indent=2) + "\n", encoding="utf-8")
     payload = {
         "generated_at": now_iso(),
-        "compiled_path": str(compiled_path.relative_to(ROOT)),
+        "compiled_path": display_path(compiled_path),
         "objective_order": compiled.get("objective_order", []),
         "replay": replay,
         "gate_pass": bool(replay.get("all_valid")),
