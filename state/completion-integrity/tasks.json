@@ -2833,7 +2833,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T04:56:31.099Z",
+      "updatedAt": "2026-03-31T05:01:20.958Z",
       "history": [
         {
           "from": null,
@@ -2851,9 +2851,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 246,
+        "runs": 247,
         "failures": [],
-        "lastRunAt": "2026-03-31T04:56:31.107Z",
+        "lastRunAt": "2026-03-31T05:01:20.970Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6705,12 +6705,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774930018212:22e10fdb7d8d304c",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T04:06:58.212Z",
-      "updatedAt": "2026-03-31T05:00:50.975Z",
+      "updatedAt": "2026-03-31T05:05:30.015Z",
       "prompt": "System: [2026-03-30 23:01:07 CDT] Exec completed (fast-riv, code 0) :: ............................................................ [100%] 60 passed in 17.48s Push it and continue",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "................................................................ 100% 64 passed in 16.42s Process exited with code 0.",
+      "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your ",
       "history": [
         {
           "from": null,
@@ -6740,16 +6740,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 8,
+        "runs": 12,
         "failures": [],
-        "lastRunAt": "2026-03-31T05:00:50.985Z",
+        "lastRunAt": "2026-03-31T05:05:30.024Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "completedAt": "2026-03-31T04:06:59.574Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
