@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentSupervisor
@@ -11,12 +11,33 @@ from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_resume import load_runtime_resume_state
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
-from cortex_server.runtime.shared_process_state import SharedProcessState, SharedProcessStateStore
+from cortex_server.runtime.shared_process_state import SharedProcessState, SharedProcessStateStore, SharedStateConflictError
 
 
 JsonDict = Dict[str, Any]
 SleepFn = Callable[[float], None]
 ClockFn = Callable[[], datetime]
+
+SOAK_PROFILES: Dict[str, Dict[str, Any]] = {
+    "2h": {
+        "profile": "2h",
+        "intended_duration_hours": 2,
+        "elapsed_waits": [0.01, 0.02, 0.05],
+        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "shared_state_conflict", "dead_letter_recovery"],
+    },
+    "4h": {
+        "profile": "4h",
+        "intended_duration_hours": 4,
+        "elapsed_waits": [0.01, 0.02, 0.05, 0.1],
+        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "duplicate_claims", "shared_state_conflict", "shared_state_rollback", "dead_letter_recovery"],
+    },
+    "8h": {
+        "profile": "8h",
+        "intended_duration_hours": 8,
+        "elapsed_waits": [0.01, 0.02, 0.05, 0.1, 0.2],
+        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "duplicate_claims", "shared_state_conflict", "shared_state_rollback", "stale_revision", "dead_letter_recovery"],
+    },
+}
 
 
 
@@ -31,6 +52,58 @@ def _model_dump_compat(model: Any) -> JsonDict:
     if hasattr(model, "dict"):
         return model.dict()
     return dict(model or {})
+
+
+
+def _dedupe_rows(rows: List[str]) -> List[str]:
+    out: List[str] = []
+    for row in rows or []:
+        text = str(row or "").strip()
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+
+def build_soak_profile(profile: str) -> JsonDict:
+    key = str(profile or "").strip().lower()
+    if key not in SOAK_PROFILES:
+        raise KeyError(f"unknown soak profile: {profile}")
+    return dict(SOAK_PROFILES[key])
+
+
+
+def compile_audit_playback(report: JsonDict) -> JsonDict:
+    scenarios = [dict(row) for row in (report.get("scenarios") or []) if isinstance(row, dict)]
+    bool_failure_keys = [
+        "resumed_without_loss",
+        "recovered_from_tail",
+        "rollback_restored",
+        "stale_detected",
+        "duplicate_claim_blocked",
+        "conflict_detected",
+        "recovery_succeeded",
+    ]
+    failed = [
+        row
+        for row in scenarios
+        if any(row.get(key) is False for key in bool_failure_keys)
+        or (row.get("scenario") == "stale_revision" and row.get("accepted_count") not in (None, 0))
+    ]
+    return {
+        "scenario_count": len(scenarios),
+        "failed_count": len(failed),
+        "timeline": [
+            {
+                "order": idx,
+                "scenario": row.get("scenario"),
+                "process_id": row.get("process_id"),
+                "operator_summary": row.get("operator_summary"),
+            }
+            for idx, row in enumerate(scenarios, start=1)
+        ],
+        "operator_summary": f"audit playback: {len(scenarios)} scenarios, {len(failed)} flagged failures",
+    }
 
 
 
@@ -112,7 +185,9 @@ class RuntimeSoakHarness:
                 open_questions=["can this resume without prompt-local continuity?"],
                 agent_ownership={node_id: agent_id},
                 metadata={"scenario": "soak_harness"},
-            )
+            ),
+            actor="coordinator",
+            provenance={"scenario": "seed_waiting_process"},
         )
         return {
             "snapshot": snapshot,
@@ -189,7 +264,9 @@ class RuntimeSoakHarness:
                 open_questions=list(shared_state.open_questions),
                 agent_ownership=dict(shared_state.agent_ownership),
                 metadata={**dict(shared_state.metadata), "resumed_from_wait": True},
-            )
+            ),
+            actor=agent_id,
+            provenance={"scenario": "pause_resume"},
         )
         after_resume = load_runtime_resume_state(
             process_id=process_id,
@@ -419,6 +496,129 @@ class RuntimeSoakHarness:
             "operator_summary": f"rollback recovery {'ok' if rollback_restored else 'failed'} for {process_id}",
         }
 
+    def run_shared_state_conflict_scenario(
+        self,
+        *,
+        process_id: str,
+        base_revision_id: str = "rev_1",
+        expected_revision_id: str = "rev_1",
+        conflicting_observed_revision_id: str = "rev_2",
+        node_id: str = "step1",
+        agent_id: str = "planner",
+    ) -> JsonDict:
+        self._seed_waiting_process(process_id=process_id, revision_id=base_revision_id, node_id=node_id, agent_id=agent_id)
+        current = self.shared_state_store.load(process_id)
+        if current is None:
+            raise RuntimeError(f"shared state missing for {process_id}")
+        self.shared_state_store.save(
+            SharedProcessState(
+                process_id=process_id,
+                revision_id=conflicting_observed_revision_id,
+                goals=list(current.goals),
+                active_plan_node_ids=list(current.active_plan_node_ids),
+                open_decisions=list(current.open_decisions),
+                runtime_constraints=dict(current.runtime_constraints),
+                world_state={**dict(current.world_state), "status": "running"},
+                belief_refs=list(current.belief_refs),
+                open_questions=list(current.open_questions),
+                agent_ownership=dict(current.agent_ownership),
+                operator_overrides=dict(current.operator_overrides),
+                metadata={**dict(current.metadata), "writer": "other-agent"},
+            ),
+            expected_revision_id=base_revision_id,
+            actor="other-agent",
+            provenance={"scenario": "shared_state_conflict", "writer": "other-agent"},
+        )
+        conflict_detected = False
+        conflict_message = None
+        try:
+            self.shared_state_store.save(
+                SharedProcessState(
+                    process_id=process_id,
+                    revision_id=f"{expected_revision_id}_writer_attempt",
+                    goals=list(current.goals),
+                    active_plan_node_ids=list(current.active_plan_node_ids),
+                    open_decisions=list(current.open_decisions),
+                    runtime_constraints=dict(current.runtime_constraints),
+                    world_state={**dict(current.world_state), "status": "writer-attempt"},
+                    belief_refs=list(current.belief_refs),
+                    open_questions=list(current.open_questions),
+                    agent_ownership=dict(current.agent_ownership),
+                    operator_overrides=dict(current.operator_overrides),
+                    metadata={**dict(current.metadata), "writer": agent_id},
+                ),
+                expected_revision_id=expected_revision_id,
+                actor=agent_id,
+                provenance={"scenario": "shared_state_conflict", "writer": agent_id},
+            )
+        except SharedStateConflictError as exc:
+            conflict_detected = True
+            conflict_message = str(exc)
+        conflict = self.shared_state_store.detect_conflict(process_id=process_id, expected_revision_id=expected_revision_id)
+        return {
+            "scenario": "shared_state_conflict",
+            "process_id": process_id,
+            "conflict_detected": conflict_detected,
+            "conflict_message": conflict_message,
+            **conflict,
+        }
+
+    def run_shared_state_rollback_scenario(
+        self,
+        *,
+        process_id: str,
+        base_revision_id: str = "rev_1",
+        updated_revision_id: str = "rev_2",
+        rollback_revision_id: str = "rev_3",
+        node_id: str = "step1",
+        agent_id: str = "planner",
+    ) -> JsonDict:
+        self._seed_waiting_process(process_id=process_id, revision_id=base_revision_id, node_id=node_id, agent_id=agent_id)
+        current = self.shared_state_store.load(process_id)
+        if current is None:
+            raise RuntimeError(f"shared state missing for {process_id}")
+        updated = self.shared_state_store.save(
+            SharedProcessState(
+                process_id=process_id,
+                revision_id=updated_revision_id,
+                goals=list(current.goals),
+                active_plan_node_ids=list(current.active_plan_node_ids),
+                open_decisions=list(current.open_decisions),
+                runtime_constraints=dict(current.runtime_constraints),
+                world_state={**dict(current.world_state), "status": "running", "bad_update": True},
+                belief_refs=_dedupe_rows(list(current.belief_refs) + ["claim-bad-state"]),
+                open_questions=list(current.open_questions),
+                agent_ownership=dict(current.agent_ownership),
+                operator_overrides=dict(current.operator_overrides),
+                metadata={**dict(current.metadata), "update": "bad"},
+            ),
+            expected_revision_id=base_revision_id,
+            actor=agent_id,
+            provenance={"scenario": "shared_state_rollback", "phase": "update"},
+        )
+        rolled = self.shared_state_store.rollback(
+            process_id=process_id,
+            to_revision_id=base_revision_id,
+            new_revision_id=rollback_revision_id,
+            actor="operator",
+            reason="restore stable shared state",
+            provenance={"scenario": "shared_state_rollback", "phase": "rollback"},
+        )
+        rollback_restored = (
+            rolled.revision_id == rollback_revision_id
+            and rolled.world_state.get("bad_update") is None
+            and "claim-bad-state" not in rolled.belief_refs
+            and rolled.metadata.get("rollback_to_revision_id") == base_revision_id
+            and rolled.metadata.get("rollback_from_revision_id") == updated.revision_id
+        )
+        return {
+            "scenario": "shared_state_rollback",
+            "process_id": process_id,
+            "rolled_revision_id": rolled.revision_id,
+            "rollback_restored": rollback_restored,
+            "operator_summary": f"shared state rollback {'ok' if rollback_restored else 'failed'} for {process_id}",
+        }
+
     def run_stale_revision_scenario(
         self,
         *,
@@ -467,7 +667,7 @@ class RuntimeSoakHarness:
             **guard,
         }
 
-    def run_elapsed_wait_profile(self, *, process_prefix: str = "soak", elapsed_waits: Optional[list[float]] = None) -> list[JsonDict]:
+    def run_elapsed_wait_profile(self, *, process_prefix: str = "soak", elapsed_waits: Optional[List[float]] = None) -> List[JsonDict]:
         wait_matrix = [0.0]
         for value in (elapsed_waits or []):
             seconds = float(value or 0.0)
@@ -529,7 +729,7 @@ class RuntimeSoakHarness:
             "operator_summary": f"dead-letter recovery {'ok' if len(second_receive) == 1 else 'failed'} for {process_id}",
         }
 
-    def run_suite(self, *, process_prefix: str = "soak", wait_seconds: float = 0.0, elapsed_waits: Optional[list[float]] = None) -> JsonDict:
+    def run_suite(self, *, process_prefix: str = "soak", wait_seconds: float = 0.0, elapsed_waits: Optional[List[float]] = None) -> JsonDict:
         wait_matrix = [float(wait_seconds or 0.0)]
         for value in (elapsed_waits or []):
             seconds = float(value or 0.0)
@@ -540,27 +740,56 @@ class RuntimeSoakHarness:
         rollback_recovery = self.run_rollback_recovery_scenario(process_id=f"{process_prefix}_rollback_recovery")
         stale_agent = self.run_stale_agent_scenario(process_id=f"{process_prefix}_stale_agent")
         duplicate_claim_block = self.run_duplicate_claim_block_scenario(process_id=f"{process_prefix}_duplicate_claim")
+        shared_state_conflict = self.run_shared_state_conflict_scenario(process_id=f"{process_prefix}_shared_state_conflict")
+        shared_state_rollback = self.run_shared_state_rollback_scenario(process_id=f"{process_prefix}_shared_state_rollback")
         stale_revision = self.run_stale_revision_scenario(process_id=f"{process_prefix}_stale_revision")
         dead_letter_recovery = self.run_dead_letter_recovery_scenario(process_id=f"{process_prefix}_dead_letter_recovery")
-        scenarios = [*pause_resume_runs, restart_recovery, rollback_recovery, stale_agent, duplicate_claim_block, stale_revision, dead_letter_recovery]
+        scenarios = [
+            *pause_resume_runs,
+            restart_recovery,
+            rollback_recovery,
+            stale_agent,
+            duplicate_claim_block,
+            shared_state_conflict,
+            shared_state_rollback,
+            stale_revision,
+            dead_letter_recovery,
+        ]
         success = all(
             row.get("resumed_without_loss", True)
             and row.get("recovered_from_tail", True)
             and row.get("rollback_restored", True)
             and row.get("stale_detected", True)
             and row.get("duplicate_claim_blocked", True)
+            and row.get("conflict_detected", True)
             and row.get("stale_revision", True)
             and (row.get("accepted_count", 0) == 0 if row.get("scenario") == "stale_revision" else True)
             and row.get("recovery_succeeded", True)
             for row in scenarios
         )
-        return {
+        report = {
             "success": success,
             "scenario_count": len(scenarios),
             "wait_matrix_seconds": wait_matrix,
             "scenarios": scenarios,
             "operator_summary": f"runtime soak harness {'passed' if success else 'failed'} with {len(scenarios)} scenarios",
         }
+        report["audit_playback"] = compile_audit_playback(report)
+        return report
+
+    def run_profile(self, profile: str, *, process_prefix: Optional[str] = None) -> JsonDict:
+        profile_spec = build_soak_profile(profile)
+        prefix = process_prefix or f"soak_{profile_spec['profile']}"
+        report = self.run_suite(process_prefix=prefix, elapsed_waits=list(profile_spec.get("elapsed_waits") or []))
+        report["profile"] = profile_spec
+        report["audit_playback"] = compile_audit_playback(report)
+        return report
 
 
-__all__ = ["RuntimeSoakHarness", "detect_stale_revision"]
+__all__ = [
+    "RuntimeSoakHarness",
+    "SOAK_PROFILES",
+    "build_soak_profile",
+    "compile_audit_playback",
+    "detect_stale_revision",
+]

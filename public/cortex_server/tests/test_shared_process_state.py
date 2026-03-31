@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from cortex_server.runtime import OpenDecision, SharedProcessState, SharedProcessStateStore
+from cortex_server.runtime import OpenDecision, SharedProcessState, SharedProcessStateStore, SharedStateConflictError
 from cortex_server.runtime.shared_process_state import ValidationError
 
 
@@ -58,3 +58,57 @@ def test_shared_process_state_rejects_empty_required_values():
 
     with pytest.raises(ValidationError):
         OpenDecision(decision_id="", title="Investigate")
+
+
+
+def test_shared_process_state_store_detects_conflicts_and_records_history(tmp_path: Path):
+    store = SharedProcessStateStore(tmp_path / "shared_state")
+    first = store.save(
+        SharedProcessState(process_id="proc_123", revision_id="rev_1", world_state={"status": "waiting"}),
+        actor="planner",
+        provenance={"source": "seed"},
+    )
+    second = store.save(
+        SharedProcessState(process_id="proc_123", revision_id="rev_2", world_state={"status": "running"}),
+        expected_revision_id="rev_1",
+        actor="planner",
+        provenance={"source": "update"},
+    )
+
+    history = store.history("proc_123")
+    conflict = store.detect_conflict(process_id="proc_123", expected_revision_id="rev_1")
+
+    assert first.revision_id == "rev_1"
+    assert second.revision_id == "rev_2"
+    assert len(history) == 2
+    assert history[1].parent_revision_id == "rev_1"
+    assert history[1].actor == "planner"
+    assert history[1].change_set["world_state"]["count"] == 1
+    assert conflict["conflict"] is True
+
+    with pytest.raises(SharedStateConflictError, match="shared state conflict"):
+        store.save(
+            SharedProcessState(process_id="proc_123", revision_id="rev_3", world_state={"status": "conflicting"}),
+            expected_revision_id="rev_1",
+            actor="researcher",
+        )
+
+
+
+def test_shared_process_state_store_can_rollback_to_prior_revision(tmp_path: Path):
+    store = SharedProcessStateStore(tmp_path / "shared_state")
+    store.save(SharedProcessState(process_id="proc_123", revision_id="rev_1", world_state={"status": "waiting"}), actor="planner")
+    store.save(
+        SharedProcessState(process_id="proc_123", revision_id="rev_2", world_state={"status": "running", "bad_update": True}, belief_refs=["claim-bad"]),
+        expected_revision_id="rev_1",
+        actor="planner",
+    )
+
+    rolled = store.rollback(process_id="proc_123", to_revision_id="rev_1", new_revision_id="rev_3", actor="operator", reason="restore stable state")
+
+    assert rolled.revision_id == "rev_3"
+    assert rolled.world_state == {"status": "waiting"}
+    assert rolled.belief_refs == []
+    assert rolled.metadata["rollback_from_revision_id"] == "rev_2"
+    assert rolled.metadata["rollback_to_revision_id"] == "rev_1"
+    assert store.load_revision("proc_123", "rev_1").revision_id == "rev_1"

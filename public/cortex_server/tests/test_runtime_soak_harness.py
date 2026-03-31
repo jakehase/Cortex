@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cortex_server.runtime import RuntimeSoakHarness, detect_stale_revision
+from cortex_server.runtime import RuntimeSoakHarness, build_soak_profile, compile_audit_playback, detect_stale_revision
 
 
 
@@ -69,9 +69,10 @@ def test_runtime_soak_harness_suite_runs_all_core_scenarios(tmp_path):
     report = harness.run_suite(process_prefix="durable", elapsed_waits=[0.01, 0.02])
 
     assert report["success"] is True
-    assert report["scenario_count"] == 9
+    assert report["scenario_count"] == 11
     assert report["wait_matrix_seconds"] == [0.0, 0.01, 0.02]
-    assert len(report["scenarios"]) == 9
+    assert len(report["scenarios"]) == 11
+    assert report["audit_playback"]["scenario_count"] == 11
 
 
 
@@ -120,3 +121,41 @@ def test_runtime_soak_harness_rollback_recovery_restores_state(tmp_path):
     assert report["replayed_state"]["lifecycle_state"] == "waiting"
     assert report["replayed_state"]["waiting_steps"] == ["step1"]
     assert report["replayed_state"]["belief_refs"] == []
+
+
+
+def test_runtime_soak_harness_detects_shared_state_conflicts(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+
+    report = harness.run_shared_state_conflict_scenario(process_id="proc_conflict")
+
+    assert report["conflict_detected"] is True
+    assert report["conflict"] is True
+
+
+
+def test_runtime_soak_harness_can_rollback_shared_state(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+
+    report = harness.run_shared_state_rollback_scenario(process_id="proc_state_rollback")
+
+    assert report["rollback_restored"] is True
+    assert report["rolled_revision_id"] == "rev_3"
+
+
+
+def test_runtime_soak_profiles_and_audit_playback(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+
+    profile_2h = build_soak_profile("2h")
+    profile_4h = build_soak_profile("4h")
+    profile_8h = build_soak_profile("8h")
+    report = harness.run_profile("2h", process_prefix="profile2h")
+    playback = compile_audit_playback(report)
+
+    assert profile_2h["intended_duration_hours"] == 2
+    assert profile_4h["intended_duration_hours"] == 4
+    assert profile_8h["intended_duration_hours"] == 8
+    assert report["success"] is True
+    assert report["profile"]["profile"] == "2h"
+    assert playback["scenario_count"] == report["scenario_count"]
