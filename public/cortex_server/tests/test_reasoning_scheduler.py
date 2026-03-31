@@ -258,6 +258,61 @@ def test_scheduler_cancel_process_marks_open_nodes_cancelled(tmp_path, monkeypat
     assert cancelled["nodes"]["summarize"]["status"] == "cancelled"
 
 
+
+def test_scheduler_sync_process_progress_rewinds_completed_process(tmp_path, monkeypatch):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")
+
+    workflow = compile_plan_to_workflow(_graph())
+    process = scheduler.create_process_from_workflow(workflow)
+    scheduler.mark_node_running(process["process_id"], "fetch")
+    scheduler.record_node_result(
+        process["process_id"],
+        "fetch",
+        {
+            "success": True,
+            "status_code": 200,
+            "response": {"name": "Jake"},
+            "elapsed_ms": 1.0,
+        },
+    )
+    scheduler.mark_node_running(process["process_id"], "summarize")
+    scheduler.record_node_result(
+        process["process_id"],
+        "summarize",
+        {
+            "success": True,
+            "status_code": 200,
+            "response": {"text": "done"},
+            "elapsed_ms": 1.0,
+        },
+    )
+
+    completed = scheduler.get_process(process["process_id"])
+    assert completed is not None
+    assert completed["status"] == "completed"
+
+    rewound = scheduler.sync_process_progress(
+        process["process_id"],
+        lifecycle_state="running",
+        active_nodes=["fetch"],
+        waiting_nodes=["summarize"],
+        enabled=True,
+        event_payload={"source": "test"},
+    )
+    events = scheduler.process_events(process["process_id"], limit=10)
+
+    assert rewound["status"] == "running"
+    assert rewound["completed_at"] is None
+    assert rewound["nodes"]["fetch"]["status"] == "running"
+    assert rewound["nodes"]["summarize"]["status"] == "blocked"
+    assert rewound["nodes"]["summarize"]["blocked_by"] == ["fetch"]
+    assert "fetch" not in rewound["results_by_node"]
+    assert "summarize" not in rewound["results_by_node"]
+    assert events[-1]["kind"] == "process_progress_synced"
+    assert events[-1]["payload"]["source"] == "test"
+
+
 def test_scheduler_retry_filters_by_status_code(tmp_path, monkeypatch):
     monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "reasoning_runtime.db")

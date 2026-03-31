@@ -516,6 +516,166 @@ def replace_process_workflow(process_id: str, workflow: Dict[str, Any], *, event
         save_state(state)
         return process
 
+
+def _normalize_node_ids(rows: Optional[Sequence[str]]) -> List[str]:
+    out: List[str] = []
+    for row in rows or []:
+        node_id = str(row or "").strip()
+        if node_id and node_id not in out:
+            out.append(node_id)
+    return out
+
+
+
+def _terminal_result_stub(*, success: bool, status: str, completed_at: str, attempts: int, error: Optional[str] = None) -> Dict[str, Any]:
+    return {
+        "success": success,
+        "status": status,
+        "status_code": None,
+        "response": None,
+        "error": error,
+        "elapsed_ms": None,
+        "completed_at": completed_at,
+        "attempts": attempts,
+        "error_code": normalize_failure_code(None, error=error, success=success),
+        "belief_context": None,
+        "produced_belief_ids": [],
+        "produced_belief_count": 0,
+    }
+
+
+
+def sync_process_progress(
+    process_id: str,
+    *,
+    lifecycle_state: Optional[str] = None,
+    active_nodes: Optional[Sequence[str]] = None,
+    waiting_nodes: Optional[Sequence[str]] = None,
+    completed_nodes: Optional[Sequence[str]] = None,
+    failed_nodes: Optional[Sequence[str]] = None,
+    enabled: Optional[bool] = None,
+    event_kind: str = "process_progress_synced",
+    event_payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    with _LOCK:
+        state = load_state()
+        process = (state.get("processes") or {}).get(process_id)
+        if not isinstance(process, dict):
+            raise ReasoningSchedulerError(f"unknown process: {process_id}")
+
+        nodes = process.get("nodes") if isinstance(process.get("nodes"), dict) else {}
+        normalized = {
+            "active": _normalize_node_ids(active_nodes),
+            "waiting": _normalize_node_ids(waiting_nodes),
+            "completed": _normalize_node_ids(completed_nodes),
+            "failed": _normalize_node_ids(failed_nodes),
+        }
+        known_nodes = set(nodes)
+        for bucket, bucket_nodes in normalized.items():
+            unknown = sorted(set(bucket_nodes) - known_nodes)
+            if unknown:
+                raise ReasoningSchedulerError(f"cannot sync unknown nodes for {bucket}: {', '.join(unknown)}")
+
+        assignments: Dict[str, str] = {}
+        for bucket in ("active", "waiting", "completed", "failed"):
+            for node_id in normalized[bucket]:
+                previous = assignments.get(node_id)
+                if previous is not None:
+                    raise ReasoningSchedulerError(f"node {node_id} cannot be synced as both {previous} and {bucket}")
+                assignments[node_id] = bucket
+
+        if enabled is not None:
+            process["enabled"] = bool(enabled)
+
+        results_by_node = process.setdefault("results_by_node", {})
+        now_iso = _now_iso()
+        for node_id, row in nodes.items():
+            if not isinstance(row, dict):
+                continue
+            bucket = assignments.get(node_id)
+            if bucket == "completed":
+                completed_at = str(row.get("completed_at") or now_iso)
+                row["status"] = "completed"
+                row["started_at"] = row.get("started_at") or completed_at
+                row["completed_at"] = completed_at
+                row["retry_at"] = None
+                row["wait_until"] = None
+                row["blocked_by"] = []
+                row["last_error"] = None
+                if not isinstance(results_by_node.get(node_id), dict):
+                    results_by_node[node_id] = _terminal_result_stub(
+                        success=True,
+                        status="completed",
+                        completed_at=completed_at,
+                        attempts=int(row.get("attempts", 0) or 0),
+                    )
+            elif bucket == "failed":
+                completed_at = str(row.get("completed_at") or now_iso)
+                error = str(row.get("last_error") or "synced_failed_state").strip() or "synced_failed_state"
+                row["status"] = "failed"
+                row["started_at"] = row.get("started_at") or completed_at
+                row["completed_at"] = completed_at
+                row["retry_at"] = None
+                row["wait_until"] = None
+                row["blocked_by"] = []
+                row["last_error"] = error
+                results_by_node[node_id] = _terminal_result_stub(
+                    success=False,
+                    status="failed",
+                    completed_at=completed_at,
+                    attempts=int(row.get("attempts", 0) or 0),
+                    error=error,
+                )
+            elif bucket == "active":
+                row["status"] = "running"
+                row["started_at"] = row.get("started_at") or now_iso
+                row["completed_at"] = None
+                row["retry_at"] = None
+                row["blocked_by"] = []
+                row["last_error"] = None
+                results_by_node.pop(node_id, None)
+            elif bucket == "waiting":
+                row["status"] = "waiting"
+                row["started_at"] = None
+                row["completed_at"] = None
+                row["retry_at"] = None
+                row["blocked_by"] = []
+                row["last_error"] = None
+                results_by_node.pop(node_id, None)
+            else:
+                row["status"] = "pending"
+                row["started_at"] = None
+                row["completed_at"] = None
+                row["retry_at"] = None
+                row["blocked_by"] = []
+                row["last_error"] = None
+                results_by_node.pop(node_id, None)
+            row["updated_at"] = now_iso
+
+        terminal_statuses = {"completed", "failed", "cancelled"}
+        if all(str((row or {}).get("status") or "pending") in terminal_statuses for row in nodes.values() if isinstance(row, dict)):
+            process["completed_at"] = process.get("completed_at") or now_iso
+        else:
+            process["completed_at"] = None
+        if lifecycle_state in {"running", "waiting", "created", "blocked", "rolled_back"}:
+            process["wake_requested_at"] = process.get("wake_requested_at") or now_iso
+        elif lifecycle_state in {"completed", "failed", "cancelled"}:
+            process["wake_requested_at"] = None
+
+        _refresh_process(process)
+        process["updated_at"] = _now_iso()
+        payload = dict(event_payload or {})
+        if lifecycle_state is not None:
+            payload.setdefault("lifecycle_state", str(lifecycle_state))
+        payload.setdefault("active_nodes", list(normalized["active"]))
+        payload.setdefault("waiting_nodes", list(normalized["waiting"]))
+        payload.setdefault("completed_nodes", list(normalized["completed"]))
+        payload.setdefault("failed_nodes", list(normalized["failed"]))
+        _append_event(state, process_id, event_kind, payload)
+        save_state(state)
+        return process
+
+
 def scheduler_tick(*, now_iso: Optional[str] = None, limit: int = 50) -> Dict[str, Any]:
     with _LOCK:
         state = load_state()

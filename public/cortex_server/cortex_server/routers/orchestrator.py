@@ -50,6 +50,7 @@ from cortex_server.modules.reasoning_scheduler import (
     resume_process as resume_runtime_process,
     runtime_status as get_runtime_status,
     scheduler_tick as reasoning_scheduler_tick,
+    sync_process_progress,
     wake_process as wake_runtime_process,
 )
 from cortex_server.runtime import (
@@ -59,6 +60,8 @@ from cortex_server.runtime import (
     ProcessSnapshot,
     ProcessSnapshotStore,
     ProductionBuildContract,
+    ProductionBuildLoopReport,
+    ProductionBuildLoopState,
     ProductionBuildLoopStore,
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
@@ -66,6 +69,8 @@ from cortex_server.runtime import (
     SharedProcessStateStore,
     apply_release_rollback_restore,
     capture_release_rollback_fencepost,
+    detect_true_blockers,
+    evaluate_production_completion,
     record_release_fencepost,
     reconcile_production_build_loop,
 )
@@ -314,6 +319,196 @@ def _resolve_runtime_delivery_contract(
 
 
 
+def _runtime_delivery_projection(
+    *,
+    contract: Optional[ProductionBuildContract],
+    loop_state: Optional[ProductionBuildLoopState],
+    release_state: Optional[ReleaseWorkflowState],
+    snapshot: Optional[ProcessSnapshot],
+    shared_state: Optional[SharedProcessState],
+    latest_report: Optional[ProductionBuildLoopReport],
+) -> Dict[str, Any]:
+    completion = dict(loop_state.completion or {}) if loop_state is not None else {}
+    return {
+        "contract_id": contract.contract_id if contract is not None else None,
+        "objective": contract.objective if contract is not None else None,
+        "target_environment": contract.target_environment if contract is not None else None,
+        "loop_id": loop_state.loop_id if loop_state is not None else None,
+        "loop_status": loop_state.status if loop_state is not None else None,
+        "loop_iteration": int(loop_state.iteration_count or 0) if loop_state is not None else 0,
+        "loop_checkpoint_count": int(loop_state.checkpoint_count or 0) if loop_state is not None else 0,
+        "loop_recovery_count": int(loop_state.recovery_count or 0) if loop_state is not None else 0,
+        "release_id": release_state.release_id if release_state is not None else None,
+        "release_stage": release_state.current_stage if release_state is not None else None,
+        "release_status": release_state.status if release_state is not None else None,
+        "shared_state_revision_id": shared_state.revision_id if shared_state is not None else None,
+        "snapshot_id": snapshot.snapshot_id if snapshot is not None else None,
+        "snapshot_lifecycle_state": snapshot.lifecycle_state if snapshot is not None else None,
+        "latest_report_id": latest_report.report_id if latest_report is not None else None,
+        "latest_report_kind": latest_report.kind if latest_report is not None else None,
+        "latest_report_status": latest_report.status if latest_report is not None else None,
+        "true_blocker_count": len(loop_state.true_blockers) if loop_state is not None else 0,
+        "completion_ready": bool(completion.get("all_required_satisfied")) if completion else None,
+    }
+
+
+
+def _sync_runtime_process_delivery_state(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    event_kind: str,
+    event_payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    snapshot = stores["snapshot_store"].load(process_id)
+    shared_state = stores["shared_state_store"].load(process_id)
+    contract = stores["loop_store"].load_contract(process_id)
+    loop_state = stores["loop_store"].load_state(process_id)
+    release_state = stores["release_store"].load(process_id)
+    reports = stores["loop_store"].reports(process_id)
+    latest_report = reports[-1] if reports else None
+
+    if snapshot is not None:
+        process = sync_process_progress(
+            process_id,
+            lifecycle_state=snapshot.lifecycle_state,
+            active_nodes=snapshot.active_steps,
+            waiting_nodes=snapshot.waiting_steps,
+            completed_nodes=snapshot.completed_steps,
+            failed_nodes=snapshot.failed_steps,
+            enabled=(snapshot.lifecycle_state != "failed"),
+            event_kind=f"{event_kind}.progress",
+            event_payload={
+                **dict(event_payload or {}),
+                "snapshot_id": snapshot.snapshot_id,
+                "shared_state_revision_id": shared_state.revision_id if shared_state is not None else None,
+            },
+        )
+
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = dict(workflow.get("metadata") or {})
+    desired_metadata = dict(metadata)
+    desired_metadata["runtime_delivery"] = _runtime_delivery_projection(
+        contract=contract,
+        loop_state=loop_state,
+        release_state=release_state,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        latest_report=latest_report,
+    )
+    if release_state is not None:
+        desired_metadata["release_stage"] = release_state.current_stage
+        desired_metadata["release_status"] = release_state.status
+    if shared_state is not None:
+        desired_metadata["delivery_revision_id"] = shared_state.revision_id
+    if contract is not None:
+        desired_metadata["production_build_loop"] = model_dump_compat(contract)
+
+    if desired_metadata != metadata:
+        process = replace_process_workflow(
+            process_id,
+            {
+                "name": workflow.get("name"),
+                "metadata": desired_metadata,
+                "steps": list(workflow.get("steps") or []),
+            },
+            event_kind=event_kind,
+            event_payload=dict(event_payload or {}),
+        )
+    elif event_kind:
+        process = record_runtime_event(process_id, event_kind, dict(event_payload or {}))
+    refreshed = get_runtime_process(process_id)
+    return refreshed or process
+
+
+
+def _checkpoint_runtime_delivery_rollback(
+    process_id: str,
+    *,
+    contract: Optional[ProductionBuildContract],
+    stores: Dict[str, Any],
+    release_state: ReleaseWorkflowState,
+    snapshot: ProcessSnapshot,
+    shared_state: SharedProcessState,
+    actor: str,
+    reason: str,
+    rollback_fencepost_id: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    if contract is None:
+        return None
+    loop_store = stores["loop_store"]
+    current = loop_store.load_state(process_id)
+    blockers = detect_true_blockers(contract, snapshot=snapshot, shared_state=shared_state, release_state=release_state)
+    completion = evaluate_production_completion(
+        contract,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        release_state=release_state,
+    )
+    status = "completed" if completion.get("all_required_satisfied") and not blockers else ("blocked" if blockers else "active")
+    existing = current or ProductionBuildLoopState(contract_id=contract.contract_id, process_id=process_id)
+    iteration = int(existing.iteration_count or 0) + 1
+    report = loop_store.append_report(
+        ProductionBuildLoopReport(
+            loop_id=existing.loop_id,
+            contract_id=contract.contract_id,
+            process_id=process_id,
+            iteration=iteration,
+            kind="rollback",
+            status=status,
+            summary=f"Release rollback applied to {release_state.current_stage} for {process_id}",
+            controller_id=actor,
+            controller_session_id=f"runtime-delivery-rollback:{process_id}",
+            stage=release_state.current_stage,
+            actions_taken=[
+                {
+                    "action": "rollback_runtime_delivery",
+                    "reason": reason,
+                    "fencepost_id": rollback_fencepost_id,
+                    "revision_id": shared_state.revision_id,
+                    "snapshot_id": snapshot.snapshot_id,
+                }
+            ],
+            blockers=blockers,
+            completion=completion,
+            metadata={
+                "rollback_reason": reason,
+                "rollback_fencepost_id": rollback_fencepost_id,
+                "shared_state_revision_id": shared_state.revision_id,
+                "snapshot_id": snapshot.snapshot_id,
+            },
+        )
+    )
+    updated = loop_store.save_state(
+        ProductionBuildLoopState(
+            loop_id=existing.loop_id,
+            contract_id=contract.contract_id,
+            process_id=process_id,
+            status=status,
+            iteration_count=iteration,
+            checkpoint_count=int(existing.checkpoint_count or 0) + 1,
+            recovery_count=int(existing.recovery_count or 0),
+            controller=existing.controller,
+            current_revision_id=shared_state.revision_id,
+            current_snapshot_id=snapshot.snapshot_id,
+            current_stage=release_state.current_stage,
+            latest_report_id=report.report_id,
+            last_checkpoint_at=report.recorded_at,
+            true_blockers=blockers,
+            completion=completion,
+            metadata={
+                **dict(existing.metadata or {}),
+                "last_runtime_delivery_event": "rollback",
+                "last_rollback_reason": reason,
+                "last_rollback_fencepost_id": rollback_fencepost_id,
+            },
+        )
+    )
+    return {"state": updated, "report": report}
+
+
+
 def _runtime_delivery_status_payload(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
     snapshot = stores["snapshot_store"].load(process_id)
     shared_state = stores["shared_state_store"].load(process_id)
@@ -321,6 +516,7 @@ def _runtime_delivery_status_payload(process_id: str, *, process: Dict[str, Any]
     loop_state = stores["loop_store"].load_state(process_id)
     release_state = stores["release_store"].load(process_id)
     reports = stores["loop_store"].reports(process_id)
+    latest_report = reports[-1] if reports else None
     return {
         "success": True,
         "process_id": process_id,
@@ -331,7 +527,8 @@ def _runtime_delivery_status_payload(process_id: str, *, process: Dict[str, Any]
         "snapshot": model_dump_compat(snapshot) if snapshot is not None else None,
         "shared_state": model_dump_compat(shared_state) if shared_state is not None else None,
         "report_count": len(reports),
-        "latest_report": model_dump_compat(reports[-1]) if reports else None,
+        "latest_report": model_dump_compat(latest_report) if latest_report is not None else None,
+        "recent_reports": [model_dump_compat(report) for report in reports[-5:]],
     }
 
 
@@ -866,6 +1063,18 @@ async def reconcile_runtime_delivery(process_id: str, request: Optional[RuntimeD
         controller_session_id=request.controller_session_id or f"runtime-delivery:{process_id}",
         now=_parse_optional_dt(request.now_iso),
     )
+    process = _sync_runtime_process_delivery_state(
+        process_id,
+        process=process,
+        stores=stores,
+        event_kind="runtime_delivery_reconciled",
+        event_payload={
+            "controller_id": request.controller_id,
+            "controller_session_id": request.controller_session_id or f"runtime-delivery:{process_id}",
+            "loop_status": reconciled["state"].get("status") if isinstance(reconciled.get("state"), dict) else None,
+            "release_stage": ((reconciled.get("release_state") or {}).get("current_stage") if isinstance(reconciled.get("release_state"), dict) else None),
+        },
+    )
     return {
         "success": True,
         "process_id": process_id,
@@ -898,6 +1107,30 @@ async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDe
         reason=request.reason,
         new_revision_id=request.new_revision_id,
     )
+    contract = stores["loop_store"].load_contract(process_id)
+    rollback_checkpoint = _checkpoint_runtime_delivery_rollback(
+        process_id,
+        contract=contract,
+        stores=stores,
+        release_state=rolled["state"],
+        snapshot=rolled["snapshot"],
+        shared_state=rolled["shared_state"],
+        actor=request.actor,
+        reason=request.reason,
+        rollback_fencepost_id=(rolled.get("fencepost") or {}).get("fencepost_id") if isinstance(rolled.get("fencepost"), dict) else None,
+    )
+    process = _sync_runtime_process_delivery_state(
+        process_id,
+        process=process,
+        stores=stores,
+        event_kind="runtime_delivery_rollback_applied",
+        event_payload={
+            "actor": request.actor,
+            "reason": request.reason,
+            "release_stage": rolled["state"].current_stage,
+            "shared_state_revision_id": rolled["shared_state"].revision_id,
+        },
+    )
     return {
         "success": True,
         "process_id": process_id,
@@ -907,6 +1140,10 @@ async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDe
         "shared_state": model_dump_compat(rolled["shared_state"]),
         "rollback_event": rolled.get("rollback_event"),
         "operator_summary": rolled.get("operator_summary"),
+        "loop_checkpoint": {
+            "state": model_dump_compat(rollback_checkpoint["state"]),
+            "report": model_dump_compat(rollback_checkpoint["report"]),
+        } if rollback_checkpoint is not None else None,
         "delivery": _runtime_delivery_status_payload(process_id, process=process, stores=stores),
     }
 

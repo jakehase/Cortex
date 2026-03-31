@@ -101,6 +101,8 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert reconciled["state"]["status"] == "completed"
     assert reconciled["delivery"]["release_state"]["current_stage"] == "production"
     assert reconciled["delivery"]["snapshot"]["process_id"] == process["process_id"]
+    assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["release_stage"] == "production"
+    assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["loop_status"] == "completed"
     assert any(message.to_agent == "release-manager" and message.delivery_status == "acked" for message in messages)
     assert any(fencepost["stage"] == "production" for fencepost in reconciled["delivery"]["release_state"]["rollback_fenceposts"])
 
@@ -114,5 +116,13 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert rolled_back["success"] is True
     assert rolled_back["state"]["current_stage"] == "build_verified"
     assert rolled_back["state"]["metadata"]["rollback_applied"] is True
+    assert rolled_back["process"]["status"] == "running"
+    assert rolled_back["process"]["nodes"]["build"]["status"] == "running"
     assert rolled_back["delivery"]["shared_state"]["revision_id"].endswith(".rollback")
+    assert rolled_back["delivery"]["loop_state"]["status"] == "active"
+    assert rolled_back["delivery"]["loop_state"]["current_stage"] == "build_verified"
+    assert rolled_back["delivery"]["latest_report"]["kind"] == "rollback"
+    assert rolled_back["delivery"]["latest_report"]["metadata"]["rollback_reason"] == "post-push regression"
+    assert rolled_back["process"]["workflow"]["metadata"]["runtime_delivery"]["release_stage"] == "build_verified"
+    assert rolled_back["loop_checkpoint"]["report"]["kind"] == "rollback"
     assert rolled_back["rollback_event"]["kind"] == "release_rolled_back"
