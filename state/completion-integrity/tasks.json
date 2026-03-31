@@ -2833,7 +2833,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T02:31:47.240Z",
+      "updatedAt": "2026-03-31T02:36:42.415Z",
       "history": [
         {
           "from": null,
@@ -2851,9 +2851,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 217,
+        "runs": 218,
         "failures": [],
-        "lastRunAt": "2026-03-31T02:31:47.247Z",
+        "lastRunAt": "2026-03-31T02:36:42.422Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6644,12 +6644,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774924125525:6d668ac1bd31a13e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T02:28:45.525Z",
-      "updatedAt": "2026-03-31T02:34:17.050Z",
+      "updatedAt": "2026-03-31T02:40:32.268Z",
       "prompt": "System: [2026-03-30 21:13:17 CDT] Exec completed (mellow-s, code 0) :: ........................................................................ [ 80%] .................. [100%] 90 passed in 19.26s System: [2026-03-30 21:16:02 CDT] Exec comp",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’m taking that as *restore Phase A/B implementation surfaces*. I’m mapping the historical packages first so I can tell which of R1/R2/R3/R4/R6 were real recoverable code packages versus ju",
+      "completionSummary": "System: 2026-03-30 21:31:46 CDT Exec completed (calm-com, code 0) :: ........................................................................ 75% ........................ 100% 96 passed in 17.14s System: 2026-03-30 21:34:46 CDT Exec completed (young-ha, code 0) :: ...............",
       "history": [
         {
           "from": null,
@@ -6679,16 +6679,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-03-31T02:34:17.054Z",
+        "lastRunAt": "2026-03-31T02:40:32.272Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-31T02:28:46.853Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
