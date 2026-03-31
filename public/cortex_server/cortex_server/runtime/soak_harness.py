@@ -12,6 +12,18 @@ from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_resume import load_runtime_resume_state
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
+from cortex_server.runtime.release_workflow import (
+    ReleaseWorkflowState,
+    ReleaseWorkflowStore,
+    advance_release_workflow,
+    capture_release_rollback_fencepost,
+    compile_release_handoff,
+    evaluate_release_promotion_gate,
+    record_release_fencepost,
+    record_release_handoff,
+    repair_release_workflow,
+    rollback_release_workflow,
+)
 from cortex_server.runtime.shared_process_state import SharedProcessState, SharedProcessStateStore, SharedStateConflictError
 
 
@@ -24,19 +36,19 @@ SOAK_PROFILES: Dict[str, Dict[str, Any]] = {
         "profile": "2h",
         "intended_duration_hours": 2,
         "elapsed_waits": [0.01, 0.02, 0.05],
-        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "shared_state_conflict", "dead_letter_recovery"],
+        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "shared_state_conflict", "dead_letter_recovery", "release_delivery"],
     },
     "4h": {
         "profile": "4h",
         "intended_duration_hours": 4,
         "elapsed_waits": [0.01, 0.02, 0.05, 0.1],
-        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "duplicate_claims", "shared_state_conflict", "shared_state_rollback", "dead_letter_recovery"],
+        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "duplicate_claims", "shared_state_conflict", "shared_state_rollback", "dead_letter_recovery", "release_delivery"],
     },
     "8h": {
         "profile": "8h",
         "intended_duration_hours": 8,
         "elapsed_waits": [0.01, 0.02, 0.05, 0.1, 0.2],
-        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "duplicate_claims", "shared_state_conflict", "shared_state_rollback", "stale_revision", "dead_letter_recovery"],
+        "segments": ["wait_resume", "restart_recovery", "rollback_recovery", "duplicate_claims", "shared_state_conflict", "shared_state_rollback", "stale_revision", "dead_letter_recovery", "release_delivery"],
     },
 }
 
@@ -84,6 +96,10 @@ def compile_audit_playback(report: JsonDict) -> JsonDict:
         "duplicate_claim_blocked",
         "conflict_detected",
         "recovery_succeeded",
+        "promotion_safe",
+        "repair_success",
+        "handoff_continuity_ok",
+        "rollback_ready",
     ]
     failed = [
         row
@@ -136,6 +152,7 @@ class RuntimeSoakHarness:
         self.clock_fn = clock_fn or _utc_now
         self.snapshot_store = ProcessSnapshotStore(self.root / "snapshots")
         self.shared_state_store = SharedProcessStateStore(self.root / "shared_state")
+        self.release_store = ReleaseWorkflowStore(self.root / "release_state")
         self.journal = ProcessJournal(self.root / "runtime" / "processes.jsonl")
         self.mailbox = AgentMailbox(self.root / "runtime" / "mailbox.json")
         self.supervisor = AgentSupervisor(self.root / "runtime" / "leases.json")
@@ -1270,6 +1287,284 @@ class RuntimeSoakHarness:
             "operator_summary": f"dead-letter recovery {'ok' if len(second_receive) == 1 else 'failed'} for {process_id}",
         }
 
+    def run_release_delivery_scenario(
+        self,
+        *,
+        process_id: str,
+        candidate_ref: str = "build:sha-prod-ready",
+    ) -> JsonDict:
+        initial_revision = "relrev_1"
+        seeded = self._seed_waiting_process(process_id=process_id, revision_id=initial_revision, node_id="build", agent_id="builder")
+        shared_state = seeded["shared_state"]
+        snapshot = seeded["snapshot"]
+
+        artifact_release_bundle = f"artifact_release_bundle:{process_id}"
+        artifact_smoke_report = f"artifact_smoke_report:{process_id}"
+        required_fenceposts = ["build_verified", "canary_verified"]
+        required_artifacts = [artifact_release_bundle, artifact_smoke_report]
+
+        release_state = self.release_store.save(
+            ReleaseWorkflowState(
+                process_id=process_id,
+                workflow_id=f"wf_release_{process_id}",
+                candidate_ref=candidate_ref,
+                target_environment="production",
+                revision_id=shared_state.revision_id,
+                current_stage="build_verified",
+                status="preparing",
+                metadata={"scenario": "release_delivery"},
+            ),
+            actor="release-coordinator",
+            provenance={"scenario": "release_delivery", "phase": "seed"},
+        )
+
+        verify_handoff = compile_release_handoff(
+            state=release_state,
+            shared_state=shared_state,
+            snapshot=snapshot,
+            from_agent="builder",
+            to_agent="verifier",
+            objective="Verify the build candidate and confirm canary readiness",
+            scope="release:verify",
+            expected_output="Ack the handoff and attach smoke-test evidence for canary promotion",
+            open_questions=["Did the build artifact and smoke report both land?"],
+            timeout_seconds=60,
+            lease_seconds=60,
+        )
+        verify_message = self.mailbox.send(
+            process_id=process_id,
+            from_agent=verify_handoff.from_agent,
+            to_agent=verify_handoff.to_agent,
+            kind="handoff",
+            handoff_id=verify_handoff.handoff_id,
+            revision_id=shared_state.revision_id,
+            dedupe_key=f"release_verify:{process_id}",
+            payload={"objective": verify_handoff.objective, "scope": verify_handoff.scope},
+        )
+        release_state = record_release_handoff(release_state, verify_message, stage="build_verified")
+        verifier_lease = self.supervisor.assign(process_id=process_id, scope="release_verify", agent_id="verifier", lease_seconds=60)
+        self.mailbox.receive(
+            to_agent="verifier",
+            process_id=process_id,
+            expected_revision_id=shared_state.revision_id,
+            reject_stale_revision=True,
+        )
+        verify_acked = self.mailbox.acknowledge(verify_message.message_id)
+        release_state = record_release_handoff(release_state, verify_acked, stage="build_verified")
+        self.supervisor.release(verifier_lease.lease_id)
+
+        artifact_event_1 = self.journal.append(
+            process_id=process_id,
+            kind="artifact_written",
+            revision_id=shared_state.revision_id,
+            actor="verifier",
+            payload={"artifact_id": artifact_release_bundle},
+        )
+        self.journal.append(
+            process_id=process_id,
+            kind="artifact_written",
+            revision_id=shared_state.revision_id,
+            actor="verifier",
+            causal_parent_ids=[artifact_event_1.event_id],
+            payload={"artifact_id": artifact_smoke_report},
+        )
+        self.journal.append(
+            process_id=process_id,
+            kind="world_state_updated",
+            revision_id=shared_state.revision_id,
+            actor="verifier",
+            payload={"world_state": {"release_stage": "build_verified", "verification": "passed"}},
+        )
+        snapshot = self._checkpoint_from_journal(
+            process_id=process_id,
+            metadata={"release_stage": "build_verified"},
+            world_state_overrides={"release_stage": "build_verified", "verification": "passed"},
+        )
+        build_fencepost = capture_release_rollback_fencepost(
+            snapshot=snapshot,
+            shared_state=shared_state,
+            stage="build_verified",
+            latest_event=self.journal.latest(process_id=process_id),
+            metadata={"captured_by": "verifier"},
+        )
+        release_state = record_release_fencepost(release_state, build_fencepost)
+        self.release_store.save(
+            release_state,
+            actor="verifier",
+            provenance={"scenario": "release_delivery", "phase": "build_verified"},
+        )
+
+        canary_gate = evaluate_release_promotion_gate(
+            state=release_state,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            target_stage="canary_verified",
+            mailbox_messages=self.mailbox.list(process_id=process_id),
+            leases=self.supervisor.list(process_id=process_id),
+            dependability_report={"success": True, "profile": "release_gate"},
+            required_fencepost_stages=["build_verified"],
+            required_artifacts=required_artifacts,
+            required_handoff_count=1,
+        )
+        canary_promotion = advance_release_workflow(
+            release_state,
+            gate=canary_gate,
+            next_stage="canary_verified",
+            actor="release-manager",
+        )
+        release_state = canary_promotion["state"]
+        self.release_store.save(
+            release_state,
+            actor="release-manager",
+            provenance={"scenario": "release_delivery", "phase": "promote_canary"},
+        )
+
+        shared_state = self.shared_state_store.save(
+            SharedProcessState(
+                process_id=process_id,
+                revision_id="relrev_2",
+                goals=list(shared_state.goals),
+                active_plan_node_ids=[],
+                runtime_constraints=dict(shared_state.runtime_constraints),
+                world_state={**dict(shared_state.world_state), "release_stage": "canary_verified", "canary": "healthy"},
+                belief_refs=list(shared_state.belief_refs),
+                open_questions=[],
+                agent_ownership={},
+                metadata={**dict(shared_state.metadata), "release_stage": "canary_verified"},
+            ),
+            expected_revision_id=shared_state.revision_id,
+            actor="release-manager",
+            provenance={"scenario": "release_delivery", "phase": "canary_verified"},
+        )
+        self.journal.append(
+            process_id=process_id,
+            kind="world_state_updated",
+            revision_id=shared_state.revision_id,
+            actor="release-manager",
+            payload={"world_state": {"release_stage": "canary_verified", "canary": "healthy"}},
+        )
+        snapshot = self._checkpoint_from_journal(
+            process_id=process_id,
+            metadata={"release_stage": "canary_verified"},
+            world_state_overrides={"release_stage": "canary_verified", "canary": "healthy"},
+        )
+
+        promote_handoff = compile_release_handoff(
+            state=release_state,
+            shared_state=shared_state,
+            snapshot=snapshot,
+            from_agent="verifier",
+            to_agent="release-manager",
+            objective="Promote the healthy canary to production",
+            scope="release:promote",
+            expected_output="Recover any stale handoff, validate rollback readiness, then promote safely",
+            gate=canary_gate,
+            open_questions=["Is rollback fencepost coverage complete for production?"],
+            timeout_seconds=60,
+            lease_seconds=60,
+        )
+        stale_promote_message = self.mailbox.send(
+            process_id=process_id,
+            from_agent=promote_handoff.from_agent,
+            to_agent=promote_handoff.to_agent,
+            kind="handoff",
+            handoff_id=promote_handoff.handoff_id,
+            revision_id="relrev_1",
+            dedupe_key=f"release_promote:{process_id}",
+            payload={"objective": promote_handoff.objective, "scope": promote_handoff.scope},
+        )
+        release_state = record_release_handoff(release_state, stale_promote_message, stage="canary_verified")
+        stale_lease = self.supervisor.assign(process_id=process_id, scope="release_promote", agent_id="release-manager", lease_seconds=1)
+        self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=10))
+        self.mailbox.receive(
+            to_agent="release-manager",
+            process_id=process_id,
+            expected_revision_id=shared_state.revision_id,
+            reject_stale_revision=True,
+        )
+        stale_message = next(
+            (row for row in self.mailbox.list(process_id=process_id) if row.message_id == stale_promote_message.message_id),
+            stale_promote_message,
+        )
+        release_state = record_release_handoff(release_state, stale_message, stage="canary_verified")
+
+        production_gate_before = evaluate_release_promotion_gate(
+            state=release_state,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            target_stage="production",
+            mailbox_messages=self.mailbox.list(process_id=process_id),
+            leases=self.supervisor.list(process_id=process_id),
+            dependability_report={"success": True, "profile": "release_gate"},
+            required_fencepost_stages=required_fenceposts,
+            required_artifacts=required_artifacts,
+            required_handoff_count=2,
+        )
+        repaired = repair_release_workflow(
+            release_state,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            mailbox=self.mailbox,
+            supervisor=self.supervisor,
+            gate=production_gate_before,
+            dependability_report={"success": True, "profile": "release_gate"},
+            required_fencepost_stages=required_fenceposts,
+            required_artifacts=required_artifacts,
+            required_handoff_count=2,
+        )
+        release_state = repaired["state"]
+        self.release_store.save(
+            release_state,
+            actor="watchdog",
+            provenance={"scenario": "release_delivery", "phase": "repair"},
+        )
+
+        production_promotion = advance_release_workflow(
+            release_state,
+            gate=repaired["gate_after"],
+            next_stage="production",
+            actor="release-manager",
+        )
+        release_state = production_promotion["state"]
+        self.release_store.save(
+            release_state,
+            actor="release-manager",
+            provenance={"scenario": "release_delivery", "phase": "promote_production"},
+        )
+        reloaded_state = self.release_store.load(process_id)
+        rollback_preview = rollback_release_workflow(reloaded_state, stage="canary_verified") if reloaded_state else {"rolled_back": False, "restore_state": {}}
+        release_history = self.release_store.history(process_id)
+        final_handoffs = [dict(row) for row in (reloaded_state.handoff_records if reloaded_state else [])]
+        handoff_continuity_ok = bool(
+            reloaded_state
+            and reloaded_state.current_stage == "production"
+            and reloaded_state.revision_id == shared_state.revision_id
+            and len(final_handoffs) >= 2
+            and all(str(row.get("delivery_status") or "") == "acked" for row in final_handoffs)
+        )
+        return {
+            "scenario": "release_delivery",
+            "process_id": process_id,
+            "release_id": reloaded_state.release_id if reloaded_state else release_state.release_id,
+            "canary_gate_safe": canary_gate["safe_push"],
+            "promotion_safe": bool(repaired["gate_after"].get("safe_push")) and bool(production_promotion.get("promoted")),
+            "repair_success": bool(repaired.get("success")),
+            "handoff_continuity_ok": handoff_continuity_ok,
+            "rollback_ready": bool(rollback_preview.get("rolled_back")) and rollback_preview.get("restore_state", {}).get("shared_state_revision_id") == shared_state.revision_id,
+            "repair_blocker_count_before": len(production_gate_before.get("blockers") or []),
+            "repair_blocker_count_after": len((repaired.get("gate_after") or {}).get("blockers") or []),
+            "stale_lease_id": stale_lease.lease_id,
+            "handoff_records": final_handoffs,
+            "history_count": len(release_history),
+            "final_stage": reloaded_state.current_stage if reloaded_state else release_state.current_stage,
+            "safe_push_checks": dict((repaired.get("gate_after") or {}).get("checks") or {}),
+            "operator_summary": (
+                f"release delivery {'ok' if production_promotion.get('promoted') and repaired.get('success') else 'failed'} "
+                f"for {process_id}: blockers {len(production_gate_before.get('blockers') or [])} -> "
+                f"{len((repaired.get('gate_after') or {}).get('blockers') or [])}"
+            ),
+        }
+
     def run_suite(self, *, process_prefix: str = "soak", wait_seconds: float = 0.0, elapsed_waits: Optional[List[float]] = None) -> JsonDict:
         wait_matrix = [float(wait_seconds or 0.0)]
         for value in (elapsed_waits or []):
@@ -1285,6 +1580,7 @@ class RuntimeSoakHarness:
         shared_state_rollback = self.run_shared_state_rollback_scenario(process_id=f"{process_prefix}_shared_state_rollback")
         stale_revision = self.run_stale_revision_scenario(process_id=f"{process_prefix}_stale_revision")
         dead_letter_recovery = self.run_dead_letter_recovery_scenario(process_id=f"{process_prefix}_dead_letter_recovery")
+        release_delivery = self.run_release_delivery_scenario(process_id=f"{process_prefix}_release_delivery")
         scenarios = [
             *pause_resume_runs,
             restart_recovery,
@@ -1295,6 +1591,7 @@ class RuntimeSoakHarness:
             shared_state_rollback,
             stale_revision,
             dead_letter_recovery,
+            release_delivery,
         ]
         success = all(
             row.get("resumed_without_loss", True)
@@ -1306,6 +1603,10 @@ class RuntimeSoakHarness:
             and row.get("stale_revision", True)
             and (row.get("accepted_count", 0) == 0 if row.get("scenario") == "stale_revision" else True)
             and row.get("recovery_succeeded", True)
+            and row.get("promotion_safe", True)
+            and row.get("repair_success", True)
+            and row.get("handoff_continuity_ok", True)
+            and row.get("rollback_ready", True)
             for row in scenarios
         )
         report = {

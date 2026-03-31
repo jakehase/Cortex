@@ -69,10 +69,10 @@ def test_runtime_soak_harness_suite_runs_all_core_scenarios(tmp_path):
     report = harness.run_suite(process_prefix="durable", elapsed_waits=[0.01, 0.02])
 
     assert report["success"] is True
-    assert report["scenario_count"] == 11
+    assert report["scenario_count"] == 12
     assert report["wait_matrix_seconds"] == [0.0, 0.01, 0.02]
-    assert len(report["scenarios"]) == 11
-    assert report["audit_playback"]["scenario_count"] == 11
+    assert len(report["scenarios"]) == 12
+    assert report["audit_playback"]["scenario_count"] == 12
 
 
 
@@ -98,6 +98,22 @@ def test_runtime_soak_harness_elapsed_wait_profile_runs_multiple_waits(tmp_path)
     assert len(reports) == 4
     assert waits == [0.05, 0.1, 0.25]
     assert all(row["resumed_without_loss"] is True for row in reports)
+
+
+
+def test_runtime_soak_harness_release_delivery_preserves_handoffs_and_safe_push(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+
+    report = harness.run_release_delivery_scenario(process_id="proc_release_delivery")
+
+    assert report["promotion_safe"] is True
+    assert report["repair_success"] is True
+    assert report["handoff_continuity_ok"] is True
+    assert report["rollback_ready"] is True
+    assert report["repair_blocker_count_before"] >= 1
+    assert report["repair_blocker_count_after"] == 0
+    assert report["final_stage"] == "production"
+    assert report["history_count"] >= 4
 
 
 
