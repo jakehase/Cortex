@@ -148,8 +148,8 @@ class AgentMailbox:
         return filtered
 
     def receive(self, *, to_agent: str, process_id: Optional[str] = None, include_inflight: bool = False) -> List[AgentMessage]:
-        statuses = ["queued"] + (["inflight"] if include_inflight else [])
-        rows = self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=statuses)
+        claimable_statuses = ["queued"] + (["inflight"] if include_inflight else [])
+        rows = self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=claimable_statuses)
         updated = self._read_all()
         by_id = {row.message_id: row for row in updated}
         now = _now_iso()
@@ -160,7 +160,7 @@ class AgentMailbox:
                 stored.attempt_count += 1
                 stored.last_attempt_at = now
         self._write_all(list(by_id.values()))
-        return self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=statuses)
+        return self.list(process_id=process_id, to_agent=to_agent, delivery_statuses=["inflight"])
 
     def _mutate(self, message_id: str, mutate_fn) -> AgentMessage:
         rows = self._read_all()
