@@ -305,6 +305,120 @@ class RuntimeSoakHarness:
             "operator_summary": f"stale agent {'detected' if stale_detected else 'not detected'} for {process_id}",
         }
 
+    def run_duplicate_claim_block_scenario(
+        self,
+        *,
+        process_id: str,
+        revision_id: str = "rev_1",
+        node_id: str = "step1",
+        first_agent_id: str = "planner",
+        second_agent_id: str = "researcher",
+    ) -> JsonDict:
+        self._seed_waiting_process(process_id=process_id, revision_id=revision_id, node_id=node_id, agent_id=first_agent_id)
+        first = self.supervisor.assign(process_id=process_id, scope=node_id, agent_id=first_agent_id, lease_seconds=60)
+        second_same = self.supervisor.assign(process_id=process_id, scope=node_id, agent_id=first_agent_id, lease_seconds=60)
+        duplicate_claim_blocked = False
+        duplicate_claim_error = None
+        try:
+            self.supervisor.assign(process_id=process_id, scope=node_id, agent_id=second_agent_id, lease_seconds=60)
+        except ValueError as exc:
+            duplicate_claim_blocked = True
+            duplicate_claim_error = str(exc)
+        reclaimed = self.supervisor.reclaim_stale(now=self.clock_fn() + timedelta(seconds=120))
+        replacement = self.supervisor.assign(process_id=process_id, scope=node_id, agent_id=second_agent_id, lease_seconds=60)
+        return {
+            "scenario": "duplicate_claim_block",
+            "process_id": process_id,
+            "initial_lease_id": first.lease_id,
+            "same_agent_lease_id": second_same.lease_id,
+            "duplicate_claim_blocked": duplicate_claim_blocked,
+            "duplicate_claim_error": duplicate_claim_error,
+            "reclaimed_count": len(reclaimed),
+            "replacement_agent_id": replacement.agent_id,
+            "replacement_lease_id": replacement.lease_id,
+            "operator_summary": f"duplicate claim {'blocked' if duplicate_claim_blocked else 'not blocked'} for {process_id}",
+        }
+
+    def run_rollback_recovery_scenario(
+        self,
+        *,
+        process_id: str,
+        revision_id: str = "rev_1",
+        node_id: str = "step1",
+        agent_id: str = "planner",
+    ) -> JsonDict:
+        seeded = self._seed_waiting_process(process_id=process_id, revision_id=revision_id, node_id=node_id, agent_id=agent_id)
+        waiting_event = seeded["waiting_event"]
+        resumed = self.journal.append(
+            process_id=process_id,
+            kind="process_resumed",
+            revision_id=revision_id,
+            causal_parent_ids=[waiting_event.event_id],
+            payload={"node_id": node_id},
+        )
+        started = self.journal.append(
+            process_id=process_id,
+            kind="step_started",
+            revision_id=revision_id,
+            causal_parent_ids=[resumed.event_id],
+            payload={"node_id": node_id},
+            actor=agent_id,
+        )
+        self.journal.append(
+            process_id=process_id,
+            kind="world_state_updated",
+            revision_id=revision_id,
+            causal_parent_ids=[started.event_id],
+            payload={"world_state": {"service": "degraded", "bad_update": True}},
+        )
+        self.journal.append(
+            process_id=process_id,
+            kind="belief_written",
+            revision_id=revision_id,
+            causal_parent_ids=[started.event_id],
+            payload={"claim_id": "claim-bad"},
+        )
+        rollback = self.journal.append(
+            process_id=process_id,
+            kind="process_rolled_back",
+            revision_id=revision_id,
+            payload={
+                "reason": "restore pre-step waiting state",
+                "rolled_back_to_event_id": waiting_event.event_id,
+                "restore_state": {
+                    "lifecycle_state": "waiting",
+                    "active_steps": [],
+                    "waiting_steps": [node_id],
+                    "completed_steps": [],
+                    "failed_steps": [],
+                    "assigned_agents": {node_id: agent_id},
+                    "runtime_policy": {"execution_mode": "sequential", "resume_safe": True},
+                    "world_state": {"status": "waiting", "last_node": node_id},
+                    "belief_refs": [],
+                    "artifact_refs": [],
+                    "metadata": {"rollback_target": waiting_event.event_id},
+                },
+            },
+        )
+        replayed = replay_from_journal(self.journal, process_id)
+        rollback_restored = (
+            replayed.get("lifecycle_state") == "waiting"
+            and replayed.get("active_steps") == []
+            and replayed.get("waiting_steps") == [node_id]
+            and replayed.get("world_state", {}).get("bad_update") is None
+            and "claim-bad" not in (replayed.get("belief_refs") or [])
+            and replayed.get("metadata", {}).get("rolled_back_to_event_id") == waiting_event.event_id
+            and replayed.get("last_event_id") == rollback.event_id
+        )
+        return {
+            "scenario": "rollback_recovery",
+            "process_id": process_id,
+            "rollback_event_id": rollback.event_id,
+            "replayed_state": replayed,
+            "rollback_restored": rollback_restored,
+            "operator_summary": f"rollback recovery {'ok' if rollback_restored else 'failed'} for {process_id}",
+        }
+
     def run_stale_revision_scenario(
         self,
         *,
@@ -423,14 +537,18 @@ class RuntimeSoakHarness:
                 wait_matrix.append(seconds)
         pause_resume_runs = self.run_elapsed_wait_profile(process_prefix=process_prefix, elapsed_waits=wait_matrix)
         restart_recovery = self.run_restart_recovery_scenario(process_id=f"{process_prefix}_restart_recovery")
+        rollback_recovery = self.run_rollback_recovery_scenario(process_id=f"{process_prefix}_rollback_recovery")
         stale_agent = self.run_stale_agent_scenario(process_id=f"{process_prefix}_stale_agent")
+        duplicate_claim_block = self.run_duplicate_claim_block_scenario(process_id=f"{process_prefix}_duplicate_claim")
         stale_revision = self.run_stale_revision_scenario(process_id=f"{process_prefix}_stale_revision")
         dead_letter_recovery = self.run_dead_letter_recovery_scenario(process_id=f"{process_prefix}_dead_letter_recovery")
-        scenarios = [*pause_resume_runs, restart_recovery, stale_agent, stale_revision, dead_letter_recovery]
+        scenarios = [*pause_resume_runs, restart_recovery, rollback_recovery, stale_agent, duplicate_claim_block, stale_revision, dead_letter_recovery]
         success = all(
             row.get("resumed_without_loss", True)
             and row.get("recovered_from_tail", True)
+            and row.get("rollback_restored", True)
             and row.get("stale_detected", True)
+            and row.get("duplicate_claim_blocked", True)
             and row.get("stale_revision", True)
             and (row.get("accepted_count", 0) == 0 if row.get("scenario") == "stale_revision" else True)
             and row.get("recovery_succeeded", True)

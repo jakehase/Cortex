@@ -65,6 +65,21 @@ def _remove(values: List[str], value: str) -> None:
 
 
 
+def _restore_list(values: Any) -> List[str]:
+    rows: List[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        if text and text not in rows:
+            rows.append(text)
+    return rows
+
+
+
+def _restore_map(values: Any) -> JsonDict:
+    return dict(values or {}) if isinstance(values, dict) else {}
+
+
+
 def apply_event(state: JsonDict, event: ProcessEvent) -> JsonDict:
     state = dict(state or {})
     payload = dict(event.payload or {})
@@ -95,7 +110,35 @@ def apply_event(state: JsonDict, event: ProcessEvent) -> JsonDict:
     elif kind == "process_cancelled":
         state["lifecycle_state"] = "cancelled"
     elif kind == "process_rolled_back":
-        state["lifecycle_state"] = "rolled_back"
+        restore = payload.get("restore_state") if isinstance(payload.get("restore_state"), dict) else {}
+        if restore:
+            state["lifecycle_state"] = str(restore.get("lifecycle_state") or payload.get("lifecycle_state") or "rolled_back")
+            state["active_steps"] = _restore_list(restore.get("active_steps"))
+            state["waiting_steps"] = _restore_list(restore.get("waiting_steps"))
+            state["completed_steps"] = _restore_list(restore.get("completed_steps"))
+            state["failed_steps"] = _restore_list(restore.get("failed_steps"))
+            state["assigned_agents"] = _restore_map(restore.get("assigned_agents"))
+            state["runtime_policy"] = _restore_map(restore.get("runtime_policy"))
+            state["world_state"] = _restore_map(restore.get("world_state"))
+            state["belief_refs"] = _restore_list(restore.get("belief_refs"))
+            state["artifact_refs"] = _restore_list(restore.get("artifact_refs"))
+            restore_metadata = _restore_map(restore.get("metadata"))
+            state["metadata"] = {
+                **restore_metadata,
+                "rollback_event_id": event.event_id,
+                "rolled_back_from_event_id": payload.get("rolled_back_from_event_id"),
+                "rolled_back_to_event_id": payload.get("rolled_back_to_event_id"),
+                "rollback_reason": payload.get("reason"),
+            }
+        else:
+            state["lifecycle_state"] = "rolled_back"
+            state["metadata"] = {
+                **dict(state.get("metadata") or {}),
+                "rollback_event_id": event.event_id,
+                "rolled_back_from_event_id": payload.get("rolled_back_from_event_id"),
+                "rolled_back_to_event_id": payload.get("rolled_back_to_event_id"),
+                "rollback_reason": payload.get("reason"),
+            }
     elif kind == "step_started":
         state["lifecycle_state"] = "running"
         node_id = payload.get("node_id") or payload.get("step_id") or ""

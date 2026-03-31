@@ -76,3 +76,46 @@ def test_replay_from_journal_uses_snapshot_tail(tmp_path: Path):
 
     assert state["lifecycle_state"] == "completed"
     assert "step1" in state["completed_steps"]
+
+
+
+def test_replay_events_process_rollback_restores_prior_state():
+    events = [
+        ProcessEvent(process_id="proc_123", kind="process_created", payload={"goal": "test"}),
+        ProcessEvent(process_id="proc_123", kind="process_started"),
+        ProcessEvent(process_id="proc_123", kind="step_started", payload={"node_id": "step1"}),
+        ProcessEvent(process_id="proc_123", kind="world_state_updated", payload={"world_state": {"service": "degraded", "bad_update": True}}),
+        ProcessEvent(process_id="proc_123", kind="belief_written", payload={"claim_id": "claim-bad"}),
+        ProcessEvent(
+            process_id="proc_123",
+            kind="process_rolled_back",
+            payload={
+                "reason": "restore previous waiting state",
+                "rolled_back_to_event_id": "evt_wait",
+                "restore_state": {
+                    "lifecycle_state": "waiting",
+                    "active_steps": [],
+                    "waiting_steps": ["step1"],
+                    "completed_steps": [],
+                    "failed_steps": [],
+                    "assigned_agents": {"step1": "planner"},
+                    "runtime_policy": {"execution_mode": "sequential"},
+                    "world_state": {"status": "waiting"},
+                    "belief_refs": [],
+                    "artifact_refs": [],
+                    "metadata": {"rollback_target": "evt_wait"},
+                },
+            },
+        ),
+    ]
+
+    state = replay_events("proc_123", events)
+
+    assert state["lifecycle_state"] == "waiting"
+    assert state["active_steps"] == []
+    assert state["waiting_steps"] == ["step1"]
+    assert state["world_state"] == {"status": "waiting"}
+    assert state["belief_refs"] == []
+    assert state["assigned_agents"]["step1"] == "planner"
+    assert state["metadata"]["rolled_back_to_event_id"] == "evt_wait"
+    assert state["metadata"]["rollback_reason"] == "restore previous waiting state"

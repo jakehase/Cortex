@@ -94,6 +94,13 @@ class AgentSupervisor:
     def assign(self, *, process_id: str, scope: str, agent_id: str, lease_seconds: int, metadata: Optional[Dict[str, Any]] = None) -> AgentLease:
         if int(lease_seconds) <= 0:
             raise ValueError("lease_seconds must be positive")
+        rows = self._read_all()
+        for row in rows:
+            if row.process_id != process_id or row.scope != scope or row.status != "active":
+                continue
+            if row.agent_id == agent_id:
+                return row
+            raise ValueError(f"active claim exists for {process_id}:{scope} via {row.agent_id}")
         now = _now()
         record = AgentLease(
             process_id=process_id,
@@ -104,7 +111,6 @@ class AgentSupervisor:
             expires_at=(now + timedelta(seconds=int(lease_seconds))).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             metadata=dict(metadata or {}),
         )
-        rows = self._read_all()
         rows.append(record)
         self._write_all(rows)
         return record

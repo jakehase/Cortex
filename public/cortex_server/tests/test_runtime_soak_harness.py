@@ -69,9 +69,9 @@ def test_runtime_soak_harness_suite_runs_all_core_scenarios(tmp_path):
     report = harness.run_suite(process_prefix="durable", elapsed_waits=[0.01, 0.02])
 
     assert report["success"] is True
-    assert report["scenario_count"] == 7
+    assert report["scenario_count"] == 9
     assert report["wait_matrix_seconds"] == [0.0, 0.01, 0.02]
-    assert len(report["scenarios"]) == 7
+    assert len(report["scenarios"]) == 9
 
 
 
@@ -97,3 +97,26 @@ def test_runtime_soak_harness_elapsed_wait_profile_runs_multiple_waits(tmp_path)
     assert len(reports) == 4
     assert waits == [0.05, 0.1, 0.25]
     assert all(row["resumed_without_loss"] is True for row in reports)
+
+
+
+def test_runtime_soak_harness_blocks_duplicate_claims_and_allows_replacement_after_stale(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+
+    report = harness.run_duplicate_claim_block_scenario(process_id="proc_duplicate")
+
+    assert report["duplicate_claim_blocked"] is True
+    assert report["initial_lease_id"] == report["same_agent_lease_id"]
+    assert report["replacement_agent_id"] == "researcher"
+
+
+
+def test_runtime_soak_harness_rollback_recovery_restores_state(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+
+    report = harness.run_rollback_recovery_scenario(process_id="proc_rollback")
+
+    assert report["rollback_restored"] is True
+    assert report["replayed_state"]["lifecycle_state"] == "waiting"
+    assert report["replayed_state"]["waiting_steps"] == ["step1"]
+    assert report["replayed_state"]["belief_refs"] == []

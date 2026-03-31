@@ -53,3 +53,20 @@ def test_agent_supervisor_rejects_bad_inputs_and_missing_leases(tmp_path: Path):
 
     with pytest.raises(ValidationError):
         supervisor.assign(process_id="", scope="step1", agent_id="planner", lease_seconds=30)
+
+
+
+def test_agent_supervisor_blocks_duplicate_active_claims_and_reuses_same_agent_claim(tmp_path: Path):
+    supervisor = AgentSupervisor(tmp_path / "runtime" / "leases.json")
+
+    first = supervisor.assign(process_id="proc_123", scope="step1", agent_id="planner", lease_seconds=60)
+    same = supervisor.assign(process_id="proc_123", scope="step1", agent_id="planner", lease_seconds=60)
+
+    assert same.lease_id == first.lease_id
+
+    with pytest.raises(ValueError, match="active claim exists"):
+        supervisor.assign(process_id="proc_123", scope="step1", agent_id="researcher", lease_seconds=60)
+
+    supervisor.reclaim_stale(now=datetime.now(timezone.utc) + timedelta(seconds=180))
+    replacement = supervisor.assign(process_id="proc_123", scope="step1", agent_id="researcher", lease_seconds=60)
+    assert replacement.agent_id == "researcher"
