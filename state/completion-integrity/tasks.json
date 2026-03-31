@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T15:34:32.777Z",
+      "updatedAt": "2026-03-31T15:39:15.501Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 15,
+        "runs": 16,
         "failures": [],
-        "lastRunAt": "2026-03-31T15:34:32.784Z",
+        "lastRunAt": "2026-03-31T15:39:15.508Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6878,12 +6878,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-03-31T15:27:53.759Z",
+      "updatedAt": "2026-03-31T15:43:19.015Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’ve got the final substrate pieces written. Running focused validation first because this touched shared-state persistence, soak profiles, and runtime exports. ``` How’s this going? result",
+      "completionSummary": "System: 2026-03-31 10:27:00 CDT Exec completed (vivid-ce, code 0) :: ........................................................................ 72% ........................... 100% 99 passed in 16.53s System: 2026-03-31 10:27:28 CDT Exec completed (young-gu, code 0) :: master 34190",
       "history": [
         {
           "from": null,
@@ -6913,16 +6913,16 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 6,
+        "runs": 7,
         "failures": [],
-        "lastRunAt": "2026-03-31T15:27:53.767Z",
+        "lastRunAt": "2026-03-31T15:43:19.018Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-31T15:14:19.071Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
