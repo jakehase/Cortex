@@ -2728,10 +2728,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T13:41:15.410Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:40 AM (America/Chicago) / 2026-03-19 13:40 UTC\"}],\"timestamp\":1773927660953},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-19T13:41:15.410Z",
+      "updatedAt": "2026-03-31T14:24:16.741Z",
       "history": [
         {
           "from": null,
@@ -2749,10 +2749,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-03-31T14:24:16.755Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "completionSource": "agent_end"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914451110",
