@@ -12,8 +12,9 @@ from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.handoff_contract import HandoffArtifactRef, HandoffContract, HandoffEvidenceRef
 from cortex_server.runtime.process_event import ProcessEvent
-from cortex_server.runtime.process_snapshot import ProcessSnapshot
-from cortex_server.runtime.shared_process_state import SharedProcessState
+from cortex_server.runtime.process_journal import ProcessJournal
+from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
+from cortex_server.runtime.shared_process_state import SharedProcessState, SharedProcessStateStore
 
 
 JsonDict = Dict[str, Any]
@@ -1003,12 +1004,177 @@ def repair_release_workflow(
     }
 
 
+
+def apply_release_rollback_restore(
+    state: ReleaseWorkflowState,
+    *,
+    snapshot_store: ProcessSnapshotStore,
+    shared_state_store: SharedProcessStateStore,
+    release_store: Optional[ReleaseWorkflowStore] = None,
+    journal: Optional[ProcessJournal] = None,
+    stage: Optional[str] = None,
+    fencepost_id: Optional[str] = None,
+    actor: Optional[str] = None,
+    reason: str = "rollback",
+    new_revision_id: Optional[str] = None,
+) -> JsonDict:
+    rolled = rollback_release_workflow(state, stage=stage, fencepost_id=fencepost_id, reason=reason)
+    restore_state = dict(rolled.get("restore_state") or {})
+    target_fencepost = rolled.get("fencepost")
+    target_fencepost_id = (
+        target_fencepost.fencepost_id
+        if isinstance(target_fencepost, ReleaseRollbackFencepost)
+        else str(target_fencepost.get("fencepost_id") or "").strip()
+        if isinstance(target_fencepost, dict)
+        else None
+    )
+    target_fencepost_metadata = (
+        dict(target_fencepost.metadata)
+        if isinstance(target_fencepost, ReleaseRollbackFencepost)
+        else dict(target_fencepost.get("metadata") or {})
+        if isinstance(target_fencepost, dict)
+        else {}
+    )
+    target_revision_id = str(
+        restore_state.get("shared_state_revision_id")
+        or (target_fencepost.shared_state_revision_id if isinstance(target_fencepost, ReleaseRollbackFencepost) else "")
+    ).strip()
+    if not target_revision_id:
+        raise ValueError("rollback fencepost missing shared_state_revision_id")
+
+    current_shared = shared_state_store.load(state.process_id)
+    rollback_revision_id = str(new_revision_id or f"{target_revision_id}.rollback").strip()
+    provenance = {
+        "release_id": state.release_id,
+        "rollback": True,
+        "fencepost_id": target_fencepost_id,
+        "reason": str(reason or "rollback").strip() or "rollback",
+    }
+    try:
+        restored_shared = shared_state_store.rollback(
+            process_id=state.process_id,
+            to_revision_id=target_revision_id,
+            actor=actor,
+            reason=reason,
+            new_revision_id=rollback_revision_id,
+            provenance=provenance,
+        )
+    except KeyError:
+        fallback_world_state = dict(restore_state.get("world_state") or {})
+        fallback_runtime_constraints = dict(restore_state.get("runtime_constraints") or {})
+        fallback_beliefs = _dedupe_rows([str(row) for row in (restore_state.get("belief_refs") or [])])
+        restored_shared = shared_state_store.save(
+            SharedProcessState(
+                process_id=state.process_id,
+                revision_id=rollback_revision_id,
+                goals=list(current_shared.goals) if current_shared else [],
+                active_plan_node_ids=_dedupe_rows(
+                    [str(row) for row in (restore_state.get("active_steps") or [])]
+                    + [str(row) for row in (restore_state.get("waiting_steps") or [])]
+                ),
+                open_decisions=list(current_shared.open_decisions) if current_shared else [],
+                runtime_constraints=fallback_runtime_constraints or (dict(current_shared.runtime_constraints) if current_shared else {}),
+                world_state=fallback_world_state or (dict(current_shared.world_state) if current_shared else {}),
+                belief_refs=fallback_beliefs or (list(current_shared.belief_refs) if current_shared else []),
+                open_questions=list(current_shared.open_questions) if current_shared else [],
+                agent_ownership=dict(restore_state.get("assigned_agents") or (dict(current_shared.agent_ownership) if current_shared else {})),
+                operator_overrides=dict(current_shared.operator_overrides) if current_shared else {},
+                metadata={
+                    **(dict(current_shared.metadata) if current_shared else {}),
+                    "rollback_from_revision_id": current_shared.revision_id if current_shared else None,
+                    "rollback_to_revision_id": target_revision_id,
+                    "rollback_reason": str(reason or "rollback").strip() or "rollback",
+                },
+            ),
+            expected_revision_id=current_shared.revision_id if current_shared else None,
+            actor=actor,
+            provenance=provenance,
+        )
+
+    current_snapshot = snapshot_store.load(state.process_id)
+    latest_event = journal.latest(process_id=state.process_id) if journal else None
+    rollback_event = (
+        journal.append(
+            process_id=state.process_id,
+            kind="release_rolled_back",
+            revision_id=restored_shared.revision_id,
+            actor=str(actor or "").strip() or None,
+            causal_parent_ids=[latest_event.event_id] if latest_event else [],
+            payload={
+                "release_id": state.release_id,
+                "from_stage": state.current_stage,
+                "to_stage": rolled["state"].current_stage,
+                "fencepost_id": target_fencepost_id,
+                "reason": str(reason or "rollback").strip() or "rollback",
+            },
+        )
+        if journal
+        else None
+    )
+    restored_snapshot = snapshot_store.save(
+        ProcessSnapshot(
+            process_id=state.process_id,
+            last_event_id=rollback_event.event_id if rollback_event else restore_state.get("last_event_id"),
+            event_count=max(int(current_snapshot.event_count or 0) if current_snapshot else 0, int(target_fencepost_metadata.get("snapshot_event_count", 0) or 0))
+            + (1 if rollback_event else 0),
+            lifecycle_state=str(restore_state.get("lifecycle_state") or (current_snapshot.lifecycle_state if current_snapshot else "waiting") or "waiting"),
+            active_steps=[str(row) for row in (restore_state.get("active_steps") or []) if str(row).strip()],
+            waiting_steps=[str(row) for row in (restore_state.get("waiting_steps") or []) if str(row).strip()],
+            completed_steps=[str(row) for row in (restore_state.get("completed_steps") or []) if str(row).strip()],
+            failed_steps=[str(row) for row in (restore_state.get("failed_steps") or []) if str(row).strip()],
+            assigned_agents=dict(restore_state.get("assigned_agents") or {}),
+            runtime_policy=dict(restore_state.get("runtime_policy") or (dict(current_snapshot.runtime_policy) if current_snapshot else {})),
+            world_state={**dict(restore_state.get("world_state") or {}), **dict(restored_shared.world_state)},
+            belief_refs=_dedupe_rows([str(row) for row in (restore_state.get("belief_refs") or [])] + list(restored_shared.belief_refs)),
+            artifact_refs=[str(row) for row in (restore_state.get("artifact_refs") or []) if str(row).strip()],
+            metadata={
+                **(dict(current_snapshot.metadata) if current_snapshot else {}),
+                **dict(restore_state.get("metadata") or {}),
+                "rollback_applied": True,
+                "rollback_reason": str(reason or "rollback").strip() or "rollback",
+                "rollback_fencepost_id": target_fencepost_id,
+                "rollback_revision_id": restored_shared.revision_id,
+            },
+        )
+    )
+    applied_state = _copy_state(
+        rolled["state"],
+        revision_id=restored_shared.revision_id,
+        metadata={
+            **dict(rolled["state"].metadata or {}),
+            "rollback_applied": True,
+            "rollback_reason": str(reason or "rollback").strip() or "rollback",
+            "rollback_fencepost_id": target_fencepost_id,
+            "rollback_revision_id": restored_shared.revision_id,
+        },
+    )
+    if release_store is not None:
+        applied_state = release_store.save(
+            applied_state,
+            actor=actor,
+            provenance={**provenance, "applied": True, "restored_revision_id": restored_shared.revision_id},
+        )
+    return {
+        **rolled,
+        "state": applied_state,
+        "snapshot": restored_snapshot,
+        "shared_state": restored_shared,
+        "rollback_event": (rollback_event.model_dump() if hasattr(rollback_event, "model_dump") else rollback_event.dict()) if rollback_event is not None else None,
+        "applied": True,
+        "operator_summary": (
+            f"release rollback applied for {state.process_id}: {state.current_stage} -> {applied_state.current_stage} "
+            f"via {target_fencepost_id or 'unknown_fencepost'}"
+        ),
+    }
+
+
 __all__ = [
     "ReleaseRollbackFencepost",
     "ReleaseWorkflowHistoryRecord",
     "ReleaseWorkflowState",
     "ReleaseWorkflowStore",
     "advance_release_workflow",
+    "apply_release_rollback_restore",
     "capture_release_rollback_fencepost",
     "compile_release_handoff",
     "compile_release_repair_plan",

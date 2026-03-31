@@ -6,6 +6,7 @@ from cortex_server.runtime import (
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
     advance_release_workflow,
+    apply_release_rollback_restore,
     capture_release_rollback_fencepost,
     compile_release_handoff,
     compile_release_repair_plan,
@@ -24,6 +25,7 @@ def test_runtime_package_exports_release_workflow_helpers():
     assert ReleaseWorkflowState is not None
     assert ReleaseWorkflowStore is not None
     assert callable(advance_release_workflow)
+    assert callable(apply_release_rollback_restore)
     assert callable(capture_release_rollback_fencepost)
     assert callable(compile_release_handoff)
     assert callable(compile_release_repair_plan)

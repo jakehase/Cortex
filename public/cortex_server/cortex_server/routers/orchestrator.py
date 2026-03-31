@@ -6,6 +6,7 @@ them sequentially via async HTTP, and storing results for replay.
 
 NOTE: This is L26 Workflow Conductor, NOT L36 Meta-Conductor.
 """
+from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional
@@ -51,11 +52,29 @@ from cortex_server.modules.reasoning_scheduler import (
     scheduler_tick as reasoning_scheduler_tick,
     wake_process as wake_runtime_process,
 )
+from cortex_server.runtime import (
+    AgentMailbox,
+    AgentSupervisor,
+    ProcessJournal,
+    ProcessSnapshot,
+    ProcessSnapshotStore,
+    ProductionBuildContract,
+    ProductionBuildLoopStore,
+    ReleaseWorkflowState,
+    ReleaseWorkflowStore,
+    SharedProcessState,
+    SharedProcessStateStore,
+    apply_release_rollback_restore,
+    capture_release_rollback_fencepost,
+    record_release_fencepost,
+    reconcile_production_build_loop,
+)
 
 router = APIRouter()
 
 # ── In-memory state ────────────────────────────────────────────────────────
 DEFAULT_DB_PATH = Path("/opt/clawdbot/state/reasoning_runtime.db")
+RUNTIME_DELIVERY_ROOT = Path(os.getenv("ORCHESTRATOR_RUNTIME_DELIVERY_ROOT", "/opt/clawdbot/state/runtime_delivery"))
 workflows: Dict[str, Dict[str, Any]] = {}
 _stats = {
     "workflows_created": 0,
@@ -74,6 +93,246 @@ SENTINEL_SCAN_URL = "http://127.0.0.1:8888/sentinel/scan"
 
 def _db_path() -> Path:
     return runtime_workflows.db_path(DEFAULT_DB_PATH)
+
+
+
+def _runtime_delivery_root() -> Path:
+    return Path(str(RUNTIME_DELIVERY_ROOT))
+
+
+
+def _runtime_delivery_stores() -> Dict[str, Any]:
+    root = _runtime_delivery_root()
+    return {
+        "root": root,
+        "snapshot_store": ProcessSnapshotStore(root / "snapshots"),
+        "shared_state_store": SharedProcessStateStore(root / "shared_state"),
+        "journal": ProcessJournal(root / "journal.jsonl"),
+        "mailbox": AgentMailbox(root / "mailbox.json"),
+        "supervisor": AgentSupervisor(root / "leases.json"),
+        "release_store": ReleaseWorkflowStore(root / "release_workflow"),
+        "loop_store": ProductionBuildLoopStore(root / "production_build_loop"),
+    }
+
+
+
+def _parse_optional_dt(value: Optional[str]) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+
+def _validate_production_contract(payload: Dict[str, Any]) -> ProductionBuildContract:
+    if hasattr(ProductionBuildContract, "model_validate"):
+        return ProductionBuildContract.model_validate(payload)
+    return ProductionBuildContract.parse_obj(payload)
+
+
+
+def _bootstrap_runtime_delivery_state(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
+    snapshot_store = stores["snapshot_store"]
+    shared_state_store = stores["shared_state_store"]
+    journal = stores["journal"]
+
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    nodes = process.get("nodes") if isinstance(process.get("nodes"), dict) else {}
+    owner = str(process.get("owner") or metadata.get("owner") or "cortex").strip() or "cortex"
+
+    active_steps = [node_id for node_id, row in nodes.items() if isinstance(row, dict) and str(row.get("status") or "") in {"running", "ready"}]
+    waiting_steps = [node_id for node_id, row in nodes.items() if isinstance(row, dict) and str(row.get("status") or "") in {"pending", "scheduled", "waiting"}]
+    completed_steps = [node_id for node_id, row in nodes.items() if isinstance(row, dict) and str(row.get("status") or "") == "completed"]
+    failed_steps = [node_id for node_id, row in nodes.items() if isinstance(row, dict) and str(row.get("status") or "") in {"failed", "cancelled"}]
+    if str(process.get("status") or "") == "completed":
+        lifecycle_state = "completed"
+    elif str(process.get("status") or "") in {"failed", "cancelled"}:
+        lifecycle_state = "failed"
+    elif active_steps:
+        lifecycle_state = "running"
+    else:
+        lifecycle_state = "waiting"
+    assigned_agents = {node_id: owner for node_id in active_steps + waiting_steps}
+
+    shared_state = shared_state_store.load(process_id)
+    if shared_state is None:
+        revision_id = str(metadata.get("delivery_revision_id") or metadata.get("revision_id") or f"runtime_{process_id}_r1").strip()
+        shared_state = shared_state_store.save(
+            SharedProcessState(
+                process_id=process_id,
+                revision_id=revision_id,
+                goals=[str(workflow.get("name") or f"Drive {process_id} to completion")],
+                active_plan_node_ids=active_steps + waiting_steps,
+                runtime_constraints=dict(((metadata.get("policy") or {}).get("settings") or {})),
+                world_state={
+                    "process_status": str(process.get("status") or lifecycle_state),
+                    "workflow_name": str(workflow.get("name") or "runtime_workflow"),
+                },
+                belief_refs=[],
+                open_questions=[],
+                agent_ownership=dict(assigned_agents),
+                metadata={"bootstrapped_from_runtime_process": True},
+            ),
+            actor="runtime_delivery_bootstrap",
+            provenance={"source": "orchestrator_runtime_process"},
+        )
+
+    snapshot = snapshot_store.load(process_id)
+    if snapshot is None:
+        latest_event = journal.latest(process_id=process_id)
+        if latest_event is None:
+            latest_event = journal.append(
+                process_id=process_id,
+                kind="runtime_delivery_bootstrap",
+                revision_id=shared_state.revision_id,
+                actor="runtime_delivery_bootstrap",
+                payload={"workflow_name": workflow.get("name"), "process_status": process.get("status")},
+            )
+        snapshot = snapshot_store.save(
+            ProcessSnapshot(
+                process_id=process_id,
+                last_event_id=latest_event.event_id,
+                event_count=max(1, len(journal.load(process_id=process_id))),
+                lifecycle_state=lifecycle_state,
+                active_steps=active_steps,
+                waiting_steps=waiting_steps,
+                completed_steps=completed_steps,
+                failed_steps=failed_steps,
+                assigned_agents=assigned_agents,
+                runtime_policy=dict(((metadata.get("policy") or {}).get("settings") or {})),
+                world_state={**dict(shared_state.world_state), "process_status": str(process.get("status") or lifecycle_state)},
+                belief_refs=list(shared_state.belief_refs),
+                artifact_refs=[],
+                metadata={"bootstrapped_from_runtime_process": True},
+            )
+        )
+    return {"snapshot": snapshot, "shared_state": shared_state}
+
+
+
+def _ensure_runtime_release_state(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    contract: ProductionBuildContract,
+    stores: Dict[str, Any],
+    request: RuntimeDeliveryReconcileRequest,
+) -> ReleaseWorkflowState:
+    release_store = stores["release_store"]
+    existing = release_store.load(process_id)
+    if existing is not None:
+        return existing
+
+    snapshot = stores["snapshot_store"].load(process_id)
+    shared_state = stores["shared_state_store"].load(process_id)
+    if snapshot is None or shared_state is None:
+        raise HTTPException(status_code=400, detail=f"runtime delivery state not initialized for {process_id}")
+
+    contract_metadata = dict(contract.metadata or {})
+    initial_stage = str(
+        request.initial_release_stage
+        or contract_metadata.get("initial_release_stage")
+        or shared_state.world_state.get("release_stage")
+        or snapshot.world_state.get("release_stage")
+        or "draft"
+    ).strip() or "draft"
+    candidate_ref = str(
+        request.candidate_ref
+        or contract_metadata.get("candidate_ref")
+        or f"runtime:{process_id}:{shared_state.revision_id}"
+    ).strip()
+    state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref=candidate_ref,
+        target_environment=contract.target_environment,
+        revision_id=shared_state.revision_id,
+        current_stage=initial_stage,
+        status="preparing",
+        metadata={"bootstrapped_from_runtime_process": True},
+    )
+    if initial_stage and initial_stage != "draft":
+        state = record_release_fencepost(
+            state,
+            capture_release_rollback_fencepost(
+                snapshot=snapshot,
+                shared_state=shared_state,
+                stage=initial_stage,
+                metadata={"bootstrapped_from_runtime_process": True},
+            ),
+        )
+    return release_store.save(state, actor=request.controller_id, provenance={"source": "runtime_delivery_bootstrap_release"})
+
+
+
+def _resolve_runtime_delivery_contract(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    request: RuntimeDeliveryReconcileRequest,
+) -> ProductionBuildContract:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    workflow_contract = metadata.get("production_build_loop") if isinstance(metadata.get("production_build_loop"), dict) else {}
+    stored_contract = stores["loop_store"].load_contract(process_id)
+
+    payload: Dict[str, Any] = {}
+    if stored_contract is not None:
+        payload.update(model_dump_compat(stored_contract))
+    elif workflow_contract:
+        payload.update(dict(workflow_contract))
+    if isinstance(request.contract, dict):
+        payload.update(dict(request.contract))
+
+    payload["process_id"] = process_id
+    payload.setdefault("objective", str(workflow.get("name") or request.objective or f"Drive {process_id} to production"))
+    if request.objective:
+        payload["objective"] = request.objective
+    if request.target_environment:
+        payload["target_environment"] = request.target_environment
+    if request.promotion_stages is not None:
+        payload["promotion_stages"] = list(request.promotion_stages)
+    if request.stage_gates is not None:
+        payload["stage_gates"] = list(request.stage_gates)
+    if request.completion_criteria is not None:
+        payload["completion_criteria"] = list(request.completion_criteria)
+    if request.blocker_rules is not None:
+        payload["blocker_rules"] = list(request.blocker_rules)
+    if request.dependability_profile is not None:
+        payload["dependability_profile"] = request.dependability_profile
+    payload.setdefault("dependability_profile", "24h")
+
+    merged_metadata = dict(payload.get("metadata") or {})
+    merged_metadata.update(dict(request.metadata or {}))
+    if request.initial_release_stage:
+        merged_metadata["initial_release_stage"] = request.initial_release_stage
+    if request.candidate_ref:
+        merged_metadata["candidate_ref"] = request.candidate_ref
+    payload["metadata"] = merged_metadata
+    return _validate_production_contract(payload)
+
+
+
+def _runtime_delivery_status_payload(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
+    snapshot = stores["snapshot_store"].load(process_id)
+    shared_state = stores["shared_state_store"].load(process_id)
+    contract = stores["loop_store"].load_contract(process_id)
+    loop_state = stores["loop_store"].load_state(process_id)
+    release_state = stores["release_store"].load(process_id)
+    reports = stores["loop_store"].reports(process_id)
+    return {
+        "success": True,
+        "process_id": process_id,
+        "process": process,
+        "contract": model_dump_compat(contract) if contract is not None else None,
+        "loop_state": model_dump_compat(loop_state) if loop_state is not None else None,
+        "release_state": model_dump_compat(release_state) if release_state is not None else None,
+        "snapshot": model_dump_compat(snapshot) if snapshot is not None else None,
+        "shared_state": model_dump_compat(shared_state) if shared_state is not None else None,
+        "report_count": len(reports),
+        "latest_report": model_dump_compat(reports[-1]) if reports else None,
+    }
 
 
 
@@ -171,6 +430,33 @@ class RuntimeHomeostasisControlRequest(BaseModel):
 class RuntimePlanRequest(BaseModel):
     graph: ReasoningPlanGraph
     options: RuntimeScheduleOptions = Field(default_factory=RuntimeScheduleOptions)
+
+
+class RuntimeDeliveryReconcileRequest(BaseModel):
+    contract: Optional[Dict[str, Any]] = None
+    objective: Optional[str] = None
+    target_environment: Optional[str] = None
+    promotion_stages: Optional[List[str]] = None
+    stage_gates: Optional[List[Dict[str, Any]]] = None
+    completion_criteria: Optional[List[Dict[str, Any]]] = None
+    blocker_rules: Optional[List[Dict[str, Any]]] = None
+    dependability_profile: Optional[Any] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    candidate_ref: Optional[str] = None
+    initial_release_stage: Optional[str] = None
+    bootstrap_runtime_state: bool = True
+    initialize_release: bool = True
+    controller_id: str = "cortex"
+    controller_session_id: Optional[str] = None
+    now_iso: Optional[str] = None
+
+
+class RuntimeDeliveryRollbackRequest(BaseModel):
+    stage: Optional[str] = None
+    fencepost_id: Optional[str] = None
+    reason: str = "operator_requested"
+    actor: str = "cortex"
+    new_revision_id: Optional[str] = None
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -540,6 +826,89 @@ async def get_runtime_process_view(process_id: str, events_limit: int = 25):
         get_belief_fn=get_belief,
         select_influential_beliefs_fn=select_influential_beliefs,
     )
+
+
+@router.get("/runtime/delivery/{process_id}")
+async def get_runtime_delivery_status(process_id: str):
+    process = get_runtime_process(process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+    stores = _runtime_delivery_stores()
+    return _runtime_delivery_status_payload(process_id, process=process, stores=stores)
+
+
+@router.post("/runtime/delivery/reconcile/{process_id}")
+async def reconcile_runtime_delivery(process_id: str, request: Optional[RuntimeDeliveryReconcileRequest] = None):
+    request = request or RuntimeDeliveryReconcileRequest()
+    process = get_runtime_process(process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+    stores = _runtime_delivery_stores()
+    if request.bootstrap_runtime_state:
+        _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
+    snapshot = stores["snapshot_store"].load(process_id)
+    shared_state = stores["shared_state_store"].load(process_id)
+    if snapshot is None or shared_state is None:
+        raise HTTPException(status_code=400, detail=f"runtime delivery state missing for {process_id}; enable bootstrap_runtime_state to initialize it")
+    contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=request)
+    if request.initialize_release:
+        _ensure_runtime_release_state(process_id, process=process, contract=contract, stores=stores, request=request)
+    reconciled = reconcile_production_build_loop(
+        contract,
+        loop_store=stores["loop_store"],
+        snapshot_store=stores["snapshot_store"],
+        shared_state_store=stores["shared_state_store"],
+        journal=stores["journal"],
+        mailbox=stores["mailbox"],
+        supervisor=stores["supervisor"],
+        release_store=stores["release_store"],
+        controller_id=request.controller_id,
+        controller_session_id=request.controller_session_id or f"runtime-delivery:{process_id}",
+        now=_parse_optional_dt(request.now_iso),
+    )
+    return {
+        "success": True,
+        "process_id": process_id,
+        "process": process,
+        "contract": model_dump_compat(contract),
+        **reconciled,
+        "delivery": _runtime_delivery_status_payload(process_id, process=process, stores=stores),
+    }
+
+
+@router.post("/runtime/delivery/rollback/{process_id}")
+async def rollback_runtime_delivery(process_id: str, request: Optional[RuntimeDeliveryRollbackRequest] = None):
+    request = request or RuntimeDeliveryRollbackRequest()
+    process = get_runtime_process(process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+    stores = _runtime_delivery_stores()
+    release_state = stores["release_store"].load(process_id)
+    if release_state is None:
+        raise HTTPException(status_code=404, detail=f"Runtime delivery release state '{process_id}' not found")
+    rolled = apply_release_rollback_restore(
+        release_state,
+        snapshot_store=stores["snapshot_store"],
+        shared_state_store=stores["shared_state_store"],
+        release_store=stores["release_store"],
+        journal=stores["journal"],
+        stage=request.stage,
+        fencepost_id=request.fencepost_id,
+        actor=request.actor,
+        reason=request.reason,
+        new_revision_id=request.new_revision_id,
+    )
+    return {
+        "success": True,
+        "process_id": process_id,
+        "process": process,
+        "state": model_dump_compat(rolled["state"]),
+        "snapshot": model_dump_compat(rolled["snapshot"]),
+        "shared_state": model_dump_compat(rolled["shared_state"]),
+        "rollback_event": rolled.get("rollback_event"),
+        "operator_summary": rolled.get("operator_summary"),
+        "delivery": _runtime_delivery_status_payload(process_id, process=process, stores=stores),
+    }
 
 
 @router.get("/runtime/trace/{process_id}")

@@ -397,3 +397,82 @@ def test_production_loop_repairs_runtime_failures_without_declaring_blocked(tmp_
     assert any(action["action"] == "recover_dead_letters" for action in result["actions_taken"])
     assert any(action["action"] == "resolve_stale_leases" for action in result["actions_taken"])
     assert any(action["action"] == "checkpoint_from_journal" for action in result["actions_taken"])
+
+
+def test_production_loop_dispatches_release_handoff_and_captures_promotion_fencepost(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_release_handoff_loop"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    snapshot = seeded["snapshot"]
+    shared_state = seeded["shared_state"]
+
+    release_state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:auto-handoff",
+        target_environment="production",
+        revision_id=shared_state.revision_id,
+        current_stage="build_verified",
+        status="preparing",
+    )
+    release_state = record_release_fencepost(
+        release_state,
+        capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
+    )
+    harness.release_store.save(release_state, actor="builder", provenance={"phase": "seed_release"})
+
+    loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    contract = _contract(
+        process_id,
+        completion_criteria=[
+            ProductionCompletionCriterion(
+                criterion_id="release",
+                summary="Release must reach production",
+                kind="release_stage",
+                stage="production",
+            )
+        ],
+        promotion_stages=["build_verified", "production"],
+        stage_gates=[
+            ProductionStageGate(
+                stage="production",
+                required_fencepost_stages=["build_verified"],
+                required_handoff_count=1,
+                metadata={
+                    "handoff": {
+                        "from_agent": "controller",
+                        "to_agent": "release-manager",
+                        "scope": "release:promote",
+                        "objective": "Promote the verified release to production",
+                        "expected_output": "Ack that production promotion is safe",
+                    }
+                },
+            )
+        ],
+    )
+
+    result = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-release",
+    )
+
+    final_release = harness.release_store.load(process_id)
+    messages = harness.mailbox.list(process_id=process_id)
+    leases = harness.supervisor.list(process_id=process_id)
+
+    assert result["state"]["status"] == "completed"
+    assert final_release.current_stage == "production"
+    assert any(action["action"] == "dispatch_release_handoff" for action in result["actions_taken"])
+    assert any(action["action"] == "ack_release_handoff" for action in result["actions_taken"])
+    assert any(action["action"] == "capture_release_fencepost" and action["stage"] == "production" for action in result["actions_taken"])
+    assert any(record["stage"] == "production" and record["delivery_status"] == "acked" for record in final_release.handoff_records)
+    assert any(fencepost.stage == "production" for fencepost in final_release.rollback_fenceposts)
+    assert any(message.to_agent == "release-manager" and message.delivery_status == "acked" for message in messages)
+    assert any(lease.scope == "release:promote" and lease.agent_id == "release-manager" for lease in leases)

@@ -18,7 +18,11 @@ from cortex_server.runtime.release_workflow import (
     ReleaseWorkflowState,
     ReleaseWorkflowStore,
     advance_release_workflow,
+    capture_release_rollback_fencepost,
+    compile_release_handoff,
     evaluate_release_promotion_gate,
+    record_release_fencepost,
+    record_release_handoff,
     repair_release_workflow,
 )
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
@@ -1056,6 +1060,120 @@ def _next_stage(contract: ProductionBuildContract, current_stage: Optional[str])
     return plan[current_index + 1] if current_index + 1 < len(plan) else None
 
 
+def _maybe_dispatch_release_handoff(
+    release_state: ReleaseWorkflowState,
+    *,
+    next_stage: str,
+    gate_spec: ProductionStageGate,
+    snapshot: ProcessSnapshot,
+    shared_state: SharedProcessState,
+    mailbox: AgentMailbox,
+    supervisor: AgentSupervisor,
+    controller_id: str,
+) -> JsonDict:
+    metadata = dict(gate_spec.metadata or {})
+    handoff_config = metadata.get("handoff") if isinstance(metadata.get("handoff"), dict) else {}
+    if not handoff_config:
+        return {"state": release_state, "actions_taken": []}
+
+    required_handoffs = max(1, int(gate_spec.required_handoff_count or 0))
+    stage_records = [row for row in release_state.handoff_records if str(row.get("stage") or "").strip() == next_stage]
+    acked_count = sum(1 for row in stage_records if str(row.get("delivery_status") or "") == "acked")
+    if acked_count >= required_handoffs:
+        return {"state": release_state, "actions_taken": []}
+
+    from_agent = str(handoff_config.get("from_agent") or controller_id).strip() or controller_id
+    to_agent = str(handoff_config.get("to_agent") or controller_id).strip() or controller_id
+    scope = str(handoff_config.get("scope") or f"release:{release_state.current_stage or 'draft'}:{next_stage}").strip()
+    objective = str(handoff_config.get("objective") or f"Promote release candidate from {release_state.current_stage} to {next_stage}").strip()
+    expected_output = str(handoff_config.get("expected_output") or f"Return an ack and readiness evidence for {next_stage}").strip()
+    dedupe_key = str(
+        handoff_config.get("dedupe_key")
+        or f"release-stage:{release_state.process_id}:{release_state.release_id}:{release_state.current_stage}:{next_stage}:{shared_state.revision_id}"
+    ).strip()
+    lease_seconds = max(1, int(handoff_config.get("lease_seconds", 300) or 300))
+
+    actions_taken: List[JsonDict] = []
+    lease_metadata = {
+        "release_id": release_state.release_id,
+        "transition": f"{release_state.current_stage}->{next_stage}",
+        "contract": "release_handoff",
+    }
+    existing_leases = [
+        row
+        for row in supervisor.list(process_id=release_state.process_id)
+        if row.scope == scope and row.agent_id == to_agent and row.status == "active"
+    ]
+    if existing_leases:
+        lease = existing_leases[0]
+        supervisor.heartbeat(lease.lease_id, lease_seconds=lease_seconds)
+        actions_taken.append({"action": "heartbeat_release_scope", "lease_id": lease.lease_id, "scope": scope, "agent_id": to_agent})
+    else:
+        lease = supervisor.assign(
+            process_id=release_state.process_id,
+            scope=scope,
+            agent_id=to_agent,
+            lease_seconds=lease_seconds,
+            metadata=lease_metadata,
+        )
+        actions_taken.append({"action": "assign_release_scope", "lease_id": lease.lease_id, "scope": scope, "agent_id": to_agent})
+
+    handoff = compile_release_handoff(
+        state=release_state,
+        shared_state=shared_state,
+        snapshot=snapshot,
+        from_agent=from_agent,
+        to_agent=to_agent,
+        objective=objective,
+        scope=scope,
+        expected_output=expected_output,
+        gate={"safe_push": False, "blockers": [{"summary": f"waiting for {next_stage} promotion handoff"}]},
+        open_questions=[str(row) for row in (handoff_config.get("open_questions") or []) if str(row).strip()],
+        relevant_artifact_ids=[str(row) for row in (handoff_config.get("relevant_artifact_ids") or []) if str(row).strip()],
+        relevant_evidence_ids=[str(row) for row in (handoff_config.get("relevant_evidence_ids") or []) if str(row).strip()],
+        timeout_seconds=int(handoff_config.get("timeout_seconds", 900) or 900),
+        lease_seconds=lease_seconds,
+    )
+    message = mailbox.send(
+        process_id=release_state.process_id,
+        from_agent=handoff.from_agent,
+        to_agent=handoff.to_agent,
+        kind="handoff",
+        handoff_id=handoff.handoff_id,
+        revision_id=shared_state.revision_id,
+        dedupe_key=dedupe_key,
+        payload={
+            "objective": handoff.objective,
+            "scope": handoff.scope,
+            "expected_output": handoff.expected_output,
+            "open_questions": list(handoff.open_questions or []),
+            "assumptions": list(handoff.assumptions or []),
+        },
+        metadata={
+            "release_id": release_state.release_id,
+            "transition": f"{release_state.current_stage}->{next_stage}",
+            "target_stage": next_stage,
+        },
+    )
+    release_state = record_release_handoff(release_state, message, stage=next_stage, notes="auto-dispatched by production build loop")
+    actions_taken.append({"action": "dispatch_release_handoff", "message_id": message.message_id, "target_stage": next_stage, "to_agent": to_agent})
+
+    accepted = mailbox.receive(
+        to_agent=to_agent,
+        process_id=release_state.process_id,
+        include_inflight=True,
+        expected_revision_id=shared_state.revision_id,
+        reject_stale_revision=True,
+    )
+    accepted_map = {row.message_id: row for row in accepted}
+    if message.message_id in accepted_map:
+        acked = mailbox.acknowledge(message.message_id)
+        release_state = record_release_handoff(release_state, acked, stage=next_stage, notes="auto-acked by production build loop")
+        actions_taken.append({"action": "ack_release_handoff", "message_id": acked.message_id, "target_stage": next_stage, "to_agent": to_agent})
+
+    return {"state": release_state, "actions_taken": actions_taken}
+
+
 
 def advance_production_release_loop(
     contract: ProductionBuildContract,
@@ -1082,9 +1200,23 @@ def advance_production_release_loop(
         if not next_stage:
             break
         gate_spec = _stage_gate_for(contract, next_stage)
+        handoff_dispatch = _maybe_dispatch_release_handoff(
+            release_state,
+            next_stage=next_stage,
+            gate_spec=gate_spec,
+            snapshot=snapshot,
+            shared_state=shared_state,
+            mailbox=mailbox,
+            supervisor=supervisor,
+            controller_id=controller_id,
+        )
+        release_state = handoff_dispatch.get("state") or release_state
+        actions_taken.extend(list(handoff_dispatch.get("actions_taken") or []))
+        handoff_config = dict(gate_spec.metadata.get("handoff") or {}) if isinstance(gate_spec.metadata.get("handoff"), dict) else {}
         allowed_active_agents = _dedupe_rows(
             list(gate_spec.allowed_active_agents)
             + [controller_id]
+            + [str(handoff_config.get("from_agent") or "").strip(), str(handoff_config.get("to_agent") or "").strip()]
             + list(snapshot.assigned_agents.values())
             + list(shared_state.agent_ownership.values())
         )
@@ -1151,8 +1283,20 @@ def advance_production_release_loop(
             actor=controller_id,
             provenance={"scenario": "production_build_loop", "action": "advance_release_stage", "iteration": loop_state.iteration_count + 1},
         )
+        release_fencepost = capture_release_rollback_fencepost(
+            snapshot=snapshot,
+            shared_state=shared_state,
+            stage=next_stage,
+            metadata={"captured_by": "production_build_loop", "post_promotion": True},
+        )
+        release_state = release_store.save(
+            record_release_fencepost(release_state, release_fencepost),
+            actor=controller_id,
+            provenance={"scenario": "production_build_loop", "action": "capture_release_fencepost", "stage": next_stage, "iteration": loop_state.iteration_count + 1},
+        )
         stage_changes.append({"from_stage": promoted.get("previous_stage"), "to_stage": next_stage})
         actions_taken.append({"action": "advance_release_stage", "from_stage": promoted.get("previous_stage"), "to_stage": next_stage})
+        actions_taken.append({"action": "capture_release_fencepost", "stage": next_stage, "fencepost_id": release_fencepost.fencepost_id})
         if next_stage == contract.target_environment:
             break
 

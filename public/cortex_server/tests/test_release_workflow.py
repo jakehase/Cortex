@@ -6,6 +6,7 @@ from cortex_server.runtime import (
     ReleaseWorkflowState,
     RuntimeSoakHarness,
     advance_release_workflow,
+    apply_release_rollback_restore,
     capture_release_rollback_fencepost,
     compile_release_handoff,
     evaluate_release_promotion_gate,
@@ -274,3 +275,85 @@ def test_compile_release_handoff_surfaces_gate_blockers_and_metadata(tmp_path):
     assert handoff.metadata["gate_safe_push"] is False
     assert any("release stage=canary_verified" == row for row in handoff.assumptions)
     assert "missing rollback fenceposts" in handoff.open_questions
+
+
+def test_apply_release_rollback_restore_rehydrates_runtime_state_and_audit_trail(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak")
+    seeded = harness._seed_waiting_process(process_id="proc_release_apply_rollback", revision_id="rev_1", node_id="build", agent_id="builder")
+    snapshot = seeded["snapshot"]
+    shared_state = seeded["shared_state"]
+
+    state = ReleaseWorkflowState(
+        process_id="proc_release_apply_rollback",
+        candidate_ref="build:apply-rollback",
+        target_environment="production",
+        revision_id="rev_1",
+        current_stage="build_verified",
+    )
+    state = record_release_fencepost(
+        state,
+        capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
+    )
+
+    gate = evaluate_release_promotion_gate(
+        state=state,
+        snapshot=snapshot,
+        shared_state=shared_state,
+        target_stage="canary_verified",
+        dependability_report={"success": True},
+        required_fencepost_stages=["build_verified"],
+        require_dependability=True,
+    )
+    promoted = advance_release_workflow(state, gate=gate, next_stage="canary_verified", actor="release-manager")
+
+    shared_state = harness.shared_state_store.save(
+        SharedProcessState(
+            process_id="proc_release_apply_rollback",
+            revision_id="rev_2",
+            goals=list(shared_state.goals),
+            active_plan_node_ids=[],
+            runtime_constraints=dict(shared_state.runtime_constraints),
+            world_state={**dict(shared_state.world_state), "release_stage": "canary_verified"},
+            belief_refs=list(shared_state.belief_refs),
+            open_questions=[],
+            agent_ownership={},
+            metadata=dict(shared_state.metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="release-manager",
+        provenance={"phase": "canary_verified"},
+    )
+    harness.journal.append(
+        process_id="proc_release_apply_rollback",
+        kind="world_state_updated",
+        revision_id="rev_2",
+        actor="release-manager",
+        payload={"world_state": {"release_stage": "canary_verified"}},
+    )
+    harness._checkpoint_from_journal(process_id="proc_release_apply_rollback", world_state_overrides={"release_stage": "canary_verified"})
+    stored = harness.release_store.save(promoted["state"], actor="release-manager", provenance={"phase": "promote_canary"})
+
+    restored = apply_release_rollback_restore(
+        stored,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        release_store=harness.release_store,
+        journal=harness.journal,
+        stage="build_verified",
+        actor="release-manager",
+        reason="canary_regression",
+    )
+
+    latest_snapshot = harness.snapshot_store.load("proc_release_apply_rollback")
+    latest_shared = harness.shared_state_store.load("proc_release_apply_rollback")
+    latest_release = harness.release_store.load("proc_release_apply_rollback")
+    latest_event = harness.journal.latest(process_id="proc_release_apply_rollback")
+
+    assert restored["applied"] is True
+    assert restored["state"].current_stage == "build_verified"
+    assert restored["state"].revision_id.endswith(".rollback")
+    assert latest_release.metadata["rollback_applied"] is True
+    assert latest_snapshot.lifecycle_state == "waiting"
+    assert latest_snapshot.metadata["rollback_fencepost_id"] == restored["fencepost"]["fencepost_id"]
+    assert latest_shared.revision_id == restored["state"].revision_id
+    assert latest_event.kind == "release_rolled_back"
