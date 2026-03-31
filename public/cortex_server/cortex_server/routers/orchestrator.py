@@ -342,6 +342,8 @@ def _runtime_delivery_projection(
     latest_report: Optional[ProductionBuildLoopReport],
 ) -> Dict[str, Any]:
     completion = dict(loop_state.completion or {}) if loop_state is not None else {}
+    metadata = dict(loop_state.metadata or {}) if loop_state is not None else {}
+    latest_report_metadata = dict(latest_report.metadata or {}) if latest_report is not None else {}
     return {
         "contract_id": contract.contract_id if contract is not None else None,
         "objective": contract.objective if contract is not None else None,
@@ -366,6 +368,12 @@ def _runtime_delivery_projection(
         "next_action": dict(loop_state.next_action or {}) if loop_state is not None else {},
         "last_pass": dict(loop_state.last_pass or {}) if loop_state is not None else {},
         "execution_budget": model_dump_compat(contract.execution_budget) if contract is not None and getattr(contract, "execution_budget", None) is not None else None,
+        "reporting_policy": model_dump_compat(contract.checkpoint_policy) if contract is not None and getattr(contract, "checkpoint_policy", None) is not None else None,
+        "execution_discipline": dict(metadata.get("execution_discipline") or {}),
+        "validation_policy": dict(metadata.get("validation_policy") or {}),
+        "blocker_policy": dict(metadata.get("blocker_policy") or {}),
+        "latest_decisions": dict((metadata.get("execution_discipline") or {}).get("latest_decisions") or {}),
+        "latest_report_reasons": list(latest_report_metadata.get("reasons") or []),
     }
 
 
@@ -652,6 +660,8 @@ def _runtime_roadmap_projection(
     shared_state: Optional[SharedProcessState],
 ) -> Dict[str, Any]:
     completion = dict((state or {}).get("completion") or {})
+    metadata = dict((state or {}).get("metadata") or {})
+    latest_report_metadata = dict((latest_report or {}).get("metadata") or {})
     return {
         "objective_id": contract.objective_id if contract is not None else None,
         "objective": contract.objective if contract is not None else None,
@@ -671,6 +681,12 @@ def _runtime_roadmap_projection(
         "next_action": dict((state or {}).get("next_action") or {}),
         "last_pass": dict((state or {}).get("last_pass") or {}),
         "execution_budget": model_dump_compat(contract.execution_budget) if contract is not None and getattr(contract, "execution_budget", None) is not None else None,
+        "reporting_policy": model_dump_compat(contract.reporting_policy) if contract is not None and getattr(contract, "reporting_policy", None) is not None else None,
+        "execution_discipline": dict(metadata.get("execution_discipline") or {}),
+        "validation_policy": dict(metadata.get("validation_policy") or {}),
+        "blocker_policy": dict(metadata.get("blocker_policy") or {}),
+        "latest_decisions": dict((metadata.get("execution_discipline") or {}).get("latest_decisions") or {}),
+        "latest_report_reasons": list(latest_report_metadata.get("reasons") or []),
     }
 
 

@@ -106,6 +106,8 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["continuation"]["mode"] == "stop"
     assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["next_action"]["kind"] == "completed"
     assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["execution_budget"]["max_auto_chain_passes"] == 4
+    assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["reporting_policy"]["report_every_iterations"] == 1
+    assert reconciled["process"]["workflow"]["metadata"]["runtime_delivery"]["execution_discipline"]["latest_decisions"]["status"] == "completed"
     assert reconciled["process"]["workflow"]["metadata"]["delivery_continuation_mode"] == "stop"
     assert any(message.to_agent == "release-manager" and message.delivery_status == "acked" for message in messages)
     assert any(fencepost["stage"] == "production" for fencepost in reconciled["delivery"]["release_state"]["rollback_fenceposts"])

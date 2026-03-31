@@ -286,6 +286,7 @@ def test_production_loop_auto_chains_across_stage_promotions_with_bounded_pass_b
     )
 
     persisted = loop_store.load_state(process_id)
+    reports = loop_store.reports(process_id)
 
     assert result["state"]["status"] == "completed"
     assert result["state"]["current_stage"] == "production"
@@ -293,7 +294,12 @@ def test_production_loop_auto_chains_across_stage_promotions_with_bounded_pass_b
     assert result["continuation"]["mode"] == "stop"
     assert persisted is not None
     assert persisted.last_pass["budget"]["max_stage_advances_per_pass"] == 1
+    assert persisted.last_pass["validation_scope"] == "broad"
+    assert any(reason in persisted.last_pass["validation_reasons"] for reason in ["stage_promotion_checkpoint", "completion_checkpoint", "checkpoint:production"])
     assert persisted.next_action["kind"] == "completed"
+    assert len(reports) >= 2
+    assert all("validation=" in report.summary or report.kind != "checkpoint" for report in reports)
+    assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "completed"
 
 
 
@@ -423,6 +429,68 @@ def test_production_loop_stops_only_for_true_human_blockers(tmp_path):
     assert result["state"]["status"] == "blocked"
     assert any(blocker["source"] == "open_decision" for blocker in result["blockers"])
     assert reports[-1].kind == "blocked"
+    assert reports[-1].metadata["execution_discipline"]["blocker_policy"]["true_blocker_count"] == 1
+
+
+
+def test_production_loop_continues_through_non_human_questions_with_focused_validation(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_nonhuman_blocker"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=list(seeded["shared_state"].active_plan_node_ids),
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state=dict(seeded["shared_state"].world_state),
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=["BLOCKER: transient cache mismatch on retryable CI lane"],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "retryable_blocker"},
+    )
+
+    loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    contract = _contract(
+        process_id,
+        completion_criteria=[
+            ProductionCompletionCriterion(
+                criterion_id="final-release",
+                summary="Final release artifact must exist",
+                kind="artifact_present",
+                artifact_id="artifact_final_release",
+            )
+        ],
+        promotion_stages=[],
+    )
+
+    result = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-nonhuman",
+    )
+
+    reports = loop_store.reports(process_id)
+
+    assert result["state"]["status"] == "active"
+    assert result["blockers"] == []
+    assert result["state"]["metadata"]["validation_policy"]["scope"] == "focused"
+    assert "bounded_pass_focused_validation" in result["state"]["last_pass"]["validation_reasons"]
+    assert reports[-1].kind in {"checkpoint", "recovery"}
+    assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "active"
+    assert "validation=focused" in reports[-1].summary
 
 
 

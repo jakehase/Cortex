@@ -72,6 +72,100 @@ def _int_budget(value: Any, *, default: int = 0) -> int:
         return default
 
 
+def _policy_dump(model: Any) -> Dict[str, Any]:
+    if model is None:
+        return {}
+    return model.model_dump() if hasattr(model, "model_dump") else model.dict()
+
+
+HUMAN_BLOCKER_HINTS: Dict[str, str] = {
+    "approve": "ambiguity",
+    "approval": "ambiguity",
+    "decision": "ambiguity",
+    "choose": "ambiguity",
+    "clarify": "ambiguity",
+    "confirm": "ambiguity",
+    "unclear": "ambiguity",
+    "ambigu": "ambiguity",
+    "access": "access",
+    "credential": "access",
+    "secret": "access",
+    "token": "access",
+    "permission": "access",
+    "auth": "access",
+    "login": "access",
+    "safety": "safety",
+    "unsafe": "safety",
+    "risk": "safety",
+    "legal": "safety",
+    "policy": "safety",
+    "compliance": "safety",
+}
+HUMAN_BLOCKER_CLASSES = {"ambiguity", "access", "safety", "release_hold", "human_decision"}
+
+
+def _classify_blocker_need(*, source: str, summary: str, requires_human: bool, metadata: Optional[Dict[str, Any]] = None) -> Tuple[bool, Optional[str]]:
+    text = str(summary or "").strip().lower()
+    source_key = str(source or "").strip().lower()
+    meta = dict(metadata or {})
+    category = str(
+        meta.get("blocker_class")
+        or meta.get("classification")
+        or meta.get("category")
+        or meta.get("kind")
+        or ""
+    ).strip().lower()
+    if source_key == "release_hold":
+        return True, "release_hold"
+    if source_key == "open_decision":
+        return True, category or "human_decision"
+    if category in HUMAN_BLOCKER_CLASSES:
+        return True, category
+    for hint, blocker_class in HUMAN_BLOCKER_HINTS.items():
+        if hint in text:
+            return True, blocker_class
+    return bool(requires_human), (category or "human_decision") if requires_human else None
+
+
+def _question_requires_human(question: str) -> Tuple[bool, Optional[str]]:
+    text = str(question or "").strip()
+    upper = text.upper()
+    if upper.startswith("HUMAN:"):
+        return True, "human_decision"
+    if not upper.startswith("BLOCKER:"):
+        return False, None
+    trimmed = text.split(":", 1)[1] if ":" in text else text
+    return _classify_blocker_need(source="open_question", summary=trimmed, requires_human=False)
+
+
+def _true_blocker_payload(
+    payload: Dict[str, Any],
+    *,
+    source: Optional[str] = None,
+    summary: Optional[str] = None,
+    default_requires_human: bool = False,
+) -> Optional[JsonDict]:
+    blocker = dict(payload or {})
+    blocker_source = str(source or blocker.get("source") or "task_blocker").strip() or "task_blocker"
+    blocker_summary = str(summary or blocker.get("summary") or "").strip()
+    if not blocker_summary:
+        return None
+    requires_human, blocker_class = _classify_blocker_need(
+        source=blocker_source,
+        summary=blocker_summary,
+        requires_human=bool(blocker.get("requires_human", default_requires_human)),
+        metadata=blocker.get("metadata") if isinstance(blocker.get("metadata"), dict) else None,
+    )
+    if not requires_human:
+        return None
+    blocker["source"] = blocker_source
+    blocker["summary"] = blocker_summary
+    blocker["requires_human"] = True
+    blocker["terminal"] = bool(blocker.get("terminal", True))
+    blocker["blocker_class"] = blocker_class or blocker.get("blocker_class") or "human_decision"
+    return blocker
+
+
 def _active_task_ids_for_phase(contract: "RoadmapObjectiveContract", state: "RoadmapExecutionState", phase_id: Optional[str]) -> List[str]:
     if not phase_id:
         return []
@@ -96,6 +190,48 @@ def _ready_task_ids_for_phase(contract: "RoadmapObjectiveContract", state: "Road
     return ready
 
 
+def _roadmap_validation_decision(
+    contract: "RoadmapObjectiveContract",
+    *,
+    budget: "RoadmapPassBudget",
+    previous_state: Optional["RoadmapExecutionState"],
+    state: "RoadmapExecutionState",
+    task_completion_count: int,
+    phase_transition_count: int,
+    release_stage_changed: bool,
+) -> Dict[str, Any]:
+    reasons: List[str] = []
+    scope = "focused"
+    if budget.validation_mode == "broad":
+        scope = "broad"
+        reasons.append("forced_broad_mode")
+    elif budget.broaden_validation_on_completion_candidate and state.active_phase_id is None:
+        scope = "broad"
+        reasons.append("completion_checkpoint")
+    elif budget.broaden_validation_on_phase_change and phase_transition_count > 0:
+        scope = "broad"
+        reasons.append("phase_promotion_checkpoint")
+    elif budget.broaden_validation_on_release_change and release_stage_changed:
+        scope = "broad"
+        reasons.append("release_promotion_checkpoint")
+    elif task_completion_count > 0 and state.active_phase_id is None:
+        scope = "broad"
+        reasons.append("final_task_completion_checkpoint")
+    else:
+        reasons.append("bounded_pass_focused_validation")
+    if previous_state is not None and previous_state.status in {"blocked", "completed"}:
+        reasons.append(f"previous_status={previous_state.status}")
+    return {
+        "scope": scope,
+        "reasons": _dedupe_rows(reasons),
+        "promotion_checkpoint": scope == "broad",
+        "task_completion_count": task_completion_count,
+        "phase_transition_count": phase_transition_count,
+        "release_stage_changed": bool(release_stage_changed),
+        "default_scope": budget.validation_mode,
+    }
+
+
 def _roadmap_validation_scope(
     contract: "RoadmapObjectiveContract",
     *,
@@ -107,21 +243,19 @@ def _roadmap_validation_scope(
     phase_transition_count: int,
     release_stage_changed: bool,
 ) -> str:
-    if budget.validation_mode == "broad":
-        return "broad"
-    if blockers:
-        return "broad"
-    if budget.broaden_validation_on_completion_candidate and state.active_phase_id is None:
-        return "broad"
-    if budget.broaden_validation_on_phase_change and phase_transition_count > 0:
-        return "broad"
-    if budget.broaden_validation_on_release_change and release_stage_changed:
-        return "broad"
-    if previous_state is not None and previous_state.status in {"blocked", "completed"}:
-        return "broad"
-    if task_completion_count > 0 and state.active_phase_id is None:
-        return "broad"
-    return "focused"
+    del blockers
+    return str(
+        _roadmap_validation_decision(
+            contract,
+            budget=budget,
+            previous_state=previous_state,
+            state=state,
+            task_completion_count=task_completion_count,
+            phase_transition_count=phase_transition_count,
+            release_stage_changed=release_stage_changed,
+        ).get("scope")
+        or "focused"
+    )
 
 
 def _roadmap_immediately_completable_task_ids(
@@ -1127,71 +1261,97 @@ def detect_roadmap_true_blockers(
     shared_state: SharedProcessState,
     release_state: Optional[ReleaseWorkflowState] = None,
 ) -> List[JsonDict]:
+    del snapshot
     blockers: List[JsonDict] = []
 
     for hold in list(release_state.operator_holds) if release_state else []:
-        blockers.append({"source": "release_hold", "summary": str(hold), "requires_human": True, "terminal": True})
+        blocker = _true_blocker_payload({"source": "release_hold", "summary": str(hold), "terminal": True}, default_requires_human=True)
+        if blocker is not None:
+            blockers.append(blocker)
 
     for decision in shared_state.open_decisions:
         if decision.status == "resolved":
             continue
         if _decision_requires_human(decision):
-            blockers.append(
+            blocker = _true_blocker_payload(
                 {
                     "source": "open_decision",
                     "summary": decision.title,
-                    "requires_human": True,
                     "terminal": True,
                     "decision_id": decision.decision_id,
-                }
+                    "metadata": dict(decision.metadata or {}),
+                },
+                default_requires_human=True,
             )
+            if blocker is not None:
+                blockers.append(blocker)
 
     for question in shared_state.open_questions:
-        if any(str(question).startswith(prefix) for prefix in BUILTIN_BLOCKER_PREFIXES):
-            blockers.append({"source": "open_question", "summary": str(question), "requires_human": True, "terminal": True})
+        requires_human, blocker_class = _question_requires_human(str(question))
+        if not requires_human:
+            continue
+        blockers.append(
+            {
+                "source": "open_question",
+                "summary": str(question),
+                "requires_human": True,
+                "terminal": True,
+                "blocker_class": blocker_class or "human_decision",
+            }
+        )
 
     for task in state.task_states:
         if task.status != "blocked":
             continue
         for blocker in task.blockers:
-            blockers.append(
+            payload = _true_blocker_payload(
                 {
+                    **dict(blocker),
                     "source": blocker.get("source") or "task_blocker",
                     "summary": blocker.get("summary") or f"task {task.task_id} blocked",
-                    "requires_human": bool(blocker.get("requires_human", True)),
-                    "terminal": bool(blocker.get("terminal", True)),
                     "task_id": task.task_id,
                     "phase_id": task.phase_id,
-                }
+                },
+                default_requires_human=False,
             )
+            if payload is not None:
+                blockers.append(payload)
 
     for rule in contract.blocker_rules:
         if rule.source == "release_hold":
             for hold in list(release_state.operator_holds) if release_state else []:
-                blockers.append(
+                payload = _true_blocker_payload(
                     {
                         "source": rule.source,
                         "summary": str(hold),
-                        "requires_human": bool(rule.requires_human),
                         "terminal": bool(rule.terminal),
                         "rule_id": rule.blocker_id,
-                    }
+                        "metadata": dict(rule.metadata or {}),
+                        "requires_human": bool(rule.requires_human),
+                    },
+                    default_requires_human=bool(rule.requires_human),
                 )
+                if payload is not None:
+                    blockers.append(payload)
         elif rule.source == "open_question_prefix":
             prefix = str(rule.question_prefix or "").strip()
             if not prefix:
                 continue
             for question in shared_state.open_questions:
                 if str(question).startswith(prefix):
-                    blockers.append(
+                    payload = _true_blocker_payload(
                         {
                             "source": rule.source,
                             "summary": str(question),
-                            "requires_human": bool(rule.requires_human),
                             "terminal": bool(rule.terminal),
                             "rule_id": rule.blocker_id,
-                        }
+                            "metadata": dict(rule.metadata or {}),
+                            "requires_human": bool(rule.requires_human),
+                        },
+                        default_requires_human=bool(rule.requires_human),
                     )
+                    if payload is not None:
+                        blockers.append(payload)
         elif rule.source == "open_decision":
             for decision in shared_state.open_decisions:
                 if decision.status == "resolved":
@@ -1206,16 +1366,20 @@ def detect_roadmap_true_blockers(
                         continue
                     if rule.metadata_value is None and not observed:
                         continue
-                blockers.append(
+                payload = _true_blocker_payload(
                     {
                         "source": rule.source,
                         "summary": decision.title,
-                        "requires_human": bool(rule.requires_human),
                         "terminal": bool(rule.terminal),
                         "decision_id": decision.decision_id,
                         "rule_id": rule.blocker_id,
-                    }
+                        "metadata": {**dict(rule.metadata or {}), **dict(decision.metadata or {})},
+                        "requires_human": bool(rule.requires_human),
+                    },
+                    default_requires_human=bool(rule.requires_human),
                 )
+                if payload is not None:
+                    blockers.append(payload)
 
     deduped: List[JsonDict] = []
     seen = set()
@@ -1435,6 +1599,29 @@ def _set_task_state(task_state: RoadmapTaskState, *, status: str, gate_results: 
         task_state.metadata = {**dict(task_state.metadata), "regressed": True, "regressed_at": now_iso}
     if status != "blocked":
         task_state.blockers = []
+
+
+
+def _requeue_non_human_blocked_tasks(state: RoadmapExecutionState) -> List[JsonDict]:
+    actions_taken: List[JsonDict] = []
+    for task_state in state.task_states:
+        if task_state.status != "blocked":
+            continue
+        human_blockers = [
+            blocker
+            for blocker in task_state.blockers
+            if _true_blocker_payload(blocker, source=str(blocker.get("source") or "task_blocker"), default_requires_human=False) is not None
+        ]
+        if human_blockers:
+            continue
+        _set_task_state(task_state, status="pending", gate_results=task_state.gate_results)
+        task_state.metadata = {
+            **dict(task_state.metadata or {}),
+            "last_requeue_reason": "non_human_blocker",
+            "last_requeue_at": task_state.updated_at,
+        }
+        actions_taken.append({"action": "requeue_task", "task_id": task_state.task_id, "reason": "non_human_blocker"})
+    return actions_taken
 
 
 
@@ -1742,6 +1929,7 @@ def _reconcile_roadmap_execution_pass(
     shared_state = shared_state_store.load(contract.process_id) or shared_state
     release_state = release_store.load(contract.process_id) if release_store is not None else None
     previous_release_stage = previous_state.current_release_stage if previous_state is not None else None
+    requeue_actions = _requeue_non_human_blocked_tasks(state)
 
     progress = _evaluate_and_advance(
         contract,
@@ -1776,16 +1964,16 @@ def _reconcile_roadmap_execution_pass(
         release_state=release_state,
     )
     release_stage_changed = previous_release_stage != (release_state.current_stage if release_state is not None else None)
-    validation_scope = _roadmap_validation_scope(
+    validation_decision = _roadmap_validation_decision(
         contract,
         budget=budget,
         previous_state=previous_state,
         state=state,
-        blockers=blockers,
         task_completion_count=_int_budget(progress.get("task_completion_count")),
         phase_transition_count=_int_budget(progress.get("phase_transition_count")),
         release_stage_changed=release_stage_changed,
     )
+    validation_scope = str(validation_decision.get("scope") or "focused")
     if validation_scope == "broad":
         completion = evaluate_roadmap_completion(
             contract,
@@ -1801,16 +1989,19 @@ def _reconcile_roadmap_execution_pass(
             {
                 "all_required_satisfied": False,
                 "validation_scope": validation_scope,
+                "validation_reasons": list(validation_decision.get("reasons") or []),
                 "criteria": list(completion.get("criteria") or []),
             }
         )
+    completion["validation_scope"] = validation_scope
+    completion["validation_reasons"] = list(validation_decision.get("reasons") or [])
 
     completed = bool(completion.get("all_required_satisfied")) and not blockers
     status = "completed" if completed else ("blocked" if blockers else "active")
     budget_exhausted = bool(progress.get("progress_budget_exhausted")) or bool(dispatch.get("dispatch_budget_exhausted"))
 
     next_iteration = int(state.iteration_count or 0) + 1
-    all_actions = ownership_actions + list(dependability.get("actions_taken") or []) + list(progress.get("actions_taken") or []) + list(dispatch.get("actions_taken") or [])
+    all_actions = ownership_actions + list(dependability.get("actions_taken") or []) + list(requeue_actions) + list(progress.get("actions_taken") or []) + list(dispatch.get("actions_taken") or [])
 
     immediate_completable_task_ids = _roadmap_immediately_completable_task_ids(
         contract,
@@ -1864,13 +2055,45 @@ def _reconcile_roadmap_execution_pass(
     if status == "blocked":
         report_reasons.append("blocked")
 
+    execution_discipline = {
+        "reporting_policy": _policy_dump(contract.reporting_policy),
+        "blocker_policy": {
+            "mode": "human_needed_only",
+            "builtin_question_prefixes": list(BUILTIN_BLOCKER_PREFIXES),
+            "human_needed_classes": sorted(HUMAN_BLOCKER_CLASSES),
+            "true_blocker_count": len(blockers),
+            "true_blocker_sources": _dedupe_rows([str(row.get("source") or "") for row in blockers]),
+            "requeued_task_ids": [row.get("task_id") for row in requeue_actions if row.get("task_id")],
+        },
+        "validation_policy": {
+            **validation_decision,
+            "configured": _policy_dump(contract.execution_budget),
+        },
+        "continuation_policy": {
+            "mode": continuation.get("mode"),
+            "reason": continuation.get("reason"),
+            "next_action_kind": next_action.get("kind"),
+            "quality_gate": "promotion_or_completion_checkpoint" if validation_scope == "broad" else "bounded_pass_focused_validation",
+        },
+        "latest_decisions": {
+            "status": status,
+            "summary_hint": str(next_action.get("summary") or pass_objective),
+            "report_reasons": _dedupe_rows(report_reasons),
+            "pass_index": pass_index,
+            "pass_objective": pass_objective,
+            "budget_exhausted": budget_exhausted,
+            "active_phase_id": state.active_phase_id,
+            "active_task_ids": list(state.active_task_ids),
+        },
+    }
+
     report_kind = "completed" if completed else ("blocked" if status == "blocked" else ("recovery" if "recovery" in report_reasons else "checkpoint"))
     summary = (
-        f"roadmap objective completed for {contract.process_id}"
+        f"roadmap objective completed for {contract.process_id}: validation={validation_scope}, next={next_action.get('kind') or 'completed'}"
         if completed
-        else f"roadmap objective blocked for {contract.process_id}: {len(blockers)} true blockers"
+        else f"roadmap objective blocked for {contract.process_id}: {len(blockers)} true blockers, next={next_action.get('kind') or 'needs_human_decision'}"
         if status == "blocked"
-        else f"roadmap objective active for {contract.process_id}: phase={state.active_phase_id or 'n/a'}, tasks={','.join(state.active_task_ids) or 'n/a'}"
+        else f"roadmap objective active for {contract.process_id}: phase={state.active_phase_id or 'n/a'}, tasks={','.join(state.active_task_ids) or 'n/a'}, next={next_action.get('kind') or 'n/a'}, validation={validation_scope}"
     )
 
     report_record: Optional[RoadmapExecutionReport] = None
@@ -1899,8 +2122,10 @@ def _reconcile_roadmap_execution_pass(
                     "pass_objective": pass_objective,
                     "pass_budget": pass_budget,
                     "validation_scope": validation_scope,
+                    "validation_reasons": list(validation_decision.get("reasons") or []),
                     "continuation": dict(continuation),
                     "next_action": dict(next_action),
+                    "execution_discipline": execution_discipline,
                 },
             )
         )
@@ -1930,10 +2155,12 @@ def _reconcile_roadmap_execution_pass(
             "objective": pass_objective,
             "budget": pass_budget,
             "validation_scope": validation_scope,
+            "validation_reasons": list(validation_decision.get("reasons") or []),
             "budget_exhausted": budget_exhausted,
             "task_completion_count": _int_budget(progress.get("task_completion_count")),
             "phase_transition_count": _int_budget(progress.get("phase_transition_count")),
             "task_dispatch_count": _int_budget(dispatch.get("dispatched_count")),
+            "requeued_task_count": len(requeue_actions),
         },
         phase_states=list(state.phase_states),
         task_states=list(state.task_states),
@@ -1947,6 +2174,10 @@ def _reconcile_roadmap_execution_pass(
             "pass_objective": pass_objective,
             "validation_scope": validation_scope,
             "continuation_mode": continuation.get("mode"),
+            "execution_discipline": execution_discipline,
+            "reporting_policy": _policy_dump(contract.reporting_policy),
+            "validation_policy": validation_decision,
+            "blocker_policy": execution_discipline["blocker_policy"],
         },
     )
     roadmap_store.save_state(updated_state)
@@ -2016,6 +2247,13 @@ def reconcile_roadmap_execution(
             continuation["reason"] = "auto_chain_budget_exhausted"
             next_action = dict(persisted_state.next_action or {})
             next_action["budget_exhausted"] = True
+            execution_discipline = dict((persisted_state.metadata or {}).get("execution_discipline") or {})
+            continuation_policy = dict(execution_discipline.get("continuation_policy") or {})
+            continuation_policy.update({"mode": continuation.get("mode"), "reason": continuation.get("reason"), "next_action_kind": next_action.get("kind")})
+            latest_decisions = dict(execution_discipline.get("latest_decisions") or {})
+            latest_decisions.update({"budget_exhausted": True, "chained_passes": chained_passes})
+            execution_discipline["continuation_policy"] = continuation_policy
+            execution_discipline["latest_decisions"] = latest_decisions
             persisted_state = RoadmapExecutionState(
                 **{
                     **_state_dump(persisted_state),
@@ -2030,6 +2268,7 @@ def reconcile_roadmap_execution(
                         **dict(persisted_state.metadata or {}),
                         "chained_passes": chained_passes,
                         "auto_chain_budget_exhausted": True,
+                        "execution_discipline": execution_discipline,
                     },
                 }
             )

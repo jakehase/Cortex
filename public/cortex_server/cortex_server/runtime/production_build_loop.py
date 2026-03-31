@@ -464,6 +464,39 @@ def _dedupe_rows(rows: Sequence[str]) -> List[str]:
 
 
 
+def _policy_dump(model: Any) -> Dict[str, Any]:
+    if model is None:
+        return {}
+    return model.model_dump() if hasattr(model, "model_dump") else model.dict()
+
+
+HUMAN_BLOCKER_HINTS: Dict[str, str] = {
+    "approve": "ambiguity",
+    "approval": "ambiguity",
+    "decision": "ambiguity",
+    "choose": "ambiguity",
+    "clarify": "ambiguity",
+    "confirm": "ambiguity",
+    "unclear": "ambiguity",
+    "ambigu": "ambiguity",
+    "access": "access",
+    "credential": "access",
+    "secret": "access",
+    "token": "access",
+    "permission": "access",
+    "auth": "access",
+    "login": "access",
+    "safety": "safety",
+    "unsafe": "safety",
+    "risk": "safety",
+    "legal": "safety",
+    "policy": "safety",
+    "compliance": "safety",
+}
+HUMAN_BLOCKER_CLASSES = {"ambiguity", "access", "safety", "release_hold", "human_decision"}
+
+
+
 def _report_blocker_key(blocker: Dict[str, Any]) -> str:
     return f"{blocker.get('source')}|{blocker.get('summary')}"
 
@@ -477,6 +510,110 @@ def _int_budget(value: Any, *, default: int = 0) -> int:
 
 
 
+def _classify_blocker_need(*, source: str, summary: str, requires_human: bool, metadata: Optional[Dict[str, Any]] = None) -> tuple[bool, Optional[str]]:
+    text = str(summary or "").strip().lower()
+    source_key = str(source or "").strip().lower()
+    meta = dict(metadata or {})
+    category = str(
+        meta.get("blocker_class")
+        or meta.get("classification")
+        or meta.get("category")
+        or meta.get("kind")
+        or ""
+    ).strip().lower()
+    if source_key == "release_hold":
+        return True, "release_hold"
+    if source_key == "open_decision":
+        return True, category or "human_decision"
+    if category in HUMAN_BLOCKER_CLASSES:
+        return True, category
+    for hint, blocker_class in HUMAN_BLOCKER_HINTS.items():
+        if hint in text:
+            return True, blocker_class
+    return bool(requires_human), (category or "human_decision") if requires_human else None
+
+
+
+def _question_requires_human(question: str) -> tuple[bool, Optional[str]]:
+    text = str(question or "").strip()
+    upper = text.upper()
+    if upper.startswith("HUMAN:"):
+        return True, "human_decision"
+    if not upper.startswith("BLOCKER:"):
+        return False, None
+    trimmed = text.split(":", 1)[1] if ":" in text else text
+    return _classify_blocker_need(source="open_question", summary=trimmed, requires_human=False)
+
+
+
+def _true_blocker_payload(
+    payload: Dict[str, Any],
+    *,
+    source: Optional[str] = None,
+    summary: Optional[str] = None,
+    default_requires_human: bool = False,
+) -> Optional[JsonDict]:
+    blocker = dict(payload or {})
+    blocker_source = str(source or blocker.get("source") or "runtime_blocker").strip() or "runtime_blocker"
+    blocker_summary = str(summary or blocker.get("summary") or "").strip()
+    if not blocker_summary:
+        return None
+    requires_human, blocker_class = _classify_blocker_need(
+        source=blocker_source,
+        summary=blocker_summary,
+        requires_human=bool(blocker.get("requires_human", default_requires_human)),
+        metadata=blocker.get("metadata") if isinstance(blocker.get("metadata"), dict) else None,
+    )
+    if not requires_human:
+        return None
+    blocker["source"] = blocker_source
+    blocker["summary"] = blocker_summary
+    blocker["requires_human"] = True
+    blocker["terminal"] = bool(blocker.get("terminal", True))
+    blocker["blocker_class"] = blocker_class or blocker.get("blocker_class") or "human_decision"
+    return blocker
+
+
+
+def _production_validation_decision(
+    contract: "ProductionBuildContract",
+    *,
+    budget: "ProductionPassBudget",
+    previous_state: Optional["ProductionBuildLoopState"],
+    state: "ProductionBuildLoopState",
+    stage_changes: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    reasons: List[str] = []
+    scope = "focused"
+    if budget.validation_mode == "broad":
+        scope = "broad"
+        reasons.append("forced_broad_mode")
+    elif budget.broaden_validation_on_completion_candidate and state.current_stage == contract.target_environment:
+        scope = "broad"
+        reasons.append("completion_checkpoint")
+    elif budget.broaden_validation_on_stage_change and stage_changes:
+        scope = "broad"
+        reasons.append("stage_promotion_checkpoint")
+    else:
+        checkpoints = set(_dedupe_rows(list(budget.broader_validation_checkpoints or []) + [contract.target_environment]))
+        if state.current_stage in checkpoints:
+            scope = "broad"
+            reasons.append(f"checkpoint:{state.current_stage}")
+        else:
+            reasons.append("bounded_pass_focused_validation")
+    if previous_state is not None and previous_state.status in {"blocked", "completed"}:
+        reasons.append(f"previous_status={previous_state.status}")
+    return {
+        "scope": scope,
+        "reasons": _dedupe_rows(reasons),
+        "promotion_checkpoint": scope == "broad",
+        "stage_change_count": len(stage_changes or []),
+        "current_stage": state.current_stage,
+        "default_scope": budget.validation_mode,
+    }
+
+
+
 def _production_validation_scope(
     contract: "ProductionBuildContract",
     *,
@@ -486,20 +623,17 @@ def _production_validation_scope(
     blockers: Sequence[Dict[str, Any]],
     stage_changes: Sequence[Dict[str, Any]],
 ) -> str:
-    if budget.validation_mode == "broad":
-        return "broad"
-    if blockers:
-        return "broad"
-    if budget.broaden_validation_on_completion_candidate and state.current_stage == contract.target_environment:
-        return "broad"
-    if budget.broaden_validation_on_stage_change and stage_changes:
-        return "broad"
-    checkpoints = set(_dedupe_rows(list(budget.broader_validation_checkpoints or []) + [contract.target_environment]))
-    if state.current_stage in checkpoints:
-        return "broad"
-    if previous_state is not None and previous_state.status in {"blocked", "completed"}:
-        return "broad"
-    return "focused"
+    del blockers
+    return str(
+        _production_validation_decision(
+            contract,
+            budget=budget,
+            previous_state=previous_state,
+            state=state,
+            stage_changes=stage_changes,
+        ).get("scope")
+        or "focused"
+    )
 
 
 
@@ -766,70 +900,80 @@ def detect_true_blockers(
     shared_state: SharedProcessState,
     release_state: Optional[ReleaseWorkflowState] = None,
 ) -> List[JsonDict]:
+    del snapshot
     blockers: List[JsonDict] = []
 
     for hold in list(release_state.operator_holds) if release_state else []:
-        blockers.append(
-            {
-                "source": "release_hold",
-                "summary": str(hold),
-                "requires_human": True,
-                "terminal": True,
-            }
-        )
+        blocker = _true_blocker_payload({"source": "release_hold", "summary": str(hold), "terminal": True}, default_requires_human=True)
+        if blocker is not None:
+            blockers.append(blocker)
 
     for decision in shared_state.open_decisions:
         if decision.status == "resolved":
             continue
         if _decision_requires_human(decision):
-            blockers.append(
+            blocker = _true_blocker_payload(
                 {
                     "source": "open_decision",
                     "summary": decision.title,
-                    "requires_human": True,
                     "terminal": True,
                     "decision_id": decision.decision_id,
-                }
+                    "metadata": dict(decision.metadata or {}),
+                },
+                default_requires_human=True,
             )
+            if blocker is not None:
+                blockers.append(blocker)
 
     for question in shared_state.open_questions:
-        if any(str(question).startswith(prefix) for prefix in BUILTIN_BLOCKER_PREFIXES):
-            blockers.append(
-                {
-                    "source": "open_question",
-                    "summary": str(question),
-                    "requires_human": True,
-                    "terminal": True,
-                }
-            )
+        requires_human, blocker_class = _question_requires_human(str(question))
+        if not requires_human:
+            continue
+        blockers.append(
+            {
+                "source": "open_question",
+                "summary": str(question),
+                "requires_human": True,
+                "terminal": True,
+                "blocker_class": blocker_class or "human_decision",
+            }
+        )
 
     for rule in contract.blocker_rules:
         if rule.source == "release_hold":
             for hold in list(release_state.operator_holds) if release_state else []:
-                blockers.append(
+                payload = _true_blocker_payload(
                     {
                         "source": rule.source,
                         "summary": str(hold),
-                        "requires_human": bool(rule.requires_human),
                         "terminal": bool(rule.terminal),
                         "rule_id": rule.blocker_id,
-                    }
+                        "metadata": dict(rule.metadata or {}),
+                        "requires_human": bool(rule.requires_human),
+                    },
+                    default_requires_human=bool(rule.requires_human),
                 )
+                if payload is not None:
+                    blockers.append(payload)
         elif rule.source == "open_question_prefix":
             prefix = str(rule.question_prefix or "").strip()
             if not prefix:
                 continue
             for question in shared_state.open_questions:
                 if str(question).startswith(prefix):
-                    blockers.append(
+                    payload = _true_blocker_payload(
                         {
                             "source": rule.source,
                             "summary": str(question),
-                            "requires_human": bool(rule.requires_human),
                             "terminal": bool(rule.terminal),
                             "rule_id": rule.blocker_id,
-                        }
+                            "metadata": dict(rule.metadata or {}),
+                            "requires_human": bool(rule.requires_human),
+                        },
+                        default_requires_human=bool(rule.requires_human),
                     )
+                    if payload is not None:
+                        blockers.append(payload)
         elif rule.source == "open_decision":
             for decision in shared_state.open_decisions:
                 if decision.status == "resolved":
@@ -844,16 +988,20 @@ def detect_true_blockers(
                         continue
                     if rule.metadata_value is None and not observed:
                         continue
-                blockers.append(
+                payload = _true_blocker_payload(
                     {
                         "source": rule.source,
                         "summary": decision.title,
-                        "requires_human": bool(rule.requires_human),
                         "terminal": bool(rule.terminal),
                         "decision_id": decision.decision_id,
                         "rule_id": rule.blocker_id,
-                    }
+                        "metadata": {**dict(rule.metadata or {}), **dict(decision.metadata or {})},
+                        "requires_human": bool(rule.requires_human),
+                    },
+                    default_requires_human=bool(rule.requires_human),
                 )
+                if payload is not None:
+                    blockers.append(payload)
 
     deduped: List[JsonDict] = []
     seen = set()
@@ -1564,14 +1712,15 @@ def _reconcile_production_build_loop_pass(
         shared_state=shared_state,
         release_state=release_state,
     )
-    validation_scope = _production_validation_scope(
+    projected_state = ProductionBuildLoopState(**{**_state_dump(state), "current_stage": release_state.current_stage if release_state else state.current_stage})
+    validation_decision = _production_validation_decision(
         contract,
         budget=budget,
         previous_state=previous_state,
-        state=ProductionBuildLoopState(**{**_state_dump(state), "current_stage": release_state.current_stage if release_state else state.current_stage}),
-        blockers=blockers,
+        state=projected_state,
         stage_changes=stage_changes,
     )
+    validation_scope = str(validation_decision.get("scope") or "focused")
     if validation_scope == "broad":
         completion = evaluate_production_completion(
             contract,
@@ -1586,9 +1735,12 @@ def _reconcile_production_build_loop_pass(
             {
                 "all_required_satisfied": False,
                 "validation_scope": validation_scope,
+                "validation_reasons": list(validation_decision.get("reasons") or []),
                 "criteria": list(completion.get("criteria") or []),
             }
         )
+    completion["validation_scope"] = validation_scope
+    completion["validation_reasons"] = list(validation_decision.get("reasons") or [])
 
     completed = bool(completion.get("all_required_satisfied")) and not blockers
     status = "completed" if completed else ("blocked" if blockers else "active")
@@ -1600,7 +1752,7 @@ def _reconcile_production_build_loop_pass(
 
     next_action = _production_next_action(
         contract,
-        state=ProductionBuildLoopState(**{**_state_dump(state), "current_stage": release_state.current_stage if release_state else state.current_stage}),
+        state=projected_state,
         blockers=blockers,
         completion=completion,
         budget=budget,
@@ -1631,13 +1783,44 @@ def _reconcile_production_build_loop_pass(
     if status == "blocked":
         report_reasons.append("blocked")
 
+    execution_discipline = {
+        "reporting_policy": _policy_dump(contract.checkpoint_policy),
+        "blocker_policy": {
+            "mode": "human_needed_only",
+            "builtin_question_prefixes": list(BUILTIN_BLOCKER_PREFIXES),
+            "human_needed_classes": sorted(HUMAN_BLOCKER_CLASSES),
+            "true_blocker_count": len(blockers),
+            "true_blocker_sources": _dedupe_rows([str(row.get("source") or "") for row in blockers]),
+        },
+        "validation_policy": {
+            **validation_decision,
+            "configured": _policy_dump(contract.execution_budget),
+        },
+        "continuation_policy": {
+            "mode": continuation.get("mode"),
+            "reason": continuation.get("reason"),
+            "next_action_kind": next_action.get("kind"),
+            "quality_gate": "promotion_or_completion_checkpoint" if validation_scope == "broad" else "bounded_pass_focused_validation",
+        },
+        "latest_decisions": {
+            "status": status,
+            "summary_hint": str(next_action.get("summary") or pass_objective),
+            "report_reasons": _dedupe_rows(report_reasons),
+            "pass_index": pass_index,
+            "pass_objective": pass_objective,
+            "budget_exhausted": budget_exhausted,
+            "current_stage": release_state.current_stage if release_state else None,
+            "stage_changes": list(stage_changes),
+        },
+    }
+
     report_kind = "completed" if completed else ("blocked" if status == "blocked" else ("recovery" if "recovery" in report_reasons else "checkpoint"))
     summary = (
-        f"production build loop completed for {contract.process_id}"
+        f"production build loop completed for {contract.process_id}: stage={release_state.current_stage if release_state else 'n/a'}, validation={validation_scope}"
         if completed
-        else f"production build loop blocked for {contract.process_id}: {len(blockers)} true blockers"
+        else f"production build loop blocked for {contract.process_id}: {len(blockers)} true blockers, next={next_action.get('kind') or 'needs_human_decision'}"
         if status == "blocked"
-        else f"production build loop active for {contract.process_id}: stage={release_state.current_stage if release_state else 'n/a'}"
+        else f"production build loop active for {contract.process_id}: stage={release_state.current_stage if release_state else 'n/a'}, next={next_action.get('kind') or 'n/a'}, validation={validation_scope}"
     )
 
     report_record: Optional[ProductionBuildLoopReport] = None
@@ -1665,8 +1848,10 @@ def _reconcile_production_build_loop_pass(
                     "pass_objective": pass_objective,
                     "pass_budget": pass_budget,
                     "validation_scope": validation_scope,
+                    "validation_reasons": list(validation_decision.get("reasons") or []),
                     "continuation": dict(continuation),
                     "next_action": dict(next_action),
+                    "execution_discipline": execution_discipline,
                 },
             )
         )
@@ -1694,6 +1879,7 @@ def _reconcile_production_build_loop_pass(
             "objective": pass_objective,
             "budget": pass_budget,
             "validation_scope": validation_scope,
+            "validation_reasons": list(validation_decision.get("reasons") or []),
             "budget_exhausted": budget_exhausted,
             "stage_advances": _int_budget(release_progress.get("stage_advances")),
         },
@@ -1707,6 +1893,10 @@ def _reconcile_production_build_loop_pass(
             "pass_objective": pass_objective,
             "validation_scope": validation_scope,
             "continuation_mode": continuation.get("mode"),
+            "execution_discipline": execution_discipline,
+            "reporting_policy": _policy_dump(contract.checkpoint_policy),
+            "validation_policy": validation_decision,
+            "blocker_policy": execution_discipline["blocker_policy"],
         },
     )
     loop_store.save_state(updated_state)
@@ -1781,6 +1971,13 @@ def reconcile_production_build_loop(
             continuation["reason"] = "auto_chain_budget_exhausted"
             next_action = dict(persisted_state.next_action or {})
             next_action["budget_exhausted"] = True
+            execution_discipline = dict((persisted_state.metadata or {}).get("execution_discipline") or {})
+            continuation_policy = dict(execution_discipline.get("continuation_policy") or {})
+            continuation_policy.update({"mode": continuation.get("mode"), "reason": continuation.get("reason"), "next_action_kind": next_action.get("kind")})
+            latest_decisions = dict(execution_discipline.get("latest_decisions") or {})
+            latest_decisions.update({"budget_exhausted": True, "chained_passes": chained_passes})
+            execution_discipline["continuation_policy"] = continuation_policy
+            execution_discipline["latest_decisions"] = latest_decisions
             persisted_state = ProductionBuildLoopState(
                 **{
                     **_state_dump(persisted_state),
@@ -1795,6 +1992,7 @@ def reconcile_production_build_loop(
                         **dict(persisted_state.metadata or {}),
                         "chained_passes": chained_passes,
                         "auto_chain_budget_exhausted": True,
+                        "execution_discipline": execution_discipline,
                     },
                 }
             )

@@ -436,6 +436,7 @@ def test_roadmap_executor_auto_chains_across_phase_completion_without_natural_pa
     )
 
     persisted = loop_store.load_state(process_id)
+    reports = loop_store.reports(process_id)
 
     assert result["state"]["status"] == "active"
     assert result["state"]["active_phase_id"] == "hardening"
@@ -445,8 +446,13 @@ def test_roadmap_executor_auto_chains_across_phase_completion_without_natural_pa
     assert result["continuation"]["mode"] == "await_external_progress"
     assert persisted is not None
     assert persisted.last_pass["budget"]["max_task_completions_per_pass"] == 1
+    assert persisted.last_pass["validation_scope"] in {"focused", "broad"}
     assert persisted.next_action["kind"] == "await_worker_progress"
     assert "refactor" in persisted.next_action["task_ids"]
+    assert len(reports) >= 2
+    assert all("scope" in report.metadata["execution_discipline"]["validation_policy"] for report in reports)
+    assert all("next=" in report.summary or report.kind != "checkpoint" for report in reports)
+    assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "active"
 
 
 
@@ -632,3 +638,95 @@ def test_roadmap_executor_blocks_only_for_true_human_blockers(tmp_path):
     assert result["state"]["status"] == "blocked"
     assert any(blocker["source"] == "open_decision" for blocker in result["blockers"])
     assert reports[-1].kind == "blocked"
+    assert reports[-1].metadata["execution_discipline"]["blocker_policy"]["true_blocker_count"] == 1
+
+
+
+def test_roadmap_executor_requeues_non_human_task_blockers_and_reports_policy(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_roadmap_requeue"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=["build"],
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state=dict(seeded["shared_state"].world_state),
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=["BLOCKER: transient cache mismatch on retryable CI lane"],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "retryable_blocker"},
+    )
+
+    contract = RoadmapObjectiveContract(
+        process_id=process_id,
+        objective="Keep working through non-human blockers",
+        dependability_profile=dict(MINIMAL_PROFILE),
+        metadata={"default_worker_id": "builder"},
+        phases=[RoadmapPhaseDefinition(phase_id="build", title="Build")],
+        tasks=[
+            RoadmapTaskDefinition(
+                task_id="build",
+                phase_id="build",
+                title="Build",
+                work_type="feature",
+                quality_gates=[
+                    RoadmapSuccessCriterion(
+                        criterion_id="final-artifact",
+                        summary="Final artifact must exist",
+                        kind="artifact_present",
+                        artifact_id="artifact_final_release",
+                    )
+                ],
+            )
+        ],
+    )
+    store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    store.save_state(
+        RoadmapExecutionState(
+            objective_id=contract.objective_id,
+            process_id=process_id,
+            phase_states=[{"phase_id": "build", "status": "active"}],
+            task_states=[
+                RoadmapTaskState(
+                    task_id="build",
+                    phase_id="build",
+                    work_type="feature",
+                    status="blocked",
+                    blockers=[{"source": "task_blocker", "summary": "Retry flaky CI lane after backoff", "requires_human": False}],
+                )
+            ],
+            active_phase_id="build",
+            active_task_ids=["build"],
+        )
+    )
+
+    result = reconcile_roadmap_execution(
+        contract,
+        roadmap_store=store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-requeue",
+        journal=harness.journal,
+    )
+
+    reports = store.reports(process_id)
+
+    assert result["state"]["status"] == "active"
+    assert result["blockers"] == []
+    assert any(action["action"] == "requeue_task" for action in result["actions_taken"])
+    assert result["state"]["metadata"]["execution_discipline"]["blocker_policy"]["requeued_task_ids"] == ["build"]
+    assert result["state"]["metadata"]["validation_policy"]["scope"] == "focused"
+    assert "bounded_pass_focused_validation" in result["state"]["last_pass"]["validation_reasons"]
+    assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "active"
+    assert "validation=focused" in reports[-1].summary
