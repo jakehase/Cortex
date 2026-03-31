@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T22:09:13.624Z",
+      "updatedAt": "2026-03-31T22:14:11.176Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 94,
+        "runs": 95,
         "failures": [],
-        "lastRunAt": "2026-03-31T22:09:13.631Z",
+        "lastRunAt": "2026-03-31T22:14:11.183Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6878,7 +6878,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-03-31T22:08:55.787Z",
+      "updatedAt": "2026-03-31T22:18:35.921Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -6913,9 +6913,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 37,
+        "runs": 41,
         "failures": [],
-        "lastRunAt": "2026-03-31T22:08:55.793Z",
+        "lastRunAt": "2026-03-31T22:18:35.929Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -7226,6 +7226,41 @@
       "failedAt": "2026-03-31T22:09:37.377Z",
       "failureReason": "ness.release_store.save( ReleaseWorkflowState( process_id=process_id, candidate_ref=\"build:auto-chain\", target_environment=\"production\", revision_id=shared_state.revision_id, current_stage=\"build_verified\", status=\"preparing\", ), actor=\"builder\", provenance={\"phase\": \"seed_release\"}, ) contract = _contract(process_id).model_copy( update={ \"execution_budget\": RoadmapPassBudget( max_auto_chain_passe",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:d8c463c8-99b6-49d7-8acf-c8a34939551a:1774995513480:2d97ccacf45b15c5",
+      "sessionKey": "agent:main:subagent:d8c463c8-99b6-49d7-8acf-c8a34939551a",
+      "createdAt": "2026-03-31T22:18:33.480Z",
+      "updatedAt": "2026-03-31T22:18:33.485Z",
+      "prompt": "[Tue 2026-03-31 17:18 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Continue from /root/clawd at commit 7327f8f0. Implement the next",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-03-31T22:18:33.480Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-03-31T22:18:33.485Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }
