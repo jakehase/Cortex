@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T22:04:21.079Z",
+      "updatedAt": "2026-03-31T22:09:13.624Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 93,
+        "runs": 94,
         "failures": [],
-        "lastRunAt": "2026-03-31T22:04:21.086Z",
+        "lastRunAt": "2026-03-31T22:09:13.631Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6878,7 +6878,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-03-31T21:53:14.843Z",
+      "updatedAt": "2026-03-31T22:08:55.787Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -6913,9 +6913,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 36,
+        "runs": 37,
         "failures": [],
-        "lastRunAt": "2026-03-31T21:53:14.847Z",
+        "lastRunAt": "2026-03-31T22:08:55.793Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -7185,11 +7185,11 @@
       "id": "agent:main:subagent:428b1eab-e6fa-4514-b29e-e5d916453108:1774993991224:53eee91916870162",
       "sessionKey": "agent:main:subagent:428b1eab-e6fa-4514-b29e-e5d916453108",
       "createdAt": "2026-03-31T21:53:11.224Z",
-      "updatedAt": "2026-03-31T21:53:11.239Z",
+      "updatedAt": "2026-03-31T22:09:37.377Z",
       "prompt": "[Tue 2026-03-31 16:53 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Implement Phase 1 + Phase 2 of the roadmap-executor fixes in /ro",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -7201,6 +7201,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-31T21:53:11.239Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-03-31T22:09:37.377Z",
+          "failedAt": "2026-03-31T22:09:37.377Z",
+          "failureReason": "ness.release_store.save( ReleaseWorkflowState( process_id=process_id, candidate_ref=\"build:auto-chain\", target_environment=\"production\", revision_id=shared_state.revision_id, current_stage=\"build_verified\", status=\"preparing\", ), actor=\"builder\", provenance={\"phase\": \"seed_release\"}, ) contract = _contract(process_id).model_copy( update={ \"execution_budget\": RoadmapPassBudget( max_auto_chain_passe",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -7214,7 +7222,10 @@
         "passed": false,
         "runs": 0,
         "failures": []
-      }
+      },
+      "failedAt": "2026-03-31T22:09:37.377Z",
+      "failureReason": "ness.release_store.save( ReleaseWorkflowState( process_id=process_id, candidate_ref=\"build:auto-chain\", target_environment=\"production\", revision_id=shared_state.revision_id, current_stage=\"build_verified\", status=\"preparing\", ), actor=\"builder\", provenance={\"phase\": \"seed_release\"}, ) contract = _contract(process_id).model_copy( update={ \"execution_budget\": RoadmapPassBudget( max_auto_chain_passe",
+      "failureSource": "runtime_message"
     }
   ]
 }
