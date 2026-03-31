@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T16:53:58.050Z",
+      "updatedAt": "2026-03-31T16:59:08.294Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 31,
+        "runs": 32,
         "failures": [],
-        "lastRunAt": "2026-03-31T16:53:58.059Z",
+        "lastRunAt": "2026-03-31T16:59:08.303Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6878,7 +6878,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-03-31T16:41:52.881Z",
+      "updatedAt": "2026-03-31T17:02:37.249Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -6913,9 +6913,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 13,
+        "runs": 15,
         "failures": [],
-        "lastRunAt": "2026-03-31T16:41:52.887Z",
+        "lastRunAt": "2026-03-31T17:02:37.256Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6978,12 +6978,12 @@
       "id": "agent:main:subagent:6833e1f2-9d3a-4708-b9d9-e4329a7dc6a4:1774975309686:6c1dfad4d967bfbb",
       "sessionKey": "agent:main:subagent:6833e1f2-9d3a-4708-b9d9-e4329a7dc6a4",
       "createdAt": "2026-03-31T16:41:49.686Z",
-      "updatedAt": "2026-03-31T16:41:49.691Z",
+      "updatedAt": "2026-03-31T17:01:17.977Z",
       "prompt": "[Tue 2026-03-31 11:41 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Implement the missing persistent 'build this app until productio",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Tue 2026-03-31 11:41 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Implement the missing persistent 'build this app until production-ready' control loop in /root/clawd/public/co",
       "history": [
         {
           "from": null,
@@ -6994,6 +6994,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-31T16:41:49.691Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-31T17:00:25.976Z",
+          "completedAt": "2026-03-31T17:00:25.971Z",
+          "completionSummary": "...................................................................... 72% ........................................................................ 90% ...................................... 100% 398 passed in 271.27s (0:04:31) Process exited with code 0.",
+          "completionSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -7004,10 +7012,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-03-31T17:01:17.981Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-03-31T17:00:25.971Z",
+      "completionSource": "agent_end"
     }
   ]
 }
