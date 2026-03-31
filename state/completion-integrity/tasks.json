@@ -2833,7 +2833,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:30:51.243Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T01:41:39.247Z",
+      "updatedAt": "2026-03-31T01:46:39.448Z",
       "history": [
         {
           "from": null,
@@ -2851,9 +2851,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 207,
+        "runs": 208,
         "failures": [],
-        "lastRunAt": "2026-03-31T01:41:39.255Z",
+        "lastRunAt": "2026-03-31T01:46:39.456Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6583,12 +6583,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774920401525:e84cf6f57e9ca18e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T01:26:41.525Z",
-      "updatedAt": "2026-03-31T01:30:54.345Z",
+      "updatedAt": "2026-03-31T01:50:26.156Z",
       "prompt": "No that’s fine, push 5d19ae5f now and then continue on the current roadmap",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’m taking that as *restore Phase A/B implementation surfaces*. I’m mapping the historical packages first so I can tell which of R1/R2/R3/R4/R6 were real recoverable code packages versus ju",
+      "completionSummary": "System: 2026-03-30 20:28:25 CDT Exec completed (kind-pin, code 0) :: ........................................................................ 87% .......... 100% 82 passed in 16.87s System: 2026-03-30 20:30:41 CDT Exec completed (quick-re, code 0) :: .............................",
       "history": [
         {
           "from": null,
@@ -6618,16 +6618,16 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 1,
+        "runs": 2,
         "failures": [],
-        "lastRunAt": "2026-03-31T01:30:54.349Z",
+        "lastRunAt": "2026-03-31T01:50:26.161Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-31T01:30:54.345Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
