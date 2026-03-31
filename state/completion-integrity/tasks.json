@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T18:29:48.410Z",
+      "updatedAt": "2026-03-31T18:34:41.474Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 50,
+        "runs": 51,
         "failures": [],
-        "lastRunAt": "2026-03-31T18:29:48.417Z",
+        "lastRunAt": "2026-03-31T18:34:41.477Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6878,12 +6878,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-03-31T18:27:17.645Z",
+      "updatedAt": "2026-03-31T18:38:43.271Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’ve got the final substrate pieces written. Running focused validation first because this touched shared-state persistence, soak profiles, and runtime exports. ``` How’s this going? result",
+      "completionSummary": "..................... 100% 21 passed in 0.74s Process exited with code 0.",
       "history": [
         {
           "from": null,
@@ -6913,16 +6913,16 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 23,
+        "runs": 24,
         "failures": [],
-        "lastRunAt": "2026-03-31T18:27:17.649Z",
+        "lastRunAt": "2026-03-31T18:38:43.274Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-31T15:14:19.071Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     },
     {
       "id": "agent:main:subagent:b5800b1f-1c37-4ed0-8eed-fbeff6165aad:1774972961529:5975d6e5a80d4f15",
@@ -7074,12 +7074,12 @@
       "id": "agent:main:subagent:6b3ef897-4a73-4fce-92bc-04857655a5a6:1774981631924:b2164ea00aeefb54",
       "sessionKey": "agent:main:subagent:6b3ef897-4a73-4fce-92bc-04857655a5a6",
       "createdAt": "2026-03-31T18:27:11.924Z",
-      "updatedAt": "2026-03-31T18:27:11.933Z",
+      "updatedAt": "2026-03-31T18:37:48.277Z",
       "prompt": "[Tue 2026-03-31 13:27 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Continue from /root/clawd at commit 413b263c and finish the rema",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
-      "completionSummary": "",
+      "status": "failed",
+      "completionSummary": "........................................................................ 17% ........................................................................ 35% ........................................................................ 53% .................................................",
       "history": [
         {
           "from": null,
@@ -7090,6 +7090,22 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-31T18:27:11.933Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-03-31T18:36:26.363Z",
+          "completedAt": "2026-03-31T18:36:26.363Z",
+          "completionSummary": "............................................... 100% 47 passed in 16.48s Process exited with code 0.",
+          "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-03-31T18:37:48.277Z",
+          "failedAt": "2026-03-31T18:37:48.277Z",
+          "failureReason": "fatal: The upstream branch of your current branch does not match the name of your current branch. To push to the upstream branch on the remote, use git push origin HEAD:main To push to the branch of the same name on the remote, use git push origin HEAD To choose either option permanently, see push.default in 'git help config'. To avoid automatically configuring an upstream branch when its name won",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -7101,9 +7117,19 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
-      }
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-03-31T18:37:25.005Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "completedAt": "2026-03-31T18:36:26.363Z",
+      "completionSource": "runtime_message",
+      "failedAt": "2026-03-31T18:37:48.277Z",
+      "failureReason": "fatal: The upstream branch of your current branch does not match the name of your current branch. To push to the upstream branch on the remote, use git push origin HEAD:main To push to the branch of the same name on the remote, use git push origin HEAD To choose either option permanently, see push.default in 'git help config'. To avoid automatically configuring an upstream branch when its name won",
+      "failureSource": "runtime_message"
     }
   ]
 }
