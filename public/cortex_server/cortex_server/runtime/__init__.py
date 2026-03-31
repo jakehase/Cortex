@@ -7,6 +7,7 @@ from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_resume import RuntimeResumeState, compile_runtime_resume_state, load_runtime_resume_state
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
+from cortex_server.runtime.soak_harness import RuntimeSoakHarness, detect_stale_revision
 
 __all__ = [
     "AgentLease",
@@ -23,11 +24,13 @@ __all__ = [
     "ProcessSnapshot",
     "ProcessSnapshotStore",
     "RuntimeResumeState",
+    "RuntimeSoakHarness",
     "SharedProcessState",
     "SharedProcessStateStore",
     "WorkingContextView",
     "compile_handoff_context_view",
     "compile_runtime_resume_state",
     "compile_working_context_view",
+    "detect_stale_revision",
     "load_runtime_resume_state",
 ]
