@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentSupervisor
+from cortex_server.runtime.dependability import build_unattended_profile, load_dependability_report
 from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_replay import replay_from_journal
 from cortex_server.runtime.process_resume import load_runtime_resume_state
@@ -677,6 +678,332 @@ class RuntimeSoakHarness:
             self.run_pause_resume_scenario(process_id=f"{process_prefix}_pause_resume_{idx}", wait_seconds=seconds)
             for idx, seconds in enumerate(wait_matrix, start=1)
         ]
+
+    def _checkpoint_from_journal(
+        self,
+        *,
+        process_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        runtime_policy_overrides: Optional[Dict[str, Any]] = None,
+        world_state_overrides: Optional[Dict[str, Any]] = None,
+    ) -> ProcessSnapshot:
+        previous = self.snapshot_store.load(process_id)
+        replayed = replay_from_journal(self.journal, process_id)
+        previous_metadata = dict(previous.metadata) if previous else {}
+        checkpoint_count = int(previous_metadata.get("checkpoint_count", 0) or 0) + 1
+        return self.snapshot_store.save(
+            ProcessSnapshot(
+                process_id=process_id,
+                last_event_id=replayed.get("last_event_id"),
+                event_count=int(replayed.get("event_count", 0) or 0),
+                lifecycle_state=str(replayed.get("lifecycle_state") or "created"),
+                active_steps=list(replayed.get("active_steps") or []),
+                waiting_steps=list(replayed.get("waiting_steps") or []),
+                completed_steps=list(replayed.get("completed_steps") or []),
+                failed_steps=list(replayed.get("failed_steps") or []),
+                assigned_agents=dict(replayed.get("assigned_agents") or {}),
+                runtime_policy={
+                    **dict(replayed.get("runtime_policy") or {}),
+                    **dict(runtime_policy_overrides or {}),
+                },
+                world_state={
+                    **dict(replayed.get("world_state") or {}),
+                    **dict(world_state_overrides or {}),
+                },
+                belief_refs=list(replayed.get("belief_refs") or []),
+                artifact_refs=list(replayed.get("artifact_refs") or []),
+                metadata={
+                    **previous_metadata,
+                    "checkpoint_count": checkpoint_count,
+                    **dict(metadata or {}),
+                },
+            )
+        )
+
+    def _campaign_shared_state(
+        self,
+        *,
+        process_id: str,
+        revision_id: str,
+        expected_revision_id: Optional[str],
+        active_node_ids: List[str],
+        completed_node_ids: List[str],
+        belief_refs: List[str],
+        owner_map: Dict[str, str],
+        world_state: Dict[str, Any],
+        profile_spec: Dict[str, Any],
+        cycle_index: int,
+        actor: str,
+        final: bool = False,
+    ) -> SharedProcessState:
+        goals = [
+            "sustain unattended multi-agent continuity",
+            "preserve handoff context across checkpoints",
+            "recover safely from stalled or conflicting runtime state",
+        ]
+        open_questions = [] if final else ["can the next agent resume without prompt-local continuity?"]
+        return self.shared_state_store.save(
+            SharedProcessState(
+                process_id=process_id,
+                revision_id=revision_id,
+                goals=goals,
+                active_plan_node_ids=list(active_node_ids),
+                runtime_constraints={
+                    "execution_mode": "multi_agent",
+                    "resume_safe": True,
+                    "unattended_profile": profile_spec.get("profile"),
+                    "lease_seconds": int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180),
+                    "checkpoint_every_events": int((profile_spec.get("checkpoint") or {}).get("snapshot_every_events", 4) or 4),
+                },
+                world_state=dict(world_state),
+                belief_refs=_dedupe_rows(list(belief_refs)),
+                open_questions=open_questions,
+                agent_ownership=dict(owner_map),
+                metadata={
+                    "campaign": True,
+                    "profile": profile_spec.get("profile"),
+                    "cycle_index": cycle_index,
+                    "completed_nodes": list(completed_node_ids),
+                    "final": final,
+                },
+            ),
+            expected_revision_id=expected_revision_id,
+            actor=actor,
+            provenance={
+                "scenario": "unattended_campaign",
+                "cycle_index": cycle_index,
+                "profile": profile_spec.get("profile"),
+                "final": final,
+            },
+        )
+
+    def run_unattended_campaign(
+        self,
+        profile: str,
+        *,
+        process_prefix: Optional[str] = None,
+        cycle_count: Optional[int] = None,
+        agent_ids: Optional[List[str]] = None,
+        node_ids: Optional[List[str]] = None,
+    ) -> JsonDict:
+        profile_spec = build_unattended_profile(profile)
+        process_id = process_prefix or f"campaign_{profile_spec['profile']}"
+        agents = _dedupe_rows(list(agent_ids or ["planner", "researcher", "critic", "implementer"]))
+        nodes = _dedupe_rows(list(node_ids or ["plan", "research", "synthesize", "review"]))
+        if len(agents) < 2:
+            raise ValueError("unattended campaign requires at least two agents")
+        if not nodes:
+            raise ValueError("unattended campaign requires at least one node")
+        total_cycles = max(int(cycle_count or profile_spec.get("campaign_cycles", len(nodes)) or len(nodes)), len(nodes), len(agents))
+        initial_revision_id = "rev_1"
+        first_node = nodes[0]
+        first_agent = agents[0]
+        self._seed_waiting_process(process_id=process_id, revision_id=initial_revision_id, node_id=first_node, agent_id=first_agent)
+
+        current_revision_id = initial_revision_id
+        previous_agent = "coordinator"
+        completed_nodes: List[str] = []
+        belief_refs: List[str] = []
+        owner_map: Dict[str, str] = {}
+        timeline: List[JsonDict] = []
+
+        for idx in range(total_cycles):
+            cycle_number = idx + 1
+            node_id = nodes[idx % len(nodes)]
+            agent_id = agents[idx % len(agents)]
+            next_node = nodes[(idx + 1) % len(nodes)] if idx + 1 < total_cycles else None
+            lease = self.supervisor.assign(
+                process_id=process_id,
+                scope=node_id,
+                agent_id=agent_id,
+                lease_seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180),
+                metadata={"campaign": True, "cycle": cycle_number, "profile": profile_spec.get("profile")},
+            )
+            handoff = self.mailbox.send(
+                process_id=process_id,
+                from_agent=previous_agent,
+                to_agent=agent_id,
+                kind="handoff",
+                revision_id=current_revision_id,
+                dedupe_key=f"campaign:{process_id}:{cycle_number}:{previous_agent}:{agent_id}",
+                payload={
+                    "objective": f"advance unattended campaign cycle {cycle_number}",
+                    "node_id": node_id,
+                    "profile": profile_spec.get("profile"),
+                },
+            )
+            accepted = self.mailbox.receive(
+                to_agent=agent_id,
+                process_id=process_id,
+                expected_revision_id=current_revision_id,
+                reject_stale_revision=True,
+            )
+            if any(row.message_id == handoff.message_id for row in accepted):
+                self.mailbox.acknowledge(handoff.message_id)
+
+            resumed = self.journal.append(
+                process_id=process_id,
+                kind="process_resumed",
+                revision_id=current_revision_id,
+                actor=agent_id,
+                payload={"node_id": node_id},
+            )
+            self.journal.append(
+                process_id=process_id,
+                kind="agent_assigned",
+                revision_id=current_revision_id,
+                actor=agent_id,
+                causal_parent_ids=[resumed.event_id],
+                payload={"node_id": node_id, "agent_id": agent_id, "scope": node_id},
+            )
+            started = self.journal.append(
+                process_id=process_id,
+                kind="step_started",
+                revision_id=current_revision_id,
+                actor=agent_id,
+                payload={"node_id": node_id},
+            )
+            self.journal.append(
+                process_id=process_id,
+                kind="world_state_updated",
+                revision_id=current_revision_id,
+                actor=agent_id,
+                causal_parent_ids=[started.event_id],
+                payload={
+                    "world_state": {
+                        "status": "running",
+                        "last_node": node_id,
+                        "last_agent": agent_id,
+                        "campaign_cycle": cycle_number,
+                        "campaign_profile": profile_spec.get("profile"),
+                    }
+                },
+            )
+            claim_id = f"claim_{process_id}_{cycle_number}"
+            artifact_id = f"artifact_{process_id}_{cycle_number}"
+            self.journal.append(
+                process_id=process_id,
+                kind="belief_written",
+                revision_id=current_revision_id,
+                actor=agent_id,
+                payload={"claim_id": claim_id},
+            )
+            self.journal.append(
+                process_id=process_id,
+                kind="artifact_written",
+                revision_id=current_revision_id,
+                actor=agent_id,
+                payload={"artifact_id": artifact_id},
+            )
+            completed = self.journal.append(
+                process_id=process_id,
+                kind="step_completed",
+                revision_id=current_revision_id,
+                actor=agent_id,
+                payload={"node_id": node_id},
+            )
+            belief_refs = _dedupe_rows(belief_refs + [claim_id])
+            owner_map[node_id] = agent_id
+            if node_id not in completed_nodes:
+                completed_nodes.append(node_id)
+            if next_node:
+                self.journal.append(
+                    process_id=process_id,
+                    kind="process_waiting",
+                    revision_id=current_revision_id,
+                    actor=agent_id,
+                    causal_parent_ids=[completed.event_id],
+                    payload={"node_id": next_node},
+                )
+            else:
+                self.journal.append(
+                    process_id=process_id,
+                    kind="process_completed",
+                    revision_id=current_revision_id,
+                    actor=agent_id,
+                    causal_parent_ids=[completed.event_id],
+                )
+            snapshot = self._checkpoint_from_journal(
+                process_id=process_id,
+                metadata={
+                    "campaign": True,
+                    "campaign_cycle": cycle_number,
+                    "campaign_profile": profile_spec.get("profile"),
+                },
+                runtime_policy_overrides={
+                    "execution_mode": "multi_agent",
+                    "resume_safe": True,
+                    "campaign_profile": profile_spec.get("profile"),
+                },
+            )
+            next_revision_id = f"rev_{cycle_number + 1}"
+            final_cycle = cycle_number == total_cycles
+            world_state = {
+                **dict(snapshot.world_state),
+                "campaign_cycle": cycle_number,
+                "campaign_profile": profile_spec.get("profile"),
+                "status": "completed" if final_cycle else "waiting",
+            }
+            shared_state = self._campaign_shared_state(
+                process_id=process_id,
+                revision_id=next_revision_id,
+                expected_revision_id=current_revision_id,
+                active_node_ids=[] if final_cycle else ([next_node] if next_node else []),
+                completed_node_ids=completed_nodes,
+                belief_refs=belief_refs,
+                owner_map=owner_map,
+                world_state=world_state,
+                profile_spec=profile_spec,
+                cycle_index=cycle_number,
+                actor=agent_id,
+                final=final_cycle,
+            )
+            self.supervisor.heartbeat(
+                lease.lease_id,
+                lease_seconds=int((profile_spec.get("watchdog") or {}).get("lease_seconds", 180) or 180),
+            )
+            self.supervisor.release(lease.lease_id)
+            timeline.append(
+                {
+                    "cycle": cycle_number,
+                    "node_id": node_id,
+                    "agent_id": agent_id,
+                    "lease_id": lease.lease_id,
+                    "handoff_id": handoff.message_id,
+                    "accepted": any(row.message_id == handoff.message_id for row in accepted),
+                    "snapshot_id": snapshot.snapshot_id,
+                    "revision_id": shared_state.revision_id,
+                    "next_node_id": next_node,
+                }
+            )
+            current_revision_id = next_revision_id
+            previous_agent = agent_id
+
+        dependability = load_dependability_report(
+            process_id=process_id,
+            snapshot_store=self.snapshot_store,
+            shared_state_store=self.shared_state_store,
+            journal=self.journal,
+            mailbox=self.mailbox,
+            supervisor=self.supervisor,
+            profile=profile_spec,
+            now=self.clock_fn(),
+        )
+        return {
+            "scenario": "unattended_campaign",
+            "process_id": process_id,
+            "profile": profile_spec,
+            "cycle_count": total_cycles,
+            "agents": agents,
+            "nodes": nodes,
+            "timeline": timeline,
+            "dependability": dependability,
+            "success": bool(dependability.get("success")),
+            "operator_summary": (
+                f"unattended campaign {'ok' if dependability.get('success') else 'failed'} for {process_id}: "
+                f"cycles={total_cycles}, agents={len(agents)}, profile={profile_spec.get('profile')}"
+            ),
+        }
 
     def run_dead_letter_recovery_scenario(
         self,
