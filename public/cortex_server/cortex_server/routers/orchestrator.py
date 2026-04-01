@@ -57,6 +57,8 @@ from cortex_server.modules.reasoning_scheduler import (
 from cortex_server.runtime import (
     AgentMailbox,
     AgentSupervisor,
+    MaintenanceQueueItem,
+    MaintenanceQueueStore,
     ProcessJournal,
     ProcessSnapshot,
     ProcessSnapshotStore,
@@ -125,6 +127,7 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         "loop_store": ProductionBuildLoopStore(root / "production_build_loop"),
         "roadmap_store": RoadmapExecutionStore(root / "roadmap_executor"),
         "follow_up_store": RuntimeFollowUpStore(root / "runtime_follow_ups.json"),
+        "maintenance_queue_store": MaintenanceQueueStore(root / "maintenance_queue.json"),
     }
 
 
@@ -934,6 +937,357 @@ def _bridge_runtime_roadmap_follow_up(
 
 
 
+def _maintenance_queue_item_projection(
+    item: MaintenanceQueueItem,
+    *,
+    process: Optional[Dict[str, Any]],
+    state: Optional[Dict[str, Any]],
+    latest_report: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    conversation = dict((state or {}).get("conversation_ownership") or {})
+    follow_through = dict((state or {}).get("follow_through") or {})
+    metadata = dict(item.metadata or {})
+    return {
+        "item_id": item.item_id,
+        "queue_name": item.queue_name,
+        "status": item.status,
+        "priority": int(item.priority or 0),
+        "objective": item.objective,
+        "summary": item.summary,
+        "item_kind": item.item_kind,
+        "process_id": item.process_id,
+        "workflow_name": ((process or {}).get("workflow") or {}).get("name") if isinstance((process or {}).get("workflow"), dict) else None,
+        "process_status": (process or {}).get("status") if isinstance(process, dict) else None,
+        "roadmap_status": (state or {}).get("status"),
+        "roadmap_liveness": (state or {}).get("liveness"),
+        "active_phase_id": (state or {}).get("active_phase_id"),
+        "active_task_ids": list((state or {}).get("active_task_ids") or []),
+        "next_action": dict((state or {}).get("next_action") or {}),
+        "continuation": dict((state or {}).get("continuation") or {}),
+        "owed_follow_up": dict((state or {}).get("owed_follow_up") or {}),
+        "conversation_ownership": conversation,
+        "follow_through": follow_through,
+        "latest_report_kind": (latest_report or {}).get("kind"),
+        "latest_report_summary": (latest_report or {}).get("summary"),
+        "latest_report_reasons": list((((latest_report or {}).get("metadata") if isinstance((latest_report or {}).get("metadata"), dict) else {}) or {}).get("reasons") or []),
+        "source": {
+            "channel": ((item.source_message or {}).get("channel") if isinstance(item.source_message, dict) else None),
+            "conversation_id": ((item.source_message or {}).get("conversation_id") if isinstance(item.source_message, dict) else None),
+            "message_id": ((item.source_message or {}).get("message_id") if isinstance(item.source_message, dict) else None),
+            "from_user": ((item.source_message or {}).get("from_user") if isinstance(item.source_message, dict) else None),
+        },
+        "done_world_state_key": metadata.get("done_world_state_key"),
+        "maintenance_metadata": dict(metadata.get("maintenance_queue") or {}),
+        "created_at": item.created_at,
+        "claimed_at": item.claimed_at,
+        "completed_at": item.completed_at,
+        "blocked_at": item.blocked_at,
+        "last_transition_at": item.last_transition_at,
+    }
+
+
+
+def _runtime_maintenance_queue_status_payload(*, stores: Dict[str, Any]) -> Dict[str, Any]:
+    queue_state = stores["maintenance_queue_store"].get_state()
+    items = stores["maintenance_queue_store"].list()
+    counts = {
+        "pending": sum(1 for item in items if item.status == "pending"),
+        "active": sum(1 for item in items if item.status == "active"),
+        "completed": sum(1 for item in items if item.status == "completed"),
+        "blocked": sum(1 for item in items if item.status == "blocked"),
+    }
+    return {
+        "success": True,
+        "queue": {
+            "version": queue_state.version,
+            "updated_at": queue_state.updated_at,
+            "max_active_items": int(queue_state.max_active_items or 1),
+            "counts": counts,
+            "items": [model_dump_compat(item) for item in items],
+        },
+    }
+
+
+
+def _maintenance_queue_intake_text(request: RuntimeMaintenanceIntakeRequest) -> str:
+    message_text = str(request.message.text or "").strip()
+    direct_text = str(request.text or "").strip()
+    title = str(request.title or "").strip()
+    objective = str(request.objective or "").strip()
+    return direct_text or message_text or title or objective
+
+
+
+def _maintenance_queue_objective(request: RuntimeMaintenanceIntakeRequest) -> str:
+    objective = str(request.objective or request.title or "").strip()
+    if objective:
+        return objective
+    text = _maintenance_queue_intake_text(request)
+    if not text:
+        raise HTTPException(status_code=400, detail="maintenance intake requires objective/title/text/message.text")
+    condensed = " ".join(text.split())
+    return condensed[:120] if len(condensed) > 120 else condensed
+
+
+
+def _build_runtime_maintenance_contract(item_id: str, request: RuntimeMaintenanceIntakeRequest) -> RoadmapObjectiveContract:
+    objective = _maintenance_queue_objective(request)
+    source_text = _maintenance_queue_intake_text(request) or objective
+    payload: Dict[str, Any] = {}
+    if isinstance(request.contract, dict):
+        payload.update(dict(request.contract))
+    payload["process_id"] = str(payload.get("process_id") or f"pending:{item_id}")
+    payload.setdefault("objective", objective)
+    if request.success_criteria is not None:
+        payload["success_criteria"] = list(request.success_criteria)
+    if request.phases is not None:
+        payload["phases"] = list(request.phases)
+    if request.tasks is not None:
+        payload["tasks"] = list(request.tasks)
+    if request.blocker_rules is not None:
+        payload["blocker_rules"] = list(request.blocker_rules)
+    if request.dependability_profile is not None:
+        payload["dependability_profile"] = request.dependability_profile
+    if request.reporting_policy is not None:
+        payload["reporting_policy"] = dict(request.reporting_policy)
+    if request.execution_budget is not None:
+        payload["execution_budget"] = dict(request.execution_budget)
+    payload.setdefault("dependability_profile", "24h")
+    done_key = f"maintenance_queue.{item_id}.done"
+    if not payload.get("phases"):
+        payload["phases"] = [
+            {
+                "phase_id": "maintenance",
+                "title": "Maintenance queue execution",
+                "summary": "Drive the queued maintenance intake to completion",
+            }
+        ]
+    if not payload.get("tasks"):
+        payload["tasks"] = [
+            {
+                "task_id": "resolve_request",
+                "phase_id": "maintenance",
+                "title": objective,
+                "summary": source_text,
+                "work_type": str(request.item_kind or "maintenance").strip() or "maintenance",
+                "quality_gates": [
+                    {
+                        "criterion_id": "maintenance-done",
+                        "summary": "Queue item must be marked done in shared world state",
+                        "kind": "world_state",
+                        "world_state_key": done_key,
+                        "expected_value": True,
+                    }
+                ],
+            }
+        ]
+    if not payload.get("success_criteria"):
+        payload["success_criteria"] = [
+            {
+                "criterion_id": "maintenance-done",
+                "summary": "Queue item must be marked done in shared world state",
+                "kind": "world_state",
+                "world_state_key": done_key,
+                "expected_value": True,
+            }
+        ]
+    merged_metadata = dict(payload.get("metadata") or {})
+    merged_metadata.update(dict(request.metadata or {}))
+    merged_metadata.setdefault("owner", "cortex")
+    if request.message.session_key and not merged_metadata.get("session_key"):
+        merged_metadata["session_key"] = request.message.session_key
+    if request.message.channel and not merged_metadata.get("channel"):
+        merged_metadata["channel"] = request.message.channel
+    if request.message.conversation_id and not merged_metadata.get("conversation_id"):
+        merged_metadata["conversation_id"] = request.message.conversation_id
+    merged_metadata["done_world_state_key"] = done_key
+    merged_metadata["maintenance_queue"] = {
+        "item_id": item_id,
+        "queue_name": str(request.queue_name or "maintenance").strip() or "maintenance",
+        "item_kind": str(request.item_kind or "maintenance").strip() or "maintenance",
+        "source_message_id": str(request.message.message_id or "").strip() or None,
+        "source_channel": str(request.message.channel or "").strip() or None,
+        "source_conversation_id": str(request.message.conversation_id or "").strip() or None,
+        "source_from_user": str(request.message.from_user or "").strip() or None,
+        "source_text": source_text,
+    }
+    payload["metadata"] = merged_metadata
+    return _validate_roadmap_contract(payload)
+
+
+
+def _maintenance_queue_contract_for_process(item: MaintenanceQueueItem, *, process_id: str) -> RoadmapObjectiveContract:
+    payload = dict(item.roadmap_contract or {})
+    payload["process_id"] = process_id
+    metadata = dict(payload.get("metadata") or {})
+    metadata.setdefault("maintenance_queue", {})
+    if isinstance(metadata.get("maintenance_queue"), dict):
+        metadata["maintenance_queue"] = {**dict(metadata.get("maintenance_queue") or {}), "item_id": item.item_id, "queue_name": item.queue_name}
+    payload["metadata"] = metadata
+    return _validate_roadmap_contract(payload)
+
+
+
+def _maintenance_queue_workflow(item: MaintenanceQueueItem) -> Dict[str, Any]:
+    message = dict(item.source_message or {})
+    metadata = {
+        "owner": "cortex",
+        "session_key": message.get("session_key"),
+        "channel": message.get("channel"),
+        "conversation_id": message.get("conversation_id"),
+        "maintenance_queue_item_id": item.item_id,
+        "maintenance_queue": {
+            "item_id": item.item_id,
+            "queue_name": item.queue_name,
+            "item_kind": item.item_kind,
+            "source_message_id": message.get("message_id"),
+        },
+    }
+    return {
+        "name": item.objective,
+        "metadata": metadata,
+        "steps": [
+            {
+                "node_id": "maintenance_intake",
+                "title": "Advance maintenance intake",
+                "endpoint": "/oracle/chat",
+                "payload": {"message": item.source_text or item.objective},
+                "metadata": {"maintenance_queue_item_id": item.item_id, "source_message": message},
+            }
+        ],
+    }
+
+
+
+def _maintenance_queue_process_id(item: MaintenanceQueueItem) -> str:
+    suffix = "".join(ch for ch in str(item.item_id or "") if ch.isalnum())[-12:] or "item"
+    return f"proc_maintenance_{suffix}"
+
+
+
+def _runtime_maintenance_queue_sync(
+    *,
+    stores: Dict[str, Any],
+    now: Optional[datetime] = None,
+    allow_claim: bool = True,
+) -> Dict[str, Any]:
+    current_time = now or datetime.now().astimezone()
+    now_iso = current_time.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    queue_store = stores["maintenance_queue_store"]
+    queue_state = queue_store.get_state()
+    items = list(queue_state.items)
+    by_id = {item.item_id: item for item in items}
+    actions: List[Dict[str, Any]] = []
+    active_count = 0
+    pending: List[MaintenanceQueueItem] = []
+
+    ordered = sorted(items, key=lambda row: (int(row.priority or 0), str(row.created_at), str(row.item_id)))
+    for item in ordered:
+        process = get_runtime_process(item.process_id) if item.process_id else None
+        roadmap_state_model = stores["roadmap_store"].load_state(item.process_id) if item.process_id else None
+        reports = stores["roadmap_store"].reports(item.process_id) if item.process_id else []
+        latest_report_model = reports[-1] if reports else None
+        state_payload = model_dump_compat(roadmap_state_model) if roadmap_state_model is not None else None
+        latest_report = model_dump_compat(latest_report_model) if latest_report_model is not None else None
+        derived_status = item.status
+        if isinstance(state_payload, dict):
+            derived = str(state_payload.get("status") or "").strip()
+            if derived in {"active", "completed", "blocked"}:
+                derived_status = derived
+        if derived_status == "active":
+            active_count += 1
+            item.claimed_at = item.claimed_at or now_iso
+        elif derived_status == "pending":
+            pending.append(item)
+        elif derived_status == "completed":
+            item.completed_at = item.completed_at or now_iso
+            item.blocked_at = None
+        elif derived_status == "blocked":
+            item.blocked_at = item.blocked_at or now_iso
+        if derived_status != item.status:
+            item.status = derived_status
+            item.last_transition_at = now_iso
+        item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report)
+        by_id[item.item_id] = item
+
+    capacity = max(1, int(queue_state.max_active_items or 1))
+    if allow_claim and active_count < capacity:
+        available = capacity - active_count
+        for item in pending[:available]:
+            process = get_runtime_process(item.process_id) if item.process_id else None
+            if process is None:
+                process = create_process_from_workflow(
+                    _maintenance_queue_workflow(item),
+                    process_id=item.process_id or _maintenance_queue_process_id(item),
+                    owner="cortex",
+                    session_key=str((item.source_message or {}).get("session_key") or "").strip() or None,
+                )
+            item.process_id = process.get("process_id")
+            _bootstrap_runtime_delivery_state(item.process_id, process=process, stores=stores)
+            contract = _maintenance_queue_contract_for_process(item, process_id=item.process_id)
+            reconciled = reconcile_roadmap_execution(
+                contract,
+                roadmap_store=stores["roadmap_store"],
+                snapshot_store=stores["snapshot_store"],
+                shared_state_store=stores["shared_state_store"],
+                mailbox=stores["mailbox"],
+                supervisor=stores["supervisor"],
+                release_store=stores["release_store"],
+                controller_id="maintenance-queue",
+                controller_session_id=f"maintenance-queue:{item.item_id}",
+                journal=stores["journal"],
+                now=current_time,
+            )
+            process = _sync_runtime_process_roadmap_state(
+                item.process_id,
+                process=get_runtime_process(item.process_id) or process,
+                stores=stores,
+                event_kind="runtime_maintenance_queue_claimed",
+                event_payload={"item_id": item.item_id, "queue_name": item.queue_name, "status": (reconciled.get("state") or {}).get("status")},
+            )
+            follow_up_bridge = _bridge_runtime_roadmap_follow_up(item.process_id, process=process, stores=stores, now=current_time)
+            process = follow_up_bridge.get("process") or process
+            latest_state_model = stores["roadmap_store"].load_state(item.process_id)
+            latest_reports = stores["roadmap_store"].reports(item.process_id)
+            latest_report_model = latest_reports[-1] if latest_reports else None
+            state_payload = model_dump_compat(latest_state_model) if latest_state_model is not None else ((reconciled.get("state") if isinstance(reconciled.get("state"), dict) else None) or {})
+            latest_report = model_dump_compat(latest_report_model) if latest_report_model is not None else (reconciled.get("report") if isinstance(reconciled.get("report"), dict) else None)
+            item.status = str(state_payload.get("status") or "active").strip() or "active"
+            item.claimed_at = item.claimed_at or now_iso
+            if item.status == "completed":
+                item.completed_at = item.completed_at or now_iso
+            if item.status == "blocked":
+                item.blocked_at = item.blocked_at or now_iso
+            item.last_transition_at = now_iso
+            item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report)
+            by_id[item.item_id] = item
+            actions.append(
+                {
+                    "kind": "maintenance_queue_claim",
+                    "item_id": item.item_id,
+                    "queue_name": item.queue_name,
+                    "process_id": item.process_id,
+                    "status": item.status,
+                    "objective": item.objective,
+                    "follow_up_dispatch": follow_up_bridge.get("dispatch"),
+                }
+            )
+            if item.status == "active":
+                active_count += 1
+
+    persisted = [by_id[item.item_id] for item in items]
+    queue_store.replace_items(persisted, max_active_items=queue_state.max_active_items)
+    return {
+        "max_active_items": capacity,
+        "active_count": sum(1 for item in persisted if item.status == "active"),
+        "pending_count": sum(1 for item in persisted if item.status == "pending"),
+        "blocked_count": sum(1 for item in persisted if item.status == "blocked"),
+        "completed_count": sum(1 for item in persisted if item.status == "completed"),
+        "actions": actions,
+        "action_count": len(actions),
+    }
+
+
 def _persist_workflow(workflow: Dict[str, Any]) -> Dict[str, Any]:
     return runtime_workflows.persist_workflow(
         workflow,
@@ -1073,6 +1427,36 @@ class RuntimeRoadmapReconcileRequest(BaseModel):
     controller_id: str = "cortex"
     controller_session_id: Optional[str] = None
     now_iso: Optional[str] = None
+
+
+class RuntimeMaintenanceIntakeMessage(BaseModel):
+    text: Optional[str] = None
+    channel: Optional[str] = None
+    conversation_id: Optional[str] = None
+    session_key: Optional[str] = None
+    from_user: Optional[str] = None
+    message_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeMaintenanceIntakeRequest(BaseModel):
+    message: RuntimeMaintenanceIntakeMessage = Field(default_factory=RuntimeMaintenanceIntakeMessage)
+    objective: Optional[str] = None
+    title: Optional[str] = None
+    text: Optional[str] = None
+    item_kind: str = "maintenance"
+    priority: int = 100
+    queue_name: str = "maintenance"
+    max_active_items: Optional[int] = None
+    contract: Optional[Dict[str, Any]] = None
+    success_criteria: Optional[List[Dict[str, Any]]] = None
+    phases: Optional[List[Dict[str, Any]]] = None
+    tasks: Optional[List[Dict[str, Any]]] = None
+    blocker_rules: Optional[List[Dict[str, Any]]] = None
+    dependability_profile: Optional[Any] = None
+    reporting_policy: Optional[Dict[str, Any]] = None
+    execution_budget: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -1765,7 +2149,9 @@ def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit
             if delivery_bridge.get("dispatch") is not None:
                 process = delivery_bridge.get("process") or process
                 actions.append({"kind": "delivery_follow_up", "process_id": process_id, "decision": None, "status": loop_state.status if loop_state is not None else None, "report": None, "follow_up_dispatch": delivery_bridge.get("dispatch")})
-    return {"reviewed": reviewed, "actions": actions, "action_count": len(actions)}
+    queue_actions = _runtime_maintenance_queue_sync(stores=stores, now=now, allow_claim=True)
+    actions.extend(list(queue_actions.get("actions") or []))
+    return {"reviewed": reviewed, "actions": actions, "action_count": len(actions), "maintenance_queue": queue_actions}
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
@@ -2077,6 +2463,71 @@ async def reconcile_runtime_roadmap(process_id: str, request: Optional[RuntimeRo
         "follow_up_dispatch": follow_up_bridge.get("dispatch"),
         "roadmap": _runtime_roadmap_status_payload(process_id, process=process, stores=stores),
     }
+
+
+@router.post("/runtime/maintenance/intake")
+async def intake_runtime_maintenance_item(request: RuntimeMaintenanceIntakeRequest):
+    stores = _runtime_delivery_stores()
+    if request.max_active_items is not None:
+        stores["maintenance_queue_store"].configure(max_active_items=request.max_active_items)
+    contract = _build_runtime_maintenance_contract("pending", request)
+    item = MaintenanceQueueItem(
+        queue_name=str(request.queue_name or "maintenance").strip() or "maintenance",
+        status="pending",
+        priority=int(request.priority or 0),
+        objective=_maintenance_queue_objective(request),
+        summary=str(request.title or _maintenance_queue_intake_text(request) or _maintenance_queue_objective(request)).strip() or None,
+        item_kind=str(request.item_kind or "maintenance").strip() or "maintenance",
+        source_text=_maintenance_queue_intake_text(request) or _maintenance_queue_objective(request),
+        source_message={
+            "text": str(request.message.text or request.text or "").strip() or None,
+            "channel": str(request.message.channel or "").strip() or None,
+            "conversation_id": str(request.message.conversation_id or "").strip() or None,
+            "session_key": str(request.message.session_key or "").strip() or None,
+            "from_user": str(request.message.from_user or "").strip() or None,
+            "message_id": str(request.message.message_id or "").strip() or None,
+            "metadata": dict(request.message.metadata or {}),
+        },
+        roadmap_contract=model_dump_compat(contract),
+        metadata={
+            **dict(request.metadata or {}),
+            "done_world_state_key": dict(contract.metadata or {}).get("done_world_state_key"),
+            "maintenance_queue": dict((contract.metadata or {}).get("maintenance_queue") or {}),
+        },
+    )
+    # Rebuild the contract once the stable item id exists so the done-key fingerprint is durable.
+    contract = _build_runtime_maintenance_contract(item.item_id, request)
+    item.roadmap_contract = model_dump_compat(contract)
+    item.metadata = {
+        **dict(item.metadata or {}),
+        "done_world_state_key": dict(contract.metadata or {}).get("done_world_state_key"),
+        "maintenance_queue": dict((contract.metadata or {}).get("maintenance_queue") or {}),
+    }
+    item.projection = _maintenance_queue_item_projection(item, process=None, state=None, latest_report=None)
+    queued = stores["maintenance_queue_store"].enqueue(item)
+    _runtime_maintenance_queue_sync(stores=stores, now=None, allow_claim=False)
+    return {
+        "success": True,
+        "item": model_dump_compat(stores["maintenance_queue_store"].get(queued.item_id) or queued),
+        "maintenance_queue": _runtime_maintenance_queue_status_payload(stores=stores),
+    }
+
+
+@router.get("/runtime/maintenance/queue")
+async def get_runtime_maintenance_queue():
+    stores = _runtime_delivery_stores()
+    _runtime_maintenance_queue_sync(stores=stores, now=None, allow_claim=False)
+    return _runtime_maintenance_queue_status_payload(stores=stores)
+
+
+@router.get("/runtime/maintenance/queue/{item_id}")
+async def get_runtime_maintenance_queue_item(item_id: str):
+    stores = _runtime_delivery_stores()
+    _runtime_maintenance_queue_sync(stores=stores, now=None, allow_claim=False)
+    item = stores["maintenance_queue_store"].get(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Runtime maintenance queue item '{item_id}' not found")
+    return {"success": True, "item": model_dump_compat(item), "maintenance_queue": _runtime_maintenance_queue_status_payload(stores=stores)}
 
 
 @router.get("/runtime/trace/{process_id}")

@@ -8,6 +8,7 @@ from cortex_server.runtime.process_journal import ProcessJournal
 from cortex_server.runtime.process_resume import RuntimeResumeState, compile_runtime_resume_state, load_runtime_resume_state
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
 from cortex_server.runtime.outbound_follow_up import RuntimeFollowUpDispatch, RuntimeFollowUpStore
+from cortex_server.runtime.maintenance_queue import MaintenanceQueueItem, MaintenanceQueueState, MaintenanceQueueStore
 from cortex_server.runtime.production_build_loop import (
     BuildLoopControllerOwner,
     ProductionBlockerRule,
@@ -105,6 +106,9 @@ __all__ = [
     "ProcessSnapshotStore",
     "RuntimeFollowUpDispatch",
     "RuntimeFollowUpStore",
+    "MaintenanceQueueItem",
+    "MaintenanceQueueState",
+    "MaintenanceQueueStore",
     "ReleaseRollbackFencepost",
     "ReleaseWorkflowHistoryRecord",
     "ReleaseWorkflowState",
