@@ -282,6 +282,8 @@ class ProductionBuildLoopState(BaseModel):
     owed_follow_up: Dict[str, Any] = Field(default_factory=dict)
     reporting_cadence: Dict[str, Any] = Field(default_factory=dict)
     last_watchdog_decision: Dict[str, Any] = Field(default_factory=dict)
+    conversation_ownership: Dict[str, Any] = Field(default_factory=dict)
+    follow_through: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("loop_id", "contract_id", "process_id", "status", "liveness")
@@ -507,6 +509,111 @@ def _policy_dump(model: Any) -> Dict[str, Any]:
     return model.model_dump() if hasattr(model, "model_dump") else model.dict()
 
 
+def _blocker_requires_human(blocker: Optional[Dict[str, Any]]) -> bool:
+    return bool((blocker or {}).get("requires_human"))
+
+
+def _has_human_blockers(blockers: Sequence[Dict[str, Any]]) -> bool:
+    return any(_blocker_requires_human(row) for row in blockers)
+
+
+def _conversation_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    source = dict(metadata or {})
+    owner = str(source.get("conversation_owner") or source.get("owner") or "").strip() or None
+    session_key = str(source.get("conversation_session_key") or source.get("session_key") or "").strip() or None
+    channel = str(source.get("conversation_channel") or source.get("channel") or "").strip() or None
+    conversation_id = str(source.get("conversation_id") or source.get("thread_id") or source.get("chat_id") or "").strip() or None
+    return {
+        "owner": owner,
+        "session_key": session_key,
+        "channel": channel,
+        "conversation_id": conversation_id,
+    }
+
+
+def _production_conversation_ownership(
+    *,
+    contract: "ProductionBuildContract",
+    previous_state: Optional["ProductionBuildLoopState"],
+    review_plan: Dict[str, Any],
+    report_record: Optional["ProductionBuildLoopReport"],
+    now_iso: str,
+) -> Dict[str, Any]:
+    previous = dict(previous_state.conversation_ownership or {}) if previous_state is not None else {}
+    conversation = {
+        **previous,
+        **_conversation_metadata(contract.metadata),
+    }
+    owed_follow_up = dict(review_plan.get("owed_follow_up") or {})
+    conversation.update(
+        {
+            "owned": bool(conversation.get("owner") or conversation.get("session_key") or conversation.get("conversation_id")),
+            "owes_follow_up": bool(owed_follow_up.get("owed")),
+            "follow_up_kind": owed_follow_up.get("kind"),
+            "follow_up_reason": owed_follow_up.get("reason"),
+            "next_follow_up_at": owed_follow_up.get("due_at"),
+            "last_user_visible_update_at": report_record.recorded_at if report_record is not None else previous.get("last_user_visible_update_at"),
+            "updated_at": now_iso,
+        }
+    )
+    return conversation
+
+
+def _production_follow_through(
+    *,
+    previous_state: Optional["ProductionBuildLoopState"],
+    status: str,
+    next_action: Dict[str, Any],
+    continuation: Dict[str, Any],
+    review_plan: Dict[str, Any],
+    report_reasons: Sequence[str],
+    report_record: Optional["ProductionBuildLoopReport"],
+    watchdog_context: Optional[Dict[str, Any]],
+    now_iso: str,
+) -> Dict[str, Any]:
+    previous = dict(previous_state.follow_through or {}) if previous_state is not None else {}
+    owed_follow_up = dict(review_plan.get("owed_follow_up") or {})
+    last_user_visible_update_intent = dict(previous.get("last_user_visible_update_intent") or {})
+    if report_record is not None:
+        last_user_visible_update_intent = {
+            "kind": report_record.kind,
+            "status": report_record.status,
+            "summary": report_record.summary,
+            "reasons": list((report_record.metadata or {}).get("reasons") or []),
+            "recorded_at": report_record.recorded_at,
+        }
+
+    pending_update_intent = dict(previous.get("pending_update_intent") or {})
+    if owed_follow_up.get("owed"):
+        pending_update_intent = {
+            "kind": owed_follow_up.get("kind") or "status",
+            "reason": owed_follow_up.get("reason") or continuation.get("reason") or next_action.get("kind") or status,
+            "due_at": owed_follow_up.get("due_at"),
+            "status": status,
+            "watchdog_decision": (watchdog_context or {}).get("decision"),
+        }
+    elif report_record is not None or status == "completed":
+        pending_update_intent = {}
+
+    return {
+        **previous,
+        "live_objective": status != "completed",
+        "continuation": dict(continuation or {}),
+        "next_action": dict(next_action or {}),
+        "last_user_visible_update_intent": last_user_visible_update_intent,
+        "pending_update_intent": pending_update_intent,
+        "last_user_visible_update_at": report_record.recorded_at if report_record is not None else previous.get("last_user_visible_update_at"),
+        "next_required_update_at": owed_follow_up.get("due_at"),
+        "next_required_review_at": review_plan.get("next_review_at"),
+        "review_due": bool(review_plan.get("review_due")),
+        "report_due": bool(review_plan.get("report_due")),
+        "resume_on_next_tick": bool(status != "completed" and continuation.get("mode") in {"continue_now", "await_external_progress"}),
+        "report_reasons": _dedupe_rows(list(report_reasons or [])),
+        "watchdog": dict(watchdog_context or {}),
+        "updated_at": now_iso,
+    }
+
+
 HUMAN_BLOCKER_HINTS: Dict[str, str] = {
     "approve": "ambiguity",
     "approval": "ambiguity",
@@ -696,7 +803,7 @@ def _production_next_action(
             "budget": budget_payload,
         }
     if blockers:
-        if any(bool(row.get("requires_human")) for row in blockers):
+        if _has_human_blockers(blockers):
             return {
                 "kind": "needs_human_decision",
                 "status": "blocked",
@@ -706,9 +813,9 @@ def _production_next_action(
                 "budget": budget_payload,
             }
         return {
-            "kind": "blocked",
-            "status": "blocked",
-            "summary": str(blockers[0].get("summary") or "Production delivery blocked"),
+            "kind": "await_non_human_recovery",
+            "status": "active",
+            "summary": str(blockers[0].get("summary") or "Production delivery awaiting non-human recovery"),
             "blockers": [dict(row) for row in blockers],
             "pass_index": pass_index,
             "budget": budget_payload,
@@ -746,8 +853,9 @@ def _production_continuation(*, status: str, blockers: Sequence[Dict[str, Any]],
     if status == "completed":
         return {"mode": "stop", "terminal": True, "reason": "completed", "status": status}
     if blockers:
-        reason = "needs_human_decision" if any(bool(row.get("requires_human")) for row in blockers) else "blocked"
-        return {"mode": "stop", "terminal": True, "reason": reason, "status": status}
+        if _has_human_blockers(blockers):
+            return {"mode": "stop", "terminal": True, "reason": "needs_human_decision", "status": status}
+        return {"mode": "await_external_progress", "terminal": False, "reason": "non_human_blocker", "status": status}
     next_kind = str(next_action.get("kind") or "").strip()
     if next_kind == "promote_stage":
         return {"mode": "continue_now", "terminal": False, "reason": next_kind, "status": status}
@@ -783,7 +891,7 @@ def _production_progress_record(
         reasons.append("stage_change")
     if previous_state is not None and previous_state.status != status:
         reasons.append("status_change")
-    if any(reason in {"recovery", "idle_recovery", "stage_change", "status_change", "completed", "blocked"} for reason in report_reasons):
+    if any(reason in {"recovery", "idle_recovery", "stage_change", "status_change", "completed", "blocked", "human_blocker", "non_human_blocker"} for reason in report_reasons):
         reasons.append("reportable_change")
     if not reasons:
         return previous_state.last_progress_at if previous_state is not None else None, dict(previous_state.last_progress or {}) if previous_state is not None else {}
@@ -826,9 +934,10 @@ def _production_review_plan(
             "owed_follow_up": {"owed": False, "status": status, "reason": "completed", "due_at": None, "updated_at": now_iso},
             "reporting_cadence": {"classification": "terminal", "report_interval_seconds": 0, "review_interval_seconds": 0, "updated_at": now_iso},
         }
-    classification = "waiting_human" if blockers else "continue_now" if continuation.get("mode") == "continue_now" else "waiting_worker" if next_kind == "await_worker_progress" else "await_validation"
-    review_seconds = 0 if classification == "continue_now" else int(policy.blocker_followup_seconds if blockers else policy.live_review_seconds)
-    report_seconds = int(policy.blocker_followup_seconds if blockers else policy.proactive_report_seconds)
+    human_blockers = _has_human_blockers(blockers)
+    classification = "waiting_human" if human_blockers else "waiting_recovery" if blockers else "continue_now" if continuation.get("mode") == "continue_now" else "waiting_worker" if next_kind == "await_worker_progress" else "await_validation"
+    review_seconds = 0 if classification == "continue_now" else int(policy.blocker_followup_seconds if human_blockers else policy.live_review_seconds)
+    report_seconds = int(policy.blocker_followup_seconds if human_blockers else policy.proactive_report_seconds)
     next_review_at = now_iso if review_seconds <= 0 else _iso_after_seconds(review_seconds, now=current_time)
     report_due = False
     if review_due and previous_last_report is not None:
@@ -840,7 +949,7 @@ def _production_review_plan(
             report_due = True
         elif (current_time - previous_last_report).total_seconds() >= max(30, report_seconds // 2):
             report_due = True
-    if any(reason in {"idle_recovery", "blocked", "completed", "recovery"} for reason in report_reasons):
+    if any(reason in {"idle_recovery", "blocked", "completed", "recovery", "non_human_blocker", "human_blocker"} for reason in report_reasons):
         report_due = True
     return {
         "liveness": "live",
@@ -852,7 +961,7 @@ def _production_review_plan(
             "owed": True,
             "status": status,
             "reason": str(continuation.get("reason") or next_kind or status),
-            "kind": "blocker" if blockers else "status",
+            "kind": "blocker" if human_blockers else "status",
             "due_at": next_review_at,
             "updated_at": now_iso,
             "classification": classification,
@@ -1893,8 +2002,9 @@ def _reconcile_production_build_loop_pass(
     completion["validation_scope"] = validation_scope
     completion["validation_reasons"] = list(validation_decision.get("reasons") or [])
 
+    human_blockers = _has_human_blockers(blockers)
     completed = bool(completion.get("all_required_satisfied")) and not blockers
-    status = "completed" if completed else ("blocked" if blockers else "active")
+    status = "completed" if completed else ("blocked" if human_blockers else "active")
     next_iteration = int(state.iteration_count or 0) + 1
     all_actions = ownership_actions + list(dependability.get("actions_taken") or []) + list(worker_recovery.get("actions_taken") or []) + list(release_progress.get("actions_taken") or [])
     previous_blocker_keys = {_report_blocker_key(row) for row in (state.true_blockers or [])}
@@ -1932,6 +2042,10 @@ def _reconcile_production_build_loop_pass(
         report_reasons.append("blocker_change")
     if completed:
         report_reasons.append("completed")
+    if human_blockers:
+        report_reasons.append("human_blocker")
+    elif blockers:
+        report_reasons.append("non_human_blocker")
     if status == "blocked":
         report_reasons.append("blocked")
     if watchdog_context and str(watchdog_context.get("decision") or "") == "auto_resume":
@@ -2040,6 +2154,21 @@ def _reconcile_production_build_loop_pass(
                     "last_progress": dict(last_progress),
                     "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
                     "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
+                    "conversation_ownership": _production_conversation_ownership(
+                        contract=contract,
+                        previous_state=previous_state,
+                        review_plan=review_plan,
+                        report_record=None,
+                        now_iso=now_iso,
+                    ),
+                    "follow_through": {
+                        "continuation": dict(continuation),
+                        "next_action": dict(next_action),
+                        "next_required_update_at": (review_plan.get("owed_follow_up") or {}).get("due_at"),
+                        "next_required_review_at": review_plan.get("next_review_at"),
+                        "report_due": bool(review_plan.get("report_due")),
+                        "review_due": bool(review_plan.get("review_due")),
+                    },
                     "watchdog": dict(watchdog_context or {}),
                     "execution_discipline": execution_discipline,
                 },
@@ -2057,6 +2186,24 @@ def _reconcile_production_build_loop_pass(
         }
         if report_record is not None
         else dict(previous_state.last_report or {}) if previous_state is not None else {}
+    )
+    conversation_ownership = _production_conversation_ownership(
+        contract=contract,
+        previous_state=previous_state,
+        review_plan=review_plan,
+        report_record=report_record,
+        now_iso=now_iso,
+    )
+    follow_through = _production_follow_through(
+        previous_state=previous_state,
+        status=status,
+        next_action=next_action,
+        continuation=continuation,
+        review_plan=review_plan,
+        report_reasons=report_reasons,
+        report_record=report_record,
+        watchdog_context=watchdog_context,
+        now_iso=now_iso,
     )
     updated_state = ProductionBuildLoopState(
         loop_id=state.loop_id,
@@ -2095,6 +2242,8 @@ def _reconcile_production_build_loop_pass(
         last_report=last_report,
         owed_follow_up=dict(review_plan.get("owed_follow_up") or {}),
         reporting_cadence=dict(review_plan.get("reporting_cadence") or {}),
+        conversation_ownership=conversation_ownership,
+        follow_through=follow_through,
         last_watchdog_decision={
             **(dict(previous_state.last_watchdog_decision or {}) if previous_state is not None else {}),
             **dict(watchdog_context or {}),
@@ -2121,6 +2270,8 @@ def _reconcile_production_build_loop_pass(
             "last_report": last_report,
             "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
             "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+            "conversation_ownership": conversation_ownership,
+            "follow_through": follow_through,
             "watchdog": dict(watchdog_context or {}),
         },
     )
@@ -2220,6 +2371,24 @@ def reconcile_production_build_loop(
             execution_discipline["reporting_cadence"] = dict(review_plan.get("reporting_cadence") or {})
             execution_discipline["owed_follow_up"] = dict(review_plan.get("owed_follow_up") or {})
             execution_discipline["watchdog"] = dict(watchdog_context or {})
+            conversation_ownership = _production_conversation_ownership(
+                contract=contract,
+                previous_state=persisted_state,
+                review_plan=review_plan,
+                report_record=None,
+                now_iso=now_iso,
+            )
+            follow_through = _production_follow_through(
+                previous_state=persisted_state,
+                status=persisted_state.status,
+                next_action=next_action,
+                continuation=continuation,
+                review_plan=review_plan,
+                report_reasons=["auto_chain_budget_exhausted"],
+                report_record=None,
+                watchdog_context=watchdog_context,
+                now_iso=now_iso,
+            )
             persisted_state = ProductionBuildLoopState(
                 **{
                     **_state_dump(persisted_state),
@@ -2229,6 +2398,8 @@ def reconcile_production_build_loop(
                     "last_watchdog_at": now_iso if watchdog_context else persisted_state.last_watchdog_at,
                     "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
                     "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+                    "conversation_ownership": conversation_ownership,
+                    "follow_through": follow_through,
                     "last_watchdog_decision": {
                         **dict(persisted_state.last_watchdog_decision or {}),
                         **dict(watchdog_context or {}),
@@ -2246,6 +2417,8 @@ def reconcile_production_build_loop(
                         "next_review_at": review_plan.get("next_review_at"),
                         "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
                         "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+                        "conversation_ownership": conversation_ownership,
+                        "follow_through": follow_through,
                         "watchdog": dict(watchdog_context or {}),
                         "execution_discipline": execution_discipline,
                     },

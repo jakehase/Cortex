@@ -1082,3 +1082,83 @@ def test_roadmap_executor_requeues_non_human_task_blockers_and_reports_policy(tm
     assert "bounded_pass_focused_validation" in result["state"]["last_pass"]["validation_reasons"]
     assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "active"
     assert "validation=focused" in reports[-1].summary
+
+
+def test_roadmap_executor_keeps_non_human_rule_blockers_live_when_no_worker_can_requeue(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_roadmap_nonhuman_live"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=list(seeded["shared_state"].active_plan_node_ids),
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state=dict(seeded["shared_state"].world_state),
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=["RETRYABLE: wait for flaky CI lane to self-heal"],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "retryable_rule_blocker"},
+    )
+
+    contract = RoadmapObjectiveContract(
+        process_id=process_id,
+        objective="Stay live across non-human blockers until recovery is possible",
+        dependability_profile=dict(MINIMAL_PROFILE),
+        metadata={"owner": "cortex", "session_key": "session:roadmap:followthrough", "channel": "whatsapp"},
+        phases=[RoadmapPhaseDefinition(phase_id="build", title="Build")],
+        tasks=[
+            RoadmapTaskDefinition(
+                task_id="build",
+                phase_id="build",
+                title="Build",
+                work_type="feature",
+                quality_gates=[
+                    RoadmapSuccessCriterion(
+                        criterion_id="final-artifact",
+                        summary="Final artifact must exist",
+                        kind="artifact_present",
+                        artifact_id="artifact_final_release",
+                    )
+                ],
+            )
+        ],
+        blocker_rules=[
+            {
+                "blocker_id": "retryable-ci",
+                "summary": "Retryable CI instability should stay owned by the runtime",
+                "source": "open_question_prefix",
+                "question_prefix": "RETRYABLE:",
+                "requires_human": False,
+                "terminal": False,
+            }
+        ],
+    )
+    store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+
+    result = reconcile_roadmap_execution(
+        contract,
+        roadmap_store=store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-nonhuman-live",
+        journal=harness.journal,
+    )
+
+    assert result["state"]["status"] == "active"
+    assert result["next_action"]["kind"] in {"await_worker_progress", "await_non_human_recovery"}
+    assert result["continuation"]["mode"] in {"await_worker_progress", "await_external_progress"}
+    assert result["blockers"] == []
+    assert result["state"]["follow_through"]["resume_on_next_tick"] is True
+    assert result["state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
+    assert result["state"]["conversation_ownership"]["owner"] == "cortex"
+    assert result["state"]["conversation_ownership"]["session_key"] == "session:roadmap:followthrough"

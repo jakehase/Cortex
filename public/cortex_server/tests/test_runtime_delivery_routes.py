@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
@@ -132,3 +133,86 @@ def test_runtime_delivery_routes_bootstrap_reconcile_and_rollback(tmp_path, monk
     assert rolled_back["process"]["workflow"]["metadata"]["runtime_delivery"]["release_stage"] == "build_verified"
     assert rolled_back["loop_checkpoint"]["report"]["kind"] == "rollback"
     assert rolled_back["rollback_event"]["kind"] == "release_rolled_back"
+
+
+def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persists_ownership(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+
+    workflow = _workflow()
+    workflow["metadata"] = {
+        **dict(workflow.get("metadata") or {}),
+        "channel": "whatsapp",
+        "conversation_id": "chat:delivery-watchdog",
+    }
+    process = scheduler.create_process_from_workflow(
+        workflow,
+        process_id="proc_runtime_delivery_watchdog",
+        owner="cortex",
+        session_key="session:delivery",
+    )
+
+    first_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    reconciled = asyncio.run(
+        orchestrator.reconcile_runtime_delivery(
+            process["process_id"],
+            orchestrator.RuntimeDeliveryReconcileRequest(
+                controller_id="controller",
+                controller_session_id="sess-runtime-delivery-watchdog",
+                now_iso=first_now.isoformat().replace("+00:00", "Z"),
+                initial_release_stage="build_verified",
+                promotion_stages=["build_verified", "production"],
+                completion_criteria=[
+                    {
+                        "criterion_id": "release-stage",
+                        "summary": "Release must reach production",
+                        "kind": "release_stage",
+                        "stage": "production",
+                    }
+                ],
+                stage_gates=[
+                    {
+                        "stage": "production",
+                        "required_fencepost_stages": ["build_verified"],
+                        "required_artifacts": ["artifact:missing-canary-proof"],
+                        "require_dependability": False,
+                    }
+                ],
+                checkpoint_policy={
+                    "report_every_iterations": 10,
+                    "live_review_seconds": 60,
+                    "proactive_report_seconds": 120,
+                    "blocker_followup_seconds": 60,
+                },
+                dependability_profile=dict(MINIMAL_PROFILE),
+            ),
+        )
+    )
+    assert reconciled["state"]["status"] == "active"
+
+    tick = asyncio.run(
+        orchestrator.tick_runtime(
+            orchestrator.RuntimeTickRequest(
+                limit=10,
+                execute=False,
+                now_iso=(first_now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
+            )
+        )
+    )
+    status = asyncio.run(orchestrator.get_runtime_delivery_status(process["process_id"]))
+
+    assert tick["watchdog"]["action_count"] >= 1
+    assert status["loop_state"]["liveness"] == "live"
+    assert status["loop_state"]["last_watchdog_decision"]["decision"] in {"report_status", "auto_resume"}
+    assert status["loop_state"]["conversation_ownership"]["owner"] == "cortex"
+    assert status["loop_state"]["conversation_ownership"]["session_key"] == "session:delivery"
+    assert status["loop_state"]["conversation_ownership"]["channel"] == "whatsapp"
+    assert status["loop_state"]["follow_through"]["resume_on_next_tick"] is True
+    assert status["loop_state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
+    assert status["process"]["workflow"]["metadata"]["runtime_delivery"]["conversation_ownership"]["conversation_id"] == "chat:delivery-watchdog"
+    assert status["process"]["workflow"]["metadata"]["delivery_follow_up_due_at"] is not None

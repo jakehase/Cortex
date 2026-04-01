@@ -767,3 +767,75 @@ def test_production_loop_dispatches_release_handoff_and_captures_promotion_fence
     assert any(fencepost.stage == "production" for fencepost in final_release.rollback_fenceposts)
     assert any(message.to_agent == "release-manager" and message.delivery_status == "acked" for message in messages)
     assert any(lease.scope == "release:promote" and lease.agent_id == "release-manager" for lease in leases)
+
+
+def test_production_loop_keeps_non_human_rule_blockers_live_when_recovery_is_still_possible(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_prod_nonhuman_live"
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=list(seeded["shared_state"].active_plan_node_ids),
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state=dict(seeded["shared_state"].world_state),
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=["RETRYABLE: wait for CI control plane to recover"],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "retryable_rule_blocker"},
+    )
+
+    loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    contract = ProductionBuildContract(
+        process_id=process_id,
+        objective="Keep shipping until a human is truly needed",
+        dependability_profile=dict(MINIMAL_PROFILE),
+        metadata={"owner": "cortex", "session_key": "session:delivery:followthrough", "channel": "whatsapp"},
+        promotion_stages=[],
+        completion_criteria=[
+            ProductionCompletionCriterion(
+                criterion_id="final-release",
+                summary="Final release artifact must exist",
+                kind="artifact_present",
+                artifact_id="artifact_final_release",
+            )
+        ],
+        blocker_rules=[
+            {
+                "blocker_id": "retryable-ci",
+                "summary": "Retryable CI instability should stay owned by the runtime",
+                "source": "open_question_prefix",
+                "question_prefix": "RETRYABLE:",
+                "requires_human": False,
+                "terminal": False,
+            }
+        ],
+    )
+
+    result = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-prod-nonhuman-live",
+    )
+
+    assert result["state"]["status"] == "active"
+    assert result["next_action"]["kind"] in {"await_worker_progress", "await_non_human_recovery"}
+    assert result["continuation"]["mode"] in {"await_worker_progress", "await_external_progress"}
+    assert result["blockers"] == []
+    assert result["state"]["follow_through"]["resume_on_next_tick"] is True
+    assert result["state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
+    assert result["state"]["conversation_ownership"]["owner"] == "cortex"
+    assert result["state"]["conversation_ownership"]["session_key"] == "session:delivery:followthrough"

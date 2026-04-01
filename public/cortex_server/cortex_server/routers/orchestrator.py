@@ -323,6 +323,12 @@ def _resolve_runtime_delivery_contract(
 
     merged_metadata = dict(payload.get("metadata") or {})
     merged_metadata.update(dict(request.metadata or {}))
+    merged_metadata.setdefault("owner", process.get("owner") or metadata.get("owner"))
+    merged_metadata.setdefault("session_key", process.get("session_key") or metadata.get("session_key"))
+    if metadata.get("channel") and not merged_metadata.get("channel"):
+        merged_metadata["channel"] = metadata.get("channel")
+    if metadata.get("conversation_id") and not merged_metadata.get("conversation_id"):
+        merged_metadata["conversation_id"] = metadata.get("conversation_id")
     if request.initial_release_stage:
         merged_metadata["initial_release_stage"] = request.initial_release_stage
     if request.candidate_ref:
@@ -377,6 +383,8 @@ def _runtime_delivery_projection(
         "owed_follow_up": dict(loop_state.owed_follow_up or {}) if loop_state is not None else {},
         "reporting_cadence": dict(loop_state.reporting_cadence or {}) if loop_state is not None else {},
         "last_watchdog_decision": dict(loop_state.last_watchdog_decision or {}) if loop_state is not None else {},
+        "conversation_ownership": dict(loop_state.conversation_ownership or {}) if loop_state is not None else {},
+        "follow_through": dict(loop_state.follow_through or {}) if loop_state is not None else {},
         "execution_budget": model_dump_compat(contract.execution_budget) if contract is not None and getattr(contract, "execution_budget", None) is not None else None,
         "reporting_policy": model_dump_compat(contract.checkpoint_policy) if contract is not None and getattr(contract, "checkpoint_policy", None) is not None else None,
         "execution_discipline": dict(metadata.get("execution_discipline") or {}),
@@ -439,6 +447,9 @@ def _sync_runtime_process_delivery_state(
         desired_metadata["delivery_revision_id"] = shared_state.revision_id
     if loop_state is not None:
         desired_metadata["delivery_continuation_mode"] = loop_state.continuation.get("mode") if isinstance(loop_state.continuation, dict) else None
+        desired_metadata["delivery_follow_up_due_at"] = (loop_state.owed_follow_up or {}).get("due_at") if isinstance(loop_state.owed_follow_up, dict) else None
+        desired_metadata["delivery_conversation_ownership"] = dict(loop_state.conversation_ownership or {})
+        desired_metadata["delivery_follow_through"] = dict(loop_state.follow_through or {})
     if contract is not None:
         desired_metadata["production_build_loop"] = model_dump_compat(contract)
 
@@ -483,7 +494,8 @@ def _checkpoint_runtime_delivery_rollback(
         shared_state=shared_state,
         release_state=release_state,
     )
-    status = "completed" if completion.get("all_required_satisfied") and not blockers else ("blocked" if blockers else "active")
+    human_blockers = any(bool((row or {}).get("requires_human")) for row in blockers)
+    status = "completed" if completion.get("all_required_satisfied") and not blockers else ("blocked" if human_blockers else "active")
     existing = current or ProductionBuildLoopState(contract_id=contract.contract_id, process_id=process_id)
     iteration = int(existing.iteration_count or 0) + 1
     report = loop_store.append_report(
@@ -534,6 +546,13 @@ def _checkpoint_runtime_delivery_rollback(
             last_checkpoint_at=report.recorded_at,
             true_blockers=blockers,
             completion=completion,
+            conversation_ownership=dict(current.conversation_ownership or {}) if current is not None else {},
+            follow_through={
+                **(dict(current.follow_through or {}) if current is not None else {}),
+                "continuation": {"mode": "await_external_progress", "terminal": False, "reason": "rollback", "status": status},
+                "next_action": {"kind": "rollback_checkpoint", "status": status, "stage": release_state.current_stage},
+                "updated_at": report.recorded_at,
+            },
             metadata={
                 **dict(existing.metadata or {}),
                 "last_runtime_delivery_event": "rollback",
@@ -656,6 +675,12 @@ def _resolve_runtime_roadmap_contract(
 
     merged_metadata = dict(payload.get("metadata") or {})
     merged_metadata.update(dict(request.metadata or {}))
+    merged_metadata.setdefault("owner", process.get("owner") or metadata.get("owner"))
+    merged_metadata.setdefault("session_key", process.get("session_key") or metadata.get("session_key"))
+    if metadata.get("channel") and not merged_metadata.get("channel"):
+        merged_metadata["channel"] = metadata.get("channel")
+    if metadata.get("conversation_id") and not merged_metadata.get("conversation_id"):
+        merged_metadata["conversation_id"] = metadata.get("conversation_id")
     payload["metadata"] = merged_metadata
     return _validate_roadmap_contract(payload)
 
@@ -700,6 +725,8 @@ def _runtime_roadmap_projection(
         "owed_follow_up": dict((state or {}).get("owed_follow_up") or {}),
         "reporting_cadence": dict((state or {}).get("reporting_cadence") or {}),
         "last_watchdog_decision": dict((state or {}).get("last_watchdog_decision") or {}),
+        "conversation_ownership": dict((state or {}).get("conversation_ownership") or {}),
+        "follow_through": dict((state or {}).get("follow_through") or {}),
         "execution_budget": model_dump_compat(contract.execution_budget) if contract is not None and getattr(contract, "execution_budget", None) is not None else None,
         "reporting_policy": model_dump_compat(contract.reporting_policy) if contract is not None and getattr(contract, "reporting_policy", None) is not None else None,
         "execution_discipline": dict(metadata.get("execution_discipline") or {}),
@@ -761,6 +788,9 @@ def _sync_runtime_process_roadmap_state(
         desired_metadata["roadmap_status"] = state.status
         desired_metadata["roadmap_active_phase"] = state.active_phase_id
         desired_metadata["roadmap_continuation_mode"] = state.continuation.get("mode") if isinstance(state.continuation, dict) else None
+        desired_metadata["roadmap_follow_up_due_at"] = (state.owed_follow_up or {}).get("due_at") if isinstance(state.owed_follow_up, dict) else None
+        desired_metadata["roadmap_conversation_ownership"] = dict(state.conversation_ownership or {})
+        desired_metadata["roadmap_follow_through"] = dict(state.follow_through or {})
 
     if desired_metadata != metadata:
         process = replace_process_workflow(
