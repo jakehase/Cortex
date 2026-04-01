@@ -7,6 +7,18 @@ import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
 
 
+def _install_fake_diplomat(monkeypatch):
+    sent = []
+
+    class _FakeDiplomat:
+        def send_briefing(self, message: str, title: str = "[Cortex] Runtime update") -> bool:
+            sent.append({"title": title, "message": message})
+            return True
+
+    monkeypatch.setattr(orchestrator, "get_diplomat", lambda: _FakeDiplomat())
+    return sent
+
+
 MINIMAL_PROFILE = {
     "profile": "runtime-delivery-test",
     "intended_duration_hours": 1,
@@ -139,6 +151,7 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
     db_path = tmp_path / "runtime.db"
     delivery_root = tmp_path / "delivery"
 
+    sent = _install_fake_diplomat(monkeypatch)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
@@ -205,6 +218,8 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
         )
     )
     status = asyncio.run(orchestrator.get_runtime_delivery_status(process["process_id"]))
+    stores = orchestrator._runtime_delivery_stores()
+    follow_ups = stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")
 
     assert tick["watchdog"]["action_count"] >= 1
     assert status["loop_state"]["liveness"] == "live"
@@ -214,5 +229,96 @@ def test_runtime_tick_watchdog_reconciles_live_delivery_without_prompt_and_persi
     assert status["loop_state"]["conversation_ownership"]["channel"] == "whatsapp"
     assert status["loop_state"]["follow_through"]["resume_on_next_tick"] is True
     assert status["loop_state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
+    assert status["loop_state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
     assert status["process"]["workflow"]["metadata"]["runtime_delivery"]["conversation_ownership"]["conversation_id"] == "chat:delivery-watchdog"
     assert status["process"]["workflow"]["metadata"]["delivery_follow_up_due_at"] is not None
+    assert len(sent) == 2
+    assert len(follow_ups) == 2
+    assert all(row.delivery_status == "sent" for row in follow_ups)
+    assert any("runtime_delivery_route" in row["message"] for row in sent)
+
+    second_tick = asyncio.run(
+        orchestrator.tick_runtime(
+            orchestrator.RuntimeTickRequest(
+                limit=10,
+                execute=False,
+                now_iso=(first_now + timedelta(minutes=3, seconds=15)).isoformat().replace("+00:00", "Z"),
+            )
+        )
+    )
+    assert second_tick["success"] is True
+    assert len(sent) == 2
+    assert len(stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")) == 2
+
+
+
+def test_runtime_delivery_reconcile_proactively_dispatches_true_human_blocker(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+
+    sent = _install_fake_diplomat(monkeypatch)
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+
+    workflow = _workflow()
+    workflow["metadata"] = {
+        **dict(workflow.get("metadata") or {}),
+        "channel": "whatsapp",
+        "conversation_id": "chat:delivery-blocker",
+    }
+    process = scheduler.create_process_from_workflow(
+        workflow,
+        process_id="proc_runtime_delivery_blocker",
+        owner="cortex",
+        session_key="session:delivery",
+    )
+
+    stores = orchestrator._runtime_delivery_stores()
+    orchestrator._bootstrap_runtime_delivery_state(process["process_id"], process=process, stores=stores)
+    shared_state = stores["shared_state_store"].load(process["process_id"])
+    stores["shared_state_store"].save(
+        {
+            **orchestrator.model_dump_compat(shared_state),
+            "open_questions": ["HUMAN: choose whether this should ship tonight"],
+        },
+        expected_revision_id=shared_state.revision_id,
+        actor="test",
+        provenance={"phase": "inject_human_blocker"},
+    )
+
+    reconciled = asyncio.run(
+        orchestrator.reconcile_runtime_delivery(
+            process["process_id"],
+            orchestrator.RuntimeDeliveryReconcileRequest(
+                controller_id="controller",
+                controller_session_id="sess-runtime-delivery-blocker",
+                dependability_profile=dict(MINIMAL_PROFILE),
+                completion_criteria=[
+                    {
+                        "criterion_id": "release-stage",
+                        "summary": "Release must reach production",
+                        "kind": "release_stage",
+                        "stage": "production",
+                    }
+                ],
+                checkpoint_policy={
+                    "report_every_iterations": 10,
+                    "live_review_seconds": 60,
+                    "proactive_report_seconds": 120,
+                    "blocker_followup_seconds": 60,
+                },
+            ),
+        )
+    )
+    status = asyncio.run(orchestrator.get_runtime_delivery_status(process["process_id"]))
+    follow_ups = stores["follow_up_store"].list(process_id=process["process_id"], runtime_kind="delivery")
+
+    assert reconciled["state"]["status"] == "blocked"
+    assert reconciled["follow_up_dispatch"]["delivery_status"] == "sent"
+    assert status["loop_state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
+    assert len(sent) == 1
+    assert len(follow_ups) == 1
+    assert follow_ups[0].delivery_status == "sent"
+    assert "Need from you" in sent[0]["message"]

@@ -7,6 +7,18 @@ import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
 
 
+def _install_fake_diplomat(monkeypatch):
+    sent = []
+
+    class _FakeDiplomat:
+        def send_briefing(self, message: str, title: str = "[Cortex] Runtime update") -> bool:
+            sent.append({"title": title, "message": message})
+            return True
+
+    monkeypatch.setattr(orchestrator, "get_diplomat", lambda: _FakeDiplomat())
+    return sent
+
+
 MINIMAL_PROFILE = {
     "profile": "runtime-no-silent-idle-canary",
     "intended_duration_hours": 1,
@@ -51,6 +63,7 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
     db_path = tmp_path / "runtime.db"
     delivery_root = tmp_path / "delivery"
 
+    sent = _install_fake_diplomat(monkeypatch)
     monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
     monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
@@ -184,5 +197,8 @@ def test_runtime_tick_canary_keeps_mixed_objectives_owned_live_and_non_idle(tmp_
     assert delivery_status["loop_state"]["conversation_ownership"]["conversation_id"] == "chat:canary:delivery"
     assert roadmap_status["state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
     assert delivery_status["loop_state"]["follow_through"]["pending_update_intent"]["kind"] == "status"
+    assert roadmap_status["state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
+    assert delivery_status["loop_state"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
     assert roadmap_status["process"]["workflow"]["metadata"]["roadmap_follow_up_due_at"] is not None
     assert delivery_status["process"]["workflow"]["metadata"]["delivery_follow_up_due_at"] is not None
+    assert len(sent) == 3

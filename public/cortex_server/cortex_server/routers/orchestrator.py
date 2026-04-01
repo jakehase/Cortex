@@ -17,6 +17,7 @@ import json
 import asyncio
 import httpx
 
+from cortex_server.modules.diplomat import get_diplomat
 from cortex_server.modules.reasoning_approvals import create_approval_grant
 from cortex_server.modules.reasoning_beliefs import belief_conflicts, beliefs_for_task, explain_belief, get_belief, list_beliefs, search_beliefs, select_influential_beliefs, summarize_beliefs, trace_belief_lineage, upsert_belief
 from cortex_server.modules import reasoning_explain as explain
@@ -67,6 +68,8 @@ from cortex_server.runtime import (
     ReleaseWorkflowStore,
     RoadmapExecutionStore,
     RoadmapObjectiveContract,
+    RuntimeFollowUpDispatch,
+    RuntimeFollowUpStore,
     SharedProcessState,
     SharedProcessStateStore,
     apply_release_rollback_restore,
@@ -121,6 +124,7 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         "release_store": ReleaseWorkflowStore(root / "release_workflow"),
         "loop_store": ProductionBuildLoopStore(root / "production_build_loop"),
         "roadmap_store": RoadmapExecutionStore(root / "roadmap_executor"),
+        "follow_up_store": RuntimeFollowUpStore(root / "runtime_follow_ups.json"),
     }
 
 
@@ -832,6 +836,104 @@ def _runtime_roadmap_status_payload(process_id: str, *, process: Dict[str, Any],
 
 
 
+def _bridge_runtime_delivery_follow_up(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    loop_state = stores["loop_store"].load_state(process_id)
+    contract = stores["loop_store"].load_contract(process_id)
+    reports = stores["loop_store"].reports(process_id)
+    latest_report = reports[-1] if reports else None
+    if loop_state is None:
+        return {"process": process, "dispatch": None}
+    state_payload = model_dump_compat(loop_state)
+    previous_state_payload = json.loads(json.dumps(state_payload))
+    dispatch = _bridge_runtime_follow_up(
+        process_id=process_id,
+        runtime_kind="delivery",
+        objective=contract.objective if contract is not None else process.get("workflow", {}).get("name"),
+        state=state_payload,
+        latest_report=model_dump_compat(latest_report) if latest_report is not None else None,
+        follow_up_store=stores["follow_up_store"],
+        now=now,
+    )
+    if dispatch is None:
+        return {"process": process, "dispatch": None}
+    updated_state = _apply_runtime_follow_up_state(
+        state=state_payload,
+        conversation=dict(state_payload.get("conversation_ownership") or {}),
+        record=dispatch,
+    )
+    if updated_state != previous_state_payload:
+        stores["loop_store"].save_state(updated_state)
+        process = _sync_runtime_process_delivery_state(
+            process_id,
+            process=process,
+            stores=stores,
+            event_kind=f"runtime_delivery_follow_up_{dispatch.delivery_status}",
+            event_payload={
+                "dispatch_id": dispatch.dispatch_id,
+                "delivery_status": dispatch.delivery_status,
+                "report_id": dispatch.report_id,
+                "fingerprint": dispatch.fingerprint,
+            },
+        )
+    return {"process": process, "dispatch": model_dump_compat(dispatch)}
+
+
+
+def _bridge_runtime_roadmap_follow_up(
+    process_id: str,
+    *,
+    process: Dict[str, Any],
+    stores: Dict[str, Any],
+    now: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    state = stores["roadmap_store"].load_state(process_id)
+    contract = stores["roadmap_store"].load_contract(process_id)
+    reports = stores["roadmap_store"].reports(process_id)
+    latest_report = reports[-1] if reports else None
+    if state is None:
+        return {"process": process, "dispatch": None}
+    state_payload = model_dump_compat(state)
+    previous_state_payload = json.loads(json.dumps(state_payload))
+    dispatch = _bridge_runtime_follow_up(
+        process_id=process_id,
+        runtime_kind="roadmap",
+        objective=contract.objective if contract is not None else process.get("workflow", {}).get("name"),
+        state=state_payload,
+        latest_report=model_dump_compat(latest_report) if latest_report is not None else None,
+        follow_up_store=stores["follow_up_store"],
+        now=now,
+    )
+    if dispatch is None:
+        return {"process": process, "dispatch": None}
+    updated_state = _apply_runtime_follow_up_state(
+        state=state_payload,
+        conversation=dict(state_payload.get("conversation_ownership") or {}),
+        record=dispatch,
+    )
+    if updated_state != previous_state_payload:
+        stores["roadmap_store"].save_state(updated_state)
+        process = _sync_runtime_process_roadmap_state(
+            process_id,
+            process=process,
+            stores=stores,
+            event_kind=f"runtime_roadmap_follow_up_{dispatch.delivery_status}",
+            event_payload={
+                "dispatch_id": dispatch.dispatch_id,
+                "delivery_status": dispatch.delivery_status,
+                "report_id": dispatch.report_id,
+                "fingerprint": dispatch.fingerprint,
+            },
+        )
+    return {"process": process, "dispatch": model_dump_compat(dispatch)}
+
+
+
 def _persist_workflow(workflow: Dict[str, Any]) -> Dict[str, Any]:
     return runtime_workflows.persist_workflow(
         workflow,
@@ -1237,6 +1339,253 @@ def _runtime_watchdog_now(now_iso: Optional[str]) -> datetime:
     return _parse_optional_dt(now_iso) or datetime.now().astimezone()
 
 
+FOLLOW_UP_RETRY_SECONDS = int(os.getenv("ORCHESTRATOR_FOLLOW_UP_RETRY_SECONDS", "30"))
+FOLLOW_UP_REPEAT_GRACE_SECONDS = int(os.getenv("ORCHESTRATOR_FOLLOW_UP_REPEAT_GRACE_SECONDS", "60"))
+FOLLOW_UP_REASON_MARKERS = {
+    "review_due",
+    "status_followup_due",
+    "blocker_followup_due",
+    "idle_recovery",
+    "human_blocker",
+    "blocked",
+    "completed",
+}
+
+
+
+def _runtime_follow_up_fingerprint(*, process_id: str, runtime_kind: str, report: Optional[Dict[str, Any]], pending_intent: Dict[str, Any]) -> Optional[str]:
+    if isinstance(report, dict) and str(report.get("report_id") or "").strip():
+        return f"{runtime_kind}:{process_id}:report:{str(report.get('report_id')).strip()}"
+    due_at = str(pending_intent.get("due_at") or "").strip()
+    intent_kind = str(pending_intent.get("kind") or "status").strip() or "status"
+    status = str(pending_intent.get("status") or "active").strip() or "active"
+    reason = str(pending_intent.get("reason") or "follow_up_due").strip() or "follow_up_due"
+    if not due_at:
+        return None
+    return f"{runtime_kind}:{process_id}:intent:{intent_kind}:{status}:{due_at}:{reason}"
+
+
+
+def _runtime_follow_up_title(*, runtime_kind: str, report: Optional[Dict[str, Any]], pending_intent: Dict[str, Any]) -> str:
+    report_kind = str((report or {}).get("kind") or "").strip()
+    intent_kind = str(pending_intent.get("kind") or "status").strip() or "status"
+    if report_kind == "completed":
+        return "[Cortex] Runtime completed"
+    if report_kind == "blocked" or intent_kind == "blocker":
+        return "[Cortex] Runtime blocker"
+    return "[Cortex] Runtime update"
+
+
+
+def _runtime_follow_up_message(
+    *,
+    runtime_kind: str,
+    objective: Optional[str],
+    report: Optional[Dict[str, Any]],
+    state: Dict[str, Any],
+    pending_intent: Dict[str, Any],
+) -> str:
+    report = dict(report or {})
+    summary = str(report.get("summary") or pending_intent.get("reason") or objective or f"{runtime_kind} follow-up due").strip()
+    status = str(report.get("status") or state.get("status") or pending_intent.get("status") or "active").strip() or "active"
+    next_action = dict(state.get("next_action") or {})
+    blockers = [row for row in list(report.get("blockers") or state.get("true_blockers") or []) if isinstance(row, dict)]
+    reasons = list(((report.get("metadata") if isinstance(report.get("metadata"), dict) else {}) or {}).get("reasons") or [])
+
+    lines = [summary]
+    if objective:
+        lines.append(f"Objective: {objective}")
+    lines.append(f"Status: {status}")
+    if next_action:
+        next_summary = str(next_action.get("summary") or next_action.get("kind") or "continue").strip()
+        if next_summary:
+            lines.append(f"Next: {next_summary}")
+    if blockers:
+        if str(pending_intent.get("kind") or "").strip() == "blocker" or status == "blocked":
+            need = "; ".join(str((row or {}).get("summary") or (row or {}).get("reason") or "human decision needed").strip() for row in blockers[:3])
+            if need:
+                lines.append(f"Need from you: {need}")
+        else:
+            handling = "; ".join(str((row or {}).get("summary") or (row or {}).get("reason") or "runtime recovery in progress").strip() for row in blockers[:3])
+            if handling:
+                lines.append(f"Handling: {handling}")
+    if reasons:
+        lines.append(f"Why now: {', '.join(str(row).strip() for row in reasons[:4] if str(row).strip())}")
+    return "\n".join(line for line in lines if line)
+
+
+
+def _runtime_follow_up_plan(
+    *,
+    process_id: str,
+    runtime_kind: str,
+    objective: Optional[str],
+    conversation: Dict[str, Any],
+    follow_through: Dict[str, Any],
+    state: Dict[str, Any],
+    latest_report: Optional[Dict[str, Any]],
+    now: datetime,
+) -> Optional[RuntimeFollowUpDispatch]:
+    if not bool(conversation.get("owned")):
+        return None
+    channel = str(conversation.get("channel") or "").strip().lower()
+    conversation_id = str(conversation.get("conversation_id") or "").strip()
+    if not channel and not conversation_id:
+        return None
+    if channel and channel != "whatsapp":
+        return None
+    pending_intent = dict(follow_through.get("pending_update_intent") or {})
+    if not pending_intent:
+        return None
+    reasons = set(str(row).strip() for row in (((latest_report or {}).get("metadata") if isinstance((latest_report or {}).get("metadata"), dict) else {}) or {}).get("reasons") or [] if str(row).strip())
+    report_kind = str((latest_report or {}).get("kind") or "").strip()
+    report_due = bool(follow_through.get("report_due"))
+    due_at = _parse_optional_dt(str(pending_intent.get("due_at") or "").strip() or None)
+    follow_up_due = due_at is not None and due_at <= now
+    summary = str((latest_report or {}).get("summary") or pending_intent.get("reason") or objective or f"{runtime_kind} follow-up due").strip()
+    status = str(state.get("status") or pending_intent.get("status") or "active").strip() or "active"
+    update_kind = str(pending_intent.get("kind") or "status").strip() or "status"
+    last_outbound = dict(follow_through.get("outbound_update") or {})
+    last_sent_at = _parse_optional_dt(str(last_outbound.get("sent_at") or "").strip() or None)
+    if last_sent_at is not None and due_at is not None and now < due_at and report_kind not in {"blocked", "completed"} and update_kind != "blocker":
+        return None
+    if last_sent_at is not None and report_kind not in {"blocked", "completed"} and update_kind != "blocker":
+        repeated_summary = str(last_outbound.get("summary") or "").strip() == summary
+        repeated_status = str(last_outbound.get("status") or "").strip() == status
+        repeated_kind = str(last_outbound.get("kind") or "status").strip() == update_kind
+        if repeated_summary and repeated_status and repeated_kind and (now - last_sent_at).total_seconds() < max(1, FOLLOW_UP_REPEAT_GRACE_SECONDS):
+            return None
+    eligible = bool(report_due or follow_up_due or reasons.intersection(FOLLOW_UP_REASON_MARKERS) or report_kind in {"blocked", "completed"})
+    if not eligible:
+        return None
+    fingerprint = _runtime_follow_up_fingerprint(process_id=process_id, runtime_kind=runtime_kind, report=latest_report, pending_intent=pending_intent)
+    if not fingerprint:
+        return None
+    return RuntimeFollowUpDispatch(
+        process_id=process_id,
+        runtime_kind=runtime_kind,
+        fingerprint=fingerprint,
+        update_kind=update_kind,
+        title=_runtime_follow_up_title(runtime_kind=runtime_kind, report=latest_report, pending_intent=pending_intent),
+        message=_runtime_follow_up_message(runtime_kind=runtime_kind, objective=objective, report=latest_report, state=state, pending_intent=pending_intent),
+        status=status,
+        channel=channel or None,
+        owner=str(conversation.get("owner") or "").strip() or None,
+        session_key=str(conversation.get("session_key") or "").strip() or None,
+        conversation_id=str(conversation.get("conversation_id") or "").strip() or None,
+        objective=str(objective or "").strip() or None,
+        report_id=str((latest_report or {}).get("report_id") or "").strip() or None,
+        due_at=str(pending_intent.get("due_at") or "").strip() or None,
+        summary=summary or None,
+        metadata={
+            "latest_report_kind": report_kind or None,
+            "latest_report_reasons": sorted(reasons),
+            "next_action": dict(state.get("next_action") or {}),
+            "continuation": dict(state.get("continuation") or {}),
+            "pending_update_intent": pending_intent,
+        },
+    )
+
+
+
+def _runtime_follow_up_attempt_allowed(record: RuntimeFollowUpDispatch, *, now: datetime) -> bool:
+    if str(record.delivery_status or "") == "sent":
+        return False
+    if str(record.delivery_status or "") == "skipped":
+        return False
+    last_attempt = _parse_optional_dt(record.last_attempt_at)
+    if last_attempt is None:
+        return True
+    return (now - last_attempt).total_seconds() >= max(1, FOLLOW_UP_RETRY_SECONDS)
+
+
+
+def _deliver_runtime_follow_up(record: RuntimeFollowUpDispatch) -> tuple[bool, Optional[str]]:
+    try:
+        diplomat = get_diplomat()
+        success = bool(diplomat.send_briefing(message=record.message, title=record.title))
+        return success, None if success else "diplomat_send_failed"
+    except Exception as exc:  # pragma: no cover - defensive guard
+        return False, str(exc)
+
+
+
+def _apply_runtime_follow_up_state(
+    *,
+    state: Dict[str, Any],
+    conversation: Dict[str, Any],
+    record: RuntimeFollowUpDispatch,
+) -> Dict[str, Any]:
+    follow_through = dict(state.get("follow_through") or {})
+    last_intent = dict(follow_through.get("last_user_visible_update_intent") or {})
+    if record.sent_at:
+        last_intent = {
+            **last_intent,
+            "dispatch_id": record.dispatch_id,
+            "delivery_status": record.delivery_status,
+            "sent_at": record.sent_at,
+        }
+    follow_through["outbound_update"] = {
+        "dispatch_id": record.dispatch_id,
+        "fingerprint": record.fingerprint,
+        "report_id": record.report_id,
+        "kind": record.update_kind,
+        "status": record.status,
+        "delivery_status": record.delivery_status,
+        "attempt_count": int(record.attempt_count or 0),
+        "last_attempt_at": record.last_attempt_at,
+        "sent_at": record.sent_at,
+        "last_error": record.last_error,
+        "summary": record.summary,
+        "due_at": record.due_at,
+    }
+    follow_through["last_user_visible_update_intent"] = last_intent
+    if record.sent_at:
+        follow_through["last_user_visible_update_at"] = record.sent_at
+        conversation["last_user_visible_update_at"] = record.sent_at
+    state["follow_through"] = follow_through
+    state["conversation_ownership"] = conversation
+    return state
+
+
+
+def _bridge_runtime_follow_up(
+    *,
+    process_id: str,
+    runtime_kind: str,
+    objective: Optional[str],
+    state: Optional[Dict[str, Any]],
+    latest_report: Optional[Dict[str, Any]],
+    follow_up_store: RuntimeFollowUpStore,
+    now: Optional[datetime] = None,
+) -> Optional[RuntimeFollowUpDispatch]:
+    if not isinstance(state, dict):
+        return None
+    current_time = now or datetime.now().astimezone()
+    conversation = dict(state.get("conversation_ownership") or {})
+    follow_through = dict(state.get("follow_through") or {})
+    plan = _runtime_follow_up_plan(
+        process_id=process_id,
+        runtime_kind=runtime_kind,
+        objective=objective,
+        conversation=conversation,
+        follow_through=follow_through,
+        state=state,
+        latest_report=latest_report,
+        now=current_time,
+    )
+    if plan is None:
+        return None
+    record = follow_up_store.enqueue(plan)
+    if not _runtime_follow_up_attempt_allowed(record, now=current_time):
+        return record
+    success, error = _deliver_runtime_follow_up(record)
+    now_iso = current_time.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    if success:
+        return follow_up_store.mark_sent(record.dispatch_id, when_iso=now_iso)
+    return follow_up_store.mark_failed(record.dispatch_id, error=str(error or "send_failed"), when_iso=now_iso)
+
+
 
 def _runtime_roadmap_watchdog_decision(*, process: Dict[str, Any], contract: RoadmapObjectiveContract, state: Optional[RoadmapExecutionState], now: datetime) -> Optional[Dict[str, Any]]:
     if state is None:
@@ -1368,7 +1717,9 @@ def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit
                     event_kind="runtime_roadmap_watchdog",
                     event_payload={"decision": decision.get("decision"), "classification": decision.get("classification"), "status": (reconciled.get("state") or {}).get("status")},
                 )
-                actions.append({"kind": "roadmap", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None})
+                follow_up_bridge = _bridge_runtime_roadmap_follow_up(process_id, process=process, stores=stores, now=now)
+                process = follow_up_bridge.get("process") or process
+                actions.append({"kind": "roadmap", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None, "follow_up_dispatch": follow_up_bridge.get("dispatch")})
                 continue
         if (stores["loop_store"].load_contract(process_id) is not None or stores["loop_store"].load_state(process_id) is not None or isinstance(metadata.get("production_build_loop"), dict)) and (snapshot is not None or shared_state is not None):
             if snapshot is None or shared_state is None:
@@ -1398,7 +1749,22 @@ def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit
                     event_kind="runtime_delivery_watchdog",
                     event_payload={"decision": decision.get("decision"), "classification": decision.get("classification"), "status": (reconciled.get("state") or {}).get("status")},
                 )
-                actions.append({"kind": "delivery", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None})
+                follow_up_bridge = _bridge_runtime_delivery_follow_up(process_id, process=process, stores=stores, now=now)
+                process = follow_up_bridge.get("process") or process
+                actions.append({"kind": "delivery", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None, "follow_up_dispatch": follow_up_bridge.get("dispatch")})
+                continue
+        roadmap_state = stores["roadmap_store"].load_state(process_id)
+        loop_state = stores["loop_store"].load_state(process_id)
+        if roadmap_state is not None or loop_state is not None:
+            roadmap_bridge = _bridge_runtime_roadmap_follow_up(process_id, process=get_runtime_process(process_id) or process, stores=stores, now=now)
+            if roadmap_bridge.get("dispatch") is not None:
+                process = roadmap_bridge.get("process") or process
+                actions.append({"kind": "roadmap_follow_up", "process_id": process_id, "decision": None, "status": roadmap_state.status if roadmap_state is not None else None, "report": None, "follow_up_dispatch": roadmap_bridge.get("dispatch")})
+                continue
+            delivery_bridge = _bridge_runtime_delivery_follow_up(process_id, process=get_runtime_process(process_id) or process, stores=stores, now=now)
+            if delivery_bridge.get("dispatch") is not None:
+                process = delivery_bridge.get("process") or process
+                actions.append({"kind": "delivery_follow_up", "process_id": process_id, "decision": None, "status": loop_state.status if loop_state is not None else None, "report": None, "follow_up_dispatch": delivery_bridge.get("dispatch")})
     return {"reviewed": reviewed, "actions": actions, "action_count": len(actions)}
 
 
@@ -1576,12 +1942,15 @@ async def reconcile_runtime_delivery(process_id: str, request: Optional[RuntimeD
             "release_stage": ((reconciled.get("release_state") or {}).get("current_stage") if isinstance(reconciled.get("release_state"), dict) else None),
         },
     )
+    follow_up_bridge = _bridge_runtime_delivery_follow_up(process_id, process=process, stores=stores, now=_parse_optional_dt(request.now_iso))
+    process = follow_up_bridge.get("process") or process
     return {
         "success": True,
         "process_id": process_id,
         "process": process,
         "contract": model_dump_compat(contract),
         **reconciled,
+        "follow_up_dispatch": follow_up_bridge.get("dispatch"),
         "delivery": _runtime_delivery_status_payload(process_id, process=process, stores=stores),
     }
 
@@ -1697,12 +2066,15 @@ async def reconcile_runtime_roadmap(process_id: str, request: Optional[RuntimeRo
             "active_phase_id": reconciled["state"].get("active_phase_id") if isinstance(reconciled.get("state"), dict) else None,
         },
     )
+    follow_up_bridge = _bridge_runtime_roadmap_follow_up(process_id, process=process, stores=stores, now=_parse_optional_dt(request.now_iso))
+    process = follow_up_bridge.get("process") or process
     return {
         "success": True,
         "process_id": process_id,
         "process": process,
         "contract": model_dump_compat(contract),
         **reconciled,
+        "follow_up_dispatch": follow_up_bridge.get("dispatch"),
         "roadmap": _runtime_roadmap_status_payload(process_id, process=process, stores=stores),
     }
 
