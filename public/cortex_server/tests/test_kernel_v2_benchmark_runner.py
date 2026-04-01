@@ -14,10 +14,15 @@ def test_kernel_v2_benchmark_runner_smoke(tmp_path):
     )
 
     assert results["summary"]["total_runs"] == 4
+    assert results["schema_version"] == "cortex.kernel_v2.benchmark_results.v2"
     assert len(results["cases"]) == 4
     trace = results["summary"]["trace_metrics"]
     assert trace["count"] == 3
     assert trace["planned_deep_rate"] >= 0.0
+    assert "environment" in results
+    assert "runtime_pressure" in results
+    assert "by_runtime" in results["summary"]
+    assert "drift" in results["summary"]
     assert {row["case_id"] for row in results["cases"]} == {
         "oracle_micro_fact_fast",
         "oracle_memory_seed",

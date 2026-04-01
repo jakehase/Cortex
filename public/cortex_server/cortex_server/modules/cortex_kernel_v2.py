@@ -11,6 +11,8 @@ from statistics import mean
 from typing import Any, Deque, Dict, List, Optional, Tuple
 from uuid import uuid4
 
+from cortex_server.modules import runtime_pressure
+
 JsonDict = Dict[str, Any]
 
 _LOCK = threading.Lock()
@@ -493,6 +495,7 @@ def prepare_request(
 ) -> JsonDict:
     settings = _settings(runtime)
     started = time.perf_counter()
+    contract_started = time.perf_counter()
     contract = compile_request_contract(
         prompt,
         system=system,
@@ -503,6 +506,8 @@ def prepare_request(
         requested_model=requested_model,
         settings=settings,
     )
+    contract_ms = round((time.perf_counter() - contract_started) * 1000.0, 3)
+    context_started = time.perf_counter()
     working_set = compile_working_set(
         prompt,
         session_key=session_key,
@@ -510,10 +515,22 @@ def prepare_request(
         codec_prefix=codec_prefix,
         settings=settings,
     )
+    context_ms = round((time.perf_counter() - context_started) * 1000.0, 3)
+    plan_started = time.perf_counter()
     plan = plan_execution(contract, working_set, settings=settings)
+    plan_ms = round((time.perf_counter() - plan_started) * 1000.0, 3)
+    prompt_started = time.perf_counter()
     compiled_prompt = assemble_prompt(prompt, strict_contract=strict_contract, working_set=working_set, settings=settings)
+    prompt_assembly_ms = round((time.perf_counter() - prompt_started) * 1000.0, 3)
     request_id = f"kernel_{uuid4().hex[:12]}"
     compile_ms = round((time.perf_counter() - started) * 1000.0, 3)
+    timing_ms = {
+        "contract_ms": contract_ms,
+        "context_ms": context_ms,
+        "plan_ms": plan_ms,
+        "prompt_assembly_ms": prompt_assembly_ms,
+        "compile_total_ms": compile_ms,
+    }
     trace = {
         "request_id": request_id,
         "created_at": _utcnow_iso(),
@@ -524,6 +541,7 @@ def prepare_request(
         "compiled_prompt": compiled_prompt,
         "compiled_system": system,
         "compile_ms": compile_ms,
+        "timing_ms": timing_ms,
         "session_key": session_key,
         "runtime": (runtime or "oracle").strip().lower() or "oracle",
         "surface": (surface or "chat").strip().lower() or "chat",
@@ -569,12 +587,28 @@ def _latency_stats(values: List[float]) -> JsonDict:
     }
 
 
+def _runtime_pressure_marker() -> JsonDict:
+    status = dict((runtime_pressure.pressure_snapshot().get("status") or {}))
+    return {
+        "level": status.get("level") or "normal",
+        "degraded": bool(status.get("degraded")),
+        "reason": status.get("reason"),
+    }
+
+
 def _new_summary_accumulator() -> JsonDict:
     return {
         "events": 0,
         "pending_requests": 0,
         "latency_values": [],
         "compile_values": [],
+        "timing_values": {
+            "contract_ms": [],
+            "context_ms": [],
+            "plan_ms": [],
+            "prompt_assembly_ms": [],
+            "compile_total_ms": [],
+        },
         "planned_fast": 0,
         "planned_deep": 0,
         "actual_fast": 0,
@@ -622,6 +656,10 @@ def _accumulate_event_summary(acc: JsonDict, event: JsonDict) -> None:
     surface_key = str(event.get("surface") or "chat")
     acc["runtime_breakdown"][runtime_key] = acc["runtime_breakdown"].get(runtime_key, 0) + 1
     acc["surface_breakdown"][surface_key] = acc["surface_breakdown"].get(surface_key, 0) + 1
+    timing = dict(event.get("timing_ms") or {})
+    for key in ["contract_ms", "context_ms", "plan_ms", "prompt_assembly_ms", "compile_total_ms"]:
+        if key in timing:
+            acc.setdefault("timing_values", {}).setdefault(key, []).append(float(timing.get(key) or 0.0))
     session_key = str(event.get("session_key") or "").strip()
     if session_key:
         acc["session_keys"].add(session_key)
@@ -651,6 +689,10 @@ def _finalize_summary_accumulator(acc: JsonDict, *, settings: JsonDict, scope_ru
     }
     latency_stats = _latency_stats(latency_values)
     compile_stats = _latency_stats(compile_values)
+    timing_breakdown = {
+        key: _latency_stats(list(values or []))
+        for key, values in dict(acc.get("timing_values") or {}).items()
+    }
     session_total = active_sessions if active_sessions is not None else len(acc.get("session_keys") or set())
     return {
         "version": settings["version"],
@@ -672,6 +714,7 @@ def _finalize_summary_accumulator(acc: JsonDict, *, settings: JsonDict, scope_ru
             "active_sessions": session_total,
             "latency": latency_stats,
             "compile": compile_stats,
+            "timing_breakdown_ms": timing_breakdown,
             "context_hits": {
                 "hot": int(acc.get("hot_hits") or 0),
                 "warm": int(acc.get("warm_hits") or 0),
@@ -679,6 +722,7 @@ def _finalize_summary_accumulator(acc: JsonDict, *, settings: JsonDict, scope_ru
             },
             "runtime_breakdown": dict(acc.get("runtime_breakdown") or {}),
             "surface_breakdown": dict(acc.get("surface_breakdown") or {}),
+            "runtime_pressure": runtime_pressure.pressure_snapshot(),
         },
         "benchmark": benchmark,
         "economics": {
@@ -743,12 +787,14 @@ def finalize_request(
         "error": error,
         "escalated": bool(escalated),
         "compile_ms": float(trace.get("compile_ms") or 0.0),
+        "timing_ms": deepcopy(trace.get("timing_ms") or {}),
         "latency_ms": elapsed_ms,
         "context_reuse": deepcopy(((trace.get("working_set") or {}).get("reuse") or {})),
         "strict_contract": bool((trace.get("contract") or {}).get("strict_contract")),
         "mode": str(((trace.get("settings") or {}).get("mode")) or "active"),
         "shadow": str(((trace.get("settings") or {}).get("mode")) or "active") == "shadow",
         "prompt_preview": _truncate(str(trace.get("raw_prompt") or ""), 180),
+        "runtime_pressure": _runtime_pressure_marker(),
     }
 
     session_key = str(trace.get("session_key") or "").strip()
@@ -882,6 +928,10 @@ def performance_snapshot(*, runtime: Optional[str] = None, surface: Optional[str
     }
     runtime_breakdown: Dict[str, int] = {}
     surface_breakdown: Dict[str, int] = {}
+    timing_breakdown = {
+        key: _latency_stats([float((dict(event.get("timing_ms") or {})).get(key) or 0.0) for event in events if key in dict(event.get("timing_ms") or {})])
+        for key in ["contract_ms", "context_ms", "plan_ms", "prompt_assembly_ms", "compile_total_ms"]
+    }
     for event in events:
         runtime_key = str(event.get("runtime") or "oracle")
         surface_key = str(event.get("surface") or "chat")
@@ -907,6 +957,7 @@ def performance_snapshot(*, runtime: Optional[str] = None, surface: Optional[str
             "active_sessions": active_sessions,
             "latency": _latency_stats(latency_values),
             "compile": _latency_stats(compile_values),
+            "timing_breakdown_ms": timing_breakdown,
             "context_hits": {
                 "hot": hot_hits,
                 "warm": warm_hits,
@@ -914,6 +965,7 @@ def performance_snapshot(*, runtime: Optional[str] = None, surface: Optional[str
             },
             "runtime_breakdown": runtime_breakdown,
             "surface_breakdown": surface_breakdown,
+            "runtime_pressure": runtime_pressure.pressure_snapshot(),
         },
         "benchmark": benchmark,
         "economics": {

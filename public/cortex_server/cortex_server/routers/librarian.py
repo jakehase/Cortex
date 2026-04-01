@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import chromadb
-from chromadb.utils import embedding_functions
 import uuid
 import os
 import shutil
@@ -21,12 +20,15 @@ from hashlib import sha256
 from datetime import datetime, timezone
 from pathlib import Path
 
+from cortex_server.modules.librarian_embedding import build_embedding_function
+from cortex_server.modules import runtime_pressure
+
 router = APIRouter()
 
 # Initialize ChromaDB client with persistent storage
 # Use host-mounted /app path for durability across container rebuilds.
 LEGACY_CHROMA_DIR = "/root/cortex_server/chroma_db"
-CHROMA_DIR = "/app/cortex_server/chroma_db"
+CHROMA_DIR = os.getenv("CORTEX_CHROMA_DIR", "/app/cortex_server/chroma_db")
 if os.path.exists(LEGACY_CHROMA_DIR) and not os.path.exists(CHROMA_DIR):
     try:
         shutil.copytree(LEGACY_CHROMA_DIR, CHROMA_DIR)
@@ -35,8 +37,10 @@ if os.path.exists(LEGACY_CHROMA_DIR) and not os.path.exists(CHROMA_DIR):
 os.makedirs(CHROMA_DIR, exist_ok=True)
 client = chromadb.PersistentClient(path=CHROMA_DIR)
 
-# Use default embedding function (all-MiniLM-L6-v2)
-embed_fn = embedding_functions.DefaultEmbeddingFunction()
+# Use a persistent embedding function by default so ONNX sessions are not recreated
+# for every semantic lookup. The legacy Chroma default can still be forced via
+# CORTEX_LIBRARIAN_EMBEDDING_MODE=default for reproduction experiments.
+embed_fn = build_embedding_function()
 
 # Get or create collection
 COLLECTION_NAME = "cortex_memory"
@@ -690,6 +694,7 @@ async def librarian_status():
         ],
         "novelty_version": "l7l22.v1.2",
         "embedding_health": _embedding_health_snapshot(),
+        "embedding_runtime": runtime_pressure.pressure_snapshot(),
         "fallback_store": str(_FALLBACK_LOG_PATH),
     }
 

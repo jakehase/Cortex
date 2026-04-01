@@ -1,0 +1,392 @@
+{
+  "corpus": "/root/clawd/public/cortex_server/benchmarks/cortex_kernel_v2_corpus_2026-04-01.json",
+  "experiments": [
+    {
+      "description": "Persistent ONNX embedding with bounded low-thread session config.",
+      "duration_ms": 22163.757,
+      "failure_rate": 0.12,
+      "id": "persistent_2x1",
+      "returncode": 0,
+      "runtime_pressure": {
+        "counters": {
+          "embedding_calls": 110,
+          "onnx_session_inits": 1,
+          "onnx_sessions_with_explicit_threads": 1,
+          "onnx_sessions_without_explicit_threads": 0,
+          "warning_count": 0
+        },
+        "host": {
+          "affinity_layout_risk": true,
+          "allowed_cpu_count": 7,
+          "allowed_cpus": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            14
+          ],
+          "cpu_count": 7,
+          "cpus_allowed_list": "4-8,10,14",
+          "highest_allowed_cpu": 14,
+          "lowest_allowed_cpu": 4,
+          "pid": 4144992,
+          "zero_based_contiguous": false
+        },
+        "latest": {
+          "embedding_call_at": "2026-04-01T19:02:05.196684Z",
+          "session_init_at": "2026-04-01T19:01:44.503212Z"
+        },
+        "runtime": {
+          "allow_spinning": false,
+          "benchmark_mode": false,
+          "configured_inter_op_threads": 1,
+          "configured_intra_op_threads": 2,
+          "embedding_mode": "persistent",
+          "explicit_threads": true,
+          "preferred_providers": [
+            "CPUExecutionProvider"
+          ],
+          "recommended_intra_op_threads": 2
+        },
+        "status": {
+          "degraded": false,
+          "level": "normal",
+          "reason": null
+        },
+        "warnings": {
+          "count": 0,
+          "recent": []
+        }
+      },
+      "trace_drift_delta_ms": 51.713,
+      "trace_p95_ms": 192.755,
+      "warning_summary": {
+        "affinity_warning_count": 0,
+        "error_codes": {},
+        "masks": {},
+        "sample": [],
+        "stderr_line_count": 0
+      }
+    },
+    {
+      "description": "Persistent ONNX embedding with bounded threads and benchmark-mode conservative pressure handling.",
+      "duration_ms": 22604.616,
+      "failure_rate": 0.12,
+      "id": "persistent_2x1_benchmark_mode",
+      "returncode": 0,
+      "runtime_pressure": {
+        "counters": {
+          "embedding_calls": 110,
+          "onnx_session_inits": 1,
+          "onnx_sessions_with_explicit_threads": 1,
+          "onnx_sessions_without_explicit_threads": 0,
+          "warning_count": 0
+        },
+        "host": {
+          "affinity_layout_risk": true,
+          "allowed_cpu_count": 7,
+          "allowed_cpus": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            14
+          ],
+          "cpu_count": 7,
+          "cpus_allowed_list": "4-8,10,14",
+          "highest_allowed_cpu": 14,
+          "lowest_allowed_cpu": 4,
+          "pid": 4145517,
+          "zero_based_contiguous": false
+        },
+        "latest": {
+          "embedding_call_at": "2026-04-01T19:02:27.803697Z",
+          "session_init_at": "2026-04-01T19:02:06.750666Z"
+        },
+        "runtime": {
+          "allow_spinning": false,
+          "benchmark_mode": true,
+          "configured_inter_op_threads": 1,
+          "configured_intra_op_threads": 2,
+          "embedding_mode": "persistent",
+          "explicit_threads": true,
+          "preferred_providers": [
+            "CPUExecutionProvider"
+          ],
+          "recommended_intra_op_threads": 2
+        },
+        "status": {
+          "degraded": false,
+          "level": "normal",
+          "reason": null
+        },
+        "warnings": {
+          "count": 0,
+          "recent": []
+        }
+      },
+      "trace_drift_delta_ms": 52.857,
+      "trace_p95_ms": 194.613,
+      "warning_summary": {
+        "affinity_warning_count": 0,
+        "error_codes": {},
+        "masks": {},
+        "sample": [],
+        "stderr_line_count": 0
+      }
+    },
+    {
+      "description": "Persistent ONNX embedding with conservative single-thread session config.",
+      "duration_ms": 24745.001,
+      "failure_rate": 0.12,
+      "id": "persistent_1x1",
+      "returncode": 0,
+      "runtime_pressure": {
+        "counters": {
+          "embedding_calls": 110,
+          "onnx_session_inits": 1,
+          "onnx_sessions_with_explicit_threads": 1,
+          "onnx_sessions_without_explicit_threads": 0,
+          "warning_count": 0
+        },
+        "host": {
+          "affinity_layout_risk": true,
+          "allowed_cpu_count": 7,
+          "allowed_cpus": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            14
+          ],
+          "cpu_count": 7,
+          "cpus_allowed_list": "4-8,10,14",
+          "highest_allowed_cpu": 14,
+          "lowest_allowed_cpu": 4,
+          "pid": 4144633,
+          "zero_based_contiguous": false
+        },
+        "latest": {
+          "embedding_call_at": "2026-04-01T19:01:42.979617Z",
+          "session_init_at": "2026-04-01T19:01:19.749309Z"
+        },
+        "runtime": {
+          "allow_spinning": false,
+          "benchmark_mode": false,
+          "configured_inter_op_threads": 1,
+          "configured_intra_op_threads": 1,
+          "embedding_mode": "persistent",
+          "explicit_threads": true,
+          "preferred_providers": [
+            "CPUExecutionProvider"
+          ],
+          "recommended_intra_op_threads": 2
+        },
+        "status": {
+          "degraded": false,
+          "level": "normal",
+          "reason": null
+        },
+        "warnings": {
+          "count": 0,
+          "recent": []
+        }
+      },
+      "trace_drift_delta_ms": 51.936,
+      "trace_p95_ms": 210.841,
+      "warning_summary": {
+        "affinity_warning_count": 0,
+        "error_codes": {},
+        "masks": {},
+        "sample": [],
+        "stderr_line_count": 0
+      }
+    },
+    {
+      "description": "Persistent ONNX embedding instance, but allow ONNX Runtime implicit thread behavior.",
+      "duration_ms": 21155.293,
+      "failure_rate": 0.12,
+      "id": "persistent_no_explicit_threads",
+      "returncode": 0,
+      "runtime_pressure": {
+        "counters": {
+          "embedding_calls": 110,
+          "onnx_session_inits": 1,
+          "onnx_sessions_with_explicit_threads": 0,
+          "onnx_sessions_without_explicit_threads": 1,
+          "warning_count": 1
+        },
+        "host": {
+          "affinity_layout_risk": true,
+          "allowed_cpu_count": 7,
+          "allowed_cpus": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            14
+          ],
+          "cpu_count": 7,
+          "cpus_allowed_list": "4-8,10,14",
+          "highest_allowed_cpu": 14,
+          "lowest_allowed_cpu": 4,
+          "pid": 4144037,
+          "zero_based_contiguous": false
+        },
+        "latest": {
+          "embedding_call_at": "2026-04-01T19:01:18.292917Z",
+          "session_init_at": "2026-04-01T19:00:58.580899Z"
+        },
+        "runtime": {
+          "allow_spinning": null,
+          "benchmark_mode": false,
+          "configured_inter_op_threads": null,
+          "configured_intra_op_threads": null,
+          "embedding_mode": "persistent",
+          "explicit_threads": false,
+          "preferred_providers": [
+            "CPUExecutionProvider"
+          ],
+          "recommended_intra_op_threads": 2
+        },
+        "status": {
+          "degraded": true,
+          "level": "degraded",
+          "reason": "onnx_affinity_risk_without_explicit_threads"
+        },
+        "warnings": {
+          "count": 1,
+          "recent": [
+            {
+              "detail": "ONNX session initialized without explicit thread counts on a non-zero-based / non-contiguous CPU set.",
+              "extra": {
+                "cpus_allowed_list": "4-8,10,14",
+                "inter_op_threads": null,
+                "intra_op_threads": null,
+                "providers": [
+                  "CPUExecutionProvider"
+                ]
+              },
+              "kind": "onnx_affinity_risk",
+              "source": "librarian_embedding",
+              "ts": "2026-04-01T19:00:58.580917Z"
+            }
+          ]
+        }
+      },
+      "trace_drift_delta_ms": 45.9,
+      "trace_p95_ms": 184.869,
+      "warning_summary": {
+        "affinity_warning_count": 3,
+        "error_codes": {
+          "22": 3
+        },
+        "masks": {
+          "0,": 1,
+          "1,": 1,
+          "3,": 1
+        },
+        "sample": [
+          "\u001b[1;31m2026-04-01 14:00:58.461188612 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4144065, index: 1, mask: {0, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:58.461357064 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4144068, index: 4, mask: {3, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:58.461400224 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4144066, index: 2, mask: {1, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m"
+        ],
+        "stderr_line_count": 3
+      }
+    },
+    {
+      "description": "Reproduce pre-fix behavior: Chroma default embedding delegate (fresh ONNX session per embed call).",
+      "duration_ms": 35365.722,
+      "failure_rate": 0.12,
+      "id": "baseline_default_delegate",
+      "returncode": 0,
+      "runtime_pressure": {
+        "counters": {
+          "embedding_calls": 0,
+          "onnx_session_inits": 0,
+          "onnx_sessions_with_explicit_threads": 0,
+          "onnx_sessions_without_explicit_threads": 0,
+          "warning_count": 0
+        },
+        "host": {
+          "affinity_layout_risk": true,
+          "allowed_cpu_count": 7,
+          "allowed_cpus": [
+            4,
+            5,
+            6,
+            7,
+            8,
+            10,
+            14
+          ],
+          "cpu_count": 7,
+          "cpus_allowed_list": "4-8,10,14",
+          "highest_allowed_cpu": 14,
+          "lowest_allowed_cpu": 4,
+          "pid": 4143132,
+          "zero_based_contiguous": false
+        },
+        "latest": {
+          "embedding_call_at": null,
+          "session_init_at": null
+        },
+        "runtime": {
+          "allow_spinning": null,
+          "benchmark_mode": false,
+          "configured_inter_op_threads": null,
+          "configured_intra_op_threads": null,
+          "embedding_mode": "default",
+          "explicit_threads": false,
+          "preferred_providers": [
+            "CPUExecutionProvider"
+          ],
+          "recommended_intra_op_threads": 2
+        },
+        "status": {
+          "degraded": false,
+          "level": "normal",
+          "reason": null
+        },
+        "warnings": {
+          "count": 0,
+          "recent": []
+        }
+      },
+      "trace_drift_delta_ms": 51.531,
+      "trace_p95_ms": 323.097,
+      "warning_summary": {
+        "affinity_warning_count": 330,
+        "error_codes": {
+          "22": 330
+        },
+        "masks": {
+          "0,": 110,
+          "1,": 110,
+          "3,": 110
+        },
+        "sample": [
+          "\u001b[1;31m2026-04-01 14:00:23.088709929 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4143160, index: 1, mask: {0, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:23.088723665 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4143161, index: 2, mask: {1, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:23.088763829 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4143163, index: 4, mask: {3, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:23.319861458 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4143173, index: 1, mask: {0, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:23.319871416 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4143174, index: 2, mask: {1, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:23.319895681 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4143176, index: 4, mask: {3, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:23.531516541 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4143181, index: 1, mask: {0, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+          "\u001b[1;31m2026-04-01 14:00:23.531524806 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4143182, index: 2, mask: {1, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m"
+        ],
+        "stderr_line_count": 330
+      }
+    }
+  ],
+  "iterations": 12,
+  "winner": "persistent_2x1"
+}

@@ -88,6 +88,8 @@ def test_prepare_and_finalize_emit_benchmark_telemetry():
     assert snapshot["benchmark"]["actual_deep_rate"] == 1.0
     assert snapshot["benchmark"]["context_hit_rate"] == 1.0
     assert snapshot["telemetry"]["latency"]["count"] == 1
+    assert snapshot["telemetry"]["timing_breakdown_ms"]["compile_total_ms"]["count"] == 1
+    assert "runtime_pressure" in snapshot["telemetry"]
 
 
 
@@ -135,6 +137,7 @@ def test_fast_plan_escalation_is_visible_in_telemetry():
     assert latest["planned_lane"] == "fast"
     assert latest["actual_lane_family"] == "deep"
     assert latest["escalated"] is True
+    assert "runtime_pressure" in latest
 
 
 
@@ -216,6 +219,8 @@ def test_runtime_scoped_snapshots_and_mission_control_summary():
     assert summary["kernel_v2"]["latest"]["runtime"] == "meta_conductor"
     assert summary["kernel_v2"]["runtimes"]["meta_conductor"]["latest"]["runtime"] == "meta_conductor"
     assert "meta_conductor" in summary["kernel_v2"]["rollout"]["runtimes"]
+    assert "runtime_pressure" in oracle_snapshot["telemetry"]
+    assert "timing_breakdown_ms" in nexus_snapshot["telemetry"]
 
 
 def test_scope_specific_env_prefixes_apply_to_non_oracle_runtimes(monkeypatch):

@@ -1,0 +1,60 @@
+{
+  "affinity_warning_count": 0,
+  "failure_rate": 0.12,
+  "run": 1,
+  "runtime_pressure": {
+    "counters": {
+      "embedding_calls": 110,
+      "onnx_session_inits": 1,
+      "onnx_sessions_with_explicit_threads": 1,
+      "onnx_sessions_without_explicit_threads": 0,
+      "warning_count": 0
+    },
+    "host": {
+      "affinity_layout_risk": true,
+      "allowed_cpu_count": 7,
+      "allowed_cpus": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        10,
+        14
+      ],
+      "cpu_count": 7,
+      "cpus_allowed_list": "4-8,10,14",
+      "highest_allowed_cpu": 14,
+      "lowest_allowed_cpu": 4,
+      "pid": 4145914,
+      "zero_based_contiguous": false
+    },
+    "latest": {
+      "embedding_call_at": "2026-04-01T19:03:18.437287Z",
+      "session_init_at": "2026-04-01T19:02:57.796332Z"
+    },
+    "runtime": {
+      "allow_spinning": false,
+      "benchmark_mode": false,
+      "configured_inter_op_threads": 1,
+      "configured_intra_op_threads": 2,
+      "embedding_mode": "persistent",
+      "explicit_threads": true,
+      "preferred_providers": [
+        "CPUExecutionProvider"
+      ],
+      "recommended_intra_op_threads": 2
+    },
+    "status": {
+      "degraded": false,
+      "level": "normal",
+      "reason": null
+    },
+    "warnings": {
+      "count": 0,
+      "recent": []
+    }
+  },
+  "trace_drift_delta_ms": 48.461,
+  "trace_p95_ms": 188.299
+}

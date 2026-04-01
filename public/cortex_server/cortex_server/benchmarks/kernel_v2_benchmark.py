@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 from cortex_server.middleware.hud_middleware import HUDMiddleware
 from cortex_server.modules import cortex_kernel_v2
+from cortex_server.modules import runtime_pressure
 import cortex_server.routers.command_center as command_center
 import cortex_server.routers.command_center_live as command_center_live
 import cortex_server.routers.meta_conductor as meta_conductor
@@ -85,6 +86,7 @@ class BenchmarkHarness:
         for item in self._patches:
             item.start()
         self._set_env()
+        runtime_pressure.reset_state()
         self._warmup()
         cortex_kernel_v2.reset_state()
         return self
@@ -344,6 +346,75 @@ def _aggregate_operator_metrics(results: Iterable[CaseResult]) -> JsonDict:
     }
 
 
+def _aggregate_by_dimension(results: Iterable[CaseResult], *, key_name: str) -> JsonDict:
+    grouped: Dict[str, List[CaseResult]] = {}
+    for row in results:
+        value = getattr(row, key_name, "") or "unknown"
+        grouped.setdefault(str(value), []).append(row)
+    summary: Dict[str, JsonDict] = {}
+    for value, rows in grouped.items():
+        trace_rows = [row for row in rows if row.kernel_event]
+        operator_rows = [row for row in rows if not row.kernel_event]
+        failures = sum(1 for row in rows if not row.passed)
+        summary[value] = {
+            "count": len(rows),
+            "failure_rate": round(failures / len(rows), 3) if rows else 0.0,
+            "trace_metrics": _aggregate_trace_metrics(trace_rows),
+            "operator_metrics": _aggregate_operator_metrics(operator_rows),
+        }
+    return summary
+
+
+def _avg(values: List[float]) -> float:
+    return round(mean(values), 3) if values else 0.0
+
+
+def _drift_summary(results: Iterable[CaseResult]) -> JsonDict:
+    trace_rows = [row for row in results if row.kernel_event]
+    if not trace_rows:
+        return {"trace_rows": 0, "overall_delta_ms": 0.0, "by_runtime": {}, "top_case_drift": []}
+
+    def _delta(rows: List[CaseResult]) -> float:
+        ordered = sorted(rows, key=lambda row: (row.iteration, row.case_id))
+        values = [float(row.kernel_event.get("latency_ms") or 0.0) for row in ordered if row.kernel_event]
+        if len(values) <= 1:
+            return 0.0
+        midpoint = max(1, len(values) // 2)
+        return round(_avg(values[midpoint:]) - _avg(values[:midpoint]), 3)
+
+    by_runtime: Dict[str, JsonDict] = {}
+    runtime_rows: Dict[str, List[CaseResult]] = {}
+    case_rows: Dict[str, List[CaseResult]] = {}
+    for row in trace_rows:
+        runtime_rows.setdefault(row.runtime or "unknown", []).append(row)
+        case_rows.setdefault(row.case_id, []).append(row)
+
+    for runtime, rows in runtime_rows.items():
+        by_runtime[runtime] = {
+            "count": len(rows),
+            "latency_delta_ms": _delta(rows),
+        }
+
+    top_case_drift = [
+        {
+            "case_id": case_id,
+            "runtime": rows[0].runtime if rows else "",
+            "count": len(rows),
+            "latency_delta_ms": _delta(rows),
+        }
+        for case_id, rows in case_rows.items()
+        if len(rows) > 1
+    ]
+    top_case_drift.sort(key=lambda row: abs(float(row.get("latency_delta_ms") or 0.0)), reverse=True)
+
+    return {
+        "trace_rows": len(trace_rows),
+        "overall_delta_ms": _delta(trace_rows),
+        "by_runtime": by_runtime,
+        "top_case_drift": top_case_drift[:8],
+    }
+
+
 def run_suite(corpus_path: str | Path, *, iterations: int = 1, case_ids: Optional[Iterable[str]] = None) -> JsonDict:
     corpus = load_corpus(corpus_path)
     allowed = set(case_ids or [])
@@ -359,7 +430,9 @@ def run_suite(corpus_path: str | Path, *, iterations: int = 1, case_ids: Optiona
     operator_results = [row for row in results if not row.kernel_event]
     overall_failures = sum(1 for row in results if not row.passed)
     return {
-        "schema_version": "cortex.kernel_v2.benchmark_results.v1",
+        "schema_version": "cortex.kernel_v2.benchmark_results.v2",
+        "environment": runtime_pressure.benchmark_environment_metadata(),
+        "runtime_pressure": runtime_pressure.pressure_snapshot(),
         "corpus": {
             "name": corpus.get("name"),
             "path": str(corpus_path),
@@ -373,6 +446,9 @@ def run_suite(corpus_path: str | Path, *, iterations: int = 1, case_ids: Optiona
             "failure_rate": round(overall_failures / len(results), 3) if results else 0.0,
             "trace_metrics": _aggregate_trace_metrics(trace_results),
             "operator_metrics": _aggregate_operator_metrics(operator_results),
+            "drift": _drift_summary(trace_results),
+            "by_runtime": _aggregate_by_dimension(results, key_name="runtime"),
+            "by_surface": _aggregate_by_dimension(results, key_name="surface"),
         },
         "cases": [
             {

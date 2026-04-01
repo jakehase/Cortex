@@ -1,0 +1,52 @@
+{
+  "affinity_warning_count": 18,
+  "default_delegate": {
+    "avg_ms": 146.418,
+    "label": "default_delegate",
+    "timings_ms": [
+      199.82,
+      130.999,
+      123.173,
+      149.766,
+      128.33
+    ]
+  },
+  "persistent_explicit_2x1": {
+    "avg_ms": 47.976,
+    "label": "persistent_explicit_2x1",
+    "timings_ms": [
+      132.889,
+      27.043,
+      26.316,
+      26.734,
+      26.898
+    ]
+  },
+  "persistent_implicit_threads": {
+    "avg_ms": 39.476,
+    "label": "persistent_implicit_threads",
+    "timings_ms": [
+      127.244,
+      17.361,
+      17.428,
+      17.635,
+      17.713
+    ]
+  },
+  "returncode": 0,
+  "stderr_line_count": 18,
+  "stderr_sample": [
+    "\u001b[1;31m2026-04-01 14:05:16.068384212 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147520, index: 4, mask: {3, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.068404931 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147517, index: 1, mask: {0, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.068442140 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147518, index: 2, mask: {1, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.245080327 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147523, index: 2, mask: {1, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.245117346 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147525, index: 4, mask: {3, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.245072873 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147522, index: 1, mask: {0, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.374882334 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147527, index: 1, mask: {0, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.374910046 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147528, index: 2, mask: {1, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.374951472 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147530, index: 4, mask: {3, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.498143936 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147532, index: 1, mask: {0, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.498152612 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147533, index: 2, mask: {1, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m",
+    "\u001b[1;31m2026-04-01 14:05:16.498587437 [E:onnxruntime:Default, env.cc:227 ThreadMain] pthread_setaffinity_np failed for thread: 4147535, index: 4, mask: {3, }, error code: 22 error msg: Invalid argument. Specify the number of threads explicitly so the affinity is not set.\u001b[m"
+  ]
+}

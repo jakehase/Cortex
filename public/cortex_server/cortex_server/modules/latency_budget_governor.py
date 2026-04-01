@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+
+from cortex_server.modules import runtime_pressure
 
 
 DEFAULT_ARTIFACT_DIR = Path("/opt/clawdbot/artifacts/nexus_latency")
@@ -19,6 +22,13 @@ def _now_iso() -> str:
 def _safe_write(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _prefetch_execution_mode() -> str:
+    raw = str(os.getenv("CORTEX_LATENCY_GOVERNOR_PREFETCH_MODE") or "auto").strip().lower() or "auto"
+    if raw not in {"auto", "parallel", "serial"}:
+        return "auto"
+    return raw
 
 
 def classify_task_archetype(
@@ -132,6 +142,33 @@ class LatencyBudgetGovernor:
         results: Dict[str, Any] = {}
         timings: Dict[str, int] = {}
         start = time.perf_counter()
+        pressure = runtime_pressure.pressure_snapshot()
+        mode = _prefetch_execution_mode()
+        serialize = mode == "serial" or (
+            mode == "auto"
+            and (
+                bool((pressure.get("status") or {}).get("degraded"))
+                or bool((runtime_pressure.runtime_configuration() or {}).get("benchmark_mode"))
+            )
+        )
+        if serialize:
+            for name, fn in tasks.items():
+                task_start = time.perf_counter()
+                try:
+                    results[name] = fn()
+                except Exception as exc:  # noqa: BLE001
+                    results[name] = {"error": str(exc)}
+                timings[name] = int((time.perf_counter() - task_start) * 1000)
+            timings["wall"] = int((time.perf_counter() - start) * 1000)
+            return {
+                "enabled": True,
+                "results": results,
+                "timings_ms": timings,
+                "used_parallel": False,
+                "serialized_due_to_runtime_pressure": True,
+                "runtime_pressure": pressure.get("status") or {},
+            }
+
         with ThreadPoolExecutor(max_workers=min(2, len(tasks))) as pool:
             future_map = {}
             for name, fn in tasks.items():
@@ -145,7 +182,14 @@ class LatencyBudgetGovernor:
                     results[name] = {"error": str(exc)}
                 timings[name] = int((time.perf_counter() - task_start) * 1000)
         timings["wall"] = int((time.perf_counter() - start) * 1000)
-        return {"enabled": True, "results": results, "timings_ms": timings, "used_parallel": len(tasks) > 1}
+        return {
+            "enabled": True,
+            "results": results,
+            "timings_ms": timings,
+            "used_parallel": len(tasks) > 1,
+            "serialized_due_to_runtime_pressure": False,
+            "runtime_pressure": pressure.get("status") or {},
+        }
 
     def should_escalate(
         self,

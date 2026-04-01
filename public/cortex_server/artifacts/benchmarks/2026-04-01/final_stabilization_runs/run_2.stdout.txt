@@ -1,0 +1,516 @@
+{
+  "by_runtime": {
+    "command_center": {
+      "count": 24,
+      "failure_rate": 0.0,
+      "operator_metrics": {
+        "count": 24,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 5.578,
+          "p95": 6.267
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.0,
+        "actual_fast_rate": 0.0,
+        "codec_use_rate": 0.0,
+        "compile_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "context_chars": {
+          "avg": 0.0,
+          "p95": 0.0
+        },
+        "count": 0,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "planned_deep_rate": 0.0,
+        "planned_fast_rate": 0.0
+      }
+    },
+    "command_center_live": {
+      "count": 12,
+      "failure_rate": 0.0,
+      "operator_metrics": {
+        "count": 12,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 5.093,
+          "p95": 5.316
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.0,
+        "actual_fast_rate": 0.0,
+        "codec_use_rate": 0.0,
+        "compile_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "context_chars": {
+          "avg": 0.0,
+          "p95": 0.0
+        },
+        "count": 0,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "planned_deep_rate": 0.0,
+        "planned_fast_rate": 0.0
+      }
+    },
+    "meta_conductor": {
+      "count": 24,
+      "failure_rate": 0.0,
+      "operator_metrics": {
+        "count": 12,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 1.927,
+          "p95": 2.087
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 1.0,
+        "actual_fast_rate": 0.0,
+        "codec_use_rate": 0.0,
+        "compile_ms": {
+          "p50": 0.077,
+          "p95": 0.085
+        },
+        "context_chars": {
+          "avg": 0.0,
+          "p95": 0.0
+        },
+        "count": 12,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 19.086,
+          "p95": 19.835
+        },
+        "planned_deep_rate": 1.0,
+        "planned_fast_rate": 0.0
+      }
+    },
+    "mission_control": {
+      "count": 12,
+      "failure_rate": 1.0,
+      "operator_metrics": {
+        "count": 12,
+        "failure_rate": 1.0,
+        "latency_ms": {
+          "p50": 202.56,
+          "p95": 259.292
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.0,
+        "actual_fast_rate": 0.0,
+        "codec_use_rate": 0.0,
+        "compile_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "context_chars": {
+          "avg": 0.0,
+          "p95": 0.0
+        },
+        "count": 0,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "planned_deep_rate": 0.0,
+        "planned_fast_rate": 0.0
+      }
+    },
+    "nexus": {
+      "count": 48,
+      "failure_rate": 0.0,
+      "operator_metrics": {
+        "count": 12,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 2.291,
+          "p95": 2.512
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.667,
+        "actual_fast_rate": 0.333,
+        "codec_use_rate": 0.917,
+        "compile_ms": {
+          "p50": 0.061,
+          "p95": 0.068
+        },
+        "context_chars": {
+          "avg": 206.861,
+          "p95": 349.0
+        },
+        "count": 36,
+        "escalation_rate": 0.667,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 145.573,
+          "p95": 194.324
+        },
+        "planned_deep_rate": 0.667,
+        "planned_fast_rate": 0.333
+      }
+    },
+    "oracle": {
+      "count": 72,
+      "failure_rate": 0.153,
+      "operator_metrics": {
+        "count": 0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.333,
+        "actual_fast_rate": 0.667,
+        "codec_use_rate": 0.333,
+        "compile_ms": {
+          "p50": 0.079,
+          "p95": 0.108
+        },
+        "context_chars": {
+          "avg": 248.111,
+          "p95": 664.0
+        },
+        "count": 72,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.153,
+        "latency_ms": {
+          "p50": 158.94,
+          "p95": 192.311
+        },
+        "planned_deep_rate": 0.333,
+        "planned_fast_rate": 0.667
+      }
+    }
+  },
+  "by_surface": {
+    "action": {
+      "count": 12,
+      "failure_rate": 0.0,
+      "operator_metrics": {
+        "count": 12,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 5.575,
+          "p95": 5.709
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.0,
+        "actual_fast_rate": 0.0,
+        "codec_use_rate": 0.0,
+        "compile_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "context_chars": {
+          "avg": 0.0,
+          "p95": 0.0
+        },
+        "count": 0,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "planned_deep_rate": 0.0,
+        "planned_fast_rate": 0.0
+      }
+    },
+    "chat": {
+      "count": 72,
+      "failure_rate": 0.153,
+      "operator_metrics": {
+        "count": 0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.333,
+        "actual_fast_rate": 0.667,
+        "codec_use_rate": 0.333,
+        "compile_ms": {
+          "p50": 0.079,
+          "p95": 0.108
+        },
+        "context_chars": {
+          "avg": 248.111,
+          "p95": 664.0
+        },
+        "count": 72,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.153,
+        "latency_ms": {
+          "p50": 158.94,
+          "p95": 192.311
+        },
+        "planned_deep_rate": 0.333,
+        "planned_fast_rate": 0.667
+      }
+    },
+    "orchestrate": {
+      "count": 48,
+      "failure_rate": 0.0,
+      "operator_metrics": {
+        "count": 0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.75,
+        "actual_fast_rate": 0.25,
+        "codec_use_rate": 0.688,
+        "compile_ms": {
+          "p50": 0.061,
+          "p95": 0.085
+        },
+        "context_chars": {
+          "avg": 155.146,
+          "p95": 349.0
+        },
+        "count": 48,
+        "escalation_rate": 0.5,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 119.42,
+          "p95": 194.324
+        },
+        "planned_deep_rate": 0.75,
+        "planned_fast_rate": 0.25
+      }
+    },
+    "state": {
+      "count": 24,
+      "failure_rate": 0.0,
+      "operator_metrics": {
+        "count": 24,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 5.323,
+          "p95": 5.981
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.0,
+        "actual_fast_rate": 0.0,
+        "codec_use_rate": 0.0,
+        "compile_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "context_chars": {
+          "avg": 0.0,
+          "p95": 0.0
+        },
+        "count": 0,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "planned_deep_rate": 0.0,
+        "planned_fast_rate": 0.0
+      }
+    },
+    "status": {
+      "count": 12,
+      "failure_rate": 1.0,
+      "operator_metrics": {
+        "count": 12,
+        "failure_rate": 1.0,
+        "latency_ms": {
+          "p50": 202.56,
+          "p95": 259.292
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.0,
+        "actual_fast_rate": 0.0,
+        "codec_use_rate": 0.0,
+        "compile_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "context_chars": {
+          "avg": 0.0,
+          "p95": 0.0
+        },
+        "count": 0,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "planned_deep_rate": 0.0,
+        "planned_fast_rate": 0.0
+      }
+    },
+    "telemetry": {
+      "count": 24,
+      "failure_rate": 0.0,
+      "operator_metrics": {
+        "count": 24,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 2.1,
+          "p95": 2.512
+        }
+      },
+      "trace_metrics": {
+        "actual_deep_rate": 0.0,
+        "actual_fast_rate": 0.0,
+        "codec_use_rate": 0.0,
+        "compile_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "context_chars": {
+          "avg": 0.0,
+          "p95": 0.0
+        },
+        "count": 0,
+        "escalation_rate": 0.0,
+        "failure_rate": 0.0,
+        "latency_ms": {
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "planned_deep_rate": 0.0,
+        "planned_fast_rate": 0.0
+      }
+    }
+  },
+  "drift": {
+    "by_runtime": {
+      "meta_conductor": {
+        "count": 12,
+        "latency_delta_ms": 0.072
+      },
+      "nexus": {
+        "count": 36,
+        "latency_delta_ms": 62.891
+      },
+      "oracle": {
+        "count": 72,
+        "latency_delta_ms": 54.657
+      }
+    },
+    "overall_delta_ms": 51.668,
+    "top_case_drift": [
+      {
+        "case_id": "nexus_micro_fastlane",
+        "count": 12,
+        "latency_delta_ms": 70.565,
+        "runtime": "nexus"
+      },
+      {
+        "case_id": "oracle_strict_contract_micro",
+        "count": 12,
+        "latency_delta_ms": 65.039,
+        "runtime": "oracle"
+      },
+      {
+        "case_id": "nexus_high_risk_prod",
+        "count": 12,
+        "latency_delta_ms": 60.22,
+        "runtime": "nexus"
+      },
+      {
+        "case_id": "oracle_memory_seed",
+        "count": 12,
+        "latency_delta_ms": 58.716,
+        "runtime": "oracle"
+      },
+      {
+        "case_id": "nexus_planning_orchestrate",
+        "count": 12,
+        "latency_delta_ms": 57.889,
+        "runtime": "nexus"
+      },
+      {
+        "case_id": "oracle_analysis_tradeoff",
+        "count": 12,
+        "latency_delta_ms": 52.739,
+        "runtime": "oracle"
+      },
+      {
+        "case_id": "oracle_memory_followup",
+        "count": 12,
+        "latency_delta_ms": 52.403,
+        "runtime": "oracle"
+      },
+      {
+        "case_id": "oracle_micro_fact_fast",
+        "count": 12,
+        "latency_delta_ms": 49.63,
+        "runtime": "oracle"
+      }
+    ],
+    "trace_rows": 120
+  },
+  "failed_runs": 23,
+  "failure_rate": 0.12,
+  "operator_metrics": {
+    "count": 72,
+    "failure_rate": 0.167,
+    "latency_ms": {
+      "p50": 5.316,
+      "p95": 233.714
+    }
+  },
+  "passed_runs": 169,
+  "total_runs": 192,
+  "trace_metrics": {
+    "actual_deep_rate": 0.5,
+    "actual_fast_rate": 0.5,
+    "codec_use_rate": 0.475,
+    "compile_ms": {
+      "p50": 0.064,
+      "p95": 0.107
+    },
+    "context_chars": {
+      "avg": 210.925,
+      "p95": 664.0
+    },
+    "count": 120,
+    "escalation_rate": 0.2,
+    "failure_rate": 0.092,
+    "latency_ms": {
+      "p50": 147.614,
+      "p95": 192.652
+    },
+    "planned_deep_rate": 0.5,
+    "planned_fast_rate": 0.5
+  }
+}
