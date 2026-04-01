@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-01T02:09:00.064Z",
+      "updatedAt": "2026-04-01T02:14:21.017Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 142,
+        "runs": 143,
         "failures": [],
-        "lastRunAt": "2026-04-01T02:09:00.071Z",
+        "lastRunAt": "2026-04-01T02:14:21.024Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -7373,12 +7373,12 @@
       "id": "agent:main:subagent:4ca0183e-8e6f-4119-a339-aec1451ff99a:1775009601883:f4b083391d1f3452",
       "sessionKey": "agent:main:subagent:4ca0183e-8e6f-4119-a339-aec1451ff99a",
       "createdAt": "2026-04-01T02:13:21.883Z",
-      "updatedAt": "2026-04-01T02:13:21.890Z",
+      "updatedAt": "2026-04-01T02:16:40.893Z",
       "prompt": "[Tue 2026-03-31 21:13 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Continue from /root/clawd at commit 5cbf56d1 and finish the rema",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "................... 100% 19 passed in 0.72s Process exited with code 0.",
       "history": [
         {
           "from": null,
@@ -7389,6 +7389,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-01T02:13:21.890Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-01T02:16:40.893Z",
+          "completedAt": "2026-04-01T02:16:40.893Z",
+          "completionSummary": "................... 100% 19 passed in 0.72s Process exited with code 0.",
+          "completionSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -7399,10 +7407,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-04-01T02:16:40.896Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "completedAt": "2026-04-01T02:16:40.893Z",
+      "completionSource": "runtime_message"
     }
   ]
 }
