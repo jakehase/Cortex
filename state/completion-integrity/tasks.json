@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-31T23:59:10.247Z",
+      "updatedAt": "2026-04-01T00:04:10.302Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 116,
+        "runs": 117,
         "failures": [],
-        "lastRunAt": "2026-03-31T23:59:10.250Z",
+        "lastRunAt": "2026-04-01T00:04:10.309Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6878,7 +6878,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-03-31T23:55:10.160Z",
+      "updatedAt": "2026-04-01T00:06:34.262Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -6913,9 +6913,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 46,
+        "runs": 47,
         "failures": [],
-        "lastRunAt": "2026-03-31T23:55:10.165Z",
+        "lastRunAt": "2026-04-01T00:06:34.269Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -7277,12 +7277,12 @@
       "id": "agent:main:subagent:5370a9d5-fe81-4117-af3d-f06a40458dda:1775001301235:8388a7f652eee5ab",
       "sessionKey": "agent:main:subagent:5370a9d5-fe81-4117-af3d-f06a40458dda",
       "createdAt": "2026-03-31T23:55:01.235Z",
-      "updatedAt": "2026-03-31T23:55:01.246Z",
+      "updatedAt": "2026-04-01T00:05:56.427Z",
       "prompt": "[Tue 2026-03-31 18:55 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Continue from /root/clawd at commit 1c1c8a5c and keep advancing ",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Tue 2026-03-31 18:55 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Continue from /root/clawd at commit 1c1c8a5c and keep advancing the roadmap-executor work. Focus on the remain",
       "history": [
         {
           "from": null,
@@ -7293,6 +7293,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-03-31T23:55:01.246Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-01T00:05:56.427Z",
+          "completedAt": "2026-04-01T00:05:56.427Z",
+          "completionSummary": "Tue 2026-03-31 18:55 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Continue from /root/clawd at commit 1c1c8a5c and keep advancing the roadmap-executor work. Focus on the remain",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -7303,10 +7311,17 @@
       "validation": {
         "required": true,
         "mode": "strict",
-        "passed": false,
-        "runs": 0,
-        "failures": []
-      }
+        "passed": true,
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-04-01T00:05:56.431Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "completedAt": "2026-04-01T00:05:56.427Z",
+      "completionSource": "agent_end"
     }
   ]
 }
