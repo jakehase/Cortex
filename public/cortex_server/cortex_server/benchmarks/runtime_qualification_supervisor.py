@@ -70,6 +70,14 @@ def state_path(date: str) -> Path:
     return qualification_root(date) / "program_state.json"
 
 
+def completion_summary_path(date: str) -> Path:
+    return qualification_root(date) / "completion_summary.json"
+
+
+def notification_state_path(date: str) -> Path:
+    return qualification_root(date) / "notification_state.json"
+
+
 def _stage_specs(date: str) -> Dict[str, StageSpec]:
     root = qualification_root(date)
     return {
@@ -249,11 +257,15 @@ def reconcile_state(date: str, *, persist: bool = True) -> JsonDict:
     state["all_complete"] = state["next_stage"] is None
     if persist:
         save_state(date, state)
+        if state["all_complete"]:
+            build_completion_summary(date, state=state, persist=True)
+            notification_state(date, persist_default=True)
     return state
 
 
 def stage_status_summary(date: str) -> JsonDict:
     state = reconcile_state(date)
+    completion_path = completion_summary_path(date)
     return {
         "schema_version": state.get("schema_version"),
         "date": date,
@@ -261,8 +273,134 @@ def stage_status_summary(date: str) -> JsonDict:
         "all_complete": state.get("all_complete"),
         "next_stage": state.get("next_stage"),
         "active_process": state.get("active_process"),
+        "completion_summary_path": str(completion_path) if completion_path.exists() else None,
         "stages": [state["stages"][stage] for stage in STAGE_ORDER],
     }
+
+
+def _pick_metrics(path: Path) -> JsonDict:
+    if not path.exists():
+        return {}
+    payload = _json_load(path)
+    summary = payload.get("summary") or {}
+    trace = summary.get("trace_metrics") or {}
+    return {
+        "failure_rate": summary.get("failure_rate"),
+        "trace_p50_ms": ((trace.get("latency_ms") or {}).get("p50")),
+        "trace_p95_ms": ((trace.get("latency_ms") or {}).get("p95")),
+        "drift_delta_ms": ((summary.get("drift") or {}).get("overall_delta_ms")),
+    }
+
+
+def build_completion_summary(date: str, *, state: Optional[JsonDict] = None, persist: bool = True) -> JsonDict:
+    state = state or reconcile_state(date)
+    root = qualification_root(date)
+    baseline = _pick_metrics(root / "baseline" / "baseline.benchmark.json")
+    final = _pick_metrics(root / "final" / "final.benchmark.json")
+    experiments = _json_load(root / "experiments" / "index.json") if (root / "experiments" / "index.json").exists() else {}
+    soak = _json_load(root / "soak_summary.json") if (root / "soak_summary.json").exists() else {}
+    validation = _json_load(root / "validation" / "validation_summary.json") if (root / "validation" / "validation_summary.json").exists() else {}
+    case_count = ((state.get("stages") or {}).get("corpus") or {}).get("details", {}).get("case_count")
+    summary = {
+        "schema_version": "cortex.runtime.qualification.completion.v1",
+        "date": date,
+        "generated_at": now_iso(),
+        "all_complete": bool(state.get("all_complete")),
+        "artifacts_root": str(root),
+        "stage_checklist": [
+            {
+                "stage": stage,
+                "label": ((state.get("stages") or {}).get(stage) or {}).get("label"),
+                "completed": bool(((state.get("stages") or {}).get(stage) or {}).get("completed")),
+            }
+            for stage in STAGE_ORDER
+        ],
+        "summary": {
+            "case_count": case_count,
+            "experiment_count": len(experiments.get("experiments") or []),
+            "winner": experiments.get("winner"),
+            "baseline": baseline,
+            "final": final,
+            "soak": {
+                "run_count": soak.get("run_count"),
+                "avg_trace_p95_ms": ((soak.get("aggregate") or {}).get("avg_trace_p95_ms")),
+                "max_trace_p95_ms": ((soak.get("aggregate") or {}).get("max_trace_p95_ms")),
+                "avg_trace_drift_delta_ms": ((soak.get("aggregate") or {}).get("avg_trace_drift_delta_ms")),
+            },
+            "validation": {
+                "returncode": validation.get("returncode"),
+                "command": validation.get("command"),
+            },
+        },
+        "message_lines": [
+            f"Runtime qualification {'complete' if state.get('all_complete') else 'incomplete'} for {date}.",
+            f"Stages complete: {sum(1 for stage in STAGE_ORDER if ((state.get('stages') or {}).get(stage) or {}).get('completed'))}/{len(STAGE_ORDER)}.",
+            f"Winner config: {experiments.get('winner') or 'unknown'}.",
+            f"Baseline failure rate: {baseline.get('failure_rate')} → final: {final.get('failure_rate')}.",
+            f"Soak runs: {soak.get('run_count') or 0}; avg trace p95: {((soak.get('aggregate') or {}).get('avg_trace_p95_ms'))} ms.",
+            f"Validation returncode: {validation.get('returncode')}.",
+        ],
+        "final_report_path": str(docs_root() / f"CORTEX_RUNTIME_QUALIFICATION_FINAL_REPORT_{date}.md"),
+    }
+    if persist:
+        _json_dump(completion_summary_path(date), summary)
+    return summary
+
+
+def notification_state(date: str, *, persist_default: bool = True) -> JsonDict:
+    path = notification_state_path(date)
+    if path.exists():
+        return _json_load(path)
+    payload = {
+        "schema_version": "cortex.runtime.qualification.notification.v1",
+        "date": date,
+        "created_at": now_iso(),
+        "notified": False,
+        "notified_at": None,
+        "notify_count": 0,
+        "completion_summary_path": str(completion_summary_path(date)),
+    }
+    if persist_default:
+        _json_dump(path, payload)
+    return payload
+
+
+def mark_notified(date: str, *, note: Optional[str] = None) -> JsonDict:
+    payload = notification_state(date)
+    payload["notified"] = True
+    payload["notified_at"] = now_iso()
+    payload["notify_count"] = int(payload.get("notify_count") or 0) + 1
+    if note:
+        payload["note"] = str(note)
+    _json_dump(notification_state_path(date), payload)
+    return payload
+
+
+def wait_for_completion(date: str, *, timeout_seconds: int = 0, interval_seconds: int = 30, mark_complete_notification: bool = False) -> JsonDict:
+    start = time.time()
+    while True:
+        state = reconcile_state(date)
+        if state.get("all_complete"):
+            summary = build_completion_summary(date, state=state, persist=True)
+            notification = notification_state(date)
+            if mark_complete_notification and not notification.get("notified"):
+                notification = mark_notified(date, note="completion delivered via watcher")
+            return {
+                "all_complete": True,
+                "timed_out": False,
+                "state": stage_status_summary(date),
+                "completion_summary": summary,
+                "notification": notification,
+            }
+        if timeout_seconds and (time.time() - start) >= timeout_seconds:
+            return {
+                "all_complete": False,
+                "timed_out": True,
+                "state": stage_status_summary(date),
+                "completion_summary": None,
+                "notification": notification_state(date),
+            }
+        time.sleep(max(1, int(interval_seconds or 30)))
 
 
 def _bash_wrapper(command: List[str], *, stdout_path: Path, stderr_path: Path, exit_code_path: Path) -> List[str]:

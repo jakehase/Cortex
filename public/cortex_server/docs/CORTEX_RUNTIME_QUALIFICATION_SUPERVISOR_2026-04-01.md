@@ -22,6 +22,8 @@ Provides:
 - state-file management
 - stage verification
 - next-stage / completion status
+- completion summary generation
+- notification state tracking
 - background soak launch + poll/termination
 - machine-readable stage specs
 
@@ -31,11 +33,24 @@ Provides:
 Commands:
 - `init`
 - `status`
+- `completion-summary`
 - `verify [--require-complete]`
 - `stage-spec [--stage <name>]`
 - `run-stage --stage <name> [--background]`
 - `poll`
 - `terminate`
+- `watch [--timeout-seconds N] [--interval-seconds N] [--mark-notified]`
+- `mark-notified [--note TEXT]`
+
+## Completion watcher wrapper
+- `scripts/watch_runtime_qualification_completion.py`
+
+This wrapper blocks until qualification is complete and then emits the final JSON payload for delivery.
+
+## Human-readable notifier wrapper
+- `scripts/run_runtime_qualification_notify_once.py`
+
+This wrapper blocks until qualification is complete and then prints a concise human-facing summary derived from `completion_summary.json`. In OpenClaw, this is the best target for a dedicated watcher subagent because the subagent completion announcement becomes the user-facing notification.
 
 ---
 
@@ -52,6 +67,10 @@ Tracked fields include:
 - active process metadata for long-running soak stages
 - next required stage
 - all-complete flag
+
+Additional machine-readable artifacts:
+- `artifacts/qualification/<date>/completion_summary.json`
+- `artifacts/qualification/<date>/notification_state.json`
 
 ---
 
@@ -105,6 +124,8 @@ Recommended usage pattern:
 3. use supervisor `status` / `verify` to check which stages are still missing
 4. only accept completion if `verify --require-complete` returns success
 
+To fix silent finishes, use the watcher layer so a parent session or wrapper can emit the completion summary as soon as `all_complete=true`.
+
 This makes the parent session the judge of completion.
 
 ---
@@ -141,9 +162,28 @@ python3 scripts/run_runtime_qualification_supervisor.py --date 2026-04-01 poll
 python3 scripts/run_runtime_qualification_supervisor.py --date 2026-04-01 verify --require-complete
 ```
 
+## Emit completion summary
+```bash
+python3 scripts/run_runtime_qualification_supervisor.py --date 2026-04-01 completion-summary
+```
+
+## Block until complete and mark notification delivered
+```bash
+python3 scripts/watch_runtime_qualification_completion.py --date 2026-04-01 --mark-notified
+```
+
+## Block until complete and print a human summary
+```bash
+python3 scripts/run_runtime_qualification_notify_once.py --date 2026-04-01 --mark-notified
+```
+
 Exit code semantics:
 - `0` = all required stages verified complete
 - `2` = still incomplete
+
+Watcher exit semantics:
+- `0` = qualification completed and summary emitted
+- `3` = timed out before completion
 
 ---
 

@@ -24,6 +24,7 @@ def main(argv=None) -> int:
 
     sub.add_parser("init")
     sub.add_parser("status")
+    sub.add_parser("completion-summary")
 
     verify = sub.add_parser("verify")
     verify.add_argument("--require-complete", action="store_true")
@@ -38,6 +39,14 @@ def main(argv=None) -> int:
     sub.add_parser("poll")
     sub.add_parser("terminate")
 
+    watch = sub.add_parser("watch")
+    watch.add_argument("--timeout-seconds", type=int, default=0)
+    watch.add_argument("--interval-seconds", type=int, default=30)
+    watch.add_argument("--mark-notified", action="store_true")
+
+    mark = sub.add_parser("mark-notified")
+    mark.add_argument("--note")
+
     args = parser.parse_args(argv)
     date = args.date
 
@@ -48,6 +57,10 @@ def main(argv=None) -> int:
         return 0
     if args.command == "status":
         _print(supervisor.stage_status_summary(date))
+        return 0
+    if args.command == "completion-summary":
+        state = supervisor.reconcile_state(date)
+        _print(supervisor.build_completion_summary(date, state=state, persist=True))
         return 0
     if args.command == "verify":
         payload = supervisor.stage_status_summary(date)
@@ -68,6 +81,18 @@ def main(argv=None) -> int:
         return 0
     if args.command == "terminate":
         _print(supervisor.terminate_active_process(date))
+        return 0
+    if args.command == "watch":
+        payload = supervisor.wait_for_completion(
+            date,
+            timeout_seconds=max(0, int(args.timeout_seconds or 0)),
+            interval_seconds=max(1, int(args.interval_seconds or 30)),
+            mark_complete_notification=bool(args.mark_notified),
+        )
+        _print(payload)
+        return 0 if payload.get("all_complete") else 3
+    if args.command == "mark-notified":
+        _print(supervisor.mark_notified(date, note=args.note))
         return 0
     return 1
 
