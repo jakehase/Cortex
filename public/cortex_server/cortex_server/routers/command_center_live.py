@@ -10,6 +10,8 @@ import time
 
 import httpx
 
+from cortex_server.modules import cortex_kernel_v2
+
 router = APIRouter()
 
 _ASSETS_DIR = Path(__file__).parent / "_assets"
@@ -45,7 +47,14 @@ async def node_arc_svg():
 async def command_center_state(seed: int | None = None):
     now = time.time()
     rng = random.Random(seed if seed is not None else int(now))
-    return JSONResponse({"ok": True, "t": now, "strength": rng.random() * 0.7 + 0.3})
+    kernel_summary = cortex_kernel_v2.mission_control_summary().get("kernel_v2") or {}
+    return JSONResponse({
+        "ok": True,
+        "t": now,
+        "strength": rng.random() * 0.7 + 0.3,
+        "kernel_v2": kernel_summary,
+        "latest_kernel_event": cortex_kernel_v2.performance_snapshot().get("latest"),
+    })
 
 
 @router.post("/action")
@@ -61,13 +70,36 @@ async def command_center_action(payload: ActionRequest, request: Request):
             r.raise_for_status()
             return r.json()
 
+    kernel_summary = cortex_kernel_v2.mission_control_summary().get("kernel_v2") or {}
+
     try:
         if action in {"status_sweep", "status", "sweep"}:
             health = await _get("/health")
-            return {"ok": True, "action": "status_sweep", "results": {"health": health}}
+            oracle = await _get("/oracle/status")
+            nexus = await _get("/nexus/status")
+            meta = await _get("/meta_conductor/status")
+            return {
+                "ok": True,
+                "action": "status_sweep",
+                "results": {"health": health, "oracle": oracle, "nexus": nexus, "meta_conductor": meta},
+                "kernel_v2": {
+                    "summary": kernel_summary,
+                    "oracle": oracle.get("kernel_v2") if isinstance(oracle, dict) else None,
+                    "nexus": nexus.get("kernel_v2") if isinstance(nexus, dict) else None,
+                    "meta_conductor": meta.get("kernel_v2") if isinstance(meta, dict) else None,
+                },
+            }
         if action in {"ping_oracle", "oracle"}:
             oracle = await _get("/oracle/status")
-            return {"ok": True, "action": "ping_oracle", "results": oracle}
+            return {"ok": True, "action": "ping_oracle", "results": oracle, "kernel_v2": oracle.get("kernel_v2") if isinstance(oracle, dict) else kernel_summary}
+        if action in {"ping_nexus", "nexus"}:
+            nexus = await _get("/nexus/status")
+            return {"ok": True, "action": "ping_nexus", "results": nexus, "kernel_v2": nexus.get("kernel_v2") if isinstance(nexus, dict) else kernel_summary}
+        if action in {"ping_meta_conductor", "meta_conductor", "meta"}:
+            meta = await _get("/meta_conductor/status")
+            return {"ok": True, "action": "ping_meta_conductor", "results": meta, "kernel_v2": meta.get("kernel_v2") if isinstance(meta, dict) else kernel_summary}
+        if action in {"kernel_sweep", "kernel"}:
+            return {"ok": True, "action": "kernel_sweep", "kernel_v2": kernel_summary}
         raise HTTPException(status_code=400, detail=f"Unknown action: {payload.action}")
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Upstream request failed: {str(e)}") from e

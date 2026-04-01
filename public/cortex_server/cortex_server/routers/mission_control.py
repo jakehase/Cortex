@@ -244,6 +244,36 @@ def mission_control_ui():
         ['Queued outbound', summary.outbound_queued_count || 0],
         ['Failed outbound', summary.outbound_failed_count || 0],
       ];
+      if (summary.kernel_v2) {
+        metrics.push(
+          ['Kernel events', summary.kernel_v2.events || 0],
+          ['Fast-path rate', summary.kernel_v2.actual_fast_rate ?? 0],
+          ['Escalation rate', summary.kernel_v2.escalation_rate ?? 0],
+          ['Kernel p95 ms', summary.kernel_v2.latency_p95_ms ?? 0],
+        );
+        const runtimes = summary.kernel_v2.runtimes || {};
+        Object.entries(runtimes)
+          .filter(([runtime, stats]) => (stats?.events || 0) > 0 || ['oracle', 'nexus'].includes(String(runtime || '').toLowerCase()))
+          .forEach(([runtime, stats]) => {
+            const label = String(runtime || 'runtime').replace(/_/g, ' ');
+            metrics.push(
+              [`${label} events`, stats?.events || 0],
+              [`${label} fast rate`, stats?.actual_fast_rate ?? 0],
+              [`${label} p95 ms`, stats?.latency_p95_ms ?? 0],
+            );
+          });
+        const surfaces = summary.kernel_v2.surfaces || {};
+        Object.entries(surfaces)
+          .filter(([, stats]) => (stats?.events || 0) > 0)
+          .slice(0, 3)
+          .forEach(([surface, stats]) => {
+            const label = String(surface || 'surface').replace(/_/g, ' ');
+            metrics.push(
+              [`${label} surface events`, stats?.events || 0],
+              [`${label} surface p95 ms`, stats?.latency_p95_ms ?? 0],
+            );
+          });
+      }
       document.getElementById('summary').innerHTML = metrics.map(([label, value]) => `
         <div class="metric"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>
       `).join('');

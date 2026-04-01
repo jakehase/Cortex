@@ -37,6 +37,7 @@ from cortex_server.modules.world_grounding import gather_live_evidence
 from cortex_server.modules.route_health import ROUTE_HEALTH
 from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
 from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
+from cortex_server.modules import cortex_kernel_v2
 from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
@@ -243,6 +244,60 @@ def _codec_context_packet(session_key: str, query: str = "") -> Dict[str, Any]:
         "durable": packet.get("durable", {}),
         "session_telemetry": get_codec_session_telemetry(session_key),
     }
+
+
+def _kernel_codec_prefix(codec_context: Dict[str, Any]) -> str:
+    if not isinstance(codec_context, dict) or not codec_context.get("available"):
+        return ""
+    packet = str(codec_context.get("packet") or codec_context.get("summary") or "").strip()
+    if not packet:
+        return ""
+    return f"Cortex Codec state (compressed behavioral context; use only if relevant):\n{packet}\n\n"
+
+
+def _kernel_continuity_prefix(referent_info: Dict[str, Any]) -> str:
+    if not isinstance(referent_info, dict) or not referent_info.get("resolved"):
+        return ""
+    items: List[str] = []
+    reference_text = str(referent_info.get("reference_text") or "").strip()
+    codeword = str(referent_info.get("codeword") or "").strip()
+    if reference_text:
+        items.append(f"reference_text={_compact_text_excerpt(reference_text, limit=120)}")
+    if codeword:
+        items.append(f"codeword={codeword[:40]}")
+    if not items:
+        return ""
+    return f"Conversation referents (minimal): {', '.join(items)}. Use these only when the user asks referent follow-ups.\n\n"
+
+
+def _kernel_trace_payload(kernel_trace: Optional[Dict[str, Any]], *, kernel_result: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(kernel_trace, dict) or not kernel_trace:
+        return None
+    plan = dict(kernel_trace.get("plan") or {})
+    contract = dict(kernel_trace.get("contract") or {})
+    working_set = dict(kernel_trace.get("working_set") or {})
+    payload: Dict[str, Any] = {
+        "request_id": kernel_trace.get("request_id"),
+        "runtime": kernel_trace.get("runtime") or "nexus",
+        "surface": kernel_trace.get("surface") or "orchestrate",
+        "mode": ((kernel_trace.get("settings") or {}).get("mode")) or "active",
+        "compile_ms": kernel_trace.get("compile_ms"),
+        "plan": {
+            "lane": plan.get("lane"),
+            "depth_mode": plan.get("depth_mode"),
+            "latency_budget_ms": plan.get("latency_budget_ms"),
+            "reason": plan.get("reason"),
+            "target_oracle_lane": plan.get("target_oracle_lane"),
+        },
+        "intent": (contract.get("intent") or {}).get("kind"),
+        "simple_qa": ((contract.get("intent") or {}).get("simple_qa")),
+        "risk_flags": list(contract.get("risk_flags") or []),
+        "complexity": dict(contract.get("complexity") or {}),
+        "context_reuse": dict(working_set.get("reuse") or {}),
+    }
+    if isinstance(kernel_result, dict):
+        payload["result"] = kernel_result.get("event") if kernel_result.get("recorded") else kernel_result
+    return payload
 
 
 def _codec_variant_prompts(session_key: str, query: str) -> Dict[str, Any]:
@@ -885,9 +940,19 @@ def _load_level_optimizer_config() -> Dict[str, Any]:
     return defaults
 
 
-def _detect_risk_flags(query: str) -> List[str]:
+def _kernel_contract_for_query(query: str) -> Dict[str, Any]:
+    return cortex_kernel_v2.compile_request_contract(
+        query,
+        response_mode="nexus_orchestrate",
+        requested_model="nexus",
+        settings=cortex_kernel_v2._settings("nexus"),
+    )
+
+
+def _detect_risk_flags(query: str, *, kernel_contract: Optional[Dict[str, Any]] = None) -> List[str]:
+    contract = dict(kernel_contract or _kernel_contract_for_query(query))
+    flags = list(contract.get("risk_flags") or [])
     q = (query or "").lower()
-    flags = []
     for label, keys in {
         "medical": ["medical", "diagnose", "symptom", "treatment"],
         "legal": ["legal", "law", "contract", "sue"],
@@ -895,22 +960,19 @@ def _detect_risk_flags(query: str) -> List[str]:
         "safety": ["dangerous", "weapon", "harm", "suicide"],
         "security": ["exploit", "hack", "malware", "bypass"],
     }.items():
-        if any(k in q for k in keys):
+        if label not in flags and any(k in q for k in keys):
             flags.append(label)
     return flags
 
 
-def _is_simple_qa(query: str) -> bool:
-    q = (query or "").strip()
-    if len(q) > 280:
-        return False
-    if any(k in q.lower() for k in ["design", "architecture", "multi-step plan", "roadmap"]):
-        return False
-    return True
+def _is_simple_qa(query: str, *, kernel_contract: Optional[Dict[str, Any]] = None) -> bool:
+    contract = dict(kernel_contract or _kernel_contract_for_query(query))
+    return bool(((contract.get("intent") or {}).get("simple_qa")))
 
 
-def _complexity_gate(query: str, hard_threshold: float = 0.45, l9_threshold: float = 0.48) -> Dict[str, Any]:
+def _complexity_gate(query: str, hard_threshold: float = 0.45, l9_threshold: float = 0.48, *, kernel_contract: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Detect whether query should bypass fastlane and use stronger reasoning path."""
+    contract = dict(kernel_contract or _kernel_contract_for_query(query))
     q = (query or "").lower()
     hard_markers = [
         "tradeoff", "trade-off", "optimize", "constraint", "subject to", "under budget",
@@ -921,17 +983,22 @@ def _complexity_gate(query: str, hard_threshold: float = 0.45, l9_threshold: flo
 
     numeric_constraints = len(re.findall(r"\b\d+(?:\.\d+)?\b", q))
     has_compare = any(x in q for x in ["vs", "versus", "compare", "better than"])
-    complexity_score = min(1.0, 0.15 * len(marker_hits) + (0.15 if has_compare else 0) + min(0.3, 0.05 * numeric_constraints))
+    complexity_score = float(((contract.get("complexity") or {}).get("score")) or 0.0)
+    complexity_reasons = [str(item) for item in ((contract.get("complexity") or {}).get("reasons") or []) if str(item).strip()]
+    if not complexity_reasons:
+        complexity_score = min(1.0, 0.15 * len(marker_hits) + (0.15 if has_compare else 0) + min(0.3, 0.05 * numeric_constraints))
     hard_threshold = float(hard_threshold)
     l9_threshold = float(l9_threshold)
     return {
         "score": round(complexity_score, 2),
-        "hard": complexity_score >= hard_threshold,
-        "l9_triggered": complexity_score >= l9_threshold or _requires_tradeoff_deliberation(query),
-        "marker_hits": marker_hits[:8],
+        "hard": complexity_score >= hard_threshold or str(((contract.get("lane") or {}).get("preferred")) or "fast") == "deep",
+        "l9_triggered": complexity_score >= l9_threshold or _requires_tradeoff_deliberation(query) or "analysis" in complexity_reasons or "verification" in complexity_reasons,
+        "marker_hits": (complexity_reasons or marker_hits)[:8],
         "numeric_constraints": numeric_constraints,
         "hard_threshold": round(hard_threshold, 2),
         "l9_threshold": round(l9_threshold, 2),
+        "preferred_lane": str(((contract.get("lane") or {}).get("preferred")) or "fast"),
+        "intent_kind": str(((contract.get("intent") or {}).get("kind")) or "general"),
     }
 
 
@@ -1110,10 +1177,11 @@ def _canary_hit(query: str, percent: int) -> bool:
     return bucket < pct
 
 
-def _cognitive_reasoning(query: str, risk_flags: List[str]) -> Dict[str, Any]:
+def _cognitive_reasoning(query: str, risk_flags: List[str], *, kernel_contract: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     q = (query or "").lower()
+    simple_qa = _is_simple_qa(query, kernel_contract=kernel_contract)
     hypotheses = [
-        "Direct factual response is sufficient" if _is_simple_qa(query) else "Task likely requires multi-step reasoning",
+        "Direct factual response is sufficient" if simple_qa else "Task likely requires multi-step reasoning",
         "Use retrieval evidence before finalizing answer",
     ]
     if any(k in q for k in ["compare", "vs", "tradeoff"]):
@@ -1124,7 +1192,7 @@ def _cognitive_reasoning(query: str, risk_flags: List[str]) -> Dict[str, Any]:
         hypotheses.append("Multi-constraint optimization intent detected; evaluate cross-option tradeoffs")
 
     selected_policy = "direct"
-    if risk_flags or not _is_simple_qa(query) or _requires_tradeoff_deliberation(query):
+    if risk_flags or not simple_qa or _requires_tradeoff_deliberation(query):
         selected_policy = "deliberate"
     if _is_brainstorm_intent(query):
         selected_policy = "divergent"
@@ -1132,7 +1200,7 @@ def _cognitive_reasoning(query: str, risk_flags: List[str]) -> Dict[str, Any]:
     observations = {
         "query_length": len(query or ""),
         "risk_flags": risk_flags,
-        "simple_qa": _is_simple_qa(query),
+        "simple_qa": simple_qa,
     }
 
     # Structured internal reasoning scaffold (intent -> constraints -> plan -> self-check)
@@ -2831,8 +2899,37 @@ async def get_nexus_context():
             "total_levels": 38,
             "always_on": [LEVEL_MAP[l] for l in ALWAYS_ON_LEVELS],
             "orchestration_method": "semantic_via_oracle",
+            "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
             "timestamp": str(__import__('datetime').datetime.now()),
         }
+    }
+
+
+@router.get("/kernel/status")
+async def get_nexus_kernel_status():
+    return {"success": True, **cortex_kernel_v2.performance_snapshot(runtime="nexus")}
+
+
+@router.get("/kernel/telemetry")
+async def get_nexus_kernel_telemetry(limit: int = 50):
+    return {
+        "success": True,
+        "status": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
+        "events": cortex_kernel_v2.recent_events(limit=limit, runtime="nexus"),
+    }
+
+
+@router.get("/status")
+async def get_nexus_status():
+    return {
+        "success": True,
+        "status": "operational",
+        "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
+        "codec": {
+            "enabled": bool(NEXUS_CODEC_ENABLED),
+            "max_chars": NEXUS_CODEC_MAX_CHARS,
+        },
+        "autotune": get_policy_snapshot(),
     }
 
 
@@ -3553,6 +3650,7 @@ async def get_nexus_full():
                 "level_map": LEVEL_MAP,
                 "method": "semantic_analysis_via_l5_oracle"
             },
+            "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
             "status": "operational",
             "timestamp": str(__import__('datetime').datetime.now()),
         }
@@ -3616,6 +3714,8 @@ async def orchestrate_query(query: str, request: Request = None):
         recommended = []
         reasoning = []
         routing_method = "semantic_orchestration"
+        kernel_trace: Optional[Dict[str, Any]] = None
+        kernel_result: Optional[Dict[str, Any]] = None
         codec_context = _codec_context_packet(session_key, query=query)
         routing_markers = {
             "cortex_first": True,
@@ -3645,6 +3745,9 @@ async def orchestrate_query(query: str, request: Request = None):
             "world_grounding_mode": "not_required",
             "policy_rollout_stage": "shadow",
             "policy_rollout_apply": False,
+            "kernel_lane": "fast",
+            "kernel_depth_mode": "shallow",
+            "kernel_context_chars": 0,
         }
         optimizer_telemetry: Dict[str, Any] = {}
         token_plan: Dict[str, Any] = {}
@@ -3656,13 +3759,15 @@ async def orchestrate_query(query: str, request: Request = None):
         optimizer_cfg = _load_level_optimizer_config()
         autotune_policy = get_policy_snapshot()
         fastlane_cfg["escalation_threshold"] = float(autotune_policy.get("fastlane_escalation_threshold", fastlane_cfg.get("escalation_threshold", 0.72)))
-        risk_flags = _detect_risk_flags(query)
+        kernel_contract = _kernel_contract_for_query(query)
+        risk_flags = _detect_risk_flags(query, kernel_contract=kernel_contract)
         complexity_gate = _complexity_gate(
             query,
             hard_threshold=float(autotune_policy.get("complexity_hard_threshold", 0.45)),
             l9_threshold=float(autotune_policy.get("l9_auto_activation_threshold", 0.48)),
+            kernel_contract=kernel_contract,
         )
-        archetype = classify_task_archetype(query, risk_flags=risk_flags, complexity_gate=complexity_gate)
+        archetype = classify_task_archetype(query, risk_flags=risk_flags, complexity_gate=complexity_gate, kernel_contract=kernel_contract)
         policy_hint = _OUTCOME_TUNER.get_policy_hint(archetype=archetype, query=query)
         world_grounding = gather_live_evidence(
             query,
@@ -3670,7 +3775,7 @@ async def orchestrate_query(query: str, request: Request = None):
             notary_packets=1,
             enabled=bool(os.getenv("NEXUS_WORLD_GROUNDING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}),
         )
-        latency_plan = _LATENCY_GOVERNOR.plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate, fastlane_cfg=fastlane_cfg, optimizer_cfg=optimizer_cfg)
+        latency_plan = _LATENCY_GOVERNOR.plan(query, risk_flags=risk_flags, complexity_gate=complexity_gate, fastlane_cfg=fastlane_cfg, optimizer_cfg=optimizer_cfg, kernel_contract=kernel_contract)
         optimizer_telemetry["enabled"] = bool(optimizer_cfg.get("enabled", True))
         optimizer_telemetry["autotune_policy"] = autotune_policy
         optimizer_telemetry["policy_hint"] = policy_hint
@@ -3712,6 +3817,43 @@ async def orchestrate_query(query: str, request: Request = None):
         prefetched_retrieval = prefetch.get("results", {}).get("retrieval") if isinstance(prefetch.get("results", {}).get("retrieval"), list) else []
         if isinstance(prefetch.get("results", {}).get("context"), dict) and prefetch.get("results", {}).get("context", {}).get("resolved"):
             referent_info = prefetch["results"]["context"]
+
+        kernel_trace = cortex_kernel_v2.prepare_request(
+            query,
+            session_key=session_key or None,
+            response_mode="nexus_orchestrate",
+            requested_model="nexus",
+            continuity_prefix=_kernel_continuity_prefix(referent_info),
+            codec_prefix=_kernel_codec_prefix(codec_context),
+            runtime="nexus",
+            surface="orchestrate",
+        )
+        kernel_contract = dict(kernel_trace.get("contract") or kernel_contract or {})
+        kernel_plan = dict(kernel_trace.get("plan") or {})
+        kernel_working_set = dict(kernel_trace.get("working_set") or {})
+        kernel_active = bool(((kernel_trace.get("settings") or {}).get("enabled")) and str(((kernel_trace.get("settings") or {}).get("mode") or "active")) == "active")
+        routing_markers["kernel_lane"] = str(kernel_plan.get("lane") or "fast")
+        routing_markers["kernel_depth_mode"] = str(kernel_plan.get("depth_mode") or "shallow")
+        routing_markers["kernel_context_chars"] = int(((kernel_working_set.get("reuse") or {}).get("total_chars")) or 0)
+        latency_plan["kernel_budget_ms"] = int(kernel_plan.get("latency_budget_ms") or latency_plan.get("max_latency_ms") or 0)
+        optimizer_telemetry["kernel_v2"] = _kernel_trace_payload(kernel_trace)
+        if routing_markers["kernel_context_chars"]:
+            reasoning.append(f"Kernel V2 reused {routing_markers['kernel_context_chars']} chars of hot/warm/cold context.")
+        if kernel_active and str(kernel_plan.get("lane") or "fast") == "deep":
+            kernel_intent = str(((kernel_contract.get("intent") or {}).get("kind")) or "general")
+            reasoning.append(
+                f"Kernel V2 planned deep lane for {kernel_intent} intent "
+                f"(score={float(((kernel_contract.get('complexity') or {}).get('score')) or 0.0):.2f}); widening orchestration path."
+            )
+            for lvl in [5, 15, 32, 34]:
+                if lvl not in [r.get("level") for r in recommended]:
+                    recommended.append({"level": lvl, "name": LEVEL_MAP[lvl]["name"], "method": "kernel_v2"})
+            if kernel_intent in {"planning", "coding", "ops"}:
+                if _architect_healthy():
+                    if 9 not in [r.get("level") for r in recommended]:
+                        recommended.append({"level": 9, "name": "architect", "method": "kernel_v2"})
+                else:
+                    reasoning.append("Kernel V2 requested architect depth, but Architect is unhealthy; keeping Council+Synthesist fallback.")
 
         if bool(world_grounding.get("required", False)):
             routing_markers["world_grounding_required"] = True
@@ -3866,11 +4008,15 @@ async def orchestrate_query(query: str, request: Request = None):
             and ("codeword" not in (query or "").lower())
             and fastlane_cfg.get("enabled", True)
             and not fastlane_kill_switch
-            and _is_simple_qa(query)
+            and _is_simple_qa(query, kernel_contract=kernel_contract)
+            and bool(((kernel_contract.get("intent") or {}).get("simple_qa")) if isinstance(kernel_trace, dict) else True)
+            and not (kernel_active and str(kernel_plan.get("lane") or "fast") == "deep")
             and len(risk_flags) == 0
             and not complexity_gate.get("hard", False)
             and not bool(world_grounding.get("required", False))
         )
+        if kernel_active and str(kernel_plan.get("lane") or "fast") == "deep":
+            reasoning.append("Fastlane bypassed because Kernel V2 selected the deep lane for this query.")
 
         if optimizer_cfg.get("enabled", True) and optimizer_cfg.get("semantic_delta_enabled", True):
             delta_info = _DELTA_CACHE.analyze(query)
@@ -3937,7 +4083,8 @@ async def orchestrate_query(query: str, request: Request = None):
             "kill_switch": fastlane_kill_switch,
             "visible": True,
             "complexity_gate": complexity_gate,
-            "model_lane": "strong_reasoning" if complexity_gate.get("hard") else "default",
+            "model_lane": "kernel_deep" if str((kernel_trace or {}).get("plan", {}).get("lane") or "fast") == "deep" else ("strong_reasoning" if complexity_gate.get("hard") else "default"),
+            "kernel_v2": _kernel_trace_payload(kernel_trace),
             "world_grounding": {
                 "required": bool(world_grounding.get("required", False)),
                 "mode": world_grounding.get("mode", "not_required"),
@@ -4124,7 +4271,7 @@ async def orchestrate_query(query: str, request: Request = None):
         activated = [f"L{item['level']}:{item['name']}" for item in recommended if item.get('method') in {'qa_fastlane', 'brainstorm_forced', 'semantic', 'keyword', 'referent_guard', 'l9_fallback', 'cognitive_policy', 'bandit_policy', 'autotune_l9', 'complexity_gate', 'world_grounding'} or item.get('always_on')]
         workflow_checkpoint = _build_workflow_checkpoint(query, routing_method, recommended)
 
-        cognitive_trace = _cognitive_reasoning(query, risk_flags)
+        cognitive_trace = _cognitive_reasoning(query, risk_flags, kernel_contract=kernel_contract)
         cognitive_quality = _cognitive_quality(cognitive_trace, fastlane, risk_flags)
         cognitive_stage = _apply_cognitive_stage(cognitive_cfg, query, cognitive_quality)
 
@@ -4271,6 +4418,22 @@ async def orchestrate_query(query: str, request: Request = None):
             "escalated": bool(isinstance(fastlane, dict) and fastlane.get("escalated")),
             "prefetch_used": bool(prefetched_retrieval or referent_info.get("resolved")),
         })
+        kernel_response_text = str(
+            (fastlane.get("answer") if isinstance(fastlane, dict) and isinstance(fastlane.get("answer"), str) and fastlane.get("answer") else "")
+            or semantic_result.get("reasoning")
+            or routing_method
+        )
+        actual_kernel_lane = "nexus_fastlane" if isinstance(fastlane, dict) and not fastlane.get("escalated") else "nexus_orchestrated"
+        if isinstance(fastlane, dict) and fastlane.get("escalated"):
+            actual_kernel_lane = "qa_fastlane_escalated"
+        kernel_result = cortex_kernel_v2.finalize_request(
+            (kernel_trace or {}).get("request_id") if isinstance(kernel_trace, dict) else None,
+            response=kernel_response_text,
+            actual_lane=actual_kernel_lane,
+            used_backend=str(semantic_result.get("method") or ("qa_fastlane" if fastlane else "nexus_orchestrate")),
+            fallback_reason="fastlane_escalated" if isinstance(fastlane, dict) and fastlane.get("escalated") else ("world_grounding_degraded" if bool(world_grounding.get("degraded", False)) else None),
+            contract_ok=bool(validator_result.get("pass")),
+        )
 
         return {
             "success": True,
@@ -4293,6 +4456,8 @@ async def orchestrate_query(query: str, request: Request = None):
                 "assurance_verdict": assurance.get("verdict"),
                 "assurance_release_decision": assurance.get("release_decision"),
                 "memory_write_eligible": bool((assurance.get("memory_commit") or {}).get("eligible", False)),
+                "kernel_contract_version": (kernel_trace.get("contract") or {}).get("version") if isinstance(kernel_trace, dict) else None,
+                "kernel_lane": (kernel_trace.get("plan") or {}).get("lane") if isinstance(kernel_trace, dict) else None,
             },
             "assurance": assurance,
             "referent_context": referent_info,
@@ -4309,6 +4474,7 @@ async def orchestrate_query(query: str, request: Request = None):
             "autotune_policy": autotune_policy,
             "execution_transaction": execution_tx,
             "validator_result": validator_result,
+            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=kernel_result),
             "artifact_paths": {
                 "outcome_tuner": outcome_artifact,
                 "latency_governor": latency_artifact,
@@ -4332,6 +4498,18 @@ async def orchestrate_query(query: str, request: Request = None):
                 fastlane=locals().get("fastlane") if isinstance(locals().get("fastlane"), dict) else None,
                 note=f"nexus_orchestrate_exception:{type(e).__name__}",
                 explicit_success=False,
+            )
+        except Exception:
+            pass
+        try:
+            cortex_kernel_v2.finalize_request(
+                (locals().get("kernel_trace") or {}).get("request_id") if isinstance(locals().get("kernel_trace"), dict) else None,
+                response="",
+                actual_lane="nexus_orchestrated",
+                used_backend="nexus_exception",
+                fallback_reason="exception",
+                contract_ok=False,
+                error=f"{type(e).__name__}:{str(e)[:160]}",
             )
         except Exception:
             pass

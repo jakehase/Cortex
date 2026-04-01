@@ -8,6 +8,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 import cortex_server.routers.orchestrator as orchestrator
+from cortex_server.modules import cortex_kernel_v2
 from cortex_server.modules.cortex_codec import get_codec_packet_for_session
 from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_lineage_bundle
@@ -647,6 +648,7 @@ def _resolve_objective(objective_key: str, *, stores: Dict[str, Any]) -> Tuple[O
 def board() -> JsonDict:
     stores = _stores()
     _sync_queue(stores)
+    kernel_summary = cortex_kernel_v2.mission_control_summary()
     queue_items = [_model_dump(row) for row in stores["maintenance_queue_store"].list()]
     queue_process_ids = {str(item.get("process_id") or "").strip() for item in queue_items if str(item.get("process_id") or "").strip()}
     records: List[JsonDict] = []
@@ -710,10 +712,15 @@ def board() -> JsonDict:
                 "max_active_items": queue_status.get("max_active_items"),
                 "counts": dict(queue_status.get("counts") or {}),
             },
+            **kernel_summary,
         },
         "queue": queue_status,
         "objectives": records,
         "recent_reports": recent_reports[:20],
+        "kernel_v2": kernel_summary.get("kernel_v2"),
+        "kernel_runtimes": ((kernel_summary.get("kernel_v2") or {}).get("runtimes") or {}),
+        "kernel_surfaces": ((kernel_summary.get("kernel_v2") or {}).get("surfaces") or {}),
+        "kernel_rollout": ((kernel_summary.get("kernel_v2") or {}).get("rollout") or {}),
     }
 
 
@@ -770,7 +777,15 @@ def objective_detail(objective_key: str) -> JsonDict:
     if queue_item is None and process is None:
         raise HTTPException(status_code=404, detail=f"Mission Control objective '{objective_key}' not found")
     detail = _objective_view(process=process, queue_item=queue_item, stores=stores, detail=True)
-    return {"success": True, **detail}
+    kernel_summary = cortex_kernel_v2.mission_control_summary().get("kernel_v2") or {}
+    return {
+        "success": True,
+        "kernel_v2": cortex_kernel_v2.performance_snapshot(),
+        "kernel_runtimes": kernel_summary.get("runtimes") or {},
+        "kernel_surfaces": kernel_summary.get("surfaces") or {},
+        "kernel_rollout": kernel_summary.get("rollout") or {},
+        **detail,
+    }
 
 
 def _compact_text(value: Any, *, limit: int = 220) -> Optional[str]:

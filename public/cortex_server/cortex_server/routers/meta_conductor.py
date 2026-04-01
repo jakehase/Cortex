@@ -11,6 +11,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from cortex_server.modules import cortex_kernel_v2
 from cortex_server.routers.nexus import orchestrate_query
 from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_level_registry
 
@@ -39,6 +40,22 @@ class OrchestrateRequest(BaseModel):
     query: str
     target_levels: Optional[List[int]] = None
     timeout_seconds: float = 8.0
+
+
+def _kernel_trace_payload(kernel_trace: Optional[Dict[str, Any]], *, kernel_result: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    if not isinstance(kernel_trace, dict):
+        return {}
+    payload = {
+        "request_id": kernel_trace.get("request_id"),
+        "runtime": kernel_trace.get("runtime"),
+        "surface": kernel_trace.get("surface"),
+        "plan": kernel_trace.get("plan") or {},
+        "contract": kernel_trace.get("contract") or {},
+        "working_set": kernel_trace.get("working_set") or {},
+    }
+    if isinstance(kernel_result, dict):
+        payload["result"] = kernel_result.get("event") if kernel_result.get("recorded") else kernel_result
+    return payload
 
 
 def _extract_reported_level(body: Any) -> Optional[int]:
@@ -144,6 +161,7 @@ async def meta_conductor_health() -> Dict[str, Any]:
         "identity_mismatch_levels": identity_mismatch_levels,
         "timeout_levels": timeout_levels,
         "results": results,
+        "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="meta_conductor"),
         "contract": {
             "identity_phrase": "Cortex-first orchestration active",
             "activation_metadata_available": True,
@@ -165,6 +183,7 @@ async def meta_conductor_status() -> Dict[str, Any]:
         "activation_metadata_available": True,
         "activation_metadata_source": "meta_conductor",
         "timestamp": datetime.utcnow().isoformat() + "Z",
+        "kernel_v2": cortex_kernel_v2.performance_snapshot(runtime="meta_conductor"),
         "contract": {
             "identity_phrase": "Cortex-first orchestration active",
             "activation_metadata_available": True,
@@ -173,11 +192,41 @@ async def meta_conductor_status() -> Dict[str, Any]:
     }
 
 
+@router.get("/kernel/status")
+async def meta_conductor_kernel_status() -> Dict[str, Any]:
+    return {"success": True, **cortex_kernel_v2.performance_snapshot(runtime="meta_conductor")}
+
+
+@router.get("/kernel/telemetry")
+async def meta_conductor_kernel_telemetry(limit: int = 25) -> Dict[str, Any]:
+    return {
+        "success": True,
+        "status": cortex_kernel_v2.performance_snapshot(runtime="meta_conductor"),
+        "events": cortex_kernel_v2.recent_events(limit=limit, runtime="meta_conductor"),
+    }
+
+
 @router.post("/orchestrate")
 async def meta_conductor_orchestrate(req: OrchestrateRequest) -> Dict[str, Any]:
+    kernel_trace = cortex_kernel_v2.prepare_request(
+        req.query,
+        response_mode="meta_conductor_orchestrate",
+        requested_model="meta_conductor",
+        runtime="meta_conductor",
+        surface="orchestrate",
+    )
     try:
         data = await orchestrate_query(req.query, request=None)
     except Exception as e:
+        cortex_kernel_v2.finalize_request(
+            kernel_trace.get("request_id"),
+            response="",
+            actual_lane="meta_conductor_orchestrated",
+            used_backend="delegated_nexus",
+            fallback_reason="delegation_failed",
+            contract_ok=False,
+            error=f"{type(e).__name__}:{str(e)[:160]}",
+        )
         raise HTTPException(status_code=502, detail=f"Nexus delegation failed: {e}")
 
     contract = data.get("contract") if isinstance(data, dict) else {}
@@ -186,11 +235,21 @@ async def meta_conductor_orchestrate(req: OrchestrateRequest) -> Dict[str, Any]:
     contract["activation_metadata_available"] = True
     contract["activation_metadata_source"] = "meta_conductor"
     contract["identity_phrase"] = "Cortex-first orchestration active"
+    contract["kernel_contract_version"] = (kernel_trace.get("contract") or {}).get("version")
+    contract["kernel_lane"] = (kernel_trace.get("plan") or {}).get("lane")
 
     target_levels = req.target_levels if req.target_levels else [33, 34, 35]
     target_levels = [lvl for lvl in target_levels if lvl in PROBE_LEVELS]
     async with httpx.AsyncClient() as client:
         results = await asyncio.gather(*[_probe_level(client, lvl, req.timeout_seconds) for lvl in target_levels])
+
+    kernel_result = cortex_kernel_v2.finalize_request(
+        kernel_trace.get("request_id"),
+        response=str(data.get("routing_method") or data.get("semantic_analysis") or "delegated_nexus"),
+        actual_lane="meta_conductor_orchestrated",
+        used_backend=str(data.get("routing_method") or "delegated_nexus"),
+        contract_ok=True,
+    )
 
     return {
         "success": True,
@@ -203,6 +262,7 @@ async def meta_conductor_orchestrate(req: OrchestrateRequest) -> Dict[str, Any]:
         "delegated_from": "nexus",
         "contract": contract,
         "contract_version": contract.get("contract_version") or data.get("contract_version") or "orchestrate_guard_v2",
+        "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=kernel_result),
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
 

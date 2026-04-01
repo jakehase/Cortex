@@ -21,20 +21,35 @@ def _safe_write(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def classify_task_archetype(query: str, risk_flags: Optional[List[str]] = None, complexity_gate: Optional[Dict[str, Any]] = None) -> str:
+def classify_task_archetype(
+    query: str,
+    risk_flags: Optional[List[str]] = None,
+    complexity_gate: Optional[Dict[str, Any]] = None,
+    kernel_contract: Optional[Dict[str, Any]] = None,
+) -> str:
     q = (query or "").lower()
+    contract = dict(kernel_contract or {})
+    intent = str(((contract.get("intent") or {}).get("kind")) or "general")
     if any(x in q for x in ["cite", "citation", "source:", "sources", "with sources"]):
         return "citation_required"
     if any(x in q for x in ["incident", "latency spike", "rollback", "outage", "triage", "on-call", "502", "burn rate"]):
         return "ops_triage"
+    if intent == "ops":
+        return "ops_triage"
     if any(x in q for x in ["implement", "refactor", "bug fix", "unit test", "python", "api", "code"]):
+        return "coding"
+    if intent == "coding":
         return "coding"
     if any(x in q for x in ["tool", "inspect", "service", "api", "query logs", "orchestration"]):
         return "tool_use"
     if any(x in q for x in ["plan", "strategy", "roadmap", "constraints", "tradeoff", "architecture"]):
         return "planning"
+    if intent == "planning":
+        return "planning"
     if risk_flags:
         return "risk_sensitive"
+    if str(((contract.get("lane") or {}).get("preferred")) or "fast") == "deep":
+        return "complex_general"
     if complexity_gate and complexity_gate.get("hard"):
         return "complex_general"
     return "simple_qa"
@@ -66,19 +81,23 @@ class LatencyBudgetGovernor:
         complexity_gate: Optional[Dict[str, Any]] = None,
         fastlane_cfg: Optional[Dict[str, Any]] = None,
         optimizer_cfg: Optional[Dict[str, Any]] = None,
+        kernel_contract: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        archetype = classify_task_archetype(query, risk_flags=risk_flags, complexity_gate=complexity_gate)
+        contract = dict(kernel_contract or {})
+        preferred_lane = str(((contract.get("lane") or {}).get("preferred")) or "fast")
+        intent = str(((contract.get("intent") or {}).get("kind")) or "general")
+        archetype = classify_task_archetype(query, risk_flags=risk_flags, complexity_gate=complexity_gate, kernel_contract=contract)
         max_latency_ms = int((fastlane_cfg or {}).get("max_latency_ms", 2200))
         max_context_tokens = int((optimizer_cfg or {}).get("max_context_tokens", 1200))
-        complexity_score = float((complexity_gate or {}).get("score", 0.0))
-        prefetch_enabled = archetype in {"simple_qa", "tool_use", "citation_required", "ops_triage"} and not bool((complexity_gate or {}).get("hard", False))
-        if archetype in {"planning", "coding"}:
+        complexity_score = float(((contract.get("complexity") or {}).get("score")) or (complexity_gate or {}).get("score", 0.0))
+        prefetch_enabled = archetype in {"simple_qa", "tool_use", "citation_required", "ops_triage"} and preferred_lane != "deep" and not bool((complexity_gate or {}).get("hard", False))
+        if archetype in {"planning", "coding"} or intent in {"planning", "coding", "ops"} or preferred_lane == "deep":
             max_latency_ms = max(max_latency_ms, 2600)
         if archetype == "citation_required":
             max_context_tokens = min(max_context_tokens, 900)
         return {
             "archetype": archetype,
-            "cheap_route": "fastlane" if not bool((complexity_gate or {}).get("hard", False)) else "deliberate",
+            "cheap_route": "fastlane" if preferred_lane != "deep" and not bool((complexity_gate or {}).get("hard", False)) else "deliberate",
             "max_latency_ms": max_latency_ms,
             "max_context_tokens": max_context_tokens,
             "prefetch_enabled": prefetch_enabled,

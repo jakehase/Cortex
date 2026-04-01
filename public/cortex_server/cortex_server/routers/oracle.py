@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from cortex_server.modules.alive_cortex import get_alive_mode
 from cortex_server.modules.codec_policy import get_codec_backend_policy, get_codec_policy_for_query, get_codec_routing_priors, infer_served_variant, observe_codec_outcome, observe_passive_codec_feedback, register_codec_session_turn
 from cortex_server.modules.cortex_codec import get_codec_packet_for_session, update_codec_state_for_session
+from cortex_server.modules import cortex_kernel_v2
 from cortex_server.routers.openclaw import load_config
 
 router = APIRouter()
@@ -327,7 +328,7 @@ def _oracle_execution_metrics(*, lane: str, used_backend: str = "", fallback_rea
 
 
 
-def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], *, priority: str = "", lane: str = "", codec_applied: bool = False, referents_applied: bool = False, used_backend: str = "", fallback_reason: Optional[str] = None, contract_ok: Optional[bool] = None) -> Dict[str, Any]:
+def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], *, priority: str = "", lane: str = "", codec_applied: bool = False, referents_applied: bool = False, used_backend: str = "", fallback_reason: Optional[str] = None, contract_ok: Optional[bool] = None, kernel_trace: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if (response or "").strip():
         _remember_referents(session_key, response or "")
     packet = _update_codec_turn(session_key, prompt, response, priority=priority, lane=lane)
@@ -364,6 +365,14 @@ def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], 
     )
     execution_artifact["execution_metrics"] = execution_metrics
     execution_artifact["source"] = "oracle_execution_flow"
+    kernel_result = cortex_kernel_v2.finalize_request(
+        (kernel_trace or {}).get("request_id") if isinstance(kernel_trace, dict) else None,
+        response=response,
+        actual_lane=lane,
+        used_backend=used_backend,
+        fallback_reason=fallback_reason,
+        contract_ok=contract_ok,
+    )
     return {
         "enabled": bool(ORACLE_CODEC_ENABLED),
         "applied": bool(codec_applied),
@@ -378,6 +387,7 @@ def _record_oracle_turn(session_key: str, prompt: str, response: Optional[str], 
         "durable_fingerprint": durable.get("fingerprint"),
         "policy_turn_registered": bool(registration.get("recorded")),
         "execution": execution_artifact,
+        "kernel_v2": kernel_result,
     }
 
 
@@ -1194,6 +1204,33 @@ def _mk_chat_response(
         setattr(resp, k, v)
 
     return resp
+
+
+def _kernel_trace_payload(kernel_trace: Optional[Dict[str, Any]], *, kernel_result: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(kernel_trace, dict) or not kernel_trace:
+        return None
+    plan = dict(kernel_trace.get("plan") or {})
+    contract = dict(kernel_trace.get("contract") or {})
+    working_set = dict(kernel_trace.get("working_set") or {})
+    payload: Dict[str, Any] = {
+        "request_id": kernel_trace.get("request_id"),
+        "mode": ((kernel_trace.get("settings") or {}).get("mode")) or "active",
+        "compile_ms": kernel_trace.get("compile_ms"),
+        "plan": {
+            "lane": plan.get("lane"),
+            "depth_mode": plan.get("depth_mode"),
+            "target_oracle_lane": plan.get("target_oracle_lane"),
+            "use_bridge": plan.get("use_bridge"),
+            "force_orchestrate": plan.get("force_orchestrate"),
+        },
+        "intent": (contract.get("intent") or {}).get("kind"),
+        "strict_contract": contract.get("strict_contract"),
+        "risk_flags": list(contract.get("risk_flags") or []),
+        "context_reuse": dict(working_set.get("reuse") or {}),
+    }
+    if isinstance(kernel_result, dict):
+        payload["result"] = kernel_result.get("event") if kernel_result.get("recorded") else kernel_result
+    return payload
 
 
 def _is_code_change_prompt(text: str) -> bool:
@@ -2498,6 +2535,9 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
     prompt = raw_prompt
     session_key = _session_key(http_request)
     priority = (request.priority or '').lower().strip()
+    requested_model = (request.model or '').strip().lower()
+    final_only = (request.response_mode or 'default').lower() == 'final_only'
+    kernel_trace: Optional[Dict[str, Any]] = None
     passive_codec_feedback = await run_in_threadpool(observe_passive_codec_feedback, session_key, raw_prompt, _passive_followup_verifier)
 
     # Explicit activation for all Oracle chat turns (required by hard send-time gate).
@@ -2561,6 +2601,26 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         if contract_block not in prompt:
             prompt = (prompt + "\n\n" + contract_block).strip()
 
+    strict_contract = _is_strict_contract_prompt(raw_prompt) or _is_strict_contract_prompt(request_system or '')
+    kernel_trace = cortex_kernel_v2.prepare_request(
+        raw_prompt,
+        system=request_system,
+        priority=priority,
+        session_key=session_key,
+        response_mode=request.response_mode or 'default',
+        strict_contract=strict_contract,
+        requested_model=requested_model,
+        continuity_prefix=continuity_prefix,
+        codec_prefix=codec_prefix,
+        runtime="oracle",
+        surface="chat",
+    )
+    kernel_mode = str(((kernel_trace.get("settings") or {}).get("mode")) or "active")
+    kernel_active = bool(((kernel_trace.get("settings") or {}).get("enabled")) and kernel_mode == "active")
+    if kernel_active:
+        prompt = str(kernel_trace.get("compiled_prompt") or prompt)
+        request_system = kernel_trace.get("compiled_system") or request_system
+
     if ORACLE_TEST_HOOKS_ENABLED:
 
         # Debug/test hooks (safe: only active when explicit headers are present)
@@ -2571,6 +2631,17 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 pass
 
         if http_request.headers.get('x-oracle-force-empty-response', '') == '1':
+            try:
+                cortex_kernel_v2.finalize_request(
+                    (kernel_trace or {}).get("request_id") if isinstance(kernel_trace, dict) else None,
+                    response="",
+                    actual_lane="forced_empty_test",
+                    used_backend=_openclaw_model_label(),
+                    fallback_reason="forced_empty_test",
+                    contract_ok=False,
+                )
+            except Exception:
+                pass
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2615,7 +2686,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     # Ensure HUD/_activated reflects that Augmenter was involved.
                     track_level(http_request, 38, "Augmenter", always_on=False)
                     # Return in Oracle's ChatResponse envelope for compatibility.
-                    codec_trace = _record_oracle_turn(session_key, raw_prompt, resp_text, priority=priority, lane="augmenter", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=_openclaw_model_label(), fallback_reason="augmenter_path")
+                    codec_trace = _record_oracle_turn(session_key, raw_prompt, resp_text, priority=priority, lane="augmenter", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=_openclaw_model_label(), fallback_reason="augmenter_path", kernel_trace=kernel_trace)
                     return _mk_chat_response(
                         prompt=prompt,
                         session_key=session_key,
@@ -2632,11 +2703,8 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                             "path": "augmenter",
                             "augmenter": data.get("augmenter"),
                             "codec": codec_trace,
-                    "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
-                            "codec_backend_policy": codec_backend_policy,
+                            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=codec_trace.get("kernel_v2")),
                             "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
                             "codec_backend_policy": codec_backend_policy,
                         },
                     )
@@ -2644,10 +2712,6 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 # Fall through to normal Oracle routing if Augmenter fails.
                 pass
 
-    requested_model = (request.model or '').strip().lower()
-    priority = (request.priority or '').lower().strip()
-    final_only = (request.response_mode or 'default').lower() == 'final_only'
-    strict_contract = _is_strict_contract_prompt(raw_prompt) or _is_strict_contract_prompt(request_system or '')
     contract_basis = (raw_prompt + "\n\n" + (request_system or ''))
     quality_mode = _quality_depth_controller(raw_prompt, priority=priority)
     use_bridge = (priority == 'high') or ('codex' in requested_model) or (not _is_ultra_basic_prompt(raw_prompt))
@@ -2667,6 +2731,11 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
     depth_mode = quality_mode.get("mode", "medium")
     use_bridge = bool(codec_routing.get("use_bridge", use_bridge))
     force_orchestrate = bool(codec_routing.get("force_orchestrate", False))
+    if kernel_active and isinstance(kernel_trace, dict):
+        kernel_plan = dict(kernel_trace.get("plan") or {})
+        depth_mode = str(kernel_plan.get("depth_mode") or depth_mode)
+        use_bridge = bool(kernel_plan.get("use_bridge", use_bridge))
+        force_orchestrate = bool(kernel_plan.get("force_orchestrate", force_orchestrate))
 
     if (not use_bridge) and _is_code_change_prompt(raw_prompt):
         raise HTTPException(status_code=400, detail='tinyllama policy: code changes are disabled.')
@@ -2682,7 +2751,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "contract_ok": True,
                 "fallback_reason": "micro_fastpath",
             })
-            codec_trace = _record_oracle_turn(session_key, raw_prompt, micro, priority=priority, lane="strict_contract_micro_fastpath", codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-fastpath", fallback_reason="micro_fastpath", contract_ok=True)
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, micro, priority=priority, lane="strict_contract_micro_fastpath", codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-fastpath", fallback_reason="micro_fastpath", contract_ok=True, kernel_trace=kernel_trace)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2702,11 +2771,8 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "contract_ok": True,
                     "fallback_reason": "micro_fastpath",
                     "codec": codec_trace,
-                    "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
-                            "codec_backend_policy": codec_backend_policy,
+                            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=codec_trace.get("kernel_v2")),
                             "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
                             "codec_backend_policy": codec_backend_policy,
                 },
             )
@@ -2722,7 +2788,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             "used_backend": "deterministic-semantic-guardrail",
             "fallback_reason": "semantic_guardrail_fastpath",
         })
-        codec_trace = _record_oracle_turn(session_key, raw_prompt, response_text, priority=priority, lane=lane, codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-semantic-guardrail", fallback_reason="semantic_guardrail_fastpath")
+        codec_trace = _record_oracle_turn(session_key, raw_prompt, response_text, priority=priority, lane=lane, codec_applied=codec_applied, referents_applied=referents_applied, used_backend="deterministic-semantic-guardrail", fallback_reason="semantic_guardrail_fastpath", kernel_trace=kernel_trace)
         return _mk_chat_response(
             prompt=prompt,
             session_key=session_key,
@@ -2741,11 +2807,8 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "used_backend": "deterministic-semantic-guardrail",
                 "fallback_reason": "semantic_guardrail_fastpath",
                 "codec": codec_trace,
-                    "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
-                            "codec_backend_policy": codec_backend_policy,
+                            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=codec_trace.get("kernel_v2")),
                             "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
                             "codec_backend_policy": codec_backend_policy,
             },
         )
@@ -2780,7 +2843,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "contract_ok": contract_ok,
                     "fallback_reason": fallback_reason,
                 })
-                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="strict_contract", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok)
+                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="strict_contract", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace)
                 return _mk_chat_response(
                     prompt=prompt,
                     session_key=session_key,
@@ -2800,11 +2863,8 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                         "contract_ok": contract_ok,
                         "fallback_reason": fallback_reason,
                         "codec": codec_trace,
-                    "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
-                            "codec_backend_policy": codec_backend_policy,
+                            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=codec_trace.get("kernel_v2")),
                             "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
                             "codec_backend_policy": codec_backend_policy,
                     },
                 )
@@ -2818,7 +2878,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "used_backend": model_label,
                     "fallback_reason": fallback_reason,
                 })
-                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="gated_direct", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason)
+                codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="gated_direct", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, kernel_trace=kernel_trace)
                 return _mk_chat_response(
                     prompt=prompt,
                     session_key=session_key,
@@ -2837,11 +2897,8 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                         "used_backend": model_label,
                         "fallback_reason": fallback_reason,
                         "codec": codec_trace,
-                    "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
-                            "codec_backend_policy": codec_backend_policy,
+                            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=codec_trace.get("kernel_v2")),
                             "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
                             "codec_backend_policy": codec_backend_policy,
                     },
                 )
@@ -2879,7 +2936,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "fallback_reason": fallback_reason,
             })
 
-            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="alive_orchestrated", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason)
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="alive_orchestrated", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, kernel_trace=kernel_trace)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2900,11 +2957,8 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "hud_hidden": bool(hide_sig),
                     "fallback_reason": fallback_reason,
                     "codec": codec_trace,
-                    "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
-                            "codec_backend_policy": codec_backend_policy,
+                            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=codec_trace.get("kernel_v2")),
                             "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
                             "codec_backend_policy": codec_backend_policy,
                 },
             )
@@ -2934,7 +2988,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "contract_ok": contract_ok,
                 "fallback_reason": fallback_reason,
             })
-            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok)
+            codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace)
             return _mk_chat_response(
                 prompt=prompt,
                 session_key=session_key,
@@ -2955,11 +3009,8 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                     "contract_ok": contract_ok,
                     "fallback_reason": fallback_reason,
                     "codec": codec_trace,
-                    "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
-                            "codec_backend_policy": codec_backend_policy,
+                            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=codec_trace.get("kernel_v2")),
                             "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
                             "codec_backend_policy": codec_backend_policy,
                 },
             )
@@ -2990,7 +3041,7 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
             "contract_ok": contract_ok,
             "fallback_reason": fallback_reason,
         })
-        codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="fallback_best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok)
+        codec_trace = _record_oracle_turn(session_key, raw_prompt, text, priority=priority, lane="fallback_best_effort", codec_applied=codec_applied, referents_applied=referents_applied, used_backend=model_label, fallback_reason=fallback_reason, contract_ok=contract_ok, kernel_trace=kernel_trace)
         return _mk_chat_response(
             prompt=prompt,
             session_key=session_key,
@@ -3011,17 +3062,26 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
                 "contract_ok": contract_ok,
                 "fallback_reason": fallback_reason,
                 "codec": codec_trace,
-                    "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
-                            "codec_backend_policy": codec_backend_policy,
+                            "kernel_v2": _kernel_trace_payload(kernel_trace, kernel_result=codec_trace.get("kernel_v2")),
                             "codec_routing_priors": codec_step_priors,
-                    "codec_backend_policy": codec_backend_policy,
                             "codec_backend_policy": codec_backend_policy,
             },
         )
 
     except HTTPException as e:
         variant = infer_served_variant(codec_applied=bool(locals().get("codec_applied", False)), referents_applied=bool(locals().get("referents_applied", False)))
+        try:
+            cortex_kernel_v2.finalize_request(
+                (kernel_trace or {}).get("request_id") if isinstance(kernel_trace, dict) else None,
+                response=None,
+                actual_lane="http_exception",
+                used_backend="",
+                fallback_reason=f"http_{getattr(e, 'status_code', 500)}",
+                contract_ok=False,
+                error=str(getattr(e, "detail", e)),
+            )
+        except Exception:
+            pass
         try:
             observe_codec_outcome(
                 query=raw_prompt,
@@ -3040,6 +3100,18 @@ async def oracle_chat(request: ChatRequest, http_request: Request):
         raise
     except Exception as e:
         variant = infer_served_variant(codec_applied=bool(locals().get("codec_applied", False)), referents_applied=bool(locals().get("referents_applied", False)))
+        try:
+            cortex_kernel_v2.finalize_request(
+                (kernel_trace or {}).get("request_id") if isinstance(kernel_trace, dict) else None,
+                response=None,
+                actual_lane="exception",
+                used_backend="",
+                fallback_reason=type(e).__name__,
+                contract_ok=False,
+                error=str(e),
+            )
+        except Exception:
+            pass
         try:
             observe_codec_outcome(
                 query=raw_prompt,
@@ -3070,6 +3142,20 @@ async def oracle_ledger(limit: int = 50):
     with _LEDGER_LOCK:
         items = list(_LEDGER)[-n:]
     return {"success": True, "count": len(items), "entries": items}
+
+
+@router.get('/kernel/status')
+async def oracle_kernel_status():
+    return {"success": True, **cortex_kernel_v2.performance_snapshot(runtime="oracle")}
+
+
+@router.get('/kernel/telemetry')
+async def oracle_kernel_telemetry(limit: int = 50):
+    return {
+        "success": True,
+        "status": cortex_kernel_v2.performance_snapshot(runtime="oracle"),
+        "events": cortex_kernel_v2.recent_events(limit=limit, runtime="oracle"),
+    }
 
 
 @router.get('/forecast/status')
@@ -3198,6 +3284,7 @@ async def oracle_status():
             'path': _FORECAST_PATH,
             **_forecast_calibration(),
         },
+        'kernel_v2': cortex_kernel_v2.performance_snapshot(runtime="oracle"),
         'policy': 'Codex-majority with bridge/local fallback chain',
         'local_error': local_err,
         'bridge_error': bridge_err,
