@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-01T02:24:34.985Z",
+      "updatedAt": "2026-04-01T02:28:51.938Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 145,
+        "runs": 146,
         "failures": [],
-        "lastRunAt": "2026-04-01T02:24:34.992Z",
+        "lastRunAt": "2026-04-01T02:28:51.941Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -7373,11 +7373,11 @@
       "id": "agent:main:subagent:4ca0183e-8e6f-4119-a339-aec1451ff99a:1775009601883:f4b083391d1f3452",
       "sessionKey": "agent:main:subagent:4ca0183e-8e6f-4119-a339-aec1451ff99a",
       "createdAt": "2026-04-01T02:13:21.883Z",
-      "updatedAt": "2026-04-01T02:16:40.893Z",
+      "updatedAt": "2026-04-01T02:32:52.005Z",
       "prompt": "[Tue 2026-03-31 21:13 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Continue from /root/clawd at commit 5cbf56d1 and finish the rema",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "................... 100% 19 passed in 0.72s Process exited with code 0.",
       "history": [
         {
@@ -7397,6 +7397,14 @@
           "completedAt": "2026-04-01T02:16:40.893Z",
           "completionSummary": "................... 100% 19 passed in 0.72s Process exited with code 0.",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-01T02:32:52.005Z",
+          "failedAt": "2026-04-01T02:32:52.005Z",
+          "failureReason": "s\": 10, \"live_review_seconds\": 60, \"proactive_report_seconds\": 120, \"blocker_followup_seconds\": 60, }, dependability_profile=dict(MINIMAL_PROFILE), ), ) ) assert roadmap[\"state\"][\"status\"] == \"active\" assert delivery[\"state\"][\"status\"] == \"active\" tick = asyncio.run( orchestrator.tick_runtime( orchestrator.RuntimeTickRequest( limit=10, execute=False, now_iso=(first_now + timedelta(minutes=3)).isof",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -7417,7 +7425,10 @@
         }
       },
       "completedAt": "2026-04-01T02:16:40.893Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-01T02:32:52.005Z",
+      "failureReason": "s\": 10, \"live_review_seconds\": 60, \"proactive_report_seconds\": 120, \"blocker_followup_seconds\": 60, }, dependability_profile=dict(MINIMAL_PROFILE), ), ) ) assert roadmap[\"state\"][\"status\"] == \"active\" assert delivery[\"state\"][\"status\"] == \"active\" tick = asyncio.run( orchestrator.tick_runtime( orchestrator.RuntimeTickRequest( limit=10, execute=False, now_iso=(first_now + timedelta(minutes=3)).isof",
+      "failureSource": "runtime_message"
     }
   ]
 }
