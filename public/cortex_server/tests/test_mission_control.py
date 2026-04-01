@@ -418,3 +418,71 @@ def test_mission_control_requeues_completed_maintenance_work_and_reclaims_capaci
     assert reclaimed["objective"]["process_id"] is not None
     assert reclaimed["objective"]["process_id"] != original_process_id
     assert reclaimed["queue_item"]["metadata"]["mission_control_requeue_count"] == 1
+
+
+def test_mission_control_activity_feed_surfaces_agent_evidence(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+
+    roadmap = asyncio.run(
+        mission_control.mission_control_create_objective(
+            mission_control.MissionControlCreateRequest(
+                kind="roadmap",
+                title="Observable roadmap",
+                objective="Give Mission Control enough evidence to render a live agent activity feed.",
+                roadmap={
+                    "dependability_profile": dict(MINIMAL_PROFILE),
+                    "reporting_policy": dict(ROADMAP_REPORTING),
+                    "phases": [{"phase_id": "runtime", "title": "Runtime"}],
+                    "tasks": [
+                        {
+                            "task_id": "visible_work",
+                            "phase_id": "runtime",
+                            "title": "Emit live roadmap evidence",
+                            "work_type": "feature",
+                        }
+                    ],
+                },
+            )
+        )
+    )
+
+    process_id = roadmap["objective"]["process_id"]
+    mission_control.mission_control_objective_action(
+        roadmap["objective"]["objective_key"],
+        mission_control.MissionControlActionRequest(action="pause", actor="operator"),
+    )
+    mission_control.mission_control_objective_action(
+        roadmap["objective"]["objective_key"],
+        mission_control.MissionControlActionRequest(action="resume", actor="operator"),
+    )
+    scheduler.record_process_event(process_id, "tool_call_started", {"agent_id": "cortex", "scope": "task:visible_work", "tool": "pytest", "command_text": "pytest -q tests/test_runtime.py", "command_kind": "test"})
+    scheduler.record_process_event(process_id, "command_stdout", {"agent_id": "cortex", "scope": "task:visible_work", "chunk": "tests/test_runtime.py::test_visible_work PASSED"})
+    scheduler.record_process_event(process_id, "file_written", {"agent_id": "cortex", "scope": "task:visible_work", "file_path": "/tmp/visible_work.py"})
+    scheduler.record_process_event(process_id, "git_diff_snapshot", {"agent_id": "cortex", "scope": "task:visible_work", "repo_path": "/tmp/repo", "stat_preview": "visible_work.py | 12 ++++++++++++"})
+
+    feed = mission_control.mission_control_objective_activity(roadmap["objective"]["objective_key"], limit=25)
+    lineage = mission_control.mission_control_objective_lineage(roadmap["objective"]["objective_key"], limit=25)
+    capabilities = mission_control.mission_control_capabilities()
+
+    assert feed["stats"]["agent_count"] >= 1
+    assert any(row["agent_id"] == "cortex" for row in feed["agents"])
+    assert any(row["source"] == "runtime_event" for row in feed["timeline"])
+    assert any("visible_work" in str(row.get("scope") or row.get("summary") or "") for row in feed["timeline"])
+    assert feed["stats"]["command_count"] >= 1
+    assert feed["stats"]["output_count"] >= 1
+    assert feed["stats"]["file_count"] >= 1
+    assert feed["stats"]["git_count"] >= 1
+    assert feed["stats"]["test_count"] >= 1
+    assert any("pytest" in str(row.get("summary") or "") for row in feed["streams"]["commands"])
+    assert lineage["summary"]["observed_count"] >= 1
+    assert lineage["summary"]["inferred_count"] >= 1
+    assert any(row["memory_kind"] == "preference" for row in lineage["classes"]["learned_memory"]) is False
+    assert any(row["event_kind"] == "command_stdout" for row in lineage["classes"]["observed_evidence"])
+    assert any(row["fact_kind"] == "process_status" for row in lineage["classes"]["inferred_state"])
+    assert capabilities["capability_matrix"]["version"] == "cortex.evidence.capability_matrix.v1"

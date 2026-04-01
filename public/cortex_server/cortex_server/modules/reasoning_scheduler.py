@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import uuid4
 
+from cortex_server.modules.evidence_governance import normalize_runtime_event
+
 from cortex_server.modules.reasoning_kernel import model_dump_compat
 from cortex_server.modules.reasoning_failures import normalize_failure_code
 from cortex_server.modules.reasoning_store import list_docs, list_events, replace_namespace_docs, replace_namespace_events
@@ -119,13 +121,13 @@ def save_state(state: Dict[str, Any]) -> Dict[str, Any]:
 def _append_event(state: Dict[str, Any], process_id: str, kind: str, payload: Dict[str, Any]) -> None:
     events = state.setdefault("events", [])
     events.append(
-        {
-            "event_id": f"ev_{uuid4().hex[:10]}",
-            "process_id": process_id,
-            "kind": kind,
-            "ts": _now_iso(),
-            "payload": payload,
-        }
+        normalize_runtime_event(
+            process_id=process_id,
+            kind=kind,
+            payload=payload,
+            ts=_now_iso(),
+            event_id=f"ev_{uuid4().hex[:10]}",
+        )
     )
     if len(events) > 300:
         del events[:-300]
@@ -890,7 +892,7 @@ def process_events(process_id: str, *, limit: int = 50) -> List[Dict[str, Any]]:
     with _LOCK:
         state = load_state()
         events = [row for row in (state.get("events") or []) if isinstance(row, dict) and row.get("process_id") == process_id]
-        return events[-max(0, int(limit)) :]
+        return [normalize_runtime_event(row) for row in events[-max(0, int(limit)) :]]
 def runtime_status() -> Dict[str, Any]:
     processes = list_processes()
     by_status: Dict[str, int] = {}

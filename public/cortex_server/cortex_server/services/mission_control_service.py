@@ -8,6 +8,9 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 import cortex_server.routers.orchestrator as orchestrator
+from cortex_server.modules.cortex_codec import get_codec_packet_for_session
+from cortex_server.modules.evidence_governance import capability_matrix
+from cortex_server.modules.evidence_lineage import build_lineage_bundle
 from cortex_server.modules.reasoning_scheduler import (
     get_process,
     list_processes,
@@ -768,6 +771,626 @@ def objective_detail(objective_key: str) -> JsonDict:
         raise HTTPException(status_code=404, detail=f"Mission Control objective '{objective_key}' not found")
     detail = _objective_view(process=process, queue_item=queue_item, stores=stores, detail=True)
     return {"success": True, **detail}
+
+
+def _compact_text(value: Any, *, limit: int = 220) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value
+    elif isinstance(value, (dict, list, tuple)):
+        try:
+            text = json.dumps(value, sort_keys=True)
+        except Exception:
+            text = str(value)
+    else:
+        text = str(value)
+    text = " ".join(text.split())
+    if not text:
+        return None
+    if len(text) <= limit:
+        return text
+    return text[: max(1, limit - 1)] + "…"
+
+
+def _humanize_token(value: Optional[str]) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "activity"
+    return text.replace("_", " ").replace(".", " › ")
+
+
+def _activity_timestamp(row: JsonDict) -> Optional[str]:
+    for key in ("ts", "recorded_at", "updated_at", "heartbeat_at", "acked_at", "last_attempt_at", "created_at"):
+        if row.get(key):
+            return row.get(key)
+    return None
+
+
+def _timeline_entry(
+    *,
+    entry_id: str,
+    ts: Optional[str],
+    source: str,
+    kind: str,
+    label: str,
+    summary: Optional[str] = None,
+    agent_ids: Optional[Sequence[str]] = None,
+    scope: Optional[str] = None,
+    status: Optional[str] = None,
+    raw: Optional[JsonDict] = None,
+) -> JsonDict:
+    agents = []
+    seen = set()
+    for row in agent_ids or []:
+        agent_id = str(row or "").strip()
+        if not agent_id or agent_id in seen:
+            continue
+        seen.add(agent_id)
+        agents.append(agent_id)
+    return {
+        "entry_id": entry_id,
+        "ts": ts,
+        "source": source,
+        "kind": kind,
+        "label": label,
+        "summary": summary,
+        "agent_ids": agents,
+        "scope": scope,
+        "status": status,
+        "raw": raw or {},
+    }
+
+
+def _summarize_runtime_event(row: JsonDict) -> Tuple[str, Optional[str], Optional[str], List[str]]:
+    kind = str(row.get("kind") or "runtime_event").strip() or "runtime_event"
+    payload = dict(row.get("payload") or {})
+    node_id = str(payload.get("node_id") or "").strip() or None
+    scope = node_id or str(payload.get("scope") or payload.get("file_path") or payload.get("repo_path") or "").strip() or None
+    agent_ids = [payload.get("agent_id"), payload.get("from_agent"), payload.get("to_agent"), payload.get("actor")]
+    if payload.get("tool"):
+        scope = scope or f"tool:{payload.get('tool')}"
+
+    label_map = {
+        "node_running": f"Node running • {node_id or 'node'}",
+        "node_completed": f"Node completed • {node_id or 'node'}",
+        "node_failed": f"Node failed • {node_id or 'node'}",
+        "node_retry_scheduled": f"Retry scheduled • {node_id or 'node'}",
+        "process_paused": "Process paused",
+        "process_resumed": "Process resumed",
+        "process_wake": "Wake requested",
+        "process_cancelled": "Process cancelled",
+        "tool_call_started": f"Tool started • {payload.get('tool') or payload.get('tool_name') or 'tool'}",
+        "tool_call_finished": f"Tool finished • {payload.get('tool') or payload.get('tool_name') or 'tool'}",
+        "tool_call_stdout": f"Tool stdout • {payload.get('tool') or payload.get('tool_name') or 'tool'}",
+        "tool_call_stderr": f"Tool stderr • {payload.get('tool') or payload.get('tool_name') or 'tool'}",
+        "command_started": f"Command started • {payload.get('command_kind') or 'command'}",
+        "command_finished": f"Command finished • {payload.get('command_kind') or 'command'}",
+        "command_stdout": "Stdout chunk",
+        "command_stderr": "Stderr chunk",
+        "file_written": f"File written • {payload.get('file_path') or 'file'}",
+        "file_deleted": f"File deleted • {payload.get('file_path') or 'file'}",
+        "git_status_snapshot": "Git status snapshot",
+        "git_diff_snapshot": "Git diff snapshot",
+        "git_diff_cached_snapshot": "Git staged diff snapshot",
+    }
+    label = label_map.get(kind) or _humanize_token(kind).title()
+
+    summary_parts = []
+    if payload.get("tool"):
+        summary_parts.append(f"tool={payload.get('tool')}")
+    if payload.get("command_text"):
+        summary_parts.append(_compact_text(payload.get("command_text"), limit=180))
+    if payload.get("file_path"):
+        summary_parts.append(f"file={payload.get('file_path')}")
+    if payload.get("repo_path"):
+        summary_parts.append(f"repo={payload.get('repo_path')}")
+    if payload.get("status_code") is not None:
+        summary_parts.append(f"status_code={payload.get('status_code')}")
+    if payload.get("exit_code") is not None:
+        summary_parts.append(f"exit_code={payload.get('exit_code')}")
+    if payload.get("attempts") is not None:
+        summary_parts.append(f"attempt={payload.get('attempts')}")
+    if payload.get("reason"):
+        summary_parts.append(f"reason={payload.get('reason')}")
+    if payload.get("retry_at"):
+        summary_parts.append(f"retry_at={payload.get('retry_at')}")
+    if payload.get("objective_key"):
+        summary_parts.append(f"objective={payload.get('objective_key')}")
+    if payload.get("chunk"):
+        summary_parts.append(_compact_text(payload.get("chunk"), limit=220) or "")
+    if payload.get("stdout_preview"):
+        summary_parts.append(f"stdout={_compact_text(payload.get('stdout_preview'), limit=220)}")
+    if payload.get("stderr_preview"):
+        summary_parts.append(f"stderr={_compact_text(payload.get('stderr_preview'), limit=220)}")
+    if payload.get("status_preview"):
+        summary_parts.append(f"status={_compact_text(payload.get('status_preview'), limit=220)}")
+    if payload.get("stat_preview"):
+        summary_parts.append(f"diff={_compact_text(payload.get('stat_preview'), limit=220)}")
+    if payload.get("patch_preview"):
+        summary_parts.append(f"patch={_compact_text(payload.get('patch_preview'), limit=220)}")
+    summary = ", ".join(summary_parts) if summary_parts else _compact_text(payload)
+    return label, summary, scope, [str(row) for row in agent_ids if str(row or "").strip()]
+
+
+def _summarize_report_action(action: JsonDict) -> Tuple[str, Optional[str], Optional[str], List[str]]:
+    action_name = str(action.get("action") or action.get("kind") or "report_action").strip() or "report_action"
+    scope = str(action.get("task_id") or action.get("scope") or action.get("node_id") or "").strip() or None
+    summary_bits = []
+    for key in ("task_id", "scope", "lease_id", "node_id", "stage", "from_agent", "to_agent"):
+        if action.get(key):
+            summary_bits.append(f"{key}={action.get(key)}")
+    summary = ", ".join(summary_bits) if summary_bits else _compact_text(action)
+    return (
+        _humanize_token(action_name).title(),
+        summary,
+        scope,
+        [
+            str(action.get("agent_id") or "").strip(),
+            str(action.get("from_agent") or "").strip(),
+            str(action.get("to_agent") or "").strip(),
+        ],
+    )
+
+
+def _shared_state_change_summary(change_set: JsonDict) -> Optional[str]:
+    summary_bits = []
+    for key in ("world_state", "agent_ownership", "open_questions", "active_plan_node_ids", "operator_overrides"):
+        section = dict(change_set.get(key) or {})
+        count = int(section.get("count") or 0)
+        if count:
+            summary_bits.append(f"{key}={count}")
+    return ", ".join(summary_bits) if summary_bits else None
+
+
+def _build_activity_timeline(detail: JsonDict, *, limit: int) -> List[JsonDict]:
+    objective = dict(detail.get("objective") or {})
+    entries: List[JsonDict] = []
+
+    if objective:
+        current_phase = dict(objective.get("current_phase") or {})
+        process_view = dict(objective.get("process") or {})
+        entries.append(
+            _timeline_entry(
+                entry_id=f"objective:{objective.get('objective_key') or objective.get('process_id') or uuid4().hex[:8]}",
+                ts=objective.get("updated_at") or process_view.get("last_tick_at") or objective.get("created_at"),
+                source="objective_state",
+                kind=str(objective.get("status") or "active"),
+                label="Objective state",
+                summary=_compact_text(
+                    {
+                        "status": objective.get("status"),
+                        "next_action": (objective.get("next_action") or {}).get("kind"),
+                        "current_phase": current_phase.get("delivery_stage") or current_phase.get("roadmap_phase_id"),
+                        "active_nodes": process_view.get("active_nodes"),
+                        "waiting_nodes": process_view.get("waiting_nodes"),
+                    }
+                ),
+                agent_ids=[((objective.get("active_worker") or {}).get("agent_id"))],
+                scope=current_phase.get("delivery_stage") or current_phase.get("roadmap_phase_id"),
+                status=objective.get("status"),
+                raw={"objective": objective.get("objective_key"), "status": objective.get("status"), "process": process_view, "current_phase": current_phase},
+            )
+        )
+        for worker in objective.get("worker_roster") or []:
+            if not isinstance(worker, dict):
+                continue
+            entries.append(
+                _timeline_entry(
+                    entry_id=f"worker:{worker.get('agent_id') or 'agent'}:{worker.get('scope') or 'scope'}",
+                    ts=worker.get("heartbeat_at") or objective.get("updated_at") or objective.get("created_at"),
+                    source="worker_roster",
+                    kind=str(worker.get("status") or "observed"),
+                    label=f"Worker {str(worker.get('status') or 'observed')} • {worker.get('agent_id') or 'agent'}",
+                    summary=_compact_text({"scope": worker.get("scope"), "source": worker.get("source"), "expires_at": worker.get("expires_at")}),
+                    agent_ids=[worker.get("agent_id")],
+                    scope=worker.get("scope"),
+                    status=worker.get("status"),
+                    raw=worker,
+                )
+            )
+
+    for event in detail.get("runtime_events") or []:
+        if not isinstance(event, dict):
+            continue
+        label, summary, scope, agents = _summarize_runtime_event(event)
+        entries.append(
+            _timeline_entry(
+                entry_id=str(event.get("event_id") or f"runtime:{len(entries)}"),
+                ts=event.get("ts"),
+                source="runtime_event",
+                kind=str(event.get("kind") or "runtime_event"),
+                label=label,
+                summary=summary,
+                agent_ids=agents,
+                scope=scope,
+                raw=event,
+            )
+        )
+
+    for report in objective.get("recent_reports") or []:
+        if not isinstance(report, dict):
+            continue
+        runtime_kind = str(report.get("runtime_kind") or report.get("kind") or "report").strip() or "report"
+        entries.append(
+            _timeline_entry(
+                entry_id=f"report:{report.get('report_id') or uuid4().hex[:8]}",
+                ts=report.get("recorded_at"),
+                source="report",
+                kind=runtime_kind,
+                label=f"{runtime_kind.title()} report",
+                summary=_compact_text(report.get("summary") or report.get("status") or report.get("metadata")),
+                agent_ids=[report.get("metadata", {}).get("controller_id") if isinstance(report.get("metadata"), dict) else None],
+                scope=report.get("active_phase_id") or report.get("stage"),
+                status=report.get("status"),
+                raw=report,
+            )
+        )
+        for index, action in enumerate(report.get("actions_taken") or []):
+            if not isinstance(action, dict):
+                continue
+            label, summary, scope, agents = _summarize_report_action(action)
+            entries.append(
+                _timeline_entry(
+                    entry_id=f"report:{report.get('report_id') or 'report'}:action:{index}",
+                    ts=report.get("recorded_at"),
+                    source="report_action",
+                    kind=str(action.get("action") or action.get("kind") or "report_action"),
+                    label=label,
+                    summary=summary,
+                    agent_ids=agents,
+                    scope=scope,
+                    raw={"report_id": report.get("report_id"), "runtime_kind": runtime_kind, "action": action},
+                )
+            )
+
+    for row in detail.get("mailbox_messages") or []:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("delivery_status") or "queued").strip() or "queued"
+        entries.append(
+            _timeline_entry(
+                entry_id=f"mailbox:{row.get('message_id') or uuid4().hex[:8]}",
+                ts=row.get("acked_at") or row.get("last_attempt_at") or row.get("created_at"),
+                source="mailbox",
+                kind=str(row.get("kind") or "handoff"),
+                label=f"Mailbox {status}",
+                summary=_compact_text(
+                    row.get("payload")
+                    or {
+                        "from_agent": row.get("from_agent"),
+                        "to_agent": row.get("to_agent"),
+                        "kind": row.get("kind"),
+                        "delivery_status": row.get("delivery_status"),
+                    }
+                ),
+                agent_ids=[row.get("from_agent"), row.get("to_agent")],
+                scope=row.get("kind"),
+                status=status,
+                raw=row,
+            )
+        )
+
+    for row in detail.get("leases") or []:
+        if not isinstance(row, dict):
+            continue
+        entries.append(
+            _timeline_entry(
+                entry_id=f"lease:{row.get('lease_id') or uuid4().hex[:8]}",
+                ts=row.get("heartbeat_at") or row.get("assigned_at") or row.get("expires_at"),
+                source="lease",
+                kind="lease",
+                label=f"Lease {str(row.get('status') or 'active')}",
+                summary=_compact_text({"scope": row.get("scope"), "heartbeat_at": row.get("heartbeat_at"), "expires_at": row.get("expires_at")}),
+                agent_ids=[row.get("agent_id")],
+                scope=row.get("scope"),
+                status=row.get("status"),
+                raw=row,
+            )
+        )
+
+    for row in detail.get("shared_state_history") or []:
+        if not isinstance(row, dict):
+            continue
+        entries.append(
+            _timeline_entry(
+                entry_id=f"shared_state:{row.get('revision_id') or uuid4().hex[:8]}",
+                ts=row.get("recorded_at"),
+                source="shared_state",
+                kind="revision_saved",
+                label=f"Shared state revision • {row.get('revision_id')}",
+                summary=_shared_state_change_summary(dict(row.get("change_set") or {})) or _compact_text(row.get("provenance")),
+                agent_ids=[row.get("actor")],
+                scope=(row.get("provenance") or {}).get("action") if isinstance(row.get("provenance"), dict) else None,
+                raw=row,
+            )
+        )
+
+    roadmap_detail = dict(detail.get("roadmap_detail") or {})
+    roadmap_state = dict(roadmap_detail.get("state") or {})
+    roadmap_contract = dict(roadmap_detail.get("contract") or {})
+    task_titles = {
+        str(task.get("task_id") or "").strip(): str(task.get("title") or task.get("task_id") or "task").strip()
+        for task in (roadmap_contract.get("tasks") or [])
+        if isinstance(task, dict) and str(task.get("task_id") or "").strip()
+    }
+    for task in roadmap_state.get("task_states") or []:
+        if not isinstance(task, dict):
+            continue
+        if not (task.get("assigned_agent_id") or task.get("status") in {"active", "blocked", "in_progress"}):
+            continue
+        task_id = str(task.get("task_id") or "task").strip() or "task"
+        entries.append(
+            _timeline_entry(
+                entry_id=f"task:{task_id}",
+                ts=task.get("updated_at") or roadmap_state.get("last_progress_at") or roadmap_state.get("last_report_at"),
+                source="task_state",
+                kind=str(task.get("status") or "task_state"),
+                label=f"Task {str(task.get('status') or 'active')} • {task_titles.get(task_id, task_id)}",
+                summary=_compact_text({
+                    "task_id": task_id,
+                    "assigned_agent_id": task.get("assigned_agent_id"),
+                    "lease_id": task.get("lease_id"),
+                    "status": task.get("status"),
+                }),
+                agent_ids=[task.get("assigned_agent_id")],
+                scope=f"task:{task_id}",
+                status=task.get("status"),
+                raw=task,
+            )
+        )
+
+    entries.sort(key=lambda row: _sort_ts(row.get("ts")), reverse=True)
+    return entries[: max(1, int(limit or 120))]
+
+
+def _build_agent_activity(detail: JsonDict, *, timeline: Sequence[JsonDict]) -> List[JsonDict]:
+    objective = dict(detail.get("objective") or {})
+    roadmap_detail = dict(detail.get("roadmap_detail") or {})
+    roadmap_state = dict(roadmap_detail.get("state") or {})
+    roadmap_contract = dict(roadmap_detail.get("contract") or {})
+    shared_state = dict((roadmap_detail.get("shared_state") or ((detail.get("delivery_detail") or {}).get("shared_state")) or objective.get("shared_state") or {}) if isinstance((roadmap_detail.get("shared_state") or ((detail.get("delivery_detail") or {}).get("shared_state")) or objective.get("shared_state") or {}), dict) else {})
+
+    task_titles = {
+        str(task.get("task_id") or "").strip(): str(task.get("title") or task.get("task_id") or "task").strip()
+        for task in (roadmap_contract.get("tasks") or [])
+        if isinstance(task, dict) and str(task.get("task_id") or "").strip()
+    }
+
+    agents: Dict[str, JsonDict] = {}
+
+    def ensure_agent(agent_id: Optional[str]) -> Optional[JsonDict]:
+        key = str(agent_id or "").strip()
+        if not key:
+            return None
+        if key not in agents:
+            agents[key] = {
+                "agent_id": key,
+                "status": "observed",
+                "current_scope": None,
+                "current_activity": None,
+                "last_seen_at": None,
+                "owned_scopes": [],
+                "active_tasks": [],
+                "mailbox": {"sent": 0, "received": 0},
+                "recent_evidence": [],
+            }
+        return agents[key]
+
+    for worker in objective.get("worker_roster") or []:
+        if not isinstance(worker, dict):
+            continue
+        agent = ensure_agent(worker.get("agent_id"))
+        if agent is None:
+            continue
+        if worker.get("scope") and worker.get("scope") not in agent["owned_scopes"]:
+            agent["owned_scopes"].append(worker.get("scope"))
+        if worker.get("scope") and not agent.get("current_scope"):
+            agent["current_scope"] = worker.get("scope")
+        if worker.get("status"):
+            agent["status"] = worker.get("status")
+        last_seen = worker.get("heartbeat_at") or worker.get("expires_at")
+        if _sort_ts(last_seen) > _sort_ts(agent.get("last_seen_at")):
+            agent["last_seen_at"] = last_seen
+
+    for scope, owner in dict(shared_state.get("agent_ownership") or {}).items():
+        agent = ensure_agent(owner)
+        if agent is None:
+            continue
+        if scope and scope not in agent["owned_scopes"]:
+            agent["owned_scopes"].append(scope)
+        if scope and not agent.get("current_scope"):
+            agent["current_scope"] = scope
+
+    for task in roadmap_state.get("task_states") or []:
+        if not isinstance(task, dict):
+            continue
+        agent = ensure_agent(task.get("assigned_agent_id"))
+        if agent is None:
+            continue
+        task_id = str(task.get("task_id") or "task").strip() or "task"
+        task_view = {
+            "task_id": task_id,
+            "title": task_titles.get(task_id, task_id),
+            "status": task.get("status"),
+            "updated_at": task.get("updated_at"),
+            "lease_id": task.get("lease_id"),
+        }
+        if task_view not in agent["active_tasks"]:
+            agent["active_tasks"].append(task_view)
+        if task.get("status") in {"active", "blocked", "in_progress"}:
+            agent["status"] = str(task.get("status") or agent.get("status") or "observed")
+            agent["current_activity"] = f"{task_titles.get(task_id, task_id)} ({task.get('status')})"
+            if _sort_ts(task.get("updated_at")) > _sort_ts(agent.get("last_seen_at")):
+                agent["last_seen_at"] = task.get("updated_at")
+
+    for row in detail.get("mailbox_messages") or []:
+        if not isinstance(row, dict):
+            continue
+        sender = ensure_agent(row.get("from_agent"))
+        receiver = ensure_agent(row.get("to_agent"))
+        if sender is not None:
+            sender["mailbox"]["sent"] += 1
+        if receiver is not None:
+            receiver["mailbox"]["received"] += 1
+
+    for entry in timeline:
+        if not isinstance(entry, dict):
+            continue
+        for agent_id in entry.get("agent_ids") or []:
+            agent = ensure_agent(agent_id)
+            if agent is None:
+                continue
+            if _sort_ts(entry.get("ts")) > _sort_ts(agent.get("last_seen_at")):
+                agent["last_seen_at"] = entry.get("ts")
+            if entry.get("scope") and not agent.get("current_scope"):
+                agent["current_scope"] = entry.get("scope")
+            evidence = {
+                "ts": entry.get("ts"),
+                "label": entry.get("label"),
+                "summary": entry.get("summary"),
+                "source": entry.get("source"),
+                "scope": entry.get("scope"),
+                "status": entry.get("status"),
+            }
+            agent["recent_evidence"].append(evidence)
+            if agent.get("current_activity") is None and entry.get("label"):
+                agent["current_activity"] = entry.get("label")
+            if entry.get("status") and agent.get("status") in {None, "observed", "active"}:
+                agent["status"] = entry.get("status")
+
+    rows = []
+    for agent in agents.values():
+        agent["recent_evidence"].sort(key=lambda row: _sort_ts(row.get("ts")), reverse=True)
+        agent["recent_evidence"] = agent["recent_evidence"][:6]
+        agent["active_tasks"].sort(key=lambda row: _sort_ts(row.get("updated_at")), reverse=True)
+        if not agent.get("current_activity"):
+            if agent.get("current_scope"):
+                agent["current_activity"] = f"Holding {agent.get('current_scope')}"
+            elif agent["recent_evidence"]:
+                agent["current_activity"] = agent["recent_evidence"][0].get("label")
+            else:
+                agent["current_activity"] = "No recent evidence"
+        rows.append(agent)
+
+    rows.sort(key=lambda row: (_status_rank(row.get("status")), _sort_ts(row.get("last_seen_at"))), reverse=False)
+    rows.sort(key=lambda row: _sort_ts(row.get("last_seen_at")), reverse=True)
+    return rows
+
+
+def _activity_streams(timeline: Sequence[JsonDict]) -> JsonDict:
+    commands: List[JsonDict] = []
+    outputs: List[JsonDict] = []
+    files: List[JsonDict] = []
+    git: List[JsonDict] = []
+    tests: List[JsonDict] = []
+
+    for entry in timeline:
+        if not isinstance(entry, dict):
+            continue
+        kind = str(entry.get("kind") or "").strip().lower()
+        raw = dict(entry.get("raw") or {})
+        payload = dict(raw.get("payload") or raw)
+        item = {
+            "ts": entry.get("ts"),
+            "label": entry.get("label"),
+            "summary": entry.get("summary"),
+            "agent_ids": list(entry.get("agent_ids") or []),
+            "scope": entry.get("scope"),
+            "status": entry.get("status"),
+            "raw": raw,
+        }
+        if kind in {"command_started", "command_finished", "tool_call_started", "tool_call_finished"}:
+            commands.append(item)
+        if kind in {"command_stdout", "command_stderr", "tool_call_stdout", "tool_call_stderr"}:
+            item["stream"] = "stderr" if "stderr" in kind else "stdout"
+            outputs.append(item)
+        if kind in {"file_written", "file_deleted"}:
+            files.append(item)
+        if kind in {"git_status_snapshot", "git_diff_snapshot", "git_diff_cached_snapshot"}:
+            git.append(item)
+        if payload.get("command_kind") == "test" or payload.get("tool") in {"pytest", "test", "tests"} or (payload.get("command_text") and "pytest" in str(payload.get("command_text")).lower()):
+            tests.append(item)
+
+    return {
+        "commands": commands[:20],
+        "outputs": outputs[:30],
+        "files": files[:20],
+        "git": git[:20],
+        "tests": tests[:20],
+    }
+
+
+def activity(objective_key: str, *, limit: int = 120) -> JsonDict:
+    stores = _stores()
+    queue_item, process = _resolve_objective(objective_key, stores=stores)
+    if queue_item is None and process is None:
+        raise HTTPException(status_code=404, detail=f"Mission Control objective '{objective_key}' not found")
+    detail = _objective_view(process=process, queue_item=queue_item, stores=stores, detail=True)
+    timeline = _build_activity_timeline(detail, limit=limit)
+    agents = _build_agent_activity(detail, timeline=timeline)
+    streams = _activity_streams(timeline)
+    source_counts: Dict[str, int] = {}
+    for row in timeline:
+        source = str(row.get("source") or "unknown")
+        source_counts[source] = source_counts.get(source, 0) + 1
+    return {
+        "success": True,
+        "generated_at": _now_iso(),
+        "objective": {
+            "objective_key": (detail.get("objective") or {}).get("objective_key"),
+            "process_id": (detail.get("objective") or {}).get("process_id"),
+            "title": (detail.get("objective") or {}).get("title"),
+            "status": (detail.get("objective") or {}).get("status"),
+            "current_phase": (detail.get("objective") or {}).get("current_phase"),
+            "active_worker": (detail.get("objective") or {}).get("active_worker"),
+        },
+        "stats": {
+            "agent_count": len(agents),
+            "timeline_count": len(timeline),
+            "sources": source_counts,
+            "command_count": len(streams.get("commands") or []),
+            "output_count": len(streams.get("outputs") or []),
+            "file_count": len(streams.get("files") or []),
+            "git_count": len(streams.get("git") or []),
+            "test_count": len(streams.get("tests") or []),
+        },
+        "capability_matrix": capability_matrix(),
+        "agents": agents,
+        "streams": streams,
+        "timeline": timeline,
+    }
+
+
+def lineage(objective_key: str, *, limit: int = 120) -> JsonDict:
+    stores = _stores()
+    queue_item, process = _resolve_objective(objective_key, stores=stores)
+    if queue_item is None and process is None:
+        raise HTTPException(status_code=404, detail=f"Mission Control objective '{objective_key}' not found")
+    detail = _objective_view(process=process, queue_item=queue_item, stores=stores, detail=True)
+    objective = dict(detail.get("objective") or {})
+    session_key = str((((objective.get("conversation_ownership") or {}).get("session_key")) or ((objective.get("process") or {}).get("session_key")) or "").strip() or "")
+    codec_packet = get_codec_packet_for_session(session_key, max_chars=800) if session_key else {"state": {}}
+    bundle = build_lineage_bundle(
+        process=(process or objective.get("process") or {}),
+        events=process_events(str(objective.get("process_id") or ""), limit=limit) if objective.get("process_id") else [],
+        objective_detail=detail,
+        codec_state=(codec_packet.get("state") if isinstance(codec_packet, dict) else {}),
+        session_key=session_key or None,
+    )
+    bundle["objective"] = {
+        "objective_key": objective.get("objective_key"),
+        "process_id": objective.get("process_id"),
+        "title": objective.get("title"),
+        "status": objective.get("status"),
+        "session_key": session_key or None,
+    }
+    bundle["capability_matrix"] = capability_matrix()
+    return bundle
+
+
+def capabilities() -> JsonDict:
+    return {"success": True, "generated_at": _now_iso(), "capability_matrix": capability_matrix()}
 
 
 def _save_shared_state(shared_state: JsonDict, *, stores: Dict[str, Any], actor: str, provenance: JsonDict) -> JsonDict:

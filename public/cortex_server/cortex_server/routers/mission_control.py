@@ -155,6 +155,11 @@ def mission_control_ui():
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
     .mini-list { display: grid; gap: 8px; }
     .mini-item { border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: #0b1221; }
+    .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+    .agent-card { border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: #0b1221; display: grid; gap: 8px; }
+    .timeline-item { display: grid; gap: 8px; }
+    .timeline-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    details summary { cursor: pointer; color: var(--muted); }
     @media (max-width: 980px) {
       .shell { grid-template-columns: 1fr; }
       .left { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -204,7 +209,7 @@ def mission_control_ui():
     </div>
   </div>
   <script>
-    const state = { board: null, selected: null };
+    const state = { board: null, selected: null, live: null, lineage: null, liveTimer: null };
 
     function escapeHtml(input) {
       return String(input ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -212,6 +217,18 @@ def mission_control_ui():
 
     function fmtJson(value) {
       return escapeHtml(JSON.stringify(value ?? {}, null, 2));
+    }
+
+    function fmtTs(value) {
+      if (!value) return '—';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return `${date.toLocaleTimeString()} · ${date.toLocaleDateString()}`;
+    }
+
+    function compact(value) {
+      const text = typeof value === 'string' ? value : JSON.stringify(value ?? {});
+      return text.length > 220 ? `${text.slice(0, 219)}…` : text;
     }
 
     function statusClass(status) {
@@ -258,6 +275,151 @@ def mission_control_ui():
       return `<div class="panel"><h3 class="section-title">${escapeHtml(title)}</h3>${body}</div>`;
     }
 
+    function renderEvidenceList(rows, emptyText) {
+      const list = rows || [];
+      return list.length ? list.map(entry => `
+        <div class="mini-item">
+          <div class="row between">
+            <strong>${escapeHtml(entry.label || entry.scope || 'evidence')}</strong>
+            <span class="muted">${escapeHtml(fmtTs(entry.ts))}</span>
+          </div>
+          <div class="timeline-meta">
+            ${(entry.agent_ids || []).map(agentId => `<span class="pill">${escapeHtml(agentId)}</span>`).join('')}
+            ${entry.scope ? `<span class="pill">${escapeHtml(entry.scope)}</span>` : ''}
+            ${entry.status ? `<span class="pill ${statusClass(entry.status)}">${escapeHtml(entry.status)}</span>` : ''}
+          </div>
+          <div>${escapeHtml(entry.summary || '')}</div>
+        </div>
+      `).join('') : `<div class="muted">${escapeHtml(emptyText)}</div>`;
+    }
+
+    function renderCapabilityMatrix(matrix) {
+      const rows = matrix?.layers || [];
+      return rows.length ? rows.map(row => `
+        <div class="mini-item">
+          <div class="row between">
+            <strong>${escapeHtml(row.layer)}</strong>
+            <span class="pill ${row.enabled ? 'status-active' : 'status-paused'}">${escapeHtml(row.mode || (row.enabled ? 'enabled' : 'disabled'))}</span>
+          </div>
+          <div>${escapeHtml(row.reason || '')}</div>
+          <div class="muted">${escapeHtml((row.controls?.env || []).join(', '))}</div>
+        </div>
+      `).join('') : '<div class="muted">No capability matrix available.</div>';
+    }
+
+    function renderLineage(payload) {
+      state.lineage = payload;
+      const classes = payload?.classes || {};
+      const inferred = document.getElementById('lineageInferred');
+      if (inferred) inferred.innerHTML = renderEvidenceList((classes.inferred_state || []).map(row => ({
+        label: row.fact_kind,
+        ts: row.generated_at,
+        summary: compact(row.value),
+        status: `${Math.round((row.confidence || 0) * 100)}% confidence`,
+        scope: row.subject_ref,
+        agent_ids: [],
+      })), 'No inferred state facts yet.');
+      const learned = document.getElementById('lineageLearned');
+      if (learned) learned.innerHTML = renderEvidenceList((classes.learned_memory || []).map(row => ({
+        label: row.memory_kind,
+        ts: row.generated_at,
+        summary: compact(row.value),
+        status: `${Math.round((row.confidence || 0) * 100)}% confidence`,
+        scope: row.durability_class,
+        agent_ids: [],
+      })), 'No learned codec memory yet.');
+      const overrides = document.getElementById('lineageOverrides');
+      if (overrides) overrides.innerHTML = renderEvidenceList((classes.operator_overrides || []).map(row => ({
+        label: row.override_kind,
+        ts: row.created_at,
+        summary: compact(row.value),
+        status: row.actor,
+        scope: row.scope,
+        agent_ids: [],
+      })), 'No operator overrides active.');
+      const capabilities = document.getElementById('capabilityMatrix');
+      if (capabilities) capabilities.innerHTML = renderCapabilityMatrix(payload?.capability_matrix);
+    }
+
+    function renderActivity(payload) {
+      state.live = payload;
+      const stamp = document.getElementById('liveStamp');
+      if (stamp) stamp.textContent = payload?.generated_at ? `Live sample ${fmtTs(payload.generated_at)}` : 'Live sample unavailable';
+
+      const agentsContainer = document.getElementById('liveAgents');
+      if (agentsContainer) {
+        const agents = payload?.agents || [];
+        agentsContainer.innerHTML = agents.length ? agents.map(agent => `
+          <div class="agent-card">
+            <div class="row between">
+              <strong>${escapeHtml(agent.agent_id)}</strong>
+              <span class="pill ${statusClass(agent.status)}">${escapeHtml(agent.status || 'observed')}</span>
+            </div>
+            <div>${escapeHtml(agent.current_activity || 'No recent evidence')}</div>
+            <div class="timeline-meta">
+              ${(agent.owned_scopes || []).slice(0, 4).map(scope => `<span class="pill">${escapeHtml(scope)}</span>`).join('') || '<span class="muted">No owned scopes</span>'}
+            </div>
+            <div class="muted">Last seen: ${escapeHtml(fmtTs(agent.last_seen_at))}</div>
+            <div class="muted">Mailbox: sent ${escapeHtml(agent.mailbox?.sent || 0)} · received ${escapeHtml(agent.mailbox?.received || 0)}</div>
+            <div class="mini-list">
+              ${(agent.active_tasks || []).slice(0, 3).map(task => `
+                <div class="mini-item">
+                  <div class="row between">
+                    <strong>${escapeHtml(task.title || task.task_id)}</strong>
+                    <span class="pill ${statusClass(task.status)}">${escapeHtml(task.status || 'observed')}</span>
+                  </div>
+                  <div class="muted">${escapeHtml(task.task_id || '')}</div>
+                </div>
+              `).join('') || ''}
+              ${(agent.recent_evidence || []).slice(0, 3).map(entry => `
+                <div class="mini-item">
+                  <div class="row between">
+                    <strong>${escapeHtml(entry.label || entry.source || 'evidence')}</strong>
+                    <span class="muted">${escapeHtml(fmtTs(entry.ts))}</span>
+                  </div>
+                  <div>${escapeHtml(entry.summary || entry.scope || '')}</div>
+                </div>
+              `).join('') || '<div class="muted">No recent evidence tied to this agent.</div>'}
+            </div>
+          </div>
+        `).join('') : '<div class="muted">No agent-level evidence yet for this objective.</div>';
+      }
+
+      const timelineContainer = document.getElementById('liveTimeline');
+      if (timelineContainer) {
+        const timeline = payload?.timeline || [];
+        timelineContainer.innerHTML = timeline.length ? timeline.map(entry => `
+          <div class="mini-item timeline-item">
+            <div class="row between">
+              <strong>${escapeHtml(entry.label || entry.kind || 'event')}</strong>
+              <span class="muted">${escapeHtml(fmtTs(entry.ts))}</span>
+            </div>
+            <div class="timeline-meta">
+              <span class="pill">${escapeHtml(entry.source || 'source')}</span>
+              ${(entry.agent_ids || []).map(agentId => `<span class="pill">${escapeHtml(agentId)}</span>`).join('')}
+              ${entry.scope ? `<span class="pill">${escapeHtml(entry.scope)}</span>` : ''}
+              ${entry.status ? `<span class="pill ${statusClass(entry.status)}">${escapeHtml(entry.status)}</span>` : ''}
+            </div>
+            <div>${escapeHtml(entry.summary || '')}</div>
+            <details>
+              <summary>raw evidence</summary>
+              <pre>${fmtJson(entry.raw || {})}</pre>
+            </details>
+          </div>
+        `).join('') : '<div class="muted">No live evidence yet.</div>';
+      }
+
+      const streams = payload?.streams || {};
+      const commandsContainer = document.getElementById('liveCommands');
+      if (commandsContainer) commandsContainer.innerHTML = renderEvidenceList(streams.commands || [], 'No command/tool lifecycle yet.');
+      const outputsContainer = document.getElementById('liveOutputs');
+      if (outputsContainer) outputsContainer.innerHTML = renderEvidenceList(streams.outputs || [], 'No stdout/stderr captured yet.');
+      const filesContainer = document.getElementById('liveFiles');
+      if (filesContainer) filesContainer.innerHTML = renderEvidenceList(streams.files || [], 'No file writes/deletes yet.');
+      const gitContainer = document.getElementById('liveGit');
+      if (gitContainer) gitContainer.innerHTML = renderEvidenceList([...(streams.git || []), ...(streams.tests || [])], 'No git/test evidence yet.');
+    }
+
     function renderDetail(payload) {
       const objective = payload?.objective;
       const detail = document.getElementById('detail');
@@ -282,7 +444,7 @@ def mission_control_ui():
         <div class="mini-item">
           <div class="row between">
             <strong>${escapeHtml(report.kind || report.runtime_kind)}</strong>
-            <span class="muted">${escapeHtml(report.recorded_at || '')}</span>
+            <span class="muted">${escapeHtml(fmtTs(report.recorded_at || ''))}</span>
           </div>
           <div>${escapeHtml(report.summary || '')}</div>
         </div>
@@ -308,6 +470,38 @@ def mission_control_ui():
             <div class="muted">Conversation</div><div>${escapeHtml(objective.conversation_ownership?.conversation_id || objective.conversation_ownership?.session_key || '—')}</div>
           </div>
         `),
+        detailSection('Live agent activity', `
+          <div class="row between" style="margin-bottom:10px;">
+            <div class="muted">Auto-refreshing every 2.5s from runtime events, reports, leases, handoffs, state revisions, and traced lab/tool execution.</div>
+            <div id="liveStamp" class="muted"></div>
+          </div>
+          <div id="liveAgents" class="agent-grid"><div class="muted">Loading live agent evidence…</div></div>
+        `),
+        detailSection('Capability matrix', `<div id="capabilityMatrix" class="mini-list"><div class="muted">Loading capability matrix…</div></div>`),
+        detailSection('Execution stream', `
+          <div class="summary-grid">
+            <div>
+              <div class="muted" style="margin-bottom:8px;">Commands & tool calls</div>
+              <div id="liveCommands" class="mini-list"><div class="muted">Loading execution stream…</div></div>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:8px;">Stdout / stderr</div>
+              <div id="liveOutputs" class="mini-list"><div class="muted">Loading output stream…</div></div>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:8px;">Files & patches</div>
+              <div id="liveFiles" class="mini-list"><div class="muted">Loading file evidence…</div></div>
+            </div>
+            <div>
+              <div class="muted" style="margin-bottom:8px;">Git & tests</div>
+              <div id="liveGit" class="mini-list"><div class="muted">Loading git/test evidence…</div></div>
+            </div>
+          </div>
+        `),
+        detailSection('Inferred state', `<div id="lineageInferred" class="mini-list"><div class="muted">Loading inferred state…</div></div>`),
+        detailSection('Learned memory', `<div id="lineageLearned" class="mini-list"><div class="muted">Loading codec memory…</div></div>`),
+        detailSection('Operator overrides', `<div id="lineageOverrides" class="mini-list"><div class="muted">Loading overrides…</div></div>`),
+        detailSection('Live evidence timeline', `<div id="liveTimeline" class="mini-list"><div class="muted">Loading live evidence…</div></div>`),
         detailSection('Blockers', `<div class="mini-list">${blockers}</div>`),
         detailSection('Recent reports', `<div class="mini-list">${reports}</div>`),
         detailSection('Outbound follow-up', `<div class="mini-list">${followups}</div>`),
@@ -325,6 +519,27 @@ def mission_control_ui():
       return payload;
     }
 
+    async function loadActivity(key) {
+      const payload = await fetchJson(`/mission_control/objectives/${encodeURIComponent(key)}/activity?limit=120`);
+      if (state.selected !== key) return;
+      renderActivity(payload);
+    }
+
+    async function loadLineage(key) {
+      const payload = await fetchJson(`/mission_control/objectives/${encodeURIComponent(key)}/lineage?limit=120`);
+      if (state.selected !== key) return;
+      renderLineage(payload);
+    }
+
+    function startLiveRefresh() {
+      if (state.liveTimer) clearInterval(state.liveTimer);
+      state.liveTimer = setInterval(() => {
+        if (!state.selected || document.hidden) return;
+        loadActivity(state.selected).catch(() => {});
+        loadLineage(state.selected).catch(() => {});
+      }, 2500);
+    }
+
     async function loadBoard() {
       const payload = await fetchJson('/mission_control/objectives');
       state.board = payload;
@@ -340,6 +555,8 @@ def mission_control_ui():
       renderCards(state.board?.objectives || []);
       const payload = await fetchJson(`/mission_control/objectives/${encodeURIComponent(key)}`);
       renderDetail(payload);
+      await loadActivity(key);
+      await loadLineage(key);
     }
 
     async function createObjective() {
@@ -348,15 +565,9 @@ def mission_control_ui():
       const objective = document.getElementById('objective').value.trim();
       if (!title) return alert('Title required');
       const payload = { kind, title, objective };
-      if (kind === 'maintenance') {
-        payload.maintenance = { text: objective || title, title, objective: objective || title };
-      }
-      if (kind === 'roadmap') {
-        payload.roadmap = {};
-      }
-      if (kind === 'delivery') {
-        payload.delivery = {};
-      }
+      if (kind === 'maintenance') payload.maintenance = { text: objective || title, title, objective: objective || title };
+      if (kind === 'roadmap') payload.roadmap = {};
+      if (kind === 'delivery') payload.delivery = {};
       const created = await fetchJson('/mission_control/objectives', { method: 'POST', body: JSON.stringify(payload) });
       state.selected = created.objective.objective_key;
       await loadBoard();
@@ -372,8 +583,10 @@ def mission_control_ui():
 
     document.getElementById('refresh').onclick = () => loadBoard().catch(err => alert(err.message));
     document.getElementById('create').onclick = () => createObjective().catch(err => alert(err.message));
+    startLiveRefresh();
+    window.addEventListener('beforeunload', () => state.liveTimer && clearInterval(state.liveTimer));
     loadBoard().catch(err => {
-      document.getElementById('detail').innerHTML = detailSection('Mission Control unavailable', `<pre>${escapeHtml(err.message)}</pre>`);
+      document.getElementById('detail').innerHTML = detailSection('Mission Control unavailable', `<pre>${escapeHtml(compact(err.message))}</pre>`);
     });
   </script>
 </body>
@@ -410,6 +623,21 @@ def mission_control_objectives():
 @router.get("/objectives/{objective_key}")
 def mission_control_objective_detail(objective_key: str):
     return mission_control_service.objective_detail(objective_key)
+
+
+@router.get("/objectives/{objective_key}/activity")
+def mission_control_objective_activity(objective_key: str, limit: int = 120):
+    return mission_control_service.activity(objective_key, limit=limit)
+
+
+@router.get("/objectives/{objective_key}/lineage")
+def mission_control_objective_lineage(objective_key: str, limit: int = 120):
+    return mission_control_service.lineage(objective_key, limit=limit)
+
+
+@router.get("/capabilities")
+def mission_control_capabilities():
+    return mission_control_service.capabilities()
 
 
 @router.post("/objectives")

@@ -11,9 +11,48 @@ from cortex_server.models.requests import (
     GitCloneRequest, GitPullRequest, GitCommitRequest,
     DockerRunRequest, DockerBuildRequest,
 )
+from cortex_server.modules.runtime_trace import (
+    emit_output_events,
+    git_diff_snapshot,
+    git_status_snapshot,
+    record_trace_event,
+    shell_preview,
+)
 
 
 class ToolService:
+
+    def _trace_start(self, trace_context: Optional[Dict[str, Any]], tool_name: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        record_trace_event(trace_context, "tool_call_started", {"tool": tool_name, **dict(payload or {})})
+
+    def _trace_finish(
+        self,
+        trace_context: Optional[Dict[str, Any]],
+        tool_name: str,
+        result: Optional[Dict[str, Any]] = None,
+        *,
+        repo_path: Optional[str] = None,
+        capture_git: bool = False,
+    ) -> None:
+        payload = {"tool": tool_name, **dict(result or {})}
+        record_trace_event(trace_context, "tool_call_finished", payload)
+        if result is not None:
+            emit_output_events(
+                trace_context,
+                stdout=(result.get("stdout") if isinstance(result, dict) else None),
+                stderr=(result.get("stderr") if isinstance(result, dict) else None),
+                prefix="tool_call",
+            )
+        if capture_git and repo_path:
+            status = git_status_snapshot(repo_path)
+            if status:
+                record_trace_event(trace_context, "git_status_snapshot", status)
+            unstaged = git_diff_snapshot(repo_path, cached=False)
+            if unstaged and (unstaged.get("stat_lines") or unstaged.get("patch_preview")):
+                record_trace_event(trace_context, "git_diff_snapshot", unstaged)
+            cached = git_diff_snapshot(repo_path, cached=True)
+            if cached and (cached.get("stat_lines") or cached.get("patch_preview")):
+                record_trace_event(trace_context, "git_diff_cached_snapshot", cached)
     
     def _git_identity_configured(self, repo_path: str) -> tuple[bool, str]:
         import subprocess
@@ -43,8 +82,9 @@ class ToolService:
         self.docker = Docker()
     
     # FFmpeg operations
-    async def ffmpeg_convert(self, request: FFMPEGConvertRequest) -> Dict[str, Any]:
+    async def ffmpeg_convert(self, request: FFMPEGConvertRequest, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Convert media file."""
+        self._trace_start(trace_context, "ffmpeg.convert", {"input_path": request.input_path, "output_path": request.output_path})
         try:
             result = await self.ffmpeg.convert(
                 input_path=request.input_path,
@@ -54,45 +94,65 @@ class ToolService:
                 start_time=request.start_time,
                 duration=request.duration,
             )
-            return {"success": True, "output": result}
+            payload = {"success": True, "output": result}
+            self._trace_finish(trace_context, "ffmpeg.convert", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "ffmpeg.convert", payload)
+            return payload
     
-    async def ffmpeg_extract_audio(self, request: FFMPEGExtractAudioRequest) -> Dict[str, Any]:
+    async def ffmpeg_extract_audio(self, request: FFMPEGExtractAudioRequest, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Extract audio from video."""
+        self._trace_start(trace_context, "ffmpeg.extract_audio", {"input_path": request.input_path, "output_path": request.output_path})
         try:
             result = await self.ffmpeg.extract_audio(
                 input_path=request.input_path,
                 output_path=request.output_path,
                 format=request.format,
             )
-            return {"success": True, "output": result}
+            payload = {"success": True, "output": result}
+            self._trace_finish(trace_context, "ffmpeg.extract_audio", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "ffmpeg.extract_audio", payload)
+            return payload
     
-    async def ffmpeg_thumbnail(self, request: FFMPEGThumbnailRequest) -> Dict[str, Any]:
+    async def ffmpeg_thumbnail(self, request: FFMPEGThumbnailRequest, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create video thumbnail."""
+        self._trace_start(trace_context, "ffmpeg.thumbnail", {"input_path": request.input_path, "output_path": request.output_path})
         try:
             result = await self.ffmpeg.create_thumbnail(
                 input_path=request.input_path,
                 output_path=request.output_path,
                 time=request.time,
             )
-            return {"success": True, "output": result}
+            payload = {"success": True, "output": result}
+            self._trace_finish(trace_context, "ffmpeg.thumbnail", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "ffmpeg.thumbnail", payload)
+            return payload
     
-    async def ffmpeg_info(self, input_path: str) -> Dict[str, Any]:
+    async def ffmpeg_info(self, input_path: str, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Get media file info."""
+        self._trace_start(trace_context, "ffmpeg.info", {"input_path": input_path})
         try:
             info = await self.ffmpeg.get_info(input_path)
-            return {"success": True, "info": info}
+            payload = {"success": True, "info": info}
+            self._trace_finish(trace_context, "ffmpeg.info", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "ffmpeg.info", payload)
+            return payload
     
     # Git operations
-    async def git_clone(self, request: GitCloneRequest) -> Dict[str, Any]:
+    async def git_clone(self, request: GitCloneRequest, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Clone a repository."""
+        self._trace_start(trace_context, "git.clone", {"repo_url": request.repo_url, "destination": request.destination, "branch": request.branch, "depth": request.depth})
         try:
             result = await GitRepo.clone_async(
                 url=request.repo_url,
@@ -100,16 +160,21 @@ class ToolService:
                 branch=request.branch,
                 depth=request.depth,
             )
-            return {
+            payload = {
                 "success": result.success,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
+            self._trace_finish(trace_context, "git.clone", payload, repo_path=request.destination, capture_git=True)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "git.clone", payload, repo_path=request.destination, capture_git=True)
+            return payload
     
-    async def git_pull(self, request: GitPullRequest) -> Dict[str, Any]:
+    async def git_pull(self, request: GitPullRequest, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Pull from remote."""
+        self._trace_start(trace_context, "git.pull", {"repo_path": request.repo_path, "remote": request.remote, "branch": request.branch, "rebase": request.rebase})
         try:
             repo = GitRepo(request.repo_path)
             result = await repo.pull_async(
@@ -117,42 +182,57 @@ class ToolService:
                 branch=request.branch,
                 rebase=request.rebase,
             )
-            return {
+            payload = {
                 "success": result.success,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
+            self._trace_finish(trace_context, "git.pull", payload, repo_path=request.repo_path, capture_git=True)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "git.pull", payload, repo_path=request.repo_path, capture_git=True)
+            return payload
     
-    async def git_status(self, repo_path: str) -> Dict[str, Any]:
+    async def git_status(self, repo_path: str, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Get repository status."""
+        self._trace_start(trace_context, "git.status", {"repo_path": repo_path})
         try:
             repo = GitRepo(repo_path)
             status = repo.status()
-            return {
+            payload = {
                 "success": True,
                 "staged": [s.dict() for s in status["staged"]],
                 "unstaged": [s.dict() for s in status["unstaged"]],
                 "untracked": [s.dict() for s in status["untracked"]],
             }
+            self._trace_finish(trace_context, "git.status", payload, repo_path=repo_path, capture_git=True)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "git.status", payload, repo_path=repo_path, capture_git=True)
+            return payload
     
-    async def git_log(self, repo_path: str, max_count: int = 10) -> Dict[str, Any]:
+    async def git_log(self, repo_path: str, max_count: int = 10, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Get commit log."""
+        self._trace_start(trace_context, "git.log", {"repo_path": repo_path, "max_count": max_count})
         try:
             repo = GitRepo(repo_path)
             commits = repo.log(max_count=max_count)
-            return {
+            payload = {
                 "success": True,
                 "commits": [c.dict() for c in commits],
             }
+            self._trace_finish(trace_context, "git.log", payload, repo_path=repo_path, capture_git=False)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "git.log", payload, repo_path=repo_path, capture_git=False)
+            return payload
     
-    async def git_init(self, repo_path: str) -> Dict[str, Any]:
+    async def git_init(self, repo_path: str, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Initialize a new git repository."""
+        self._trace_start(trace_context, "git.init", {"repo_path": repo_path})
         try:
             import subprocess
             result = subprocess.run(
@@ -160,47 +240,64 @@ class ToolService:
                 capture_output=True,
                 text=True
             )
-            return {
+            payload = {
                 "success": result.returncode == 0,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
+            self._trace_finish(trace_context, "git.init", payload, repo_path=repo_path, capture_git=True)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "git.init", payload, repo_path=repo_path, capture_git=True)
+            return payload
     
-    async def git_add(self, repo_path: str, files: str = ".") -> Dict[str, Any]:
+    async def git_add(self, repo_path: str, files: str = ".", *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Add files to staging."""
+        self._trace_start(trace_context, "git.add", {"repo_path": repo_path, "files": files})
         try:
             repo = GitRepo(repo_path)
             result = repo._run("add", files)
-            return {
+            payload = {
                 "success": result.success,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
+            self._trace_finish(trace_context, "git.add", payload, repo_path=repo_path, capture_git=True)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "git.add", payload, repo_path=repo_path, capture_git=True)
+            return payload
     
-    async def git_commit(self, repo_path: str, message: str) -> Dict[str, Any]:
+    async def git_commit(self, repo_path: str, message: str, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Create a commit."""
+        self._trace_start(trace_context, "git.commit", {"repo_path": repo_path, "message": message})
         try:
             ok, err = self._git_identity_configured(repo_path)
             if not ok:
-                return {"success": False, "error": err, "error_code": "git_identity_missing"}
+                payload = {"success": False, "error": err, "error_code": "git_identity_missing"}
+                self._trace_finish(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
+                return payload
 
             repo = GitRepo(repo_path)
             result = repo.commit(message)
-            return {
+            payload = {
                 "success": result.success,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
             }
+            self._trace_finish(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "git.commit", payload, repo_path=repo_path, capture_git=True)
+            return payload
     
     # Docker operations
-    async def docker_run(self, request: DockerRunRequest) -> Dict[str, Any]:
+    async def docker_run(self, request: DockerRunRequest, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Run a container."""
+        self._trace_start(trace_context, "docker.run", {"image": request.image, "command": request.command, "name": request.name})
         try:
             config = ContainerConfig(
                 image=request.image,
@@ -211,52 +308,81 @@ class ToolService:
                 volumes=request.volumes,
             )
             container = await self.docker.containers.run(config)
-            return {"success": True, "container": container.dict()}
+            payload = {"success": True, "container": container.dict()}
+            self._trace_finish(trace_context, "docker.run", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "docker.run", payload)
+            return payload
     
-    async def docker_list(self, all: bool = False) -> Dict[str, Any]:
+    async def docker_list(self, all: bool = False, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """List containers."""
+        self._trace_start(trace_context, "docker.list", {"all": all})
         try:
             containers = await self.docker.containers.list(all=all)
-            return {"success": True, "containers": [c.dict() for c in containers]}
+            payload = {"success": True, "containers": [c.dict() for c in containers]}
+            self._trace_finish(trace_context, "docker.list", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "docker.list", payload)
+            return payload
     
-    async def docker_stop(self, container_id: str) -> Dict[str, Any]:
+    async def docker_stop(self, container_id: str, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Stop a container."""
+        self._trace_start(trace_context, "docker.stop", {"container_id": container_id})
         try:
             await self.docker.containers.stop(container_id)
-            return {"success": True}
+            payload = {"success": True}
+            self._trace_finish(trace_context, "docker.stop", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "docker.stop", payload)
+            return payload
     
-    async def docker_build(self, request: DockerBuildRequest) -> Dict[str, Any]:
+    async def docker_build(self, request: DockerBuildRequest, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Build an image."""
+        self._trace_start(trace_context, "docker.build", {"path": request.path, "tag": request.tag, "dockerfile": request.dockerfile})
         try:
             result = await self.docker.images.build(
                 path=request.path,
                 tag=request.tag,
                 dockerfile=request.dockerfile,
             )
-            return {"success": True, "output": result}
+            payload = {"success": True, "output": result}
+            self._trace_finish(trace_context, "docker.build", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "docker.build", payload)
+            return payload
     
-    async def docker_pull(self, image_name: str, tag: str = "latest") -> Dict[str, Any]:
+    async def docker_pull(self, image_name: str, tag: str = "latest", *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Pull an image."""
+        self._trace_start(trace_context, "docker.pull", {"image_name": image_name, "tag": tag})
         try:
             await self.docker.images.pull(image_name, tag)
-            return {"success": True}
+            payload = {"success": True}
+            self._trace_finish(trace_context, "docker.pull", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "docker.pull", payload)
+            return payload
     
-    async def docker_logs(self, container_id: str, tail: int = 100) -> Dict[str, Any]:
+    async def docker_logs(self, container_id: str, tail: int = 100, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Get container logs."""
+        self._trace_start(trace_context, "docker.logs", {"container_id": container_id, "tail": tail})
         try:
             logs = []
             async for line in self.docker.containers.logs(container_id, tail=tail):
                 logs.append(line)
-            return {"success": True, "logs": logs}
+            payload = {"success": True, "logs": logs}
+            self._trace_finish(trace_context, "docker.logs", payload)
+            return payload
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            payload = {"success": False, "error": str(e)}
+            self._trace_finish(trace_context, "docker.logs", payload)
+            return payload

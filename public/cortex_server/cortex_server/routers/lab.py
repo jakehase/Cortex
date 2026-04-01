@@ -1,13 +1,14 @@
 """Lab Router - Secure code execution endpoint."""
-from fastapi import APIRouter, HTTPException
+import asyncio
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional
 import os
-import subprocess
 import uuid
 import sys
 
 from cortex_server.modules.l4_transcendence import build_l4_transcendence_bundle
+from cortex_server.modules.runtime_trace import classify_command, extract_trace_context, record_trace_event
 
 router = APIRouter()
 
@@ -44,7 +45,17 @@ class LabTranscendExecuteRequest(LabTranscendRequest):
     require_verifier_release: bool = Field(default=False)
 
 
-def _run_python(code: str, timeout_seconds: int = 30) -> Dict[str, Any]:
+async def _stream_reader(stream, chunks: List[str], *, context: Optional[Dict[str, Any]], kind: str) -> None:
+    while True:
+        line = await stream.readline()
+        if not line:
+            break
+        text = line.decode("utf-8", "replace")
+        chunks.append(text)
+        record_trace_event(context, kind, {"chunk": text[:500]})
+
+
+async def _run_python(code: str, timeout_seconds: int = 30, *, trace_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     base_dir = "/tmp/cortex_lab"
     os.makedirs(base_dir, exist_ok=True, mode=0o755)
     script_path = f"{base_dir}/script_{uuid.uuid4().hex}.py"
@@ -52,6 +63,7 @@ def _run_python(code: str, timeout_seconds: int = 30) -> Dict[str, Any]:
     try:
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(code)
+        record_trace_event(trace_context, "file_written", {"file_path": script_path, "bytes": len(code.encode("utf-8")), "language": "python"})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to write script: {e}")
 
@@ -62,31 +74,92 @@ def _run_python(code: str, timeout_seconds: int = 30) -> Dict[str, Any]:
         python_exe = "python3"
 
     cmd = [python_exe, "-u", script_path]
+    command_kind = classify_command(cmd)
+    record_trace_event(
+        trace_context,
+        "command_started",
+        {
+            "command": cmd,
+            "command_text": " ".join(cmd),
+            "command_kind": command_kind,
+            "timeout_seconds": timeout_seconds,
+            "working_dir": base_dir,
+        },
+    )
 
     try:
-        result = subprocess.run(
+        proc = await asyncio.create_subprocess_exec(
             cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout_chunks: List[str] = []
+        stderr_chunks: List[str] = []
+        stdout_task = asyncio.create_task(_stream_reader(proc.stdout, stdout_chunks, context=trace_context, kind="command_stdout"))
+        stderr_task = asyncio.create_task(_stream_reader(proc.stderr, stderr_chunks, context=trace_context, kind="command_stderr"))
+        try:
+            exit_code = await asyncio.wait_for(proc.wait(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            await asyncio.gather(stdout_task, stderr_task)
+            record_trace_event(
+                trace_context,
+                "command_finished",
+                {
+                    "command": cmd,
+                    "command_text": " ".join(cmd),
+                    "command_kind": command_kind,
+                    "exit_code": -1,
+                    "timed_out": True,
+                    "success": False,
+                },
+            )
+            return {
+                "success": False,
+                "stdout": "".join(stdout_chunks),
+                "stderr": f"Execution timed out after {timeout_seconds} seconds",
+                "exit_code": -1,
+                "timed_out": True,
+            }
+        await asyncio.gather(stdout_task, stderr_task)
+        stdout = "".join(stdout_chunks)
+        stderr = "".join(stderr_chunks)
+        record_trace_event(
+            trace_context,
+            "command_finished",
+            {
+                "command": cmd,
+                "command_text": " ".join(cmd),
+                "command_kind": command_kind,
+                "exit_code": exit_code,
+                "timed_out": False,
+                "success": exit_code == 0,
+                "stdout_preview": stdout[:800],
+                "stderr_preview": stderr[:800],
+            },
         )
         return {
-            "success": result.returncode == 0,
-            "stdout": result.stdout or "",
-            "stderr": result.stderr or "",
-            "exit_code": result.returncode,
+            "success": exit_code == 0,
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
             "timed_out": False,
         }
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "stdout": "",
-            "stderr": f"Execution timed out after {timeout_seconds} seconds",
-            "exit_code": -1,
-            "timed_out": True,
-        }
     except Exception as e:
+        record_trace_event(
+            trace_context,
+            "command_finished",
+            {
+                "command": cmd,
+                "command_text": " ".join(cmd),
+                "command_kind": command_kind,
+                "exit_code": -1,
+                "timed_out": False,
+                "success": False,
+                "error": str(e),
+            },
+        )
         return {
             "success": False,
             "stdout": "",
@@ -98,16 +171,18 @@ def _run_python(code: str, timeout_seconds: int = 30) -> Dict[str, Any]:
         try:
             if os.path.exists(script_path):
                 os.remove(script_path)
+                record_trace_event(trace_context, "file_deleted", {"file_path": script_path})
         except Exception:
             pass
 
 
 @router.post("/execute")
-async def lab_execute(request: LabExecuteRequest):
+async def lab_execute(request: LabExecuteRequest, http_request: Request):
     """Execute code in an isolated python subprocess."""
     if request.language.strip().lower() not in ["python", "py"]:
         raise HTTPException(status_code=400, detail="Only Python is supported")
-    return _run_python(request.code, timeout_seconds=request.timeout_seconds)
+    trace_context = extract_trace_context(http_request, defaults={"tool_name": "lab.execute", "scope": "lab:execute"})
+    return await _run_python(request.code, timeout_seconds=request.timeout_seconds, trace_context=trace_context)
 
 
 @router.post("/transcend/plan")
@@ -121,7 +196,7 @@ async def lab_transcend_plan(request: LabTranscendRequest):
 
 
 @router.post("/transcend/execute")
-async def lab_transcend_execute(request: LabTranscendExecuteRequest):
+async def lab_transcend_execute(request: LabTranscendExecuteRequest, http_request: Request):
     """Run transcendence planning + guarded execution.
 
     Gate order:
@@ -159,7 +234,8 @@ async def lab_transcend_execute(request: LabTranscendExecuteRequest):
             "transcendence": bundle,
         }
 
-    run = _run_python(request.code, timeout_seconds=request.timeout_seconds)
+    trace_context = extract_trace_context(http_request, defaults={"tool_name": "lab.transcend_execute", "scope": "lab:transcend_execute"})
+    run = await _run_python(request.code, timeout_seconds=request.timeout_seconds, trace_context=trace_context)
     return {
         "success": bool(run.get("success")),
         "blocked": False,

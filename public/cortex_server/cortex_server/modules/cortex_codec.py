@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from cortex_server.modules.latency_budget_governor import classify_task_archetype
+from cortex_server.modules.evidence_lineage import build_codec_memory_facts
 
 
 CODEC_VERSION = "cortex.codec.v1"
@@ -870,6 +871,32 @@ def _schema_bucket(items: List[str], *, revisions: Optional[List[Dict[str, Any]]
     return payload
 
 
+def _source_refs_from_events(events: List[Dict[str, Any]], *, limit: int = 16) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    seen = set()
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        event_id = str(event.get("event_id") or event.get("id") or "").strip()
+        session_key = str(event.get("session_key") or event.get("chat_id") or event.get("conversation_id") or "").strip() or None
+        event_kind = str(event.get("event_kind") or event.get("kind") or event.get("type") or "event").strip() or "event"
+        ref_key = (event_id, session_key, event_kind)
+        if ref_key in seen:
+            continue
+        seen.add(ref_key)
+        out.append(
+            {
+                "event_id": event_id or None,
+                "session_key": session_key,
+                "event_kind": event_kind,
+                "ts": str(event.get("ts") or event.get("created_at") or event.get("timestamp") or "").strip() or None,
+            }
+        )
+        if len(out) >= max(1, int(limit or 16)):
+            break
+    return out
+
+
 
 def _export_schema_state(state: Dict[str, Any]) -> Dict[str, Any]:
     identity_state = state.get("identity_state", {}) if isinstance(state.get("identity_state", {}), dict) else {}
@@ -962,6 +989,7 @@ def _migrate_codec_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     utility_summary = utility_state.get("summary", {}) if isinstance(utility_state.get("summary", {}), dict) else {}
     if not utility_summary and bucket_scores:
         utility_summary = _utility_summary(bucket_scores)
+    payload["source_refs"] = [dict(row) for row in (payload.get("source_refs") or []) if isinstance(row, dict)][:32]
     payload["utility_state"] = {
         "version": _clean_text(utility_state.get("version") or "cortex.codec.utility.v1") or "cortex.codec.utility.v1",
         "bucket_scores": bucket_scores,
@@ -970,6 +998,7 @@ def _migrate_codec_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     }
     payload["promotion_state"] = _build_promotion_state(payload)
     payload["schema_state"] = _export_schema_state(payload)
+    payload["memory_facts"] = [dict(row) for row in (payload.get("memory_facts") or []) if isinstance(row, dict)][:64]
     payload["migration"] = {
         "source_version": previous_version,
         "source_schema_version": previous_schema_version or "legacy",
@@ -1348,6 +1377,7 @@ def build_codec_state(
         "schema_version": CODEC_SCHEMA_VERSION,
         "generated_at": generated_at,
         "source_event_count": len(events),
+        "source_refs": _source_refs_from_events(events),
         "compression": {
             "raw_characters": sum(len(text) for text in raw_texts),
             "state_fields": 7,
@@ -1396,6 +1426,7 @@ def build_codec_state(
         "retention_policy": _codec_retention_policy(),
     }
     state["promotion_state"] = _build_promotion_state(state)
+    state["memory_facts"] = []
 
     summary_parts: List[str] = []
     if state["project_state"]["active_projects"]:
@@ -1412,6 +1443,7 @@ def build_codec_state(
     raw_chars = max(1, state["compression"]["raw_characters"])
     state["compression"]["prompt_characters"] = compressed_chars
     state["compression"]["ratio"] = round(raw_chars / max(1, compressed_chars), 3)
+    state["memory_facts"] = build_codec_memory_facts(session_key=None, codec_state=state)
 
     return _migrate_codec_state(state)
 
@@ -1464,6 +1496,7 @@ def apply_codec_outcome_feedback(
     updated["promotion_state"] = _build_promotion_state(updated)
     updated["schema_state"] = _export_schema_state(updated)
     updated["summary"] = build_codec_state([], previous_state=updated, max_items_per_bucket=max_items_per_bucket).get("summary", updated.get("summary"))
+    updated["memory_facts"] = build_codec_memory_facts(session_key=None, codec_state=updated)
     return _migrate_codec_state(updated)
 
 
@@ -2055,6 +2088,9 @@ def get_codec_packet_for_session(session_key: str, *, max_chars: int = 1200, que
     state = get_codec_state(session_key)
     if state and query:
         state = _enrich_codec_state_with_rollups(session_key, json.loads(json.dumps(state)), query=query)
+    if state:
+        state = json.loads(json.dumps(state))
+        state["memory_facts"] = build_codec_memory_facts(session_key=session_key, codec_state=state)
     packet = compress_codec_for_prompt(state, max_chars=max_chars) if state else ""
     with _SESSION_CODEC_LOCK:
         persist = dict(_SESSION_CODEC_PERSIST.get(session_key) or {}) if session_key else {}
@@ -2126,6 +2162,8 @@ def get_codec_debug_view(session_key: str, *, max_chars: int = 1200, history_lim
         "schema": state.get("schema_state", {}) if isinstance(state, dict) else {},
         "rollups": state.get("rollup_state", {}) if isinstance(state.get("rollup_state", {}), dict) else {},
         "promotion": state.get("promotion_state", {}) if isinstance(state.get("promotion_state", {}), dict) else {},
+        "memory_facts": state.get("memory_facts", []) if isinstance(state.get("memory_facts", []), list) else [],
+        "source_refs": state.get("source_refs", []) if isinstance(state.get("source_refs", []), list) else [],
         "utility": state.get("utility_state", {}).get("summary", {}) if isinstance(state.get("utility_state", {}), dict) else {},
         "retention_policy": state.get("utility_state", {}).get("retention_policy", _codec_retention_policy()) if isinstance(state.get("utility_state", {}), dict) else _codec_retention_policy(),
         "revisions": {

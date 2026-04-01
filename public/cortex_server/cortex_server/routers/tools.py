@@ -2,7 +2,7 @@
 Tools Router - API endpoints for CLI tool operations.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 import shutil
 import subprocess
 from cortex_server.models.requests import (
@@ -11,6 +11,7 @@ from cortex_server.models.requests import (
     DockerRunRequest, DockerBuildRequest,
     ToolResultResponse
 )
+from cortex_server.modules.runtime_trace import extract_trace_context
 from cortex_server.services.tool_service import ToolService
 
 router = APIRouter()
@@ -20,46 +21,50 @@ service = ToolService()
 def _tool_response(result):
     ok = bool((result or {}).get("success", False))
     if ok:
-        return _tool_response(result)
+        return ToolResultResponse.success(result)
     return ToolResultResponse.failure((result or {}).get("error", "tool operation failed"))
 
 
 # FFmpeg endpoints
 @router.post("/ffmpeg/convert", response_model=ToolResultResponse)
-async def ffmpeg_convert(request: FFMPEGConvertRequest):
+async def ffmpeg_convert(request: FFMPEGConvertRequest, http_request: Request):
     """Convert media file using FFmpeg."""
     try:
-        result = await service.ffmpeg_convert(request)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "ffmpeg.convert", "scope": "tool:ffmpeg:convert"})
+        result = await service.ffmpeg_convert(request, trace_context=trace_context)
         return _tool_response(result)
     except Exception as e:
         return ToolResultResponse.failure(str(e))
 
 
 @router.post("/ffmpeg/extract-audio", response_model=ToolResultResponse)
-async def ffmpeg_extract_audio(request: FFMPEGExtractAudioRequest):
+async def ffmpeg_extract_audio(request: FFMPEGExtractAudioRequest, http_request: Request):
     """Extract audio from video file."""
     try:
-        result = await service.ffmpeg_extract_audio(request)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "ffmpeg.extract_audio", "scope": "tool:ffmpeg:extract_audio"})
+        result = await service.ffmpeg_extract_audio(request, trace_context=trace_context)
         return _tool_response(result)
     except Exception as e:
         return ToolResultResponse.failure(str(e))
 
 
 @router.post("/ffmpeg/thumbnail", response_model=ToolResultResponse)
-async def ffmpeg_thumbnail(request: FFMPEGThumbnailRequest):
+async def ffmpeg_thumbnail(request: FFMPEGThumbnailRequest, http_request: Request):
     """Create thumbnail from video."""
     try:
-        result = await service.ffmpeg_thumbnail(request)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "ffmpeg.thumbnail", "scope": "tool:ffmpeg:thumbnail"})
+        result = await service.ffmpeg_thumbnail(request, trace_context=trace_context)
         return _tool_response(result)
     except Exception as e:
         return ToolResultResponse.failure(str(e))
 
 
 @router.get("/ffmpeg/info")
-async def ffmpeg_info(input_path: str):
+async def ffmpeg_info(input_path: str, http_request: Request):
     """Get media file information."""
     try:
-        result = await service.ffmpeg_info(input_path)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "ffmpeg.info", "scope": "tool:ffmpeg:info"})
+        result = await service.ffmpeg_info(input_path, trace_context=trace_context)
         return {"success": result.get("success", True), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -67,70 +72,77 @@ async def ffmpeg_info(input_path: str):
 
 # Git endpoints
 @router.post("/git/clone", response_model=ToolResultResponse)
-async def git_clone(request: GitCloneRequest):
+async def git_clone(request: GitCloneRequest, http_request: Request):
     """Clone a Git repository."""
     try:
-        result = await service.git_clone(request)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "git.clone", "scope": "tool:git:clone", "repo_path": request.destination})
+        result = await service.git_clone(request, trace_context=trace_context)
         return _tool_response(result)
     except Exception as e:
         return ToolResultResponse.failure(str(e))
 
 
 @router.post("/git/pull", response_model=ToolResultResponse)
-async def git_pull(request: GitPullRequest):
+async def git_pull(request: GitPullRequest, http_request: Request):
     """Pull from remote."""
     try:
-        result = await service.git_pull(request)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "git.pull", "scope": "tool:git:pull", "repo_path": request.repo_path})
+        result = await service.git_pull(request, trace_context=trace_context)
         return _tool_response(result)
     except Exception as e:
         return ToolResultResponse.failure(str(e))
 
 
 @router.get("/git/status")
-async def git_status(repo_path: str):
+async def git_status(repo_path: str, http_request: Request):
     """Get Git repository status."""
     try:
-        result = await service.git_status(repo_path)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "git.status", "scope": "tool:git:status", "repo_path": repo_path})
+        result = await service.git_status(repo_path, trace_context=trace_context)
         return {"success": result.get("success", True), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 @router.get("/git/log")
-async def git_log(repo_path: str, max_count: int = 10):
+async def git_log(repo_path: str, max_count: int = 10, http_request: Request = None):
     """Get Git commit log."""
     try:
-        result = await service.git_log(repo_path, max_count)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "git.log", "scope": "tool:git:log", "repo_path": repo_path})
+        result = await service.git_log(repo_path, max_count, trace_context=trace_context)
         return {"success": result.get("success", True), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 @router.post("/git/init")
-async def git_init(repo_path: str):
+async def git_init(repo_path: str, http_request: Request):
     """Initialize a new Git repository."""
     try:
-        result = await service.git_init(repo_path)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "git.init", "scope": "tool:git:init", "repo_path": repo_path})
+        result = await service.git_init(repo_path, trace_context=trace_context)
         return {"success": result.get("success", False), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 @router.post("/git/add")
-async def git_add(repo_path: str, files: str = "."):
+async def git_add(repo_path: str, files: str = ".", http_request: Request = None):
     """Add files to staging area."""
     try:
-        result = await service.git_add(repo_path, files)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "git.add", "scope": "tool:git:add", "repo_path": repo_path})
+        result = await service.git_add(repo_path, files, trace_context=trace_context)
         return {"success": result.get("success", False), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 @router.post("/git/commit")
-async def git_commit(repo_path: str, message: str):
+async def git_commit(repo_path: str, message: str, http_request: Request = None):
     """Create a commit."""
     try:
-        result = await service.git_commit(repo_path, message)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "git.commit", "scope": "tool:git:commit", "repo_path": repo_path})
+        result = await service.git_commit(repo_path, message, trace_context=trace_context)
         return {"success": result.get("success", False), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -138,50 +150,55 @@ async def git_commit(repo_path: str, message: str):
 
 # Docker endpoints
 @router.post("/docker/run", response_model=ToolResultResponse)
-async def docker_run(request: DockerRunRequest):
+async def docker_run(request: DockerRunRequest, http_request: Request):
     """Run a Docker container."""
     try:
-        result = await service.docker_run(request)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "docker.run", "scope": "tool:docker:run"})
+        result = await service.docker_run(request, trace_context=trace_context)
         return _tool_response(result)
     except Exception as e:
         return ToolResultResponse.failure(str(e))
 
 
 @router.get("/docker/containers")
-async def docker_list(all: bool = False):
+async def docker_list(all: bool = False, http_request: Request = None):
     """List Docker containers."""
     try:
-        result = await service.docker_list(all)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "docker.list", "scope": "tool:docker:list"})
+        result = await service.docker_list(all, trace_context=trace_context)
         return {"success": result.get("success", True), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 @router.post("/docker/stop/{container_id}")
-async def docker_stop(container_id: str):
+async def docker_stop(container_id: str, http_request: Request):
     """Stop a Docker container."""
     try:
-        result = await service.docker_stop(container_id)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "docker.stop", "scope": "tool:docker:stop"})
+        result = await service.docker_stop(container_id, trace_context=trace_context)
         return {"success": result.get("success", True), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
 @router.post("/docker/build", response_model=ToolResultResponse)
-async def docker_build(request: DockerBuildRequest):
+async def docker_build(request: DockerBuildRequest, http_request: Request):
     """Build a Docker image."""
     try:
-        result = await service.docker_build(request)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "docker.build", "scope": "tool:docker:build"})
+        result = await service.docker_build(request, trace_context=trace_context)
         return _tool_response(result)
     except Exception as e:
         return ToolResultResponse.failure(str(e))
 
 
 @router.post("/docker/pull")
-async def docker_pull(image_name: str, tag: str = "latest"):
+async def docker_pull(image_name: str, tag: str = "latest", http_request: Request = None):
     """Pull a Docker image."""
     try:
-        result = await service.docker_pull(image_name, tag)
+        trace_context = extract_trace_context(http_request, defaults={"tool_name": "docker.pull", "scope": "tool:docker:pull"})
+        result = await service.docker_pull(image_name, tag, trace_context=trace_context)
         return {"success": result.get("success", True), "data": result, "error": result.get("error")}
     except Exception as e:
         return {"success": False, "error": str(e)}

@@ -26,6 +26,9 @@ from cortex_server.modules import reasoning_runtime_execution as runtime_executi
 from cortex_server.modules import reasoning_runtime_explain as runtime_explain
 from cortex_server.modules import reasoning_runtime_service as runtime_service
 from cortex_server.modules import reasoning_runtime_workflows as runtime_workflows
+from cortex_server.modules.cortex_codec import get_codec_packet_for_session
+from cortex_server.modules.evidence_governance import capability_matrix
+from cortex_server.modules.evidence_lineage import build_lineage_bundle
 from cortex_server.modules.reasoning_kernel import model_dump_compat
 from cortex_server.modules.reasoning_planner import (
     PlanGraphError,
@@ -2538,6 +2541,29 @@ async def get_runtime_process_trace(process_id: str):
         get_runtime_events_fn=get_runtime_events,
         process_trace_surface_fn=observability.process_trace_surface,
     )
+
+
+@router.get("/runtime/lineage/{process_id}")
+async def get_runtime_process_lineage(process_id: str, limit: int = 120):
+    process = get_runtime_process(process_id)
+    session_key = str((process or {}).get("session_key") or "").strip()
+    codec_packet = get_codec_packet_for_session(session_key, max_chars=800) if session_key else {"state": {}}
+    bundle = build_lineage_bundle(
+        process=process,
+        events=get_runtime_events(process_id, limit=max(1, min(int(limit), 200))),
+        objective_detail=None,
+        codec_state=(codec_packet.get("state") if isinstance(codec_packet, dict) else {}),
+        session_key=session_key or None,
+    )
+    bundle["process"] = {
+        "process_id": process_id,
+        "status": (process or {}).get("status"),
+        "session_key": session_key or None,
+        "task_id": (process or {}).get("task_id"),
+        "workflow_name": (((process or {}).get("workflow") or {}).get("name") if isinstance((process or {}).get("workflow"), dict) else None),
+    }
+    bundle["capability_matrix"] = capability_matrix()
+    return bundle
 
 @router.get("/runtime/policy-explain/{process_id}")
 async def explain_runtime_policy(process_id: str):

@@ -37,6 +37,7 @@ from cortex_server.modules.world_grounding import gather_live_evidence
 from cortex_server.modules.route_health import ROUTE_HEALTH
 from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_codec_policy_status, get_codec_session_telemetry, observe_codec_evaluation, observe_codec_eval_history, observe_codec_outcome
 from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
+from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
 
@@ -2882,6 +2883,38 @@ async def get_nexus_codec_policy(request: Request, query: Optional[str] = None, 
         "level": 24,
         "name": "The Nexus",
         "codec_policy": get_codec_policy_status(query=query, session_key=resolved_session_key or None),
+        "capability_matrix": capability_matrix(),
+    }
+
+
+@router.get("/codec/lineage")
+async def get_nexus_codec_lineage(request: Request, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    view = get_codec_debug_view(
+        resolved_session_key,
+        max_chars=max(120, min(int(max_chars), 2400)),
+        history_limit=max(1, min(int(history_limit), 50)),
+    )
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        "session_key": resolved_session_key,
+        "state_classes": {
+            "observed_evidence": [],
+            "inferred_state": [],
+            "learned_memory": view.get("memory_facts", []),
+            "operator_overrides": [],
+        },
+        "codec": {
+            "summary": view.get("summary"),
+            "source_refs": view.get("source_refs", []),
+            "promotion": view.get("promotion", {}),
+            "retention_policy": view.get("retention_policy", {}),
+        },
+        "capability_matrix": capability_matrix(),
     }
 
 
