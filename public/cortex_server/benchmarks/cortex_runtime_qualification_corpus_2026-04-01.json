@@ -1,0 +1,1621 @@
+{
+  "name": "cortex_runtime_qualification_corpus_2026-04-01",
+  "schema_version": "cortex.runtime.qualification.corpus.v1",
+  "generated_at": "2026-04-01T20:00:00Z",
+  "description": "Expanded runtime qualification corpus for the 4-hour qualification program.",
+  "required_categories": [
+    "micro utility / factual fast-path",
+    "memory continuity / follow-up",
+    "planning / architecture / tradeoff",
+    "coding / runtime orchestration",
+    "operator diagnostics / explain / trace",
+    "high-risk / high-ambiguity",
+    "durability / repeated-sequence stress"
+  ],
+  "cases": [
+    {
+      "id": "oracle_micro_fact_fast",
+      "category": "micro utility / factual fast-path",
+      "class": "micro_utility",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle factual fast-path",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "sub-second fast answer",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Deterministic factual answer with fast lane trace.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing kernel trace",
+        "lane not fast",
+        "response missing Austin"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "What is the capital of Texas?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.lane",
+          "op": "eq",
+          "value": "semantic_guardrail_factual"
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "Austin"
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "fast"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "fast"
+        }
+      ]
+    },
+    {
+      "id": "oracle_strict_contract_micro",
+      "category": "micro utility / factual fast-path",
+      "class": "micro_utility",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle strict-contract micro lane",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "strict micro lane",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Number-only contract should stay on strict micro fast-path.",
+      "failure_heuristics": [
+        "non-200 response",
+        "contract output violated",
+        "kernel lane not fast"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "What is 2+2? Reply number only.",
+          "response_mode": "final_only"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "eq",
+          "value": "4"
+        },
+        {
+          "path": "response.routing_trace.path",
+          "op": "eq",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.target_oracle_lane",
+          "op": "eq",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "fast"
+        }
+      ]
+    },
+    {
+      "id": "oracle_memory_seed_alpha",
+      "category": "memory continuity / follow-up",
+      "class": "memory_context_continuity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle memory seed turn alpha-123",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "fast memory seed",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Seed turn should store referent data for the follow-up.",
+      "failure_heuristics": [
+        "non-200 response",
+        "empty response",
+        "missing kernel event"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-alpha"
+        },
+        "json": {
+          "prompt": "Remember token alpha-123 for later.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "alpha-123"
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "fast"
+        },
+        {
+          "path": "kernel_event.response_present",
+          "op": "eq",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "oracle_analysis_tradeoff",
+      "category": "planning / architecture / tradeoff",
+      "class": "analysis_planning",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle planning tradeoff analysis",
+      "lane_tendency": "deep",
+      "expected_depth": "deep",
+      "risk_level": "medium",
+      "latency_expectation": "deep lane planning",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Architecture/tradeoff planning should route to a deep lane.",
+      "failure_heuristics": [
+        "non-200 response",
+        "planned lane not deep",
+        "response missing shared compiler guidance"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "Plan the architecture tradeoff for the runtime compiler rollout.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "shared compiler"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "oracle_memory_seed_beta",
+      "category": "memory continuity / follow-up",
+      "class": "memory_context_continuity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle memory seed turn beta-456",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "fast memory seed",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Seed turn should store referent data for the follow-up.",
+      "failure_heuristics": [
+        "non-200 response",
+        "empty response",
+        "missing kernel event"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-beta"
+        },
+        "json": {
+          "prompt": "Remember token beta-456 for later.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "beta-456"
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "fast"
+        },
+        {
+          "path": "kernel_event.response_present",
+          "op": "eq",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "oracle_coding_rollout",
+      "category": "coding / runtime orchestration",
+      "class": "coding_runtime_orchestration",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle coding/runtime orchestration",
+      "lane_tendency": "deep",
+      "expected_depth": "deep",
+      "risk_level": "medium",
+      "latency_expectation": "deep coding lane",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Coding/refactor rollout request should stay on a deep lane and mention rollback.",
+      "failure_heuristics": [
+        "non-200 response",
+        "planned lane not deep",
+        "response missing rollback"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "Implement the router refactor, add tests, and validate the production rollback plan.",
+          "priority": "high"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "rollback"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "oracle_high_risk_incident",
+      "category": "high-risk / high-ambiguity",
+      "class": "high_risk_or_high_ambiguity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle production incident rollback response",
+      "lane_tendency": "deep",
+      "expected_depth": "deep",
+      "risk_level": "high",
+      "latency_expectation": "deep risk-sensitive response",
+      "latency_slo_ms": 620,
+      "quality_expectation": "Production incident prompt should stay on a deep lane and mention rollback safety.",
+      "failure_heuristics": [
+        "non-200 response",
+        "planned lane not deep",
+        "response missing rollback safety"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "We have a production incident with possible rollback. What is the safest response plan?",
+          "priority": "high"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "rollback"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "nexus_micro_fastlane",
+      "category": "micro utility / factual fast-path",
+      "class": "micro_utility",
+      "runtime": "nexus",
+      "surface": "orchestrate",
+      "target_runtime": "nexus",
+      "title": "Nexus cheap factual question",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "cheap-route fastlane",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Cheap factual question should stay on fast/cheap routing.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel lane not fast",
+        "cheap route not fastlane"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/orchestrate",
+        "params": {
+          "query": "What is the capital of Texas?"
+        },
+        "headers": {
+          "x-session-id": "bench-nexus-fast"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "fast"
+        },
+        {
+          "path": "response.latency_budget.cheap_route",
+          "op": "eq",
+          "value": "fastlane"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "fast"
+        }
+      ]
+    },
+    {
+      "id": "nexus_planning_orchestrate",
+      "category": "planning / architecture / tradeoff",
+      "class": "analysis_planning",
+      "runtime": "nexus",
+      "surface": "orchestrate",
+      "target_runtime": "nexus",
+      "title": "Nexus planning orchestration",
+      "lane_tendency": "deep",
+      "expected_depth": "deep",
+      "risk_level": "medium",
+      "latency_expectation": "deliberate deep path",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Planning benchmark should widen orchestration and keep kernel deep.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel lane not deep",
+        "missing deliberate route"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/orchestrate",
+        "params": {
+          "query": "Plan the runtime compiler rollout and benchmark strategy."
+        },
+        "headers": {
+          "x-session-id": "bench-nexus-plan"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.kernel_v2.runtime",
+          "op": "eq",
+          "value": "nexus"
+        },
+        {
+          "path": "response.latency_budget.cheap_route",
+          "op": "eq",
+          "value": "deliberate"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "nexus_high_risk_prod",
+      "category": "high-risk / high-ambiguity",
+      "class": "high_risk_or_high_ambiguity",
+      "runtime": "nexus",
+      "surface": "orchestrate",
+      "target_runtime": "nexus",
+      "title": "Nexus production incident escalation",
+      "lane_tendency": "deep",
+      "expected_depth": "deep",
+      "risk_level": "high",
+      "latency_expectation": "deep risk-sensitive orchestration",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Production rollback incident should force deep orchestration and risk handling.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel lane not deep",
+        "missing production risk flags"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/orchestrate",
+        "params": {
+          "query": "We have a production incident with possible rollback. Analyze the failure modes and response plan."
+        },
+        "headers": {
+          "x-session-id": "bench-nexus-prod"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.kernel_v2.risk_flags",
+          "op": "contains",
+          "value": "production"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "meta_conductor_delegate",
+      "category": "coding / runtime orchestration",
+      "class": "coding_runtime_orchestration",
+      "runtime": "meta_conductor",
+      "surface": "orchestrate",
+      "target_runtime": "meta_conductor",
+      "title": "Meta Conductor delegated deep orchestration",
+      "lane_tendency": "deep",
+      "expected_depth": "deep",
+      "risk_level": "medium",
+      "latency_expectation": "meta delegation within operator budget",
+      "latency_slo_ms": 90,
+      "quality_expectation": "Delegated meta orchestration should preserve its own runtime boundary and kernel deep lane.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel runtime not meta_conductor",
+        "kernel lane not deep"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/meta_conductor/orchestrate",
+        "json": {
+          "query": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.",
+          "target_levels": [
+            33,
+            34
+          ]
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.runtime",
+          "op": "eq",
+          "value": "meta_conductor"
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "command_center_state",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "command_center",
+      "surface": "state",
+      "target_runtime": "operator_view",
+      "title": "Command Center State overlay",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "operator overlay fast path",
+      "latency_slo_ms": 60,
+      "quality_expectation": "Operator state should surface kernel summary and a latest event after measured runtime cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing kernel summary",
+        "missing latest event"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/command_center/state",
+        "params": {
+          "seed": 7
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.events",
+          "op": "ge",
+          "value": 10
+        },
+        {
+          "path": "response.latest_kernel_event.event_id",
+          "op": "not_null",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "command_center_kernel_sweep",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "command_center",
+      "surface": "action",
+      "target_runtime": "operator_view",
+      "title": "Command Center kernel sweep action",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "operator action fast path",
+      "latency_slo_ms": 60,
+      "quality_expectation": "Kernel sweep should return aggregate runtime/surface views for the operator overlay.",
+      "failure_heuristics": [
+        "non-200 response",
+        "wrong action name",
+        "missing meta runtime summary"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/command_center/action",
+        "json": {
+          "action": "kernel_sweep",
+          "params": {}
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.action",
+          "op": "eq",
+          "value": "kernel_sweep"
+        },
+        {
+          "path": "response.kernel_v2.runtimes.meta_conductor.events",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "command_center_live_state",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "command_center_live",
+      "surface": "state",
+      "target_runtime": "operator_view",
+      "title": "Command Center Live State overlay",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "operator overlay fast path",
+      "latency_slo_ms": 60,
+      "quality_expectation": "Operator state should surface kernel summary and a latest event after measured runtime cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing kernel summary",
+        "missing latest event"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/command_center_live/state",
+        "params": {
+          "seed": 7
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.events",
+          "op": "ge",
+          "value": 10
+        },
+        {
+          "path": "response.latest_kernel_event.event_id",
+          "op": "not_null",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "mission_control_status",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "mission_control",
+      "surface": "status",
+      "target_runtime": "operator_view",
+      "title": "Mission Control operator summary",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "fast aggregate status",
+      "latency_slo_ms": 120,
+      "quality_expectation": "Mission Control status should expose aggregate kernel runtime/surface summaries after prior cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing kernel summary",
+        "oracle runtime missing from summary"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/mission_control/status"
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.summary.kernel_v2.events",
+          "op": "ge",
+          "value": 10
+        },
+        {
+          "path": "response.summary.kernel_v2.runtimes.oracle.events",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "path": "response.summary.kernel_v2.runtimes.nexus.events",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "path": "response.summary.kernel_v2.surfaces.orchestrate.events",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "nexus_kernel_telemetry",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "nexus",
+      "surface": "telemetry",
+      "target_runtime": "nexus",
+      "title": "nexus runtime-scoped telemetry",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "runtime-scoped telemetry fast path",
+      "latency_slo_ms": 60,
+      "quality_expectation": "Telemetry should stay runtime-scoped and expose recent events.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing runtime scope",
+        "missing events"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/kernel/telemetry",
+        "params": {
+          "limit": 20
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.status.scope.runtime",
+          "op": "eq",
+          "value": "nexus"
+        },
+        {
+          "path": "response.status.telemetry.events",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "path": "response.events.0.runtime",
+          "op": "eq",
+          "value": "nexus"
+        }
+      ]
+    },
+    {
+      "id": "meta_kernel_telemetry",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "meta_conductor",
+      "surface": "telemetry",
+      "target_runtime": "meta_conductor",
+      "title": "meta_conductor runtime-scoped telemetry",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "runtime-scoped telemetry fast path",
+      "latency_slo_ms": 60,
+      "quality_expectation": "Telemetry should stay runtime-scoped and expose recent events.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing runtime scope",
+        "missing events"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/meta_conductor/kernel/telemetry",
+        "params": {
+          "limit": 20
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.status.scope.runtime",
+          "op": "eq",
+          "value": "meta_conductor"
+        },
+        {
+          "path": "response.status.telemetry.events",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "path": "response.events.0.runtime",
+          "op": "eq",
+          "value": "meta_conductor"
+        }
+      ]
+    },
+    {
+      "id": "meta_conductor_status",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "meta_conductor",
+      "surface": "status",
+      "target_runtime": "meta_conductor",
+      "title": "Meta Conductor operator status",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "meta status fast path",
+      "latency_slo_ms": 120,
+      "quality_expectation": "Meta Conductor status should remain active and expose the conductor identity.",
+      "failure_heuristics": [
+        "non-200 response",
+        "inactive status",
+        "missing identity phrase"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/meta_conductor/status"
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.level",
+          "op": "eq",
+          "value": 36
+        },
+        {
+          "path": "response.status",
+          "op": "eq",
+          "value": "active"
+        },
+        {
+          "path": "response.contract.identity_phrase",
+          "op": "contains",
+          "value": "Cortex-first"
+        }
+      ]
+    },
+    {
+      "id": "oracle_memory_seed_gamma",
+      "category": "memory continuity / follow-up",
+      "class": "memory_context_continuity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle memory seed turn gamma",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "fast memory seed",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Seed turn should store referent data for a later follow-up.",
+      "failure_heuristics": [
+        "non-200 response",
+        "empty response",
+        "missing kernel event"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-gamma"
+        },
+        "json": {
+          "prompt": "Remember token gamma-789 for later.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "gamma-789"
+        },
+        {
+          "path": "kernel_event.response_present",
+          "op": "eq",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "nexus_coding_rollout",
+      "category": "coding / runtime orchestration",
+      "class": "coding_runtime_orchestration",
+      "runtime": "nexus",
+      "surface": "orchestrate",
+      "target_runtime": "nexus",
+      "title": "Nexus coding rollout orchestration",
+      "lane_tendency": "deep",
+      "expected_depth": "deep",
+      "risk_level": "medium",
+      "latency_expectation": "deliberate coding path",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Coding rollout through Nexus should stay deliberate and deep.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel lane not deep",
+        "cheap route not deliberate"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/orchestrate",
+        "params": {
+          "query": "Implement the router refactor, add tests, and validate the production rollback plan through nexus."
+        },
+        "headers": {
+          "x-session-id": "bench-nexus-code"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.latency_budget.cheap_route",
+          "op": "eq",
+          "value": "deliberate"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "oracle_memory_followup_alpha",
+      "category": "memory continuity / follow-up",
+      "class": "memory_context_continuity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle follow-up recall alpha-123",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "continuity reuse under extended sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Follow-up should recover the remembered token after multiple intervening cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "response missing token",
+        "no continuity reuse"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-alpha"
+        },
+        "json": {
+          "prompt": "What token did I ask you to remember?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "alpha-123"
+        },
+        {
+          "path": "kernel_event.context_reuse.total_chars",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "oracle_memory_followup_beta",
+      "category": "memory continuity / follow-up",
+      "class": "memory_context_continuity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle follow-up recall beta-456",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "continuity reuse under extended sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Follow-up should recover the remembered token after multiple intervening cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "response missing token",
+        "no continuity reuse"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-beta"
+        },
+        "json": {
+          "prompt": "What token did I ask you to remember?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "beta-456"
+        },
+        {
+          "path": "kernel_event.context_reuse.total_chars",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "oracle_memory_followup_gamma",
+      "category": "memory continuity / follow-up",
+      "class": "memory_context_continuity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle follow-up recall gamma-789",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "continuity reuse under extended sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Follow-up should recover the remembered token after multiple intervening cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "response missing token",
+        "no continuity reuse"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-gamma"
+        },
+        "json": {
+          "prompt": "What token did I ask you to remember?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "gamma-789"
+        },
+        {
+          "path": "kernel_event.context_reuse.total_chars",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "oracle_durability_seed_delta",
+      "category": "durability / repeated-sequence stress",
+      "class": "durability_repeated_sequence",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle durability seed delta-111",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "fast seed during long sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Seed turn should survive a long intervening sequence before recall.",
+      "failure_heuristics": [
+        "non-200 response",
+        "empty response",
+        "missing token"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-delta"
+        },
+        "json": {
+          "prompt": "Remember token delta-111 for later.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "delta-111"
+        },
+        {
+          "path": "kernel_event.response_present",
+          "op": "eq",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "oracle_durability_seed_epsilon",
+      "category": "durability / repeated-sequence stress",
+      "class": "durability_repeated_sequence",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle durability seed epsilon-222",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "fast seed during long sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Seed turn should survive a long intervening sequence before recall.",
+      "failure_heuristics": [
+        "non-200 response",
+        "empty response",
+        "missing token"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-epsilon"
+        },
+        "json": {
+          "prompt": "Remember token epsilon-222 for later.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "epsilon-222"
+        },
+        {
+          "path": "kernel_event.response_present",
+          "op": "eq",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "oracle_durability_seed_zeta",
+      "category": "durability / repeated-sequence stress",
+      "class": "durability_repeated_sequence",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle durability seed zeta-333",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "fast seed during long sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Seed turn should survive a long intervening sequence before recall.",
+      "failure_heuristics": [
+        "non-200 response",
+        "empty response",
+        "missing token"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-zeta"
+        },
+        "json": {
+          "prompt": "Remember token zeta-333 for later.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "zeta-333"
+        },
+        {
+          "path": "kernel_event.response_present",
+          "op": "eq",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "oracle_durability_followup_delta",
+      "category": "durability / repeated-sequence stress",
+      "class": "durability_repeated_sequence",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle follow-up recall delta-111",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "continuity reuse under extended sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Follow-up should recover the remembered token after multiple intervening cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "response missing token",
+        "no continuity reuse"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-delta"
+        },
+        "json": {
+          "prompt": "What token did I ask you to remember?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "delta-111"
+        },
+        {
+          "path": "kernel_event.context_reuse.total_chars",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "oracle_durability_followup_epsilon",
+      "category": "durability / repeated-sequence stress",
+      "class": "durability_repeated_sequence",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle follow-up recall epsilon-222",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "continuity reuse under extended sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Follow-up should recover the remembered token after multiple intervening cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "response missing token",
+        "no continuity reuse"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-epsilon"
+        },
+        "json": {
+          "prompt": "What token did I ask you to remember?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "epsilon-222"
+        },
+        {
+          "path": "kernel_event.context_reuse.total_chars",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "oracle_durability_followup_zeta",
+      "category": "durability / repeated-sequence stress",
+      "class": "durability_repeated_sequence",
+      "runtime": "oracle",
+      "surface": "chat",
+      "target_runtime": "oracle",
+      "title": "Oracle follow-up recall zeta-333",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "continuity reuse under extended sequence",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Follow-up should recover the remembered token after multiple intervening cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "response missing token",
+        "no continuity reuse"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-zeta"
+        },
+        "json": {
+          "prompt": "What token did I ask you to remember?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "zeta-333"
+        },
+        {
+          "path": "kernel_event.context_reuse.total_chars",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "mission_control_status_late",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "mission_control",
+      "surface": "status",
+      "target_runtime": "operator_view",
+      "title": "Mission Control Status Late",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "stable operator telemetry after long sequence",
+      "latency_slo_ms": 120,
+      "quality_expectation": "Late operator views should still expose the cumulative kernel summary.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing cumulative summary"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/mission_control/status"
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.summary.kernel_v2.events",
+          "op": "ge",
+          "value": 18
+        },
+        {
+          "path": "response.summary.kernel_v2.runtimes.oracle.events",
+          "op": "ge",
+          "value": 6
+        },
+        {
+          "path": "response.summary.kernel_v2.runtimes.nexus.events",
+          "op": "ge",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": "command_center_state_late",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "command_center",
+      "surface": "state",
+      "target_runtime": "operator_view",
+      "title": "Command Center State Late",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "stable operator telemetry after long sequence",
+      "latency_slo_ms": 60,
+      "quality_expectation": "Late operator views should still expose the cumulative kernel summary.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing cumulative summary"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/command_center/state",
+        "params": {
+          "seed": 11
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.events",
+          "op": "ge",
+          "value": 18
+        },
+        {
+          "path": "response.latest_kernel_event.event_id",
+          "op": "not_null",
+          "value": null
+        }
+      ]
+    },
+    {
+      "id": "command_center_live_state_late",
+      "category": "operator diagnostics / explain / trace",
+      "class": "operator_diagnostics",
+      "runtime": "command_center_live",
+      "surface": "state",
+      "target_runtime": "operator_view",
+      "title": "Command Center Live State Late",
+      "lane_tendency": "fast",
+      "expected_depth": "fast",
+      "risk_level": "low",
+      "latency_expectation": "stable operator telemetry after long sequence",
+      "latency_slo_ms": 60,
+      "quality_expectation": "Late operator views should still expose the cumulative kernel summary.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing cumulative summary"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/command_center_live/state",
+        "params": {
+          "seed": 11
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.events",
+          "op": "ge",
+          "value": 18
+        },
+        {
+          "path": "response.latest_kernel_event.event_id",
+          "op": "not_null",
+          "value": null
+        }
+      ]
+    }
+  ]
+}

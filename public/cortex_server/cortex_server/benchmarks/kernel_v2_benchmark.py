@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import time
 from copy import deepcopy
 from dataclasses import dataclass
@@ -124,6 +125,24 @@ class BenchmarkHarness:
     def _normalize(text: str) -> str:
         return " ".join((text or "").split()).strip().lower()
 
+    @staticmethod
+    def _extract_referent_value(normalized: str, *, kind: str) -> Optional[str]:
+        kind = str(kind or "").strip().lower()
+        if kind not in {"token", "code", "key"}:
+            return None
+        patterns = [
+            rf"memory_{kind}\s*[=:]\s*([a-z0-9_\-]+)",
+            rf"\b{kind}\s*[=:]\s*([a-z0-9_\-]+)\b",
+            rf"\bremember\s+{kind}\s+([a-z0-9_\-]+)\b",
+            rf"\b{kind}\s+is\s+([a-z0-9_\-]+)\b",
+            rf"\bkeep\s+{kind}\s+([a-z0-9_\-]+)\b",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, normalized, flags=re.IGNORECASE)
+            if match:
+                return str(match.group(1) or "").strip() or None
+        return None
+
     def _fake_strict_micro_fast_answer(self, prompt: str):
         normalized = self._normalize(prompt)
         if "what is 2+2" in normalized and "reply number only" in normalized:
@@ -138,19 +157,24 @@ class BenchmarkHarness:
 
     def _fake_best_effort_answer(self, prompt: str, system: Optional[str] = None, priority: Optional[str] = None, depth_mode: Optional[str] = None, routing_priors: Optional[JsonDict] = None):
         normalized = self._normalize(prompt)
-        if "remember token alpha-123" in normalized:
-            return ("I'll remember alpha-123.", "benchmark-model", "memory_ack")
-        if "what token did i ask you to remember" in normalized and "alpha-123" in normalized:
-            return ("alpha-123", "benchmark-model", "memory_recall")
-        if "router refactor" in normalized and "rollback" in normalized:
-            return ("Implement the refactor, add regression tests, and keep rollback verification in the loop.", "benchmark-model", "coding_depth")
-        if "runtime compiler rollout" in normalized and "tradeoff" in normalized:
+        tail = normalized[-320:]
+
+        for kind in ("token", "code", "key"):
+            remembered = self._extract_referent_value(normalized, kind=kind)
+            if remembered and any(fragment in normalized for fragment in [f"what {kind} did i ask you to remember", f"what {kind} should you remember", f"which {kind} did i give you"]):
+                return (remembered, "benchmark-model", f"{kind}_recall")
+            if remembered and any(re.search(pattern, normalized, flags=re.IGNORECASE) for pattern in [rf"\bremember\s+{kind}\s+[a-z0-9_\-]+\b", rf"\bkeep\s+{kind}\s+[a-z0-9_\-]+\b", rf"\b{kind}\s+is\s+[a-z0-9_\-]+\b"]):
+                return (f"I'll remember {remembered}.", "benchmark-model", f"{kind}_ack")
+
+        if "runtime compiler rollout" in tail and "tradeoff" in tail:
             return ("Use a shared compiler with bounded context packing; keep rollout toggles visible and reversible.", "benchmark-model", "planning_depth")
-        if "meta conductor" in normalized and "rollout" in normalized:
+        if "router refactor" in tail and "rollback" in tail:
+            return ("Implement the refactor, add regression tests, and keep rollback verification in the loop.", "benchmark-model", "coding_depth")
+        if "meta conductor" in tail and "rollout" in tail:
             return ("Delegate through Nexus, preserve meta runtime telemetry, and validate the rollout gates.", "benchmark-model", "meta_delegate")
-        if "production incident" in normalized and "rollback" in normalized:
+        if "production incident" in tail and "rollback" in tail:
             return ("Treat this as a production-risk deep path: contain impact, inspect rollback safety, and validate operator signals.", "benchmark-model", "prod_incident")
-        if "capital of texas" in normalized:
+        if "capital of texas" in tail:
             return ("Austin.", "benchmark-model", "fallback_fact")
         return (f"Benchmark stub response: {prompt[:120]}", "benchmark-model", "stub")
 

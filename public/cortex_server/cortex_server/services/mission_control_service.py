@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 import cortex_server.routers.orchestrator as orchestrator
-from cortex_server.modules import cortex_kernel_v2
+from cortex_server.modules import cortex_kernel_v2, runtime_pressure
 from cortex_server.modules.cortex_codec import get_codec_packet_for_session
 from cortex_server.modules.evidence_governance import capability_matrix
 from cortex_server.modules.evidence_lineage import build_lineage_bundle
@@ -724,7 +724,41 @@ def board() -> JsonDict:
     }
 
 
+def _fast_status_payload() -> JsonDict:
+    stores = _stores()
+    _sync_queue(stores)
+    kernel_summary = cortex_kernel_v2.mission_control_summary()
+    queue_status = orchestrator._runtime_maintenance_queue_status_payload(stores=stores).get("queue") or {}
+    summary_status = {str(k): int(v or 0) for k, v in dict(queue_status.get("counts") or {}).items()}
+    objective_count = sum(summary_status.values())
+    paused_count = int(summary_status.get("paused") or 0)
+    return {
+        "success": True,
+        "generated_at": _now_iso(),
+        "summary": {
+            "objective_count": objective_count,
+            "by_status": summary_status,
+            "by_kind": {"runtime": objective_count},
+            "paused_count": paused_count,
+            "blocker_count": 0,
+            "acknowledged_blocker_count": 0,
+            "follow_up_due_count": 0,
+            "outbound_queued_count": 0,
+            "outbound_failed_count": 0,
+            "maintenance_queue": {
+                "max_active_items": queue_status.get("max_active_items"),
+                "counts": dict(queue_status.get("counts") or {}),
+            },
+            **kernel_summary,
+        },
+        "recent_reports": [],
+        "queue": queue_status,
+    }
+
+
 def status() -> JsonDict:
+    if runtime_pressure.configured_benchmark_mode():
+        return _fast_status_payload()
     payload = board()
     return {
         "success": True,

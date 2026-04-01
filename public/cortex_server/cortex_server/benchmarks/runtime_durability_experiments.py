@@ -70,6 +70,31 @@ DEFAULT_MATRIX = [
             "CORTEX_LATENCY_GOVERNOR_PREFETCH_MODE": "auto",
         },
     },
+    {
+        "id": "persistent_2x1_benchmark_mode_serial_prefetch",
+        "description": "Persistent ONNX embedding with bounded threads, benchmark mode, and forced serial prefetch.",
+        "env": {
+            "CORTEX_LIBRARIAN_EMBEDDING_MODE": "persistent",
+            "CORTEX_LIBRARIAN_ONNX_EXPLICIT_THREADS": "true",
+            "CORTEX_LIBRARIAN_ONNX_INTRA_OP_THREADS": "2",
+            "CORTEX_LIBRARIAN_ONNX_INTER_OP_THREADS": "1",
+            "CORTEX_LIBRARIAN_ONNX_ALLOW_SPINNING": "false",
+            "CORTEX_RUNTIME_BENCHMARK_MODE": "true",
+            "CORTEX_LATENCY_GOVERNOR_PREFETCH_MODE": "serial",
+        },
+    },
+    {
+        "id": "persistent_2x2",
+        "description": "Persistent ONNX embedding with slightly wider explicit thread counts.",
+        "env": {
+            "CORTEX_LIBRARIAN_EMBEDDING_MODE": "persistent",
+            "CORTEX_LIBRARIAN_ONNX_EXPLICIT_THREADS": "true",
+            "CORTEX_LIBRARIAN_ONNX_INTRA_OP_THREADS": "2",
+            "CORTEX_LIBRARIAN_ONNX_INTER_OP_THREADS": "2",
+            "CORTEX_LIBRARIAN_ONNX_ALLOW_SPINNING": "false",
+            "CORTEX_RUNTIME_BENCHMARK_MODE": "false",
+        },
+    },
 ]
 
 
