@@ -2912,11 +2912,7 @@ async def get_nexus_kernel_status():
 
 @router.get("/kernel/telemetry")
 async def get_nexus_kernel_telemetry(limit: int = 50):
-    return {
-        "success": True,
-        "status": cortex_kernel_v2.performance_snapshot(runtime="nexus"),
-        "events": cortex_kernel_v2.recent_events(limit=limit, runtime="nexus"),
-    }
+    return {"success": True, **cortex_kernel_v2.diagnostic_bundle(runtime="nexus", limit=limit)}
 
 
 @router.get("/status")

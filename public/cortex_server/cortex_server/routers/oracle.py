@@ -3151,11 +3151,7 @@ async def oracle_kernel_status():
 
 @router.get('/kernel/telemetry')
 async def oracle_kernel_telemetry(limit: int = 50):
-    return {
-        "success": True,
-        "status": cortex_kernel_v2.performance_snapshot(runtime="oracle"),
-        "events": cortex_kernel_v2.recent_events(limit=limit, runtime="oracle"),
-    }
+    return {"success": True, **cortex_kernel_v2.diagnostic_bundle(runtime="oracle", limit=limit)}
 
 
 @router.get('/forecast/status')

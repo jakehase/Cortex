@@ -199,11 +199,7 @@ async def meta_conductor_kernel_status() -> Dict[str, Any]:
 
 @router.get("/kernel/telemetry")
 async def meta_conductor_kernel_telemetry(limit: int = 25) -> Dict[str, Any]:
-    return {
-        "success": True,
-        "status": cortex_kernel_v2.performance_snapshot(runtime="meta_conductor"),
-        "events": cortex_kernel_v2.recent_events(limit=limit, runtime="meta_conductor"),
-    }
+    return {"success": True, **cortex_kernel_v2.diagnostic_bundle(runtime="meta_conductor", limit=limit)}
 
 
 @router.post("/orchestrate")

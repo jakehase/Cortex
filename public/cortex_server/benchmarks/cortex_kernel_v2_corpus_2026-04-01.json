@@ -1,0 +1,765 @@
+{
+  "schema_version": "cortex.kernel_v2.benchmark_corpus.v1",
+  "name": "Cortex Kernel V2 Multi-Surface Benchmark Corpus",
+  "created_at": "2026-04-01T12:45:00Z",
+  "description": "Ordered benchmark corpus covering Oracle, Nexus, Meta Conductor, Mission Control, Command Center, and Command Center Live. Cases are intentionally sequenced so later operator diagnostics can observe earlier runtime telemetry.",
+  "classes": [
+    "micro_utility",
+    "memory_context_continuity",
+    "analysis_planning",
+    "coding_runtime_orchestration",
+    "operator_diagnostics",
+    "high_risk_or_high_ambiguity"
+  ],
+  "cases": [
+    {
+      "id": "oracle_micro_fact_fast",
+      "class": "micro_utility",
+      "runtime": "oracle",
+      "surface": "chat",
+      "title": "Oracle factual fast-path",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Deterministic factual answer with fast lane trace.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing kernel trace",
+        "lane not fast",
+        "response missing Austin"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "What is the capital of Texas?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.lane",
+          "op": "eq",
+          "value": "semantic_guardrail_factual"
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "Austin"
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "fast"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "fast"
+        }
+      ]
+    },
+    {
+      "id": "oracle_strict_contract_micro",
+      "class": "micro_utility",
+      "runtime": "oracle",
+      "surface": "chat",
+      "title": "Oracle strict-contract micro lane",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Number-only contract should stay on strict micro fast-path.",
+      "failure_heuristics": [
+        "non-200 response",
+        "contract output violated",
+        "kernel lane not fast"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "What is 2+2? Reply number only.",
+          "response_mode": "final_only"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "eq",
+          "value": "4"
+        },
+        {
+          "path": "response.routing_trace.path",
+          "op": "eq",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.target_oracle_lane",
+          "op": "eq",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "fast"
+        }
+      ]
+    },
+    {
+      "id": "oracle_memory_seed",
+      "class": "memory_context_continuity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "title": "Oracle memory seed turn",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Seed turn should store referent data for the follow-up.",
+      "failure_heuristics": [
+        "non-200 response",
+        "empty response",
+        "missing kernel event"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-alpha"
+        },
+        "json": {
+          "prompt": "Remember token alpha-123 for later.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "alpha-123"
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "fast"
+        },
+        {
+          "path": "kernel_event.response_present",
+          "op": "eq",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "oracle_memory_followup",
+      "class": "memory_context_continuity",
+      "runtime": "oracle",
+      "surface": "chat",
+      "title": "Oracle memory follow-up reuse",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Hot/warm context reuse should recover the remembered token.",
+      "failure_heuristics": [
+        "non-200 response",
+        "response missing token",
+        "no context reuse"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "headers": {
+          "x-session-id": "bench-memory-alpha"
+        },
+        "json": {
+          "prompt": "What token did I ask you to remember?",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "alpha-123"
+        },
+        {
+          "path": "kernel_event.context_reuse.total_chars",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "path": "kernel_event.context_reuse.hot_hits",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "oracle_analysis_tradeoff",
+      "class": "analysis_planning",
+      "runtime": "oracle",
+      "surface": "chat",
+      "title": "Oracle planning tradeoff analysis",
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Architecture/tradeoff planning should route to a deep lane.",
+      "failure_heuristics": [
+        "non-200 response",
+        "planned lane not deep",
+        "response missing shared compiler guidance"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "Plan the architecture tradeoff for the runtime compiler rollout.",
+          "priority": "normal"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "shared compiler"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "oracle_coding_rollout",
+      "class": "coding_runtime_orchestration",
+      "runtime": "oracle",
+      "surface": "chat",
+      "title": "Oracle coding/runtime orchestration",
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560,
+      "quality_expectation": "Coding/refactor rollout request should stay on a deep lane and mention tests/rollback.",
+      "failure_heuristics": [
+        "non-200 response",
+        "planned lane not deep",
+        "response missing tests or rollback"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/oracle/chat",
+        "json": {
+          "prompt": "Implement the router refactor, add tests, and validate the production rollback plan.",
+          "priority": "high"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.response",
+          "op": "contains",
+          "value": "rollback"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "nexus_planning_orchestrate",
+      "class": "analysis_planning",
+      "runtime": "nexus",
+      "surface": "orchestrate",
+      "title": "Nexus planning orchestration",
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Planning benchmark should widen orchestration and keep kernel deep.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel lane not deep",
+        "missing latency budget"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/orchestrate",
+        "params": {
+          "query": "Plan the runtime compiler rollout and benchmark strategy."
+        },
+        "headers": {
+          "x-session-id": "bench-nexus-plan"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.kernel_v2.runtime",
+          "op": "eq",
+          "value": "nexus"
+        },
+        {
+          "path": "response.latency_budget.cheap_route",
+          "op": "eq",
+          "value": "deliberate"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "nexus_micro_fastlane",
+      "class": "micro_utility",
+      "runtime": "nexus",
+      "surface": "orchestrate",
+      "title": "Nexus cheap factual question",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Cheap factual question should stay on fast/cheap routing.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel lane not fast",
+        "cheap route not cheap"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/orchestrate",
+        "params": {
+          "query": "What is the capital of Texas?"
+        },
+        "headers": {
+          "x-session-id": "bench-nexus-fast"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "fast"
+        },
+        {
+          "path": "response.latency_budget.cheap_route",
+          "op": "eq",
+          "value": "fastlane"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "fast"
+        }
+      ]
+    },
+    {
+      "id": "nexus_high_risk_prod",
+      "class": "high_risk_or_high_ambiguity",
+      "runtime": "nexus",
+      "surface": "orchestrate",
+      "title": "Nexus production incident escalation",
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520,
+      "quality_expectation": "Production rollback incident should force deep orchestration and risk handling.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel lane not deep",
+        "missing production risk flags"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/orchestrate",
+        "params": {
+          "query": "We have a production incident with possible rollback. Analyze the failure modes and response plan."
+        },
+        "headers": {
+          "x-session-id": "bench-nexus-prod"
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "response.kernel_v2.risk_flags",
+          "op": "contains",
+          "value": "production"
+        },
+        {
+          "path": "kernel_event.planned_lane",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "meta_conductor_delegate",
+      "class": "coding_runtime_orchestration",
+      "runtime": "meta_conductor",
+      "surface": "orchestrate",
+      "title": "Meta Conductor delegated deep orchestration",
+      "lane_tendency": "deep",
+      "latency_slo_ms": 80,
+      "quality_expectation": "Delegated meta orchestration should preserve its own runtime boundary and kernel deep lane.",
+      "failure_heuristics": [
+        "non-200 response",
+        "kernel runtime not meta_conductor",
+        "kernel lane not deep"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/meta_conductor/orchestrate",
+        "json": {
+          "query": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.",
+          "target_levels": [
+            33,
+            34
+          ]
+        }
+      },
+      "measure_event": true,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.runtime",
+          "op": "eq",
+          "value": "meta_conductor"
+        },
+        {
+          "path": "response.kernel_v2.plan.lane",
+          "op": "eq",
+          "value": "deep"
+        },
+        {
+          "path": "kernel_event.actual_lane_family",
+          "op": "eq",
+          "value": "deep"
+        }
+      ]
+    },
+    {
+      "id": "mission_control_status",
+      "class": "operator_diagnostics",
+      "runtime": "mission_control",
+      "surface": "status",
+      "title": "Mission Control operator summary",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 80,
+      "quality_expectation": "Mission Control status should expose aggregate kernel runtime/surface summaries after prior cases.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing kernel summary",
+        "oracle runtime missing from summary"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/mission_control/status"
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.summary.kernel_v2.events",
+          "op": "ge",
+          "value": 10
+        },
+        {
+          "path": "response.summary.kernel_v2.runtimes.oracle.events",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "path": "response.summary.kernel_v2.runtimes.nexus.events",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "path": "response.summary.kernel_v2.surfaces.orchestrate.events",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "command_center_state",
+      "class": "operator_diagnostics",
+      "runtime": "command_center",
+      "surface": "state",
+      "title": "Command Center state overlay",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40,
+      "quality_expectation": "Command Center state should surface kernel summary and latest event.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing kernel summary",
+        "missing latest event"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/command_center/state",
+        "params": {
+          "seed": 7
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.events",
+          "op": "ge",
+          "value": 10
+        },
+        {
+          "path": "response.latest_kernel_event.runtime",
+          "op": "eq",
+          "value": "meta_conductor"
+        }
+      ]
+    },
+    {
+      "id": "command_center_kernel_sweep",
+      "class": "operator_diagnostics",
+      "runtime": "command_center",
+      "surface": "action",
+      "title": "Command Center kernel sweep action",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40,
+      "quality_expectation": "Kernel sweep should return aggregate runtime/surface views for the operator overlay.",
+      "failure_heuristics": [
+        "non-200 response",
+        "wrong action name",
+        "missing meta runtime summary"
+      ],
+      "request": {
+        "method": "POST",
+        "path": "/command_center/action",
+        "json": {
+          "action": "kernel_sweep",
+          "params": {}
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.action",
+          "op": "eq",
+          "value": "kernel_sweep"
+        },
+        {
+          "path": "response.kernel_v2.runtimes.meta_conductor.events",
+          "op": "ge",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": "command_center_live_state",
+      "class": "operator_diagnostics",
+      "runtime": "command_center_live",
+      "surface": "state",
+      "title": "Command Center Live state overlay",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40,
+      "quality_expectation": "Live operator state should expose the same kernel view as Command Center.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing kernel summary",
+        "missing latest event"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/command_center_live/state",
+        "params": {
+          "seed": 7
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.kernel_v2.events",
+          "op": "ge",
+          "value": 10
+        },
+        {
+          "path": "response.latest_kernel_event.runtime",
+          "op": "eq",
+          "value": "meta_conductor"
+        }
+      ]
+    },
+    {
+      "id": "nexus_kernel_telemetry",
+      "class": "operator_diagnostics",
+      "runtime": "nexus",
+      "surface": "telemetry",
+      "title": "Nexus runtime-scoped telemetry",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40,
+      "quality_expectation": "Nexus telemetry should stay runtime-scoped and exclude Oracle events.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing nexus events",
+        "oracle events leaked into nexus telemetry"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/nexus/kernel/telemetry",
+        "params": {
+          "limit": 20
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.status.scope.runtime",
+          "op": "eq",
+          "value": "nexus"
+        },
+        {
+          "path": "response.status.telemetry.events",
+          "op": "ge",
+          "value": 3
+        },
+        {
+          "path": "response.events.0.runtime",
+          "op": "eq",
+          "value": "nexus"
+        }
+      ]
+    },
+    {
+      "id": "meta_kernel_telemetry",
+      "class": "operator_diagnostics",
+      "runtime": "meta_conductor",
+      "surface": "telemetry",
+      "title": "Meta Conductor runtime-scoped telemetry",
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40,
+      "quality_expectation": "Meta Conductor telemetry should remain runtime-scoped.",
+      "failure_heuristics": [
+        "non-200 response",
+        "missing meta runtime scope",
+        "missing meta events"
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/meta_conductor/kernel/telemetry",
+        "params": {
+          "limit": 20
+        }
+      },
+      "measure_event": false,
+      "checks": [
+        {
+          "path": "status_code",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "path": "response.status.scope.runtime",
+          "op": "eq",
+          "value": "meta_conductor"
+        },
+        {
+          "path": "response.status.telemetry.events",
+          "op": "ge",
+          "value": 1
+        },
+        {
+          "path": "response.events.0.runtime",
+          "op": "eq",
+          "value": "meta_conductor"
+        }
+      ]
+    }
+  ]
+}

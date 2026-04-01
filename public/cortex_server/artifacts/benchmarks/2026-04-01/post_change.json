@@ -1,0 +1,5718 @@
+{
+  "cases": [
+    {
+      "case_id": "oracle_micro_fact_fast",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "semantic_guardrail_factual",
+          "op": "eq",
+          "passed": true,
+          "path": "response.lane",
+          "value": "semantic_guardrail_factual"
+        },
+        {
+          "actual": "Austin.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "Austin"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 741.444,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 741.444,
+      "failures": [
+        "elapsed_ms le 520 (actual=741.444)"
+      ],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "semantic_guardrail_factual",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.059,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_92516c545f",
+        "fallback_reason": "semantic_guardrail_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 737.531,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_a163a77caf1a",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:30.091265Z",
+        "used_backend": "deterministic-semantic-guardrail"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_strict_contract_micro",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "4",
+          "op": "eq",
+          "passed": true,
+          "path": "response.response",
+          "value": "4"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.path",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.target_oracle_lane",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 684.728,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 684.728,
+      "failures": [
+        "elapsed_ms le 520 (actual=684.728)"
+      ],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "strict_contract_micro_fastpath",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.1,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 63,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_291725c118",
+        "fallback_reason": "micro_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 681.077,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is 2+2? Reply number only.",
+        "request_id": "kernel_cf67e3745566",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": true,
+        "surface": "chat",
+        "target_oracle_lane": "strict_contract_micro_fastpath",
+        "ts": "2026-04-01T17:43:30.776286Z",
+        "used_backend": "deterministic-fastpath"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_seed",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": true,
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.response_present",
+          "value": true
+        },
+        {
+          "actual": 531.381,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 531.381,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.075,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 112,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_ad005c9999",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 528.643,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "Remember token alpha-123 for later.",
+        "request_id": "kernel_d664296e580e",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:31.307770Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_followup",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": 198,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.total_chars",
+          "value": 1
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.hot_hits",
+          "value": 1
+        },
+        {
+          "actual": 650.216,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 650.216,
+      "failures": [
+        "elapsed_ms le 560 (actual=650.216)"
+      ],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.073,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 198,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_dee4da5487",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 646.361,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What token did I ask you to remember?",
+        "request_id": "kernel_84c1d505b23f",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:31.958263Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_analysis_tradeoff",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Use a shared compiler with bounded context packing; keep rollout toggles visible and reversible.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "shared compiler"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 695.071,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 695.071,
+      "failures": [
+        "elapsed_ms le 560 (actual=695.071)"
+      ],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.1,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 1,
+          "total_chars": 483,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_fcf02653e5",
+        "fallback_reason": "planning_depth",
+        "intent_kind": "planning",
+        "latency_ms": 639.219,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the architecture tradeoff for the runtime compiler rollout.",
+        "request_id": "kernel_2f8bfea21de7",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:32.653581Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_coding_rollout",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Implement the refactor, add regression tests, and keep rollback verification in the loop.\n\nConfidence: High\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: High",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "rollback"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 676.862,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 676.862,
+      "failures": [
+        "elapsed_ms le 560 (actual=676.862)"
+      ],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.109,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 2,
+          "total_chars": 671,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_30383f5ef9",
+        "fallback_reason": "coding_depth",
+        "intent_kind": "coding",
+        "latency_ms": 622.384,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the router refactor, add tests, and validate the production rollback plan.",
+        "request_id": "kernel_56857736d8c9",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:33.330716Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "nexus_planning_orchestrate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": "deliberate",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "deliberate"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 514.648,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 514.648,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.062,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 102,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_8d9d920c1e",
+        "fallback_reason": null,
+        "intent_kind": "planning",
+        "latency_ms": 463.57,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the runtime compiler rollout and benchmark strategy.",
+        "request_id": "kernel_347081433b75",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-plan",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:33.844768Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_micro_fastlane",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fastlane",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "fastlane"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "fast"
+        },
+        {
+          "actual": 440.387,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 440.387,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "nexus_fastlane",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.058,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 349,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_fe0bb45e65",
+        "fallback_reason": null,
+        "intent_kind": "retrieval",
+        "latency_ms": 390.365,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_86b2cdf1e029",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-fast",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:34.284741Z",
+        "used_backend": "anytime_early_exit"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_high_risk_prod",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": [
+            "production"
+          ],
+          "op": "contains",
+          "passed": true,
+          "path": "response.kernel_v2.risk_flags",
+          "value": "production"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 416.281,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "high_risk_or_high_ambiguity",
+      "elapsed_ms": 416.281,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.06,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 226,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_6ae7565e97",
+        "fallback_reason": null,
+        "intent_kind": "ops",
+        "latency_ms": 363.166,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "We have a production incident with possible rollback. Analyze the failure modes and response plan.",
+        "request_id": "kernel_19e895c30774",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-prod",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:34.702152Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "meta_conductor_delegate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 19.634,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 19.634,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": {
+        "actual_lane": "meta_conductor_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.077,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_1981f73243",
+        "fallback_reason": null,
+        "intent_kind": "coding",
+        "latency_ms": 17.503,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.",
+        "request_id": "kernel_b14188c38631",
+        "response_present": true,
+        "runtime": "meta_conductor",
+        "session_key": null,
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:34.723219Z",
+        "used_backend": "coding_chain_forced"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 80.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "mission_control_status",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": 6,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.oracle.events",
+          "value": 1
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.nexus.events",
+          "value": 1
+        },
+        {
+          "actual": 5,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.surfaces.orchestrate.events",
+          "value": 1
+        },
+        {
+          "actual": 174.127,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 174.127,
+      "failures": [
+        "elapsed_ms le 80 (actual=174.127)"
+      ],
+      "iteration": 1,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 80.0,
+      "passed": false,
+      "runtime": "mission_control",
+      "status_code": 200,
+      "surface": "status"
+    },
+    {
+      "case_id": "command_center_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 8.795,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 8.795,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "command_center_kernel_sweep",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "kernel_sweep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.action",
+          "value": "kernel_sweep"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.runtimes.meta_conductor.events",
+          "value": 1
+        },
+        {
+          "actual": 3.183,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 3.183,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "action"
+    },
+    {
+      "case_id": "command_center_live_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 3.121,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 3.121,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center_live",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "nexus_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 3
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 1.445,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.445,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "meta_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 1
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1.045,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.045,
+      "failures": [],
+      "iteration": 1,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "oracle_micro_fact_fast",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "semantic_guardrail_factual",
+          "op": "eq",
+          "passed": true,
+          "path": "response.lane",
+          "value": "semantic_guardrail_factual"
+        },
+        {
+          "actual": "Austin.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "Austin"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 479.486,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 479.486,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "semantic_guardrail_factual",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.056,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_83e18430e0",
+        "fallback_reason": "semantic_guardrail_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 475.911,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_80306fbf206d",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:35.396133Z",
+        "used_backend": "deterministic-semantic-guardrail"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_strict_contract_micro",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "4",
+          "op": "eq",
+          "passed": true,
+          "path": "response.response",
+          "value": "4"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.path",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.target_oracle_lane",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 488.429,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 488.429,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "strict_contract_micro_fastpath",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.054,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 63,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_ce4e24a35c",
+        "fallback_reason": "micro_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 484.773,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is 2+2? Reply number only.",
+        "request_id": "kernel_64d8fff52ec4",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": true,
+        "surface": "chat",
+        "target_oracle_lane": "strict_contract_micro_fastpath",
+        "ts": "2026-04-01T17:43:35.884849Z",
+        "used_backend": "deterministic-fastpath"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_seed",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": true,
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.response_present",
+          "value": true
+        },
+        {
+          "actual": 550.385,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 550.385,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.064,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 112,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_5874753238",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 546.579,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "Remember token alpha-123 for later.",
+        "request_id": "kernel_bb2183a18ab6",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:36.435248Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_followup",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": 198,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.total_chars",
+          "value": 1
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.hot_hits",
+          "value": 1
+        },
+        {
+          "actual": 504.368,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 504.368,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.067,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 198,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_7bd2e1e627",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 500.784,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What token did I ask you to remember?",
+        "request_id": "kernel_f006fe3faa33",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:36.939943Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_analysis_tradeoff",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Use a shared compiler with bounded context packing; keep rollout toggles visible and reversible.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "shared compiler"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 528.851,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 528.851,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.091,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 1,
+          "total_chars": 483,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_f17e70d0ba",
+        "fallback_reason": "planning_depth",
+        "intent_kind": "planning",
+        "latency_ms": 474.719,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the architecture tradeoff for the runtime compiler rollout.",
+        "request_id": "kernel_8ffd307b85c9",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:37.469037Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_coding_rollout",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Implement the refactor, add regression tests, and keep rollback verification in the loop.\n\nConfidence: High\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: High",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "rollback"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 549.614,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 549.614,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.1,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 2,
+          "total_chars": 671,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_50db2d15ba",
+        "fallback_reason": "coding_depth",
+        "intent_kind": "coding",
+        "latency_ms": 495.774,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the router refactor, add tests, and validate the production rollback plan.",
+        "request_id": "kernel_1e2e3272bda6",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:38.019114Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "nexus_planning_orchestrate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": "deliberate",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "deliberate"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 411.753,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 411.753,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.065,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 102,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_9e1f37fd08",
+        "fallback_reason": null,
+        "intent_kind": "planning",
+        "latency_ms": 361.492,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the runtime compiler rollout and benchmark strategy.",
+        "request_id": "kernel_ad2edf935de5",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-plan",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:38.430176Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_micro_fastlane",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fastlane",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "fastlane"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "fast"
+        },
+        {
+          "actual": 532.524,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 532.524,
+      "failures": [
+        "elapsed_ms le 520 (actual=532.524)"
+      ],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "nexus_fastlane",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.065,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 349,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_a8c451ee23",
+        "fallback_reason": null,
+        "intent_kind": "retrieval",
+        "latency_ms": 480.282,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_6ad2e31b3190",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-fast",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:38.962831Z",
+        "used_backend": "anytime_early_exit"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_high_risk_prod",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": [
+            "production"
+          ],
+          "op": "contains",
+          "passed": true,
+          "path": "response.kernel_v2.risk_flags",
+          "value": "production"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 519.441,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "high_risk_or_high_ambiguity",
+      "elapsed_ms": 519.441,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.061,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 226,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_9364b7ecf6",
+        "fallback_reason": null,
+        "intent_kind": "ops",
+        "latency_ms": 469.237,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "We have a production incident with possible rollback. Analyze the failure modes and response plan.",
+        "request_id": "kernel_b40970be7990",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-prod",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:39.482690Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "meta_conductor_delegate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 19.489,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 19.489,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": {
+        "actual_lane": "meta_conductor_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.059,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_cd122607d8",
+        "fallback_reason": null,
+        "intent_kind": "coding",
+        "latency_ms": 17.514,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.",
+        "request_id": "kernel_3f4c86d49830",
+        "response_present": true,
+        "runtime": "meta_conductor",
+        "session_key": null,
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:39.503715Z",
+        "used_backend": "coding_chain_forced"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 80.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "mission_control_status",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": 6,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.oracle.events",
+          "value": 1
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.nexus.events",
+          "value": 1
+        },
+        {
+          "actual": 5,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.surfaces.orchestrate.events",
+          "value": 1
+        },
+        {
+          "actual": 173.977,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 173.977,
+      "failures": [
+        "elapsed_ms le 80 (actual=173.977)"
+      ],
+      "iteration": 2,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 80.0,
+      "passed": false,
+      "runtime": "mission_control",
+      "status_code": 200,
+      "surface": "status"
+    },
+    {
+      "case_id": "command_center_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 2.382,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.382,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "command_center_kernel_sweep",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "kernel_sweep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.action",
+          "value": "kernel_sweep"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.runtimes.meta_conductor.events",
+          "value": 1
+        },
+        {
+          "actual": 1.959,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.959,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "action"
+    },
+    {
+      "case_id": "command_center_live_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 2.183,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.183,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center_live",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "nexus_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 3
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 1.793,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.793,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "meta_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 1
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1.421,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.421,
+      "failures": [],
+      "iteration": 2,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "oracle_micro_fact_fast",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "semantic_guardrail_factual",
+          "op": "eq",
+          "passed": true,
+          "path": "response.lane",
+          "value": "semantic_guardrail_factual"
+        },
+        {
+          "actual": "Austin.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "Austin"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 483.931,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 483.931,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "semantic_guardrail_factual",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.055,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_1f12c8963c",
+        "fallback_reason": "semantic_guardrail_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 480.17,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_661d11629e67",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:40.172612Z",
+        "used_backend": "deterministic-semantic-guardrail"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_strict_contract_micro",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "4",
+          "op": "eq",
+          "passed": true,
+          "path": "response.response",
+          "value": "4"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.path",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.target_oracle_lane",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 487.046,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 487.046,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "strict_contract_micro_fastpath",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.054,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 63,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_9039794879",
+        "fallback_reason": "micro_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 483.746,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is 2+2? Reply number only.",
+        "request_id": "kernel_7c7a3cd3acaa",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": true,
+        "surface": "chat",
+        "target_oracle_lane": "strict_contract_micro_fastpath",
+        "ts": "2026-04-01T17:43:40.660129Z",
+        "used_backend": "deterministic-fastpath"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_seed",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": true,
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.response_present",
+          "value": true
+        },
+        {
+          "actual": 473.362,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 473.362,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.095,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 112,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_bcaec14cdf",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 469.936,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "Remember token alpha-123 for later.",
+        "request_id": "kernel_bb1774705a95",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:41.133485Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_followup",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": 198,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.total_chars",
+          "value": 1
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.hot_hits",
+          "value": 1
+        },
+        {
+          "actual": 528.269,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 528.269,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.061,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 198,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_f1483cfdb3",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 524.762,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What token did I ask you to remember?",
+        "request_id": "kernel_778a50cb7458",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:41.662053Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_analysis_tradeoff",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Use a shared compiler with bounded context packing; keep rollout toggles visible and reversible.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "shared compiler"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 553.241,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 553.241,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.091,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 1,
+          "total_chars": 483,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_52ea198588",
+        "fallback_reason": "planning_depth",
+        "intent_kind": "planning",
+        "latency_ms": 498.133,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the architecture tradeoff for the runtime compiler rollout.",
+        "request_id": "kernel_c199827f3008",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:42.215726Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_coding_rollout",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Implement the refactor, add regression tests, and keep rollback verification in the loop.\n\nConfidence: High\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: High",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "rollback"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 557.041,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 557.041,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.099,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 2,
+          "total_chars": 671,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_9404531295",
+        "fallback_reason": "coding_depth",
+        "intent_kind": "coding",
+        "latency_ms": 502.947,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the router refactor, add tests, and validate the production rollback plan.",
+        "request_id": "kernel_b1d90b156a9b",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:42.772881Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "nexus_planning_orchestrate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": "deliberate",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "deliberate"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 407.045,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 407.045,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.18,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 102,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_53bd439295",
+        "fallback_reason": null,
+        "intent_kind": "planning",
+        "latency_ms": 357.331,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the runtime compiler rollout and benchmark strategy.",
+        "request_id": "kernel_26d677c71ca0",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-plan",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:43.179244Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_micro_fastlane",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fastlane",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "fastlane"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "fast"
+        },
+        {
+          "actual": 550.343,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 550.343,
+      "failures": [
+        "elapsed_ms le 520 (actual=550.343)"
+      ],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "nexus_fastlane",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.057,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 349,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_652a081a7c",
+        "fallback_reason": null,
+        "intent_kind": "retrieval",
+        "latency_ms": 498.527,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_6c21458ca81f",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-fast",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:43.729766Z",
+        "used_backend": "anytime_early_exit"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_high_risk_prod",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": [
+            "production"
+          ],
+          "op": "contains",
+          "passed": true,
+          "path": "response.kernel_v2.risk_flags",
+          "value": "production"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 513.625,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "high_risk_or_high_ambiguity",
+      "elapsed_ms": 513.625,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.06,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 226,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_e6b6246467",
+        "fallback_reason": null,
+        "intent_kind": "ops",
+        "latency_ms": 463.735,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "We have a production incident with possible rollback. Analyze the failure modes and response plan.",
+        "request_id": "kernel_212622c9a1e1",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-prod",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:44.243850Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "meta_conductor_delegate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 19.67,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 19.67,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": {
+        "actual_lane": "meta_conductor_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.066,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_b35c996811",
+        "fallback_reason": null,
+        "intent_kind": "coding",
+        "latency_ms": 17.479,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.",
+        "request_id": "kernel_88d1485334b0",
+        "response_present": true,
+        "runtime": "meta_conductor",
+        "session_key": null,
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:44.264887Z",
+        "used_backend": "coding_chain_forced"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 80.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "mission_control_status",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": 6,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.oracle.events",
+          "value": 1
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.nexus.events",
+          "value": 1
+        },
+        {
+          "actual": 5,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.surfaces.orchestrate.events",
+          "value": 1
+        },
+        {
+          "actual": 177.569,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 177.569,
+      "failures": [
+        "elapsed_ms le 80 (actual=177.569)"
+      ],
+      "iteration": 3,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 80.0,
+      "passed": false,
+      "runtime": "mission_control",
+      "status_code": 200,
+      "surface": "status"
+    },
+    {
+      "case_id": "command_center_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 2.543,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.543,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "command_center_kernel_sweep",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "kernel_sweep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.action",
+          "value": "kernel_sweep"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.runtimes.meta_conductor.events",
+          "value": 1
+        },
+        {
+          "actual": 2.502,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.502,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "action"
+    },
+    {
+      "case_id": "command_center_live_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 2.037,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.037,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center_live",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "nexus_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 3
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 1.719,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.719,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "meta_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 1
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1.282,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.282,
+      "failures": [],
+      "iteration": 3,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "oracle_micro_fact_fast",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "semantic_guardrail_factual",
+          "op": "eq",
+          "passed": true,
+          "path": "response.lane",
+          "value": "semantic_guardrail_factual"
+        },
+        {
+          "actual": "Austin.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "Austin"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 502.611,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 502.611,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "semantic_guardrail_factual",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.055,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_a312a8a38d",
+        "fallback_reason": "semantic_guardrail_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 499.1,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_fe947dd4a63c",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:44.956857Z",
+        "used_backend": "deterministic-semantic-guardrail"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_strict_contract_micro",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "4",
+          "op": "eq",
+          "passed": true,
+          "path": "response.response",
+          "value": "4"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.path",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.target_oracle_lane",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 508.699,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 508.699,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "strict_contract_micro_fastpath",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.055,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 63,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_a6ab28dae6",
+        "fallback_reason": "micro_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 505.214,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is 2+2? Reply number only.",
+        "request_id": "kernel_b7adeb940bb3",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": true,
+        "surface": "chat",
+        "target_oracle_lane": "strict_contract_micro_fastpath",
+        "ts": "2026-04-01T17:43:45.465797Z",
+        "used_backend": "deterministic-fastpath"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_seed",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": true,
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.response_present",
+          "value": true
+        },
+        {
+          "actual": 491.842,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 491.842,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.058,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 112,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_08568f53d1",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 488.197,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "Remember token alpha-123 for later.",
+        "request_id": "kernel_859a8ade5c00",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:45.957740Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_followup",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": 198,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.total_chars",
+          "value": 1
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.hot_hits",
+          "value": 1
+        },
+        {
+          "actual": 485.998,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 485.998,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.069,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 198,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_5526cf4133",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 482.293,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What token did I ask you to remember?",
+        "request_id": "kernel_feb34d7edbee",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:46.443842Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_analysis_tradeoff",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Use a shared compiler with bounded context packing; keep rollout toggles visible and reversible.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "shared compiler"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 588.281,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 588.281,
+      "failures": [
+        "elapsed_ms le 560 (actual=588.281)"
+      ],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.089,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 1,
+          "total_chars": 483,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_5d2a760bd7",
+        "fallback_reason": "planning_depth",
+        "intent_kind": "planning",
+        "latency_ms": 492.527,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the architecture tradeoff for the runtime compiler rollout.",
+        "request_id": "kernel_d5d35bbc0b53",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:47.032384Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_coding_rollout",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Implement the refactor, add regression tests, and keep rollback verification in the loop.\n\nConfidence: High\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: High",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "rollback"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 561.61,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 561.61,
+      "failures": [
+        "elapsed_ms le 560 (actual=561.61)"
+      ],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.101,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 2,
+          "total_chars": 671,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_73f9ec3f0b",
+        "fallback_reason": "coding_depth",
+        "intent_kind": "coding",
+        "latency_ms": 506.189,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the router refactor, add tests, and validate the production rollback plan.",
+        "request_id": "kernel_0ea8766ee8bd",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:47.594213Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "nexus_planning_orchestrate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": "deliberate",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "deliberate"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 556.708,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 556.708,
+      "failures": [
+        "elapsed_ms le 520 (actual=556.708)"
+      ],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.061,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 102,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_acbf215cf1",
+        "fallback_reason": null,
+        "intent_kind": "planning",
+        "latency_ms": 504.14,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the runtime compiler rollout and benchmark strategy.",
+        "request_id": "kernel_6db2aacf82e5",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-plan",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:48.150261Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_micro_fastlane",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fastlane",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "fastlane"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "fast"
+        },
+        {
+          "actual": 541.181,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 541.181,
+      "failures": [
+        "elapsed_ms le 520 (actual=541.181)"
+      ],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "nexus_fastlane",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.058,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 349,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_093d57ea6a",
+        "fallback_reason": null,
+        "intent_kind": "retrieval",
+        "latency_ms": 488.83,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_aa131e43a830",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-fast",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:48.691689Z",
+        "used_backend": "anytime_early_exit"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_high_risk_prod",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": [
+            "production"
+          ],
+          "op": "contains",
+          "passed": true,
+          "path": "response.kernel_v2.risk_flags",
+          "value": "production"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 563.925,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "high_risk_or_high_ambiguity",
+      "elapsed_ms": 563.925,
+      "failures": [
+        "elapsed_ms le 520 (actual=563.925)"
+      ],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.067,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 226,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_3a6ffd594a",
+        "fallback_reason": null,
+        "intent_kind": "ops",
+        "latency_ms": 512.512,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "We have a production incident with possible rollback. Analyze the failure modes and response plan.",
+        "request_id": "kernel_e7b78a3c4b39",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-prod",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:49.256163Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "meta_conductor_delegate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 19.756,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 19.756,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": {
+        "actual_lane": "meta_conductor_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.056,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_2572edd2ed",
+        "fallback_reason": null,
+        "intent_kind": "coding",
+        "latency_ms": 17.531,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.",
+        "request_id": "kernel_44fe81b445dc",
+        "response_present": true,
+        "runtime": "meta_conductor",
+        "session_key": null,
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:49.277415Z",
+        "used_backend": "coding_chain_forced"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 80.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "mission_control_status",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": 6,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.oracle.events",
+          "value": 1
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.nexus.events",
+          "value": 1
+        },
+        {
+          "actual": 5,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.surfaces.orchestrate.events",
+          "value": 1
+        },
+        {
+          "actual": 179.349,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 179.349,
+      "failures": [
+        "elapsed_ms le 80 (actual=179.349)"
+      ],
+      "iteration": 4,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 80.0,
+      "passed": false,
+      "runtime": "mission_control",
+      "status_code": 200,
+      "surface": "status"
+    },
+    {
+      "case_id": "command_center_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 2.182,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.182,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "command_center_kernel_sweep",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "kernel_sweep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.action",
+          "value": "kernel_sweep"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.runtimes.meta_conductor.events",
+          "value": 1
+        },
+        {
+          "actual": 2.452,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.452,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "action"
+    },
+    {
+      "case_id": "command_center_live_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 2.01,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.01,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center_live",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "nexus_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 3
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 1.655,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.655,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "meta_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 1
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1.298,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.298,
+      "failures": [],
+      "iteration": 4,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "oracle_micro_fact_fast",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "semantic_guardrail_factual",
+          "op": "eq",
+          "passed": true,
+          "path": "response.lane",
+          "value": "semantic_guardrail_factual"
+        },
+        {
+          "actual": "Austin.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "Austin"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 507.533,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 507.533,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "semantic_guardrail_factual",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.071,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_1a8b99fa4b",
+        "fallback_reason": "semantic_guardrail_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 504.011,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_f13f28593e3c",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:49.975141Z",
+        "used_backend": "deterministic-semantic-guardrail"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_strict_contract_micro",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "4",
+          "op": "eq",
+          "passed": true,
+          "path": "response.response",
+          "value": "4"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.path",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "strict_contract_micro_fastpath",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.target_oracle_lane",
+          "value": "strict_contract_micro_fastpath"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "fast"
+        },
+        {
+          "actual": 565.53,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 565.53,
+      "failures": [
+        "elapsed_ms le 520 (actual=565.53)"
+      ],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "strict_contract_micro_fastpath",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.055,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 63,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_52664061be",
+        "fallback_reason": "micro_fastpath",
+        "intent_kind": "retrieval",
+        "latency_ms": 561.888,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is 2+2? Reply number only.",
+        "request_id": "kernel_b6641ba4225c",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": true,
+        "surface": "chat",
+        "target_oracle_lane": "strict_contract_micro_fastpath",
+        "ts": "2026-04-01T17:43:50.540991Z",
+        "used_backend": "deterministic-fastpath"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_seed",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Live conditions can still shift final outcomes.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": true,
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.response_present",
+          "value": true
+        },
+        {
+          "actual": 544.492,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 544.492,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.052,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 112,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_d490a5c4f9",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 540.553,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "Remember token alpha-123 for later.",
+        "request_id": "kernel_56651d66d2cb",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:51.085724Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_memory_followup",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "Would there be any levels that would enhance this?\nEnhancement pass: ON.\n\nI'll remember alpha-123.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "alpha-123"
+        },
+        {
+          "actual": 198,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.total_chars",
+          "value": 1
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "kernel_event.context_reuse.hot_hits",
+          "value": 1
+        },
+        {
+          "actual": 523.207,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "memory_context_continuity",
+      "elapsed_ms": 523.207,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "fallback_best_effort",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.065,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 1,
+          "total_chars": 198,
+          "warm_hits": 1
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_4a6511814e",
+        "fallback_reason": "memory_ack",
+        "intent_kind": "general",
+        "latency_ms": 519.649,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What token did I ask you to remember?",
+        "request_id": "kernel_8373d24ba8bf",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "bench-memory-alpha",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:51.609084Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 560.0,
+      "passed": true,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_analysis_tradeoff",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Use a shared compiler with bounded context packing; keep rollout toggles visible and reversible.\n\nConfidence: Medium\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: Medium",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "shared compiler"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 692.745,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 692.745,
+      "failures": [
+        "elapsed_ms le 560 (actual=692.745)"
+      ],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.09,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 1,
+          "total_chars": 483,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_2f56e5f8ac",
+        "fallback_reason": "planning_depth",
+        "intent_kind": "planning",
+        "latency_ms": 634.608,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the architecture tradeoff for the runtime compiler rollout.",
+        "request_id": "kernel_8fb4c96bbe27",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:52.302051Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "oracle_coding_rollout",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.routing_trace.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "Implement the refactor, add regression tests, and keep rollback verification in the loop.\n\nConfidence: High\nMain uncertainty: Assumptions in this turn may not fully hold at runtime.\nPriority: High",
+          "op": "contains",
+          "passed": true,
+          "path": "response.response",
+          "value": "rollback"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 630.895,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 560
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 630.895,
+      "failures": [
+        "elapsed_ms le 560 (actual=630.895)"
+      ],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "best_effort",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.107,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 2,
+          "total_chars": 671,
+          "warm_hits": 0
+        },
+        "contract_ok": null,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_e5aa72460c",
+        "fallback_reason": "coding_depth",
+        "intent_kind": "coding",
+        "latency_ms": 573.988,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the router refactor, add tests, and validate the production rollback plan.",
+        "request_id": "kernel_66d6886ef506",
+        "response_present": true,
+        "runtime": "oracle",
+        "session_key": "testclient|testclient",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "chat",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:52.933114Z",
+        "used_backend": "benchmark-model"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 560.0,
+      "passed": false,
+      "runtime": "oracle",
+      "status_code": 200,
+      "surface": "chat"
+    },
+    {
+      "case_id": "nexus_planning_orchestrate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": "deliberate",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "deliberate"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 542.478,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "analysis_planning",
+      "elapsed_ms": 542.478,
+      "failures": [
+        "elapsed_ms le 520 (actual=542.478)"
+      ],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.061,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 102,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_5b6cf61162",
+        "fallback_reason": null,
+        "intent_kind": "planning",
+        "latency_ms": 489.676,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Plan the runtime compiler rollout and benchmark strategy.",
+        "request_id": "kernel_d2f2cbf3d694",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-plan",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:53.475062Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_micro_fastlane",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "fast"
+        },
+        {
+          "actual": "fastlane",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latency_budget.cheap_route",
+          "value": "fastlane"
+        },
+        {
+          "actual": "fast",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "fast"
+        },
+        {
+          "actual": 586.617,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "micro_utility",
+      "elapsed_ms": 586.617,
+      "failures": [
+        "elapsed_ms le 520 (actual=586.617)"
+      ],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "nexus_fastlane",
+        "actual_lane_family": "fast",
+        "compile_ms": 0.057,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 349,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_6477e8ce67",
+        "fallback_reason": null,
+        "intent_kind": "retrieval",
+        "latency_ms": 533.439,
+        "mode": "active",
+        "planned_lane": "fast",
+        "prompt_preview": "What is the capital of Texas?",
+        "request_id": "kernel_2bd41412e1eb",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-fast",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "gated_direct",
+        "ts": "2026-04-01T17:43:54.061831Z",
+        "used_backend": "anytime_early_exit"
+      },
+      "lane_tendency": "fast",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "nexus_high_risk_prod",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": [
+            "production"
+          ],
+          "op": "contains",
+          "passed": true,
+          "path": "response.kernel_v2.risk_flags",
+          "value": "production"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.planned_lane",
+          "value": "deep"
+        },
+        {
+          "actual": 547.161,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 520
+        }
+      ],
+      "class": "high_risk_or_high_ambiguity",
+      "elapsed_ms": 547.161,
+      "failures": [
+        "elapsed_ms le 520 (actual=547.161)"
+      ],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "nexus_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.06,
+        "context_reuse": {
+          "cold_hits": 1,
+          "hot_hits": 0,
+          "total_chars": 226,
+          "warm_hits": 0
+        },
+        "contract_ok": false,
+        "error": null,
+        "escalated": true,
+        "event_id": "evt_2fa01a906d",
+        "fallback_reason": null,
+        "intent_kind": "ops",
+        "latency_ms": 494.273,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "We have a production incident with possible rollback. Analyze the failure modes and response plan.",
+        "request_id": "kernel_e08e3e1e7560",
+        "response_present": true,
+        "runtime": "nexus",
+        "session_key": "bench-nexus-prod",
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:54.609624Z",
+        "used_backend": "heuristic_fallback"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 520.0,
+      "passed": false,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "meta_conductor_delegate",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.kernel_v2.plan.lane",
+          "value": "deep"
+        },
+        {
+          "actual": "deep",
+          "op": "eq",
+          "passed": true,
+          "path": "kernel_event.actual_lane_family",
+          "value": "deep"
+        },
+        {
+          "actual": 19.978,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "coding_runtime_orchestration",
+      "elapsed_ms": 19.978,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": {
+        "actual_lane": "meta_conductor_orchestrated",
+        "actual_lane_family": "deep",
+        "compile_ms": 0.156,
+        "context_reuse": {
+          "cold_hits": 0,
+          "hot_hits": 0,
+          "total_chars": 0,
+          "warm_hits": 0
+        },
+        "contract_ok": true,
+        "error": null,
+        "escalated": false,
+        "event_id": "evt_ab1011a2a6",
+        "fallback_reason": null,
+        "intent_kind": "coding",
+        "latency_ms": 17.797,
+        "mode": "active",
+        "planned_lane": "deep",
+        "prompt_preview": "Implement the runtime compiler refactor and validate the production rollout through meta conductor.",
+        "request_id": "kernel_bbf19d0d9ea5",
+        "response_present": true,
+        "runtime": "meta_conductor",
+        "session_key": null,
+        "shadow": false,
+        "strict_contract": false,
+        "surface": "orchestrate",
+        "target_oracle_lane": "alive_orchestrated",
+        "ts": "2026-04-01T17:43:54.631087Z",
+        "used_backend": "coding_chain_forced"
+      },
+      "lane_tendency": "deep",
+      "latency_slo_ms": 80.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "orchestrate"
+    },
+    {
+      "case_id": "mission_control_status",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": 6,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.oracle.events",
+          "value": 1
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.runtimes.nexus.events",
+          "value": 1
+        },
+        {
+          "actual": 5,
+          "op": "ge",
+          "passed": true,
+          "path": "response.summary.kernel_v2.surfaces.orchestrate.events",
+          "value": 1
+        },
+        {
+          "actual": 174.114,
+          "op": "le",
+          "passed": false,
+          "path": "elapsed_ms",
+          "value": 80
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 174.114,
+      "failures": [
+        "elapsed_ms le 80 (actual=174.114)"
+      ],
+      "iteration": 5,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 80.0,
+      "passed": false,
+      "runtime": "mission_control",
+      "status_code": 200,
+      "surface": "status"
+    },
+    {
+      "case_id": "command_center_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 2.176,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.176,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "command_center_kernel_sweep",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "kernel_sweep",
+          "op": "eq",
+          "passed": true,
+          "path": "response.action",
+          "value": "kernel_sweep"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.runtimes.meta_conductor.events",
+          "value": 1
+        },
+        {
+          "actual": 2.432,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.432,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center",
+      "status_code": 200,
+      "surface": "action"
+    },
+    {
+      "case_id": "command_center_live_state",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": 11,
+          "op": "ge",
+          "passed": true,
+          "path": "response.kernel_v2.events",
+          "value": 10
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.latest_kernel_event.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 2.056,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 2.056,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "command_center_live",
+      "status_code": 200,
+      "surface": "state"
+    },
+    {
+      "case_id": "nexus_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 4,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 3
+        },
+        {
+          "actual": "nexus",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "nexus"
+        },
+        {
+          "actual": 1.752,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.752,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "nexus",
+      "status_code": 200,
+      "surface": "telemetry"
+    },
+    {
+      "case_id": "meta_kernel_telemetry",
+      "check_results": [
+        {
+          "actual": 200,
+          "op": "eq",
+          "passed": true,
+          "path": "status_code",
+          "value": 200
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.status.scope.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1,
+          "op": "ge",
+          "passed": true,
+          "path": "response.status.telemetry.events",
+          "value": 1
+        },
+        {
+          "actual": "meta_conductor",
+          "op": "eq",
+          "passed": true,
+          "path": "response.events.0.runtime",
+          "value": "meta_conductor"
+        },
+        {
+          "actual": 1.299,
+          "op": "le",
+          "passed": true,
+          "path": "elapsed_ms",
+          "value": 40
+        }
+      ],
+      "class": "operator_diagnostics",
+      "elapsed_ms": 1.299,
+      "failures": [],
+      "iteration": 5,
+      "kernel_event": null,
+      "lane_tendency": "fast",
+      "latency_slo_ms": 40.0,
+      "passed": true,
+      "runtime": "meta_conductor",
+      "status_code": 200,
+      "surface": "telemetry"
+    }
+  ],
+  "corpus": {
+    "case_count": 16,
+    "iterations": 5,
+    "name": "Cortex Kernel V2 Multi-Surface Benchmark Corpus",
+    "path": "benchmarks/cortex_kernel_v2_corpus_2026-04-01.json"
+  },
+  "schema_version": "cortex.kernel_v2.benchmark_results.v1",
+  "summary": {
+    "failed_runs": 23,
+    "failure_rate": 0.287,
+    "operator_metrics": {
+      "count": 30,
+      "failure_rate": 0.167,
+      "latency_ms": {
+        "p50": 2.176,
+        "p95": 177.569
+      }
+    },
+    "passed_runs": 57,
+    "total_runs": 80,
+    "trace_metrics": {
+      "actual_deep_rate": 0.5,
+      "actual_fast_rate": 0.5,
+      "codec_use_rate": 0.5,
+      "compile_ms": {
+        "p50": 0.064,
+        "p95": 0.109
+      },
+      "context_chars": {
+        "avg": 220.4,
+        "p95": 671.0
+      },
+      "count": 50,
+      "escalation_rate": 0.2,
+      "failure_rate": 0.36,
+      "latency_ms": {
+        "p50": 494.273,
+        "p95": 646.361
+      },
+      "planned_deep_rate": 0.5,
+      "planned_fast_rate": 0.5
+    }
+  }
+}

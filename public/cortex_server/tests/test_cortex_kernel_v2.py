@@ -22,6 +22,17 @@ def test_compile_request_contract_prefers_deep_for_code_change_and_risk():
 
 
 
+def test_memory_style_token_prompt_does_not_force_security_deep_lane():
+    contract = kernel_v2.compile_request_contract(
+        "Remember token alpha-123 for later.",
+        session_key="session:kernel-memory-risk",
+    )
+
+    assert "security" not in contract["risk_flags"]
+    assert contract["lane"]["preferred"] == "fast"
+
+
+
 def test_working_set_compiles_explicit_hot_warm_cold_classes():
     trace = kernel_v2.prepare_request(
         "Remember token alpha-123 for later.",
@@ -77,6 +88,28 @@ def test_prepare_and_finalize_emit_benchmark_telemetry():
     assert snapshot["benchmark"]["actual_deep_rate"] == 1.0
     assert snapshot["benchmark"]["context_hit_rate"] == 1.0
     assert snapshot["telemetry"]["latency"]["count"] == 1
+
+
+
+def test_deep_plan_best_effort_counts_as_deep_execution_family():
+    trace = kernel_v2.prepare_request(
+        "Plan the architecture tradeoff for the runtime compiler and rollout toggles.",
+        session_key="session:kernel-best-effort-deep",
+        priority="normal",
+    )
+
+    kernel_v2.finalize_request(
+        trace["request_id"],
+        response="Use a shared compiler and staged rollout.",
+        actual_lane="best_effort",
+        used_backend="fake-model",
+        fallback_reason="planning_depth",
+        contract_ok=True,
+    )
+
+    latest = kernel_v2.performance_snapshot()["latest"]
+    assert latest["planned_lane"] == "deep"
+    assert latest["actual_lane_family"] == "deep"
 
 
 
@@ -180,6 +213,8 @@ def test_runtime_scoped_snapshots_and_mission_control_summary():
     assert summary["kernel_v2"]["runtimes"]["nexus"]["events"] == 1
     assert summary["kernel_v2"]["runtimes"]["meta_conductor"]["events"] == 1
     assert summary["kernel_v2"]["surfaces"]["orchestrate"]["events"] == 2
+    assert summary["kernel_v2"]["latest"]["runtime"] == "meta_conductor"
+    assert summary["kernel_v2"]["runtimes"]["meta_conductor"]["latest"]["runtime"] == "meta_conductor"
     assert "meta_conductor" in summary["kernel_v2"]["rollout"]["runtimes"]
 
 

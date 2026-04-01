@@ -53,7 +53,7 @@ async def command_center_state(seed: int | None = None):
         "t": now,
         "strength": rng.random() * 0.7 + 0.3,
         "kernel_v2": kernel_summary,
-        "latest_kernel_event": cortex_kernel_v2.performance_snapshot().get("latest"),
+        "latest_kernel_event": kernel_summary.get("latest"),
     })
 
 

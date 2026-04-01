@@ -150,18 +150,23 @@ def _overlap_score(a: str, b: str) -> int:
 
 def _risk_flags(prompt: str) -> List[str]:
     text = (prompt or "").lower()
+    security_markers = ["security", "auth", "credential", "secret", "password", "exploit", "api key", "oauth", "jwt", "ssh key", "bearer token", "access token", "auth token"]
     checks = {
-        "security": ["security", "auth", "token", "credential", "secret", "password", "exploit"],
         "safety": ["safety", "danger", "hazard", "harm"],
         "legal": ["legal", "contract", "law", "breach"],
         "medical": ["medical", "diagnosis", "symptom", "prescription"],
         "financial": ["financial", "investment", "tax", "credit"],
         "production": ["production", "incident", "outage", "rollback", "on-call"],
     }
-    flags = [name for name, needles in checks.items() if any(needle in text for needle in needles)]
+    flags: List[str] = []
+    if any(needle in text for needle in security_markers):
+        flags.append("security")
+    elif "token" in text and any(marker in text for marker in ["api", "auth", "bearer", "access", "credential", "secret", "password"]):
+        flags.append("security")
+    flags.extend(name for name, needles in checks.items() if any(needle in text for needle in needles))
     if any(word in text for word in ["implement", "refactor", "patch", "edit file", "write code", "fix bug"]):
         flags.append("code_change")
-    return flags
+    return sorted(set(flags))
 
 
 def _intent_kind(prompt: str) -> str:
@@ -234,7 +239,19 @@ def _simple_qa(prompt: str, *, strict_contract: bool, complexity_score: float) -
 
 def _is_follow_up(prompt: str) -> bool:
     lowered = (prompt or "").lower()
-    cues = ["that", "it", "those", "they", "what about", "follow up", "as above", "same issue"]
+    cues = [
+        "that",
+        "it",
+        "those",
+        "they",
+        "what about",
+        "follow up",
+        "as above",
+        "same issue",
+        "what did i ask you",
+        "what token did i ask",
+        "what was the token",
+    ]
     return any(cue in lowered for cue in cues)
 
 
@@ -520,11 +537,17 @@ def prepare_request(
     return trace
 
 
-def _actual_lane_family(actual_lane: str) -> str:
+def _actual_lane_family(actual_lane: str, *, planned_lane: str = "fast", target_oracle_lane: str = "") -> str:
     lane = str(actual_lane or "").strip()
     if lane in _DEEP_ACTUAL_LANES:
         return "deep"
     if lane in _FAST_ACTUAL_LANES:
+        if lane in {"best_effort", "fallback_best_effort", "gated_direct"}:
+            target = str(target_oracle_lane or "").strip().lower()
+            if str(planned_lane or "").strip().lower() == "deep":
+                return "deep"
+            if target in {"alive_orchestrated", "augmenter", "strict_contract", "best_effort"} and "direct" not in target:
+                return "deep"
         return "fast"
     if lane.startswith("semantic_guardrail") or lane.startswith("strict_contract_micro"):
         return "fast"
@@ -546,6 +569,135 @@ def _latency_stats(values: List[float]) -> JsonDict:
     }
 
 
+def _new_summary_accumulator() -> JsonDict:
+    return {
+        "events": 0,
+        "pending_requests": 0,
+        "latency_values": [],
+        "compile_values": [],
+        "planned_fast": 0,
+        "planned_deep": 0,
+        "actual_fast": 0,
+        "actual_deep": 0,
+        "escalations": 0,
+        "context_hit_events": 0,
+        "hot_hits": 0,
+        "warm_hits": 0,
+        "cold_hits": 0,
+        "total_chars": 0,
+        "runtime_breakdown": {},
+        "surface_breakdown": {},
+        "latest": None,
+        "session_keys": set(),
+    }
+
+
+def _accumulate_event_summary(acc: JsonDict, event: JsonDict) -> None:
+    acc["events"] += 1
+    latency = float(event.get("latency_ms") or 0.0)
+    compile_ms = float(event.get("compile_ms") or 0.0)
+    acc["latency_values"].append(latency)
+    acc["compile_values"].append(compile_ms)
+    planned_lane = str(event.get("planned_lane") or "fast")
+    actual_lane = str(event.get("actual_lane_family") or "fast")
+    if planned_lane == "fast":
+        acc["planned_fast"] += 1
+    elif planned_lane == "deep":
+        acc["planned_deep"] += 1
+    if actual_lane == "fast":
+        acc["actual_fast"] += 1
+    elif actual_lane == "deep":
+        acc["actual_deep"] += 1
+    if event.get("escalated"):
+        acc["escalations"] += 1
+    reuse = dict(event.get("context_reuse") or {})
+    total_chars = int(reuse.get("total_chars") or 0)
+    if total_chars > 0:
+        acc["context_hit_events"] += 1
+    acc["hot_hits"] += int(reuse.get("hot_hits") or 0)
+    acc["warm_hits"] += int(reuse.get("warm_hits") or 0)
+    acc["cold_hits"] += int(reuse.get("cold_hits") or 0)
+    acc["total_chars"] += total_chars
+    runtime_key = str(event.get("runtime") or "oracle")
+    surface_key = str(event.get("surface") or "chat")
+    acc["runtime_breakdown"][runtime_key] = acc["runtime_breakdown"].get(runtime_key, 0) + 1
+    acc["surface_breakdown"][surface_key] = acc["surface_breakdown"].get(surface_key, 0) + 1
+    session_key = str(event.get("session_key") or "").strip()
+    if session_key:
+        acc["session_keys"].add(session_key)
+    acc["latest"] = event
+
+
+def _accumulate_pending_summary(acc: JsonDict, trace: JsonDict) -> None:
+    acc["pending_requests"] += 1
+    session_key = str(trace.get("session_key") or "").strip()
+    if session_key:
+        acc["session_keys"].add(session_key)
+
+
+def _finalize_summary_accumulator(acc: JsonDict, *, settings: JsonDict, scope_runtime: Optional[str] = None, scope_surface: Optional[str] = None, active_sessions: Optional[int] = None) -> JsonDict:
+    count = int(acc.get("events") or 0)
+    latency_values = list(acc.get("latency_values") or [])
+    compile_values = list(acc.get("compile_values") or [])
+    benchmark = {
+        "count": count,
+        "planned_fast_rate": round(int(acc.get("planned_fast") or 0) / count, 3) if count else 0.0,
+        "planned_deep_rate": round(int(acc.get("planned_deep") or 0) / count, 3) if count else 0.0,
+        "actual_fast_rate": round(int(acc.get("actual_fast") or 0) / count, 3) if count else 0.0,
+        "actual_deep_rate": round(int(acc.get("actual_deep") or 0) / count, 3) if count else 0.0,
+        "escalation_rate": round(int(acc.get("escalations") or 0) / count, 3) if count else 0.0,
+        "context_hit_rate": round(int(acc.get("context_hit_events") or 0) / count, 3) if count else 0.0,
+        "avg_context_chars": round(int(acc.get("total_chars") or 0) / count, 2) if count else 0.0,
+    }
+    latency_stats = _latency_stats(latency_values)
+    compile_stats = _latency_stats(compile_values)
+    session_total = active_sessions if active_sessions is not None else len(acc.get("session_keys") or set())
+    return {
+        "version": settings["version"],
+        "scope": {"runtime": scope_runtime or None, "surface": scope_surface or None},
+        "enabled": settings["enabled"],
+        "mode": settings["mode"],
+        "settings": {
+            "disable_context_reuse": settings["disable_context_reuse"],
+            "disable_fast_path": settings["disable_fast_path"],
+            "disable_deep_path": settings["disable_deep_path"],
+            "disable_prompt_compiler": settings["disable_prompt_compiler"],
+            "disable_codec_context": settings["disable_codec_context"],
+            "fast_complexity_threshold": settings["fast_complexity_threshold"],
+            "deep_complexity_threshold": settings["deep_complexity_threshold"],
+        },
+        "telemetry": {
+            "events": count,
+            "pending_requests": int(acc.get("pending_requests") or 0),
+            "active_sessions": session_total,
+            "latency": latency_stats,
+            "compile": compile_stats,
+            "context_hits": {
+                "hot": int(acc.get("hot_hits") or 0),
+                "warm": int(acc.get("warm_hits") or 0),
+                "cold": int(acc.get("cold_hits") or 0),
+            },
+            "runtime_breakdown": dict(acc.get("runtime_breakdown") or {}),
+            "surface_breakdown": dict(acc.get("surface_breakdown") or {}),
+        },
+        "benchmark": benchmark,
+        "economics": {
+            "latency_budget_ms": {
+                "fast": settings["fast_latency_budget_ms"],
+                "deep": settings["deep_latency_budget_ms"],
+            },
+            "compile_p95_ms": compile_stats.get("p95_ms", 0.0),
+            "latency_p95_ms": latency_stats.get("p95_ms", 0.0),
+            "avg_context_chars": benchmark.get("avg_context_chars", 0.0),
+            "escalation_rate": benchmark.get("escalation_rate", 0.0),
+            "planned_fast_rate": benchmark.get("planned_fast_rate", 0.0),
+            "actual_fast_rate": benchmark.get("actual_fast_rate", 0.0),
+            "actual_deep_rate": benchmark.get("actual_deep_rate", 0.0),
+        },
+        "latest": acc.get("latest"),
+    }
+
+
 def finalize_request(
     request_id: Optional[str],
     *,
@@ -563,7 +715,8 @@ def finalize_request(
 
     elapsed_ms = round((time.perf_counter() - float(trace.get("started_perf") or time.perf_counter())) * 1000.0, 3)
     planned_lane = str((((trace.get("plan") or {}).get("lane")) or "fast"))
-    actual_lane_family = _actual_lane_family(actual_lane)
+    target_oracle_lane = str((((trace.get("plan") or {}).get("target_oracle_lane")) or "gated_direct"))
+    actual_lane_family = _actual_lane_family(actual_lane, planned_lane=planned_lane, target_oracle_lane=target_oracle_lane)
     response_text = str(response or "")
     escalated = False
     if planned_lane == "fast" and actual_lane_family == "deep":
@@ -582,7 +735,7 @@ def finalize_request(
         "planned_lane": planned_lane,
         "actual_lane": actual_lane,
         "actual_lane_family": actual_lane_family,
-        "target_oracle_lane": (((trace.get("plan") or {}).get("target_oracle_lane")) or "gated_direct"),
+        "target_oracle_lane": target_oracle_lane,
         "used_backend": used_backend,
         "fallback_reason": fallback_reason,
         "contract_ok": contract_ok,
@@ -781,22 +934,51 @@ def performance_snapshot(*, runtime: Optional[str] = None, surface: Optional[str
 
 
 def mission_control_summary() -> JsonDict:
-    snapshot = performance_snapshot()
+    with _LOCK:
+        all_events = list(_EVENTS)
+        pending_traces = list(_PENDING.values())
+        global_active_sessions = len(_SESSIONS)
+
+    runtime_names = sorted({*known_runtimes(), *(str(event.get("runtime") or "").strip().lower() for event in all_events if str(event.get("runtime") or "").strip())})
+    surface_names = sorted({*known_surfaces(), *(str(event.get("surface") or "").strip().lower() for event in all_events if str(event.get("surface") or "").strip())})
+
+    global_acc = _new_summary_accumulator()
+    runtime_accs: Dict[str, JsonDict] = {name: _new_summary_accumulator() for name in runtime_names}
+    surface_accs: Dict[str, JsonDict] = {name: _new_summary_accumulator() for name in surface_names}
+
+    for event in all_events:
+        _accumulate_event_summary(global_acc, event)
+        runtime_key = str(event.get("runtime") or "").strip().lower()
+        surface_key = str(event.get("surface") or "").strip().lower()
+        if runtime_key:
+            runtime_accs.setdefault(runtime_key, _new_summary_accumulator())
+            _accumulate_event_summary(runtime_accs[runtime_key], event)
+        if surface_key:
+            surface_accs.setdefault(surface_key, _new_summary_accumulator())
+            _accumulate_event_summary(surface_accs[surface_key], event)
+
+    for trace in pending_traces:
+        _accumulate_pending_summary(global_acc, trace)
+        runtime_key = str(trace.get("runtime") or "").strip().lower()
+        surface_key = str(trace.get("surface") or "").strip().lower()
+        if runtime_key:
+            runtime_accs.setdefault(runtime_key, _new_summary_accumulator())
+            _accumulate_pending_summary(runtime_accs[runtime_key], trace)
+        if surface_key:
+            surface_accs.setdefault(surface_key, _new_summary_accumulator())
+            _accumulate_pending_summary(surface_accs[surface_key], trace)
+
+    snapshot = _finalize_summary_accumulator(global_acc, settings=_settings("oracle"), active_sessions=global_active_sessions)
     benchmark = dict(snapshot.get("benchmark") or {})
     telemetry = dict(snapshot.get("telemetry") or {})
-    runtime_names = known_runtimes()
-    surface_names = known_surfaces()
-    runtime_summaries: Dict[str, JsonDict] = {}
 
-    def _runtime_summary(name: str) -> JsonDict:
-        cached = runtime_summaries.get(name)
-        if isinstance(cached, dict):
-            return cached
-        runtime_snapshot = performance_snapshot(runtime=name)
+    runtime_summaries: Dict[str, JsonDict] = {}
+    for name in sorted(runtime_accs):
+        runtime_snapshot = _finalize_summary_accumulator(runtime_accs[name], settings=_settings(name), scope_runtime=name)
         runtime_benchmark = dict(runtime_snapshot.get("benchmark") or {})
         runtime_telemetry = dict(runtime_snapshot.get("telemetry") or {})
         runtime_economics = dict(runtime_snapshot.get("economics") or {})
-        summary = {
+        runtime_summaries[name] = {
             "enabled": runtime_snapshot.get("enabled"),
             "mode": runtime_snapshot.get("mode"),
             "events": runtime_telemetry.get("events", 0),
@@ -819,17 +1001,17 @@ def mission_control_summary() -> JsonDict:
                 "disable_codec_context": ((runtime_snapshot.get("settings") or {}).get("disable_codec_context")),
             },
             "latency_budget_ms": dict(runtime_economics.get("latency_budget_ms") or {}),
+            "latest": runtime_snapshot.get("latest"),
         }
-        runtime_summaries[name] = summary
-        return summary
 
-    def _surface_summary(name: str) -> JsonDict:
-        surface_snapshot = performance_snapshot(surface=name)
+    surface_summaries: Dict[str, JsonDict] = {}
+    for name in sorted(surface_accs):
+        surface_snapshot = _finalize_summary_accumulator(surface_accs[name], settings=_settings("oracle"), scope_surface=name)
         surface_benchmark = dict(surface_snapshot.get("benchmark") or {})
         surface_telemetry = dict(surface_snapshot.get("telemetry") or {})
         surface_economics = dict(surface_snapshot.get("economics") or {})
         latest = surface_snapshot.get("latest") if isinstance(surface_snapshot.get("latest"), dict) else None
-        return {
+        surface_summaries[name] = {
             "events": surface_telemetry.get("events", 0),
             "pending_requests": surface_telemetry.get("pending_requests", 0),
             "active_sessions": surface_telemetry.get("active_sessions", 0),
@@ -843,6 +1025,7 @@ def mission_control_summary() -> JsonDict:
             "avg_context_chars": surface_economics.get("avg_context_chars", 0.0),
             "runtime_breakdown": dict(surface_telemetry.get("runtime_breakdown") or {}),
             "latest_runtime": latest.get("runtime") if latest else None,
+            "latest": latest,
         }
 
     return {
@@ -862,20 +1045,28 @@ def mission_control_summary() -> JsonDict:
             "avg_context_chars": benchmark.get("avg_context_chars", 0.0),
             "runtime_breakdown": dict(telemetry.get("runtime_breakdown") or {}),
             "surface_breakdown": dict(telemetry.get("surface_breakdown") or {}),
-            "runtimes": {name: _runtime_summary(name) for name in runtime_names},
-            "surfaces": {name: _surface_summary(name) for name in surface_names},
+            "latest": snapshot.get("latest"),
+            "runtimes": runtime_summaries,
+            "surfaces": surface_summaries,
             "rollout": {
                 "runtimes": {
                     name: {
-                        "enabled": _runtime_summary(name).get("enabled"),
-                        "mode": _runtime_summary(name).get("mode"),
-                        "settings": dict(_runtime_summary(name).get("settings") or {}),
-                        "latency_budget_ms": dict(_runtime_summary(name).get("latency_budget_ms") or {}),
+                        "enabled": runtime_summaries[name].get("enabled"),
+                        "mode": runtime_summaries[name].get("mode"),
+                        "settings": dict(runtime_summaries[name].get("settings") or {}),
+                        "latency_budget_ms": dict(runtime_summaries[name].get("latency_budget_ms") or {}),
                     }
-                    for name in runtime_names
+                    for name in runtime_summaries
                 }
             },
         }
+    }
+
+
+def diagnostic_bundle(*, runtime: Optional[str] = None, surface: Optional[str] = None, limit: int = 50) -> JsonDict:
+    return {
+        "status": performance_snapshot(runtime=runtime, surface=surface),
+        "events": recent_events(limit=limit, runtime=runtime, surface=surface),
     }
 
 
