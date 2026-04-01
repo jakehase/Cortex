@@ -2731,7 +2731,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-01T00:44:15.689Z",
+      "updatedAt": "2026-04-01T00:49:12.647Z",
       "history": [
         {
           "from": null,
@@ -2749,9 +2749,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 125,
+        "runs": 126,
         "failures": [],
-        "lastRunAt": "2026-04-01T00:44:15.703Z",
+        "lastRunAt": "2026-04-01T00:49:12.654Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -6878,7 +6878,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-01T00:40:00.985Z",
+      "updatedAt": "2026-04-01T00:52:27.493Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -6913,9 +6913,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 49,
+        "runs": 51,
         "failures": [],
-        "lastRunAt": "2026-04-01T00:40:00.993Z",
+        "lastRunAt": "2026-04-01T00:52:27.498Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -7322,6 +7322,41 @@
       },
       "completedAt": "2026-04-01T00:05:56.427Z",
       "completionSource": "agent_end"
+    },
+    {
+      "id": "agent:main:subagent:1b55d274-e9e6-4077-9fea-1b9c939aa4f8:1775004739837:7a4993d87dabb776",
+      "sessionKey": "agent:main:subagent:1b55d274-e9e6-4077-9fea-1b9c939aa4f8",
+      "createdAt": "2026-04-01T00:52:19.837Z",
+      "updatedAt": "2026-04-01T00:52:19.842Z",
+      "prompt": "[Tue 2026-03-31 19:52 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Implement Phases 1–3 of the no-silent-idle fix roadmap in /root/",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-01T00:52:19.837Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-01T00:52:19.842Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      }
     }
   ]
 }
