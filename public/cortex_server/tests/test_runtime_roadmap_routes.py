@@ -108,6 +108,8 @@ def test_runtime_roadmap_routes_bootstrap_reconcile_and_sync_metadata(tmp_path, 
     assert reconciled["process"]["workflow"]["metadata"]["runtime_roadmap"]["execution_budget"]["max_auto_chain_passes"] == 4
     assert reconciled["process"]["workflow"]["metadata"]["runtime_roadmap"]["reporting_policy"]["report_every_iterations"] == 1
     assert reconciled["process"]["workflow"]["metadata"]["runtime_roadmap"]["execution_discipline"]["latest_decisions"]["status"] == "completed"
+    assert reconciled["process"]["workflow"]["metadata"]["runtime_roadmap"]["progress_snapshot"]["task_completed"] == 1
+    assert reconciled["process"]["workflow"]["metadata"]["runtime_roadmap"]["latest_report_progress"]["task_completed"] == 1
     assert reconciled["process"]["workflow"]["metadata"]["roadmap_status"] == "completed"
     assert reconciled["process"]["workflow"]["metadata"]["roadmap_continuation_mode"] == "stop"
     assert reconciled["process"]["workflow"]["metadata"]["roadmap_executor"]["objective"] == "runtime_roadmap_route"

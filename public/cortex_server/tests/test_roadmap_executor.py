@@ -150,6 +150,100 @@ def _contract(process_id: str) -> RoadmapObjectiveContract:
 
 
 
+def _long_chain_contract(process_id: str) -> RoadmapObjectiveContract:
+    return RoadmapObjectiveContract(
+        process_id=process_id,
+        objective="Drive a long mixed roadmap without natural pauses",
+        dependability_profile=dict(MINIMAL_PROFILE),
+        metadata={"default_worker_id": "builder"},
+        phases=[
+            RoadmapPhaseDefinition(phase_id="foundation", title="Foundation"),
+            RoadmapPhaseDefinition(phase_id="hardening", title="Hardening", depends_on=["foundation"]),
+        ],
+        tasks=[
+            RoadmapTaskDefinition(
+                task_id="build",
+                phase_id="foundation",
+                title="Build",
+                work_type="feature",
+                quality_gates=[
+                    RoadmapSuccessCriterion(
+                        criterion_id="build-done",
+                        summary="Build must land",
+                        kind="world_state",
+                        world_state_key="build_done",
+                        expected_value=True,
+                    )
+                ],
+            ),
+            RoadmapTaskDefinition(
+                task_id="fix",
+                phase_id="foundation",
+                title="Fix",
+                work_type="bug_fix",
+                depends_on=["build"],
+                quality_gates=[
+                    RoadmapSuccessCriterion(
+                        criterion_id="fix-done",
+                        summary="Fix must land",
+                        kind="world_state",
+                        world_state_key="fix_done",
+                        expected_value=True,
+                    )
+                ],
+            ),
+            RoadmapTaskDefinition(
+                task_id="refactor",
+                phase_id="hardening",
+                title="Refactor",
+                work_type="refactor",
+                quality_gates=[
+                    RoadmapSuccessCriterion(
+                        criterion_id="refactor-done",
+                        summary="Refactor must land",
+                        kind="world_state",
+                        world_state_key="refactor_done",
+                        expected_value=True,
+                    )
+                ],
+            ),
+            RoadmapTaskDefinition(
+                task_id="reliability",
+                phase_id="hardening",
+                title="Reliability",
+                work_type="reliability",
+                depends_on=["refactor"],
+                quality_gates=[
+                    RoadmapSuccessCriterion(
+                        criterion_id="reliability-done",
+                        summary="Reliability evidence must land",
+                        kind="world_state",
+                        world_state_key="reliability_done",
+                        expected_value=True,
+                    )
+                ],
+            ),
+            RoadmapTaskDefinition(
+                task_id="release",
+                phase_id="hardening",
+                title="Release",
+                work_type="release_prep",
+                depends_on=["reliability"],
+                quality_gates=[
+                    RoadmapSuccessCriterion(
+                        criterion_id="release-done",
+                        summary="Release prep must land",
+                        kind="world_state",
+                        world_state_key="release_done",
+                        expected_value=True,
+                    )
+                ],
+            ),
+        ],
+    )
+
+
+
 def test_roadmap_executor_persists_through_mixed_phases_until_true_completion(tmp_path):
     harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
     process_id = "proc_roadmap"
@@ -453,6 +547,193 @@ def test_roadmap_executor_auto_chains_across_phase_completion_without_natural_pa
     assert all("scope" in report.metadata["execution_discipline"]["validation_policy"] for report in reports)
     assert all("next=" in report.summary or report.kind != "checkpoint" for report in reports)
     assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "active"
+
+
+
+def test_roadmap_executor_emits_budget_exhaustion_checkpoint_with_broad_progress(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_roadmap_budget_checkpoint"
+    store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=["build"],
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state={
+                **dict(seeded["shared_state"].world_state),
+                "build_done": True,
+                "fix_done": True,
+                "refactor_done": True,
+                "reliability_done": True,
+                "release_done": True,
+            },
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=[],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "seed_long_chain"},
+    )
+
+    result = reconcile_roadmap_execution(
+        _long_chain_contract(process_id).model_copy(
+            update={
+                "execution_budget": RoadmapPassBudget(
+                    max_auto_chain_passes=3,
+                    max_task_completions_per_pass=1,
+                    max_phase_transitions_per_pass=1,
+                    max_task_dispatches_per_pass=1,
+                )
+            }
+        ),
+        roadmap_store=store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-budget-checkpoint",
+        journal=harness.journal,
+    )
+
+    reports = store.reports(process_id)
+    persisted = store.load_state(process_id)
+
+    assert result["state"]["status"] == "active"
+    assert result["continuation"]["mode"] == "continue_now"
+    assert result["continuation"]["reason"] == "auto_chain_budget_exhausted"
+    assert result["report"] is not None
+    assert "auto_pause=budget_exhausted" in result["report"]["summary"]
+    assert "tasks=3/5" in result["report"]["summary"]
+    assert "chained_passes=3" in result["report"]["summary"]
+    assert "auto_chain_budget_exhausted" in result["report"]["metadata"]["reasons"]
+    assert result["report"]["metadata"]["validation_scope"] == "broad"
+    assert result["report"]["metadata"]["progress"]["task_completed"] == 3
+    assert result["report"]["metadata"]["progress"]["next_action_kind"] == "complete_task"
+    assert persisted is not None
+    assert persisted.metadata["progress_snapshot"]["task_completed"] == 3
+    assert persisted.metadata["execution_discipline"]["progress"]["task_completed"] == 3
+    assert persisted.metadata["validation_policy"]["scope"] == "broad"
+    assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["budget_exhausted"] is True
+
+
+
+def test_roadmap_executor_long_chain_reports_narrow_only_true_human_blockers(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_roadmap_long_chain_blocker"
+    store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=["build"],
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state={
+                **dict(seeded["shared_state"].world_state),
+                "build_done": True,
+                "fix_done": True,
+                "refactor_done": True,
+                "reliability_done": True,
+                "release_done": True,
+            },
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=[],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "seed_long_chain"},
+    )
+
+    contract = _long_chain_contract(process_id).model_copy(
+        update={
+            "execution_budget": RoadmapPassBudget(
+                max_auto_chain_passes=3,
+                max_task_completions_per_pass=1,
+                max_phase_transitions_per_pass=1,
+                max_task_dispatches_per_pass=1,
+            )
+        }
+    )
+    first = reconcile_roadmap_execution(
+        contract,
+        roadmap_store=store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-long-chain-1",
+        journal=harness.journal,
+    )
+    assert first["continuation"]["reason"] == "auto_chain_budget_exhausted"
+
+    current_shared = harness.shared_state_store.load(process_id)
+    harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_3",
+            goals=list(current_shared.goals),
+            active_plan_node_ids=["reliability"],
+            runtime_constraints=dict(current_shared.runtime_constraints),
+            world_state=dict(current_shared.world_state),
+            belief_refs=list(current_shared.belief_refs),
+            open_questions=[],
+            open_decisions=[
+                OpenDecision(
+                    decision_id="dec_release_window",
+                    title="Approve release window",
+                    owner="human",
+                    metadata={"blocking": True},
+                )
+            ],
+            agent_ownership=dict(current_shared.agent_ownership),
+            metadata=dict(current_shared.metadata),
+        ),
+        expected_revision_id=current_shared.revision_id,
+        actor="builder",
+        provenance={"phase": "inject_true_human_blocker"},
+    )
+    current_state = store.load_state(process_id)
+    reliability = next(task for task in current_state.task_states if task.task_id == "reliability")
+    reliability.status = "blocked"
+    reliability.blockers = [{"source": "task_blocker", "summary": "Retry flaky soak evidence collector", "requires_human": False}]
+    store.save_state(current_state)
+
+    result = reconcile_roadmap_execution(
+        contract,
+        roadmap_store=store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-long-chain-2",
+        journal=harness.journal,
+    )
+
+    reports = store.reports(process_id)
+
+    assert result["state"]["status"] == "blocked"
+    assert any(action["action"] == "requeue_task" and action["task_id"] == "reliability" for action in result["actions_taken"])
+    assert len(result["blockers"]) == 1
+    assert result["blockers"][0]["source"] == "open_decision"
+    assert result["blockers"][0]["blocker_class"] == "human_decision"
+    assert result["report"]["metadata"]["progress"]["task_completed"] >= 3
+    assert result["report"]["metadata"]["progress"]["human_blocker_count"] == 1
+    assert result["report"]["metadata"]["execution_discipline"]["blocker_policy"]["requeued_task_ids"] == ["reliability"]
+    assert reports[-1].kind == "blocked"
 
 
 

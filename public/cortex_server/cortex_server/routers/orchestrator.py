@@ -685,8 +685,10 @@ def _runtime_roadmap_projection(
         "execution_discipline": dict(metadata.get("execution_discipline") or {}),
         "validation_policy": dict(metadata.get("validation_policy") or {}),
         "blocker_policy": dict(metadata.get("blocker_policy") or {}),
+        "progress_snapshot": dict(metadata.get("progress_snapshot") or {}),
         "latest_decisions": dict((metadata.get("execution_discipline") or {}).get("latest_decisions") or {}),
         "latest_report_reasons": list(latest_report_metadata.get("reasons") or []),
+        "latest_report_progress": dict(latest_report_metadata.get("progress") or {}),
     }
 
 

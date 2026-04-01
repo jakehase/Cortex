@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from cortex_server.runtime.agent_mailbox import AgentMailbox
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.process_snapshot import ProcessSnapshot, ProcessSnapshotStore
+from cortex_server.runtime.dependability import load_dependability_report
 from cortex_server.runtime.production_build_loop import repair_production_dependability
 from cortex_server.runtime.release_workflow import ReleaseWorkflowState, ReleaseWorkflowStore
 from cortex_server.runtime.shared_process_state import OpenDecision, SharedProcessState, SharedProcessStateStore
@@ -1246,6 +1247,106 @@ def _report_blocker_key(blocker: Dict[str, Any]) -> str:
 
 
 
+def _roadmap_progress_snapshot(
+    contract: "RoadmapObjectiveContract",
+    *,
+    state: "RoadmapExecutionState",
+    blockers: Sequence[Dict[str, Any]],
+    completion: Dict[str, Any],
+    next_action: Optional[Dict[str, Any]] = None,
+    continuation: Optional[Dict[str, Any]] = None,
+    release_state: Optional[ReleaseWorkflowState] = None,
+    actions_taken: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    task_counts: Dict[str, int] = {}
+    for row in state.task_states:
+        key = str(row.status or "pending")
+        task_counts[key] = task_counts.get(key, 0) + 1
+
+    phase_counts: Dict[str, int] = {}
+    for row in state.phase_states:
+        key = str(row.status or "pending")
+        phase_counts[key] = phase_counts.get(key, 0) + 1
+
+    completed_task_ids = [row.task_id for row in state.task_states if row.status == "completed"]
+    blocked_task_ids = [row.task_id for row in state.task_states if row.status == "blocked"]
+    in_progress_task_ids = [row.task_id for row in state.task_states if row.status == "in_progress"]
+    completed_phase_ids = [row.phase_id for row in state.phase_states if row.status == "completed"]
+    ready_task_ids = _ready_task_ids_for_phase(contract, state, state.active_phase_id)
+    action_rows = [dict(row) for row in (actions_taken or []) if isinstance(row, dict)]
+
+    return {
+        "phase_total": len(contract.phases),
+        "phase_completed": len(completed_phase_ids),
+        "phase_status_counts": phase_counts,
+        "completed_phase_ids": completed_phase_ids,
+        "task_total": len(contract.tasks),
+        "task_completed": len(completed_task_ids),
+        "task_status_counts": task_counts,
+        "completed_task_ids": completed_task_ids,
+        "blocked_task_ids": blocked_task_ids,
+        "in_progress_task_ids": in_progress_task_ids,
+        "active_phase_id": state.active_phase_id,
+        "active_task_ids": list(state.active_task_ids),
+        "ready_task_ids": ready_task_ids,
+        "next_task_ids": list((next_action or {}).get("task_ids") or []),
+        "next_action_kind": (next_action or {}).get("kind"),
+        "continuation_mode": (continuation or {}).get("mode"),
+        "continuation_reason": (continuation or {}).get("reason"),
+        "true_blocker_count": len(blockers),
+        "human_blocker_count": sum(1 for row in blockers if bool(row.get("requires_human"))),
+        "blocker_sources": _dedupe_rows([str(row.get("source") or "") for row in blockers]),
+        "blocker_classes": _dedupe_rows([str(row.get("blocker_class") or "") for row in blockers]),
+        "release_stage": release_state.current_stage if release_state is not None else state.current_release_stage,
+        "completion_required_total": int(completion.get("required_total", 0) or 0),
+        "completion_required_satisfied": int(completion.get("required_satisfied", 0) or 0),
+        "completion_ready": bool(completion.get("all_required_satisfied")),
+        "recent_action_types": _dedupe_rows([str(row.get("action") or "") for row in action_rows]),
+        "recent_completed_task_ids": _dedupe_rows([str(row.get("task_id") or "") for row in action_rows if row.get("action") == "complete_task"]),
+        "recent_completed_phase_ids": _dedupe_rows([str(row.get("phase_id") or "") for row in action_rows if row.get("action") == "complete_phase"]),
+    }
+
+
+
+def _roadmap_operator_summary(
+    contract: "RoadmapObjectiveContract",
+    *,
+    state: "RoadmapExecutionState",
+    status: str,
+    blockers: Sequence[Dict[str, Any]],
+    next_action: Dict[str, Any],
+    validation_scope: str,
+    progress: Dict[str, Any],
+    chained_passes: Optional[int] = None,
+    auto_chain_budget_exhausted: bool = False,
+) -> str:
+    phase_text = f"phases={progress.get('phase_completed', 0)}/{progress.get('phase_total', 0)}"
+    task_text = f"tasks={progress.get('task_completed', 0)}/{progress.get('task_total', 0)}"
+    active_tasks = ",".join(progress.get("active_task_ids") or []) or "n/a"
+    next_kind = str(next_action.get("kind") or "n/a")
+    if status == "completed":
+        return f"roadmap objective completed for {contract.process_id}: {phase_text}, {task_text}, validation={validation_scope}"
+    if status == "blocked":
+        blocker_count = len(blockers)
+        blocker_classes = ",".join(progress.get("blocker_classes") or []) or "true_blockers"
+        return (
+            f"roadmap objective blocked for {contract.process_id}: {phase_text}, {task_text}, "
+            f"blockers={blocker_count}({blocker_classes}), next={next_kind}, validation={validation_scope}"
+        )
+    if auto_chain_budget_exhausted:
+        passes_text = f", chained_passes={int(chained_passes or 0)}" if chained_passes is not None else ""
+        return (
+            f"roadmap objective active for {contract.process_id}: {phase_text}, {task_text}, "
+            f"phase={state.active_phase_id or 'n/a'}, active={active_tasks}, next={next_kind}, "
+            f"validation={validation_scope}{passes_text}, auto_pause=budget_exhausted"
+        )
+    return (
+        f"roadmap objective active for {contract.process_id}: {phase_text}, {task_text}, "
+        f"phase={state.active_phase_id or 'n/a'}, active={active_tasks}, next={next_kind}, validation={validation_scope}"
+    )
+
+
+
 def _decision_requires_human(decision: OpenDecision) -> bool:
     metadata = dict(decision.metadata or {})
     owner = str(decision.owner or "").strip().lower()
@@ -2055,6 +2156,16 @@ def _reconcile_roadmap_execution_pass(
     if status == "blocked":
         report_reasons.append("blocked")
 
+    progress_snapshot = _roadmap_progress_snapshot(
+        contract,
+        state=state,
+        blockers=blockers,
+        completion=completion,
+        next_action=next_action,
+        continuation=continuation,
+        release_state=release_state,
+        actions_taken=all_actions,
+    )
     execution_discipline = {
         "reporting_policy": _policy_dump(contract.reporting_policy),
         "blocker_policy": {
@@ -2075,6 +2186,7 @@ def _reconcile_roadmap_execution_pass(
             "next_action_kind": next_action.get("kind"),
             "quality_gate": "promotion_or_completion_checkpoint" if validation_scope == "broad" else "bounded_pass_focused_validation",
         },
+        "progress": progress_snapshot,
         "latest_decisions": {
             "status": status,
             "summary_hint": str(next_action.get("summary") or pass_objective),
@@ -2084,16 +2196,22 @@ def _reconcile_roadmap_execution_pass(
             "budget_exhausted": budget_exhausted,
             "active_phase_id": state.active_phase_id,
             "active_task_ids": list(state.active_task_ids),
+            "task_completed": progress_snapshot.get("task_completed"),
+            "task_total": progress_snapshot.get("task_total"),
+            "phase_completed": progress_snapshot.get("phase_completed"),
+            "phase_total": progress_snapshot.get("phase_total"),
         },
     }
 
     report_kind = "completed" if completed else ("blocked" if status == "blocked" else ("recovery" if "recovery" in report_reasons else "checkpoint"))
-    summary = (
-        f"roadmap objective completed for {contract.process_id}: validation={validation_scope}, next={next_action.get('kind') or 'completed'}"
-        if completed
-        else f"roadmap objective blocked for {contract.process_id}: {len(blockers)} true blockers, next={next_action.get('kind') or 'needs_human_decision'}"
-        if status == "blocked"
-        else f"roadmap objective active for {contract.process_id}: phase={state.active_phase_id or 'n/a'}, tasks={','.join(state.active_task_ids) or 'n/a'}, next={next_action.get('kind') or 'n/a'}, validation={validation_scope}"
+    summary = _roadmap_operator_summary(
+        contract,
+        state=state,
+        status=status,
+        blockers=blockers,
+        next_action=next_action,
+        validation_scope=validation_scope,
+        progress=progress_snapshot,
     )
 
     report_record: Optional[RoadmapExecutionReport] = None
@@ -2125,6 +2243,7 @@ def _reconcile_roadmap_execution_pass(
                     "validation_reasons": list(validation_decision.get("reasons") or []),
                     "continuation": dict(continuation),
                     "next_action": dict(next_action),
+                    "progress": progress_snapshot,
                     "execution_discipline": execution_discipline,
                 },
             )
@@ -2174,6 +2293,7 @@ def _reconcile_roadmap_execution_pass(
             "pass_objective": pass_objective,
             "validation_scope": validation_scope,
             "continuation_mode": continuation.get("mode"),
+            "progress_snapshot": progress_snapshot,
             "execution_discipline": execution_discipline,
             "reporting_policy": _policy_dump(contract.reporting_policy),
             "validation_policy": validation_decision,
@@ -2243,39 +2363,216 @@ def reconcile_roadmap_execution(
     if chained_passes >= max_passes and dict(final_result.get("continuation") or {}).get("mode") == "continue_now":
         persisted_state = roadmap_store.load_state(contract.process_id)
         if persisted_state is not None:
-            continuation = dict(persisted_state.continuation or {})
-            continuation["reason"] = "auto_chain_budget_exhausted"
-            next_action = dict(persisted_state.next_action or {})
-            next_action["budget_exhausted"] = True
-            execution_discipline = dict((persisted_state.metadata or {}).get("execution_discipline") or {})
-            continuation_policy = dict(execution_discipline.get("continuation_policy") or {})
-            continuation_policy.update({"mode": continuation.get("mode"), "reason": continuation.get("reason"), "next_action_kind": next_action.get("kind")})
-            latest_decisions = dict(execution_discipline.get("latest_decisions") or {})
-            latest_decisions.update({"budget_exhausted": True, "chained_passes": chained_passes})
-            execution_discipline["continuation_policy"] = continuation_policy
-            execution_discipline["latest_decisions"] = latest_decisions
+            snapshot = snapshot_store.load(contract.process_id)
+            shared_state = shared_state_store.load(contract.process_id)
+            release_state = release_store.load(contract.process_id) if release_store is not None else None
+            blockers = list(persisted_state.true_blockers or [])
+            completion = dict(persisted_state.completion or {})
+
+            if snapshot is not None and shared_state is not None:
+                blockers = detect_roadmap_true_blockers(
+                    contract,
+                    state=persisted_state,
+                    snapshot=snapshot,
+                    shared_state=shared_state,
+                    release_state=release_state,
+                )
+                dependability_report = load_dependability_report(
+                    process_id=contract.process_id,
+                    snapshot_store=snapshot_store,
+                    shared_state_store=shared_state_store,
+                    journal=journal,
+                    mailbox=mailbox,
+                    supervisor=supervisor,
+                    profile=contract.dependability_profile,
+                    now=now,
+                )
+                completion = evaluate_roadmap_completion(
+                    contract,
+                    state=persisted_state,
+                    snapshot=snapshot,
+                    shared_state=shared_state,
+                    dependability_report=dependability_report,
+                    release_state=release_state,
+                )
+                completion["validation_scope"] = "broad"
+                completion["validation_reasons"] = _dedupe_rows(list(completion.get("validation_reasons") or []) + ["auto_chain_pause_checkpoint"])
+            else:
+                completion.setdefault("validation_scope", persisted_state.metadata.get("validation_scope") if isinstance(persisted_state.metadata, dict) else "focused")
+                completion["validation_reasons"] = _dedupe_rows(list(completion.get("validation_reasons") or []) + ["auto_chain_pause_checkpoint"])
+
+            status = "completed" if bool(completion.get("all_required_satisfied")) and not blockers else "active"
+            immediate_task_ids = (
+                _roadmap_immediately_completable_task_ids(
+                    contract,
+                    state=persisted_state,
+                    snapshot=snapshot,
+                    shared_state=shared_state,
+                    dependability_report=load_dependability_report(
+                        process_id=contract.process_id,
+                        snapshot_store=snapshot_store,
+                        shared_state_store=shared_state_store,
+                        journal=journal,
+                        mailbox=mailbox,
+                        supervisor=supervisor,
+                        profile=contract.dependability_profile,
+                        now=now,
+                    ) if snapshot is not None and shared_state is not None else {},
+                    release_state=release_state,
+                )
+                if status == "active" and snapshot is not None and shared_state is not None
+                else []
+            )
+            next_action = _roadmap_next_action(
+                contract,
+                state=persisted_state,
+                blockers=blockers,
+                completion=completion,
+                budget=contract.execution_budget,
+                pass_index=chained_passes,
+                budget_exhausted=True,
+                immediate_completable_task_ids=immediate_task_ids,
+            )
+            continuation = _roadmap_continuation(status=status, blockers=blockers, next_action=next_action)
+            if status == "active" and continuation.get("mode") == "continue_now":
+                continuation["reason"] = "auto_chain_budget_exhausted"
+            progress_snapshot = _roadmap_progress_snapshot(
+                contract,
+                state=persisted_state,
+                blockers=blockers,
+                completion=completion,
+                next_action=next_action,
+                continuation=continuation,
+                release_state=release_state,
+                actions_taken=list((persisted_state.metadata or {}).get("last_actions") or []),
+            )
+            report_reasons = ["auto_chain_budget_exhausted"]
+            if status == "completed":
+                report_reasons.append("completed")
+            if persisted_state.status != status:
+                report_reasons.append("status_change")
+            validation_scope = str(completion.get("validation_scope") or "broad")
+            validation_policy = {
+                **dict((persisted_state.metadata or {}).get("validation_policy") or {}),
+                "scope": validation_scope,
+                "reasons": list(completion.get("validation_reasons") or []),
+                "promotion_checkpoint": True,
+                "completion_pause_checkpoint": True,
+                "configured": _policy_dump(contract.execution_budget),
+            }
+            execution_discipline = {
+                **dict((persisted_state.metadata or {}).get("execution_discipline") or {}),
+                "validation_policy": validation_policy,
+                "continuation_policy": {
+                    "mode": continuation.get("mode"),
+                    "reason": continuation.get("reason"),
+                    "next_action_kind": next_action.get("kind"),
+                    "quality_gate": "promotion_or_completion_checkpoint",
+                },
+                "progress": progress_snapshot,
+                "latest_decisions": {
+                    **dict((dict((persisted_state.metadata or {}).get("execution_discipline") or {}).get("latest_decisions") or {})),
+                    "status": status,
+                    "summary_hint": str(next_action.get("summary") or contract.objective),
+                    "report_reasons": _dedupe_rows(report_reasons),
+                    "pass_index": chained_passes,
+                    "pass_objective": str(next_action.get("summary") or next_action.get("kind") or contract.objective),
+                    "budget_exhausted": True,
+                    "chained_passes": chained_passes,
+                    "active_phase_id": persisted_state.active_phase_id,
+                    "active_task_ids": list(persisted_state.active_task_ids),
+                    "task_completed": progress_snapshot.get("task_completed"),
+                    "task_total": progress_snapshot.get("task_total"),
+                    "phase_completed": progress_snapshot.get("phase_completed"),
+                    "phase_total": progress_snapshot.get("phase_total"),
+                },
+            }
+            summary = _roadmap_operator_summary(
+                contract,
+                state=persisted_state,
+                status=status,
+                blockers=blockers,
+                next_action=next_action,
+                validation_scope=validation_scope,
+                progress=progress_snapshot,
+                chained_passes=chained_passes,
+                auto_chain_budget_exhausted=(status == "active"),
+            )
+            report_record = roadmap_store.append_report(
+                RoadmapExecutionReport(
+                    execution_id=persisted_state.execution_id,
+                    objective_id=contract.objective_id,
+                    process_id=contract.process_id,
+                    iteration=int(persisted_state.iteration_count or 0),
+                    kind="completed" if status == "completed" else "checkpoint",
+                    status=status,
+                    summary=summary,
+                    controller_id=persisted_state.controller.controller_id if persisted_state.controller is not None else controller_id,
+                    controller_session_id=persisted_state.controller.session_id if persisted_state.controller is not None else controller_session_id,
+                    active_phase_id=persisted_state.active_phase_id,
+                    active_task_ids=list(persisted_state.active_task_ids),
+                    actions_taken=list((persisted_state.metadata or {}).get("last_actions") or []),
+                    blockers=blockers,
+                    completion=completion,
+                    metadata={
+                        "reasons": _dedupe_rows(report_reasons),
+                        "pass_index": chained_passes,
+                        "pass_objective": str(next_action.get("summary") or next_action.get("kind") or contract.objective),
+                        "pass_budget": _policy_dump(contract.execution_budget),
+                        "validation_scope": validation_scope,
+                        "validation_reasons": list(completion.get("validation_reasons") or []),
+                        "continuation": dict(continuation),
+                        "next_action": dict(next_action),
+                        "progress": progress_snapshot,
+                        "execution_discipline": execution_discipline,
+                    },
+                )
+            )
             persisted_state = RoadmapExecutionState(
                 **{
                     **_state_dump(persisted_state),
+                    "status": status,
+                    "current_revision_id": shared_state.revision_id if shared_state is not None else persisted_state.current_revision_id,
+                    "current_snapshot_id": snapshot.snapshot_id if snapshot is not None else persisted_state.current_snapshot_id,
+                    "current_release_stage": release_state.current_stage if release_state is not None else persisted_state.current_release_stage,
+                    "latest_report_id": report_record.report_id,
+                    "last_checkpoint_at": report_record.recorded_at,
+                    "checkpoint_count": int(persisted_state.checkpoint_count or 0) + 1,
+                    "true_blockers": blockers,
+                    "completion": completion,
                     "continuation": continuation,
                     "next_action": next_action,
                     "last_pass": {
                         **dict(persisted_state.last_pass or {}),
                         "auto_chain_budget_exhausted": True,
                         "chained_passes": chained_passes,
+                        "validation_scope": validation_scope,
+                        "validation_reasons": list(completion.get("validation_reasons") or []),
+                        "budget_exhausted": True,
                     },
                     "metadata": {
                         **dict(persisted_state.metadata or {}),
                         "chained_passes": chained_passes,
                         "auto_chain_budget_exhausted": True,
+                        "last_report_reasons": _dedupe_rows(report_reasons),
+                        "validation_scope": validation_scope,
+                        "continuation_mode": continuation.get("mode"),
+                        "progress_snapshot": progress_snapshot,
                         "execution_discipline": execution_discipline,
+                        "validation_policy": validation_policy,
                     },
                 }
             )
             roadmap_store.save_state(persisted_state)
+            if status == "completed" and persisted_state.controller is not None:
+                supervisor.resolve(persisted_state.controller.lease_id, status="released", metadata={"resolution": status})
             final_result["state"] = _state_dump(persisted_state)
+            final_result["report"] = _report_dump(report_record)
             final_result["continuation"] = continuation
             final_result["next_action"] = next_action
+            final_result["completion"] = completion
+            final_result["blockers"] = blockers
+            final_result["operator_summary"] = summary
 
     final_result["chained_passes"] = chained_passes
     final_state = dict(final_result.get("state") or {})
