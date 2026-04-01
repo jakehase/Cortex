@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import cortex_server.modules.reasoning_scheduler as scheduler
 import cortex_server.routers.orchestrator as orchestrator
@@ -38,6 +39,90 @@ def _workflow() -> dict:
             }
         ],
     }
+
+
+
+def test_runtime_tick_watchdog_reconciles_live_roadmap_without_prompt(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    orchestrator.workflows.clear()
+
+    process = scheduler.create_process_from_workflow(
+        _workflow(),
+        process_id="proc_runtime_roadmap_watchdog",
+        owner="cortex",
+        session_key="session:roadmap",
+    )
+
+    first_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    reconciled = asyncio.run(
+        orchestrator.reconcile_runtime_roadmap(
+            process["process_id"],
+            orchestrator.RuntimeRoadmapReconcileRequest(
+                controller_id="controller",
+                controller_session_id="sess-runtime-roadmap-watchdog",
+                now_iso=first_now.isoformat().replace("+00:00", "Z"),
+                dependability_profile=dict(MINIMAL_PROFILE),
+                reporting_policy={
+                    "report_every_iterations": 10,
+                    "live_review_seconds": 60,
+                    "proactive_report_seconds": 120,
+                    "blocker_followup_seconds": 60,
+                },
+                phases=[{"phase_id": "runtime", "title": "Runtime"}],
+                tasks=[
+                    {
+                        "task_id": "ship_build",
+                        "phase_id": "runtime",
+                        "title": "Ship the build when runtime state says it is done",
+                        "work_type": "feature",
+                        "quality_gates": [
+                            {
+                                "criterion_id": "build-done",
+                                "summary": "build_done must become true",
+                                "kind": "world_state",
+                                "world_state_key": "build_done",
+                                "expected_value": True,
+                            }
+                        ],
+                    }
+                ],
+                success_criteria=[
+                    {
+                        "criterion_id": "build-done",
+                        "summary": "build_done must become true",
+                        "kind": "world_state",
+                        "world_state_key": "build_done",
+                        "expected_value": True,
+                    }
+                ],
+            ),
+        )
+    )
+    assert reconciled["state"]["status"] == "active"
+
+    tick = asyncio.run(
+        orchestrator.tick_runtime(
+            orchestrator.RuntimeTickRequest(
+                limit=10,
+                execute=False,
+                now_iso=(first_now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
+            )
+        )
+    )
+    status = asyncio.run(orchestrator.get_runtime_roadmap_status(process["process_id"]))
+
+    assert tick["watchdog"]["action_count"] >= 1
+    assert status["state"]["liveness"] == "live"
+    assert status["state"]["last_watchdog_decision"]["decision"] in {"report_status", "auto_resume"}
+    assert status["report_count"] >= 2
+    assert any(reason in status["latest_report"]["metadata"]["reasons"] for reason in ["review_due", "status_followup_due", "idle_recovery"])
+    assert status["process"]["workflow"]["metadata"]["runtime_roadmap"]["last_watchdog_decision"]["decision"] in {"report_status", "auto_resume"}
+    assert status["process"]["workflow"]["metadata"]["runtime_roadmap"]["owed_follow_up"]["owed"] is True
 
 
 

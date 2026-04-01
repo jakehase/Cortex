@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import uuid4
@@ -28,6 +28,22 @@ def _now(now: Optional[datetime] = None) -> datetime:
 
 def _now_iso(now: Optional[datetime] = None) -> str:
     return _now(now).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+
+def _parse_dt(value: Optional[str]) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+
+def _iso_after_seconds(seconds: int | float, *, now: Optional[datetime] = None) -> str:
+    return _now_iso(_now(now) + timedelta(seconds=max(0.0, float(seconds or 0.0))))
 
 
 
@@ -546,13 +562,23 @@ class RoadmapReportingPolicy(BaseModel):
     report_on_blocker_change: bool = True
     report_on_status_change: bool = True
     report_on_worker_dispatch: bool = True
+    live_review_seconds: int = 300
+    abnormal_idle_grace_seconds: int = 180
+    proactive_report_seconds: int = 900
+    blocker_followup_seconds: int = 300
 
-    @field_validator("report_every_iterations")
+    @field_validator(
+        "report_every_iterations",
+        "live_review_seconds",
+        "abnormal_idle_grace_seconds",
+        "proactive_report_seconds",
+        "blocker_followup_seconds",
+    )
     @classmethod
     def _validate_positive(cls, value: int) -> int:
         number = int(value or 0)
         if number <= 0:
-            raise ValueError("report_every_iterations must be positive")
+            raise ValueError("reporting policy values must be positive")
         return number
 
 
@@ -722,6 +748,8 @@ class RoadmapExecutionState(BaseModel):
     objective_id: str
     process_id: str
     status: str = "active"
+    liveness: str = "live"
+    terminal_state: Optional[str] = None
     iteration_count: int = 0
     checkpoint_count: int = 0
     recovery_count: int = 0
@@ -733,16 +761,25 @@ class RoadmapExecutionState(BaseModel):
     current_release_stage: Optional[str] = None
     latest_report_id: Optional[str] = None
     last_checkpoint_at: Optional[str] = None
+    last_progress_at: Optional[str] = None
+    last_report_at: Optional[str] = None
+    next_review_at: Optional[str] = None
+    last_watchdog_at: Optional[str] = None
     true_blockers: List[Dict[str, Any]] = Field(default_factory=list)
     completion: Dict[str, Any] = Field(default_factory=dict)
     next_action: Dict[str, Any] = Field(default_factory=dict)
     continuation: Dict[str, Any] = Field(default_factory=dict)
     last_pass: Dict[str, Any] = Field(default_factory=dict)
+    last_progress: Dict[str, Any] = Field(default_factory=dict)
+    last_report: Dict[str, Any] = Field(default_factory=dict)
+    owed_follow_up: Dict[str, Any] = Field(default_factory=dict)
+    reporting_cadence: Dict[str, Any] = Field(default_factory=dict)
+    last_watchdog_decision: Dict[str, Any] = Field(default_factory=dict)
     phase_states: List[RoadmapPhaseState] = Field(default_factory=list)
     task_states: List[RoadmapTaskState] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("execution_id", "objective_id", "process_id", "status")
+    @field_validator("execution_id", "objective_id", "process_id", "status", "liveness")
     @classmethod
     def _validate_non_empty(cls, value: str) -> str:
         text = str(value or "").strip()
@@ -1347,6 +1384,124 @@ def _roadmap_operator_summary(
 
 
 
+def _roadmap_progress_record(
+    *,
+    contract: "RoadmapObjectiveContract",
+    previous_state: Optional["RoadmapExecutionState"],
+    state: "RoadmapExecutionState",
+    status: str,
+    actions_taken: Sequence[Dict[str, Any]],
+    report_reasons: Sequence[str],
+    blockers: Sequence[Dict[str, Any]],
+    next_action: Dict[str, Any],
+    now_iso: str,
+) -> Tuple[Optional[str], Dict[str, Any]]:
+    progress_actions = {
+        "complete_task",
+        "complete_phase",
+        "dispatch_task_handoff",
+        "assign_task_lease",
+        "reassign_task_lease",
+        "release_stale_task_lease",
+        "requeue_task",
+    }
+    reasons: List[str] = []
+    if previous_state is None:
+        reasons.append("objective_started")
+    if any(str((row or {}).get("action") or "") in progress_actions for row in actions_taken if isinstance(row, dict)):
+        reasons.append("actions")
+    if previous_state is not None and previous_state.active_phase_id != state.active_phase_id:
+        reasons.append("phase_change")
+    if previous_state is not None and previous_state.status != status:
+        reasons.append("status_change")
+    if any(reason in {"recovery", "completed", "blocked", "worker_dispatch", "task_change", "phase_change", "status_change", "idle_recovery"} for reason in report_reasons):
+        reasons.append("reportable_change")
+    if not reasons:
+        return previous_state.last_progress_at if previous_state is not None else None, dict(previous_state.last_progress or {}) if previous_state is not None else {}
+    return now_iso, {
+        "recorded_at": now_iso,
+        "objective_id": contract.objective_id,
+        "status": status,
+        "reasons": _dedupe_rows(reasons),
+        "summary": str(next_action.get("summary") or contract.objective),
+        "active_phase_id": state.active_phase_id,
+        "active_task_ids": list(state.active_task_ids),
+        "blocker_count": len(blockers),
+        "action_types": _dedupe_rows([str((row or {}).get("action") or "") for row in actions_taken if isinstance(row, dict)]),
+    }
+
+
+
+def _roadmap_review_plan(
+    *,
+    policy: RoadmapReportingPolicy,
+    previous_state: Optional["RoadmapExecutionState"],
+    status: str,
+    blockers: Sequence[Dict[str, Any]],
+    next_action: Dict[str, Any],
+    continuation: Dict[str, Any],
+    now: Optional[datetime],
+    report_reasons: Sequence[str],
+    watchdog_context: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    current_time = _now(now)
+    now_iso = _now_iso(current_time)
+    previous_next_review = _parse_dt(previous_state.next_review_at if previous_state is not None else None)
+    previous_last_report = _parse_dt(previous_state.last_report_at if previous_state is not None else None)
+    review_due = previous_next_review is not None and previous_next_review <= current_time
+    next_kind = str(next_action.get("kind") or "")
+    if status == "completed":
+        return {
+            "liveness": "terminal",
+            "terminal_state": "completed",
+            "next_review_at": None,
+            "report_due": False,
+            "review_due": review_due,
+            "owed_follow_up": {"owed": False, "status": status, "reason": "completed", "due_at": None, "updated_at": now_iso},
+            "reporting_cadence": {"classification": "terminal", "report_interval_seconds": 0, "review_interval_seconds": 0, "updated_at": now_iso},
+        }
+    classification = "waiting_human" if blockers else "continue_now" if continuation.get("mode") == "continue_now" else "waiting_worker" if next_kind == "await_worker_progress" else "waiting_dependencies" if next_kind == "await_task_dependencies" else "active_review"
+    review_seconds = 0 if classification == "continue_now" else int(policy.blocker_followup_seconds if blockers else policy.live_review_seconds)
+    report_seconds = int(policy.blocker_followup_seconds if blockers else policy.proactive_report_seconds)
+    next_review_at = now_iso if review_seconds <= 0 else _iso_after_seconds(review_seconds, now=current_time)
+    report_due = False
+    if review_due and previous_last_report is not None:
+        report_due = (current_time - previous_last_report).total_seconds() >= report_seconds
+    elif review_due and previous_last_report is None:
+        report_due = True
+    if watchdog_context and str(watchdog_context.get("decision") or "") in {"report_status", "report_blocker", "auto_resume"}:
+        if previous_last_report is None:
+            report_due = True
+        elif (current_time - previous_last_report).total_seconds() >= max(30, report_seconds // 2):
+            report_due = True
+    if any(reason in {"idle_recovery", "blocked", "completed", "recovery"} for reason in report_reasons):
+        report_due = True
+    return {
+        "liveness": "live",
+        "terminal_state": None,
+        "next_review_at": next_review_at,
+        "report_due": report_due,
+        "review_due": review_due,
+        "owed_follow_up": {
+            "owed": True,
+            "status": status,
+            "reason": str(continuation.get("reason") or next_kind or status),
+            "kind": "blocker" if blockers else "status",
+            "due_at": next_review_at,
+            "updated_at": now_iso,
+            "classification": classification,
+        },
+        "reporting_cadence": {
+            "classification": classification,
+            "review_interval_seconds": review_seconds,
+            "report_interval_seconds": report_seconds,
+            "review_due": review_due,
+            "updated_at": now_iso,
+        },
+    }
+
+
+
 def _decision_requires_human(decision: OpenDecision) -> bool:
     metadata = dict(decision.metadata or {})
     owner = str(decision.owner or "").strip().lower()
@@ -1573,6 +1728,8 @@ def _merge_state(contract: RoadmapObjectiveContract, previous_state: Optional[Ro
         return RoadmapExecutionState(
             objective_id=contract.objective_id,
             process_id=contract.process_id,
+            liveness="live",
+            terminal_state=None,
             phase_states=[RoadmapPhaseState(phase_id=phase.phase_id) for phase in contract.phases],
             task_states=[
                 RoadmapTaskState(task_id=task.task_id, phase_id=task.phase_id, work_type=task.work_type)
@@ -1581,6 +1738,11 @@ def _merge_state(contract: RoadmapObjectiveContract, previous_state: Optional[Ro
             next_action={},
             continuation={},
             last_pass={},
+            last_progress={},
+            last_report={},
+            owed_follow_up={},
+            reporting_cadence={},
+            last_watchdog_decision={},
             metadata={"objective": contract.objective},
         )
 
@@ -1621,6 +1783,8 @@ def _merge_state(contract: RoadmapObjectiveContract, previous_state: Optional[Ro
         objective_id=contract.objective_id,
         process_id=contract.process_id,
         status=previous_state.status,
+        liveness=previous_state.liveness,
+        terminal_state=previous_state.terminal_state,
         iteration_count=previous_state.iteration_count,
         checkpoint_count=previous_state.checkpoint_count,
         recovery_count=previous_state.recovery_count,
@@ -1632,11 +1796,20 @@ def _merge_state(contract: RoadmapObjectiveContract, previous_state: Optional[Ro
         current_release_stage=previous_state.current_release_stage,
         latest_report_id=previous_state.latest_report_id,
         last_checkpoint_at=previous_state.last_checkpoint_at,
+        last_progress_at=previous_state.last_progress_at,
+        last_report_at=previous_state.last_report_at,
+        next_review_at=previous_state.next_review_at,
+        last_watchdog_at=previous_state.last_watchdog_at,
         true_blockers=list(previous_state.true_blockers),
         completion=dict(previous_state.completion),
         next_action=dict(previous_state.next_action or {}),
         continuation=dict(previous_state.continuation or {}),
         last_pass=dict(previous_state.last_pass or {}),
+        last_progress=dict(previous_state.last_progress or {}),
+        last_report=dict(previous_state.last_report or {}),
+        owed_follow_up=dict(previous_state.owed_follow_up or {}),
+        reporting_cadence=dict(previous_state.reporting_cadence or {}),
+        last_watchdog_decision=dict(previous_state.last_watchdog_decision or {}),
         phase_states=phase_states,
         task_states=task_states,
         metadata={**dict(previous_state.metadata or {}), "objective": contract.objective},
@@ -1994,6 +2167,7 @@ def _reconcile_roadmap_execution_pass(
     journal: Any = None,
     now: Optional[datetime] = None,
     pass_index: int = 1,
+    watchdog_context: Optional[Dict[str, Any]] = None,
 ) -> JsonDict:
     roadmap_store.save_contract(contract)
     previous_state = roadmap_store.load_state(contract.process_id)
@@ -2135,6 +2309,7 @@ def _reconcile_roadmap_execution_pass(
 
     report_reasons: List[str] = []
     policy = contract.reporting_policy
+    now_iso = _now_iso(now)
     if previous_state is None:
         report_reasons.append("initial")
     if next_iteration % int(policy.report_every_iterations or 1) == 0:
@@ -2155,6 +2330,38 @@ def _reconcile_roadmap_execution_pass(
         report_reasons.append("completed")
     if status == "blocked":
         report_reasons.append("blocked")
+    if watchdog_context and str(watchdog_context.get("decision") or "") == "auto_resume":
+        report_reasons.append("idle_recovery")
+
+    review_plan = _roadmap_review_plan(
+        policy=policy,
+        previous_state=previous_state,
+        status=status,
+        blockers=blockers,
+        next_action=next_action,
+        continuation=continuation,
+        now=now,
+        report_reasons=report_reasons,
+        watchdog_context=watchdog_context,
+    )
+    if review_plan.get("report_due"):
+        report_reasons.append("review_due")
+    if watchdog_context and str(watchdog_context.get("decision") or "") == "report_blocker":
+        report_reasons.append("blocker_followup_due")
+    if watchdog_context and str(watchdog_context.get("decision") or "") == "report_status":
+        report_reasons.append("status_followup_due")
+    report_reasons = _dedupe_rows(report_reasons)
+    last_progress_at, last_progress = _roadmap_progress_record(
+        contract=contract,
+        previous_state=previous_state,
+        state=state,
+        status=status,
+        actions_taken=all_actions,
+        report_reasons=report_reasons,
+        blockers=blockers,
+        next_action=next_action,
+        now_iso=now_iso,
+    )
 
     progress_snapshot = _roadmap_progress_snapshot(
         contract,
@@ -2186,6 +2393,9 @@ def _reconcile_roadmap_execution_pass(
             "next_action_kind": next_action.get("kind"),
             "quality_gate": "promotion_or_completion_checkpoint" if validation_scope == "broad" else "bounded_pass_focused_validation",
         },
+        "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+        "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
+        "watchdog": dict(watchdog_context or {}),
         "progress": progress_snapshot,
         "latest_decisions": {
             "status": status,
@@ -2203,7 +2413,7 @@ def _reconcile_roadmap_execution_pass(
         },
     }
 
-    report_kind = "completed" if completed else ("blocked" if status == "blocked" else ("recovery" if "recovery" in report_reasons else "checkpoint"))
+    report_kind = "completed" if completed else ("blocked" if status == "blocked" else ("recovery" if any(reason in report_reasons for reason in {"recovery", "idle_recovery"}) else "checkpoint"))
     summary = _roadmap_operator_summary(
         contract,
         state=state,
@@ -2244,16 +2454,34 @@ def _reconcile_roadmap_execution_pass(
                     "continuation": dict(continuation),
                     "next_action": dict(next_action),
                     "progress": progress_snapshot,
+                    "last_progress": dict(last_progress),
+                    "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+                    "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
+                    "watchdog": dict(watchdog_context or {}),
                     "execution_discipline": execution_discipline,
                 },
             )
         )
 
+    last_report = (
+        {
+            "report_id": report_record.report_id,
+            "recorded_at": report_record.recorded_at,
+            "kind": report_record.kind,
+            "status": report_record.status,
+            "summary": report_record.summary,
+            "reasons": list((report_record.metadata or {}).get("reasons") or []),
+        }
+        if report_record is not None
+        else dict(previous_state.last_report or {}) if previous_state is not None else {}
+    )
     updated_state = RoadmapExecutionState(
         execution_id=state.execution_id,
         objective_id=contract.objective_id,
         process_id=contract.process_id,
         status=status,
+        liveness=str(review_plan.get("liveness") or ("terminal" if status == "completed" else "live")),
+        terminal_state=review_plan.get("terminal_state"),
         iteration_count=next_iteration,
         checkpoint_count=int(state.checkpoint_count or 0) + (1 if report_record is not None else 0),
         recovery_count=int(state.recovery_count or 0) + (1 if ownership.get("recovery") or dispatch.get("recovery") else 0),
@@ -2265,6 +2493,10 @@ def _reconcile_roadmap_execution_pass(
         current_release_stage=release_state.current_stage if release_state is not None else None,
         latest_report_id=report_record.report_id if report_record is not None else state.latest_report_id,
         last_checkpoint_at=report_record.recorded_at if report_record is not None else state.last_checkpoint_at,
+        last_progress_at=last_progress_at,
+        last_report_at=report_record.recorded_at if report_record is not None else (previous_state.last_report_at if previous_state is not None else None),
+        next_review_at=review_plan.get("next_review_at"),
+        last_watchdog_at=now_iso if watchdog_context else (previous_state.last_watchdog_at if previous_state is not None else None),
         true_blockers=blockers,
         completion=completion,
         next_action=next_action,
@@ -2280,6 +2512,15 @@ def _reconcile_roadmap_execution_pass(
             "phase_transition_count": _int_budget(progress.get("phase_transition_count")),
             "task_dispatch_count": _int_budget(dispatch.get("dispatched_count")),
             "requeued_task_count": len(requeue_actions),
+        },
+        last_progress=last_progress,
+        last_report=last_report,
+        owed_follow_up=dict(review_plan.get("owed_follow_up") or {}),
+        reporting_cadence=dict(review_plan.get("reporting_cadence") or {}),
+        last_watchdog_decision={
+            **(dict(previous_state.last_watchdog_decision or {}) if previous_state is not None else {}),
+            **dict(watchdog_context or {}),
+            **({"recorded_at": now_iso, "review_due": bool(review_plan.get("review_due")), "next_review_at": review_plan.get("next_review_at")} if watchdog_context else {}),
         },
         phase_states=list(state.phase_states),
         task_states=list(state.task_states),
@@ -2298,6 +2539,14 @@ def _reconcile_roadmap_execution_pass(
             "reporting_policy": _policy_dump(contract.reporting_policy),
             "validation_policy": validation_decision,
             "blocker_policy": execution_discipline["blocker_policy"],
+            "liveness": str(review_plan.get("liveness") or ("terminal" if status == "completed" else "live")),
+            "terminal_state": review_plan.get("terminal_state"),
+            "next_review_at": review_plan.get("next_review_at"),
+            "last_progress": last_progress,
+            "last_report": last_report,
+            "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
+            "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+            "watchdog": dict(watchdog_context or {}),
         },
     )
     roadmap_store.save_state(updated_state)
@@ -2332,9 +2581,11 @@ def reconcile_roadmap_execution(
     controller_session_id: str,
     journal: Any = None,
     now: Optional[datetime] = None,
+    watchdog_context: Optional[Dict[str, Any]] = None,
 ) -> JsonDict:
     final_result: Optional[JsonDict] = None
     chained_passes = 0
+    now_iso = _now_iso(now)
     max_passes = max(1, int(contract.execution_budget.max_auto_chain_passes or 1))
 
     for pass_index in range(1, max_passes + 1):
@@ -2352,6 +2603,7 @@ def reconcile_roadmap_execution(
             journal=journal,
             now=now,
             pass_index=pass_index,
+            watchdog_context=watchdog_context,
         )
         continuation = dict(final_result.get("continuation") or {})
         if continuation.get("mode") != "continue_now":
@@ -2451,6 +2703,18 @@ def reconcile_roadmap_execution(
                 report_reasons.append("completed")
             if persisted_state.status != status:
                 report_reasons.append("status_change")
+            review_plan = _roadmap_review_plan(
+                policy=contract.reporting_policy,
+                previous_state=persisted_state,
+                status=status,
+                blockers=blockers,
+                next_action=next_action,
+                continuation=continuation,
+                now=now,
+                report_reasons=report_reasons,
+                watchdog_context=watchdog_context,
+            )
+            report_reasons = _dedupe_rows(report_reasons + (["review_due"] if review_plan.get("report_due") else []))
             validation_scope = str(completion.get("validation_scope") or "broad")
             validation_policy = {
                 **dict((persisted_state.metadata or {}).get("validation_policy") or {}),
@@ -2469,6 +2733,9 @@ def reconcile_roadmap_execution(
                     "next_action_kind": next_action.get("kind"),
                     "quality_gate": "promotion_or_completion_checkpoint",
                 },
+                "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+                "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
+                "watchdog": dict(watchdog_context or {}),
                 "progress": progress_snapshot,
                 "latest_decisions": {
                     **dict((dict((persisted_state.metadata or {}).get("execution_discipline") or {}).get("latest_decisions") or {})),
@@ -2524,6 +2791,10 @@ def reconcile_roadmap_execution(
                         "continuation": dict(continuation),
                         "next_action": dict(next_action),
                         "progress": progress_snapshot,
+                        "last_progress": dict(persisted_state.last_progress or {}),
+                        "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+                        "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
+                        "watchdog": dict(watchdog_context or {}),
                         "execution_discipline": execution_discipline,
                     },
                 )
@@ -2532,16 +2803,36 @@ def reconcile_roadmap_execution(
                 **{
                     **_state_dump(persisted_state),
                     "status": status,
+                    "liveness": str(review_plan.get("liveness") or ("terminal" if status == "completed" else "live")),
+                    "terminal_state": review_plan.get("terminal_state"),
                     "current_revision_id": shared_state.revision_id if shared_state is not None else persisted_state.current_revision_id,
                     "current_snapshot_id": snapshot.snapshot_id if snapshot is not None else persisted_state.current_snapshot_id,
                     "current_release_stage": release_state.current_stage if release_state is not None else persisted_state.current_release_stage,
                     "latest_report_id": report_record.report_id,
                     "last_checkpoint_at": report_record.recorded_at,
+                    "last_report_at": report_record.recorded_at,
+                    "next_review_at": review_plan.get("next_review_at"),
+                    "last_watchdog_at": now_iso if watchdog_context else persisted_state.last_watchdog_at,
                     "checkpoint_count": int(persisted_state.checkpoint_count or 0) + 1,
                     "true_blockers": blockers,
                     "completion": completion,
                     "continuation": continuation,
                     "next_action": next_action,
+                    "last_report": {
+                        "report_id": report_record.report_id,
+                        "recorded_at": report_record.recorded_at,
+                        "kind": report_record.kind,
+                        "status": report_record.status,
+                        "summary": report_record.summary,
+                        "reasons": list((report_record.metadata or {}).get("reasons") or []),
+                    },
+                    "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
+                    "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+                    "last_watchdog_decision": {
+                        **dict(persisted_state.last_watchdog_decision or {}),
+                        **dict(watchdog_context or {}),
+                        **({"recorded_at": now_iso, "review_due": bool(review_plan.get("review_due")), "next_review_at": review_plan.get("next_review_at")} if watchdog_context else {}),
+                    },
                     "last_pass": {
                         **dict(persisted_state.last_pass or {}),
                         "auto_chain_budget_exhausted": True,
@@ -2560,6 +2851,20 @@ def reconcile_roadmap_execution(
                         "progress_snapshot": progress_snapshot,
                         "execution_discipline": execution_discipline,
                         "validation_policy": validation_policy,
+                        "liveness": str(review_plan.get("liveness") or ("terminal" if status == "completed" else "live")),
+                        "terminal_state": review_plan.get("terminal_state"),
+                        "next_review_at": review_plan.get("next_review_at"),
+                        "last_report": {
+                            "report_id": report_record.report_id,
+                            "recorded_at": report_record.recorded_at,
+                            "kind": report_record.kind,
+                            "status": report_record.status,
+                            "summary": report_record.summary,
+                            "reasons": list((report_record.metadata or {}).get("reasons") or []),
+                        },
+                        "owed_follow_up": dict(review_plan.get("owed_follow_up") or {}),
+                        "reporting_cadence": dict(review_plan.get("reporting_cadence") or {}),
+                        "watchdog": dict(watchdog_context or {}),
                     },
                 }
             )

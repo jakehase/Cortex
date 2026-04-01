@@ -350,6 +350,8 @@ def _runtime_delivery_projection(
         "target_environment": contract.target_environment if contract is not None else None,
         "loop_id": loop_state.loop_id if loop_state is not None else None,
         "loop_status": loop_state.status if loop_state is not None else None,
+        "liveness": loop_state.liveness if loop_state is not None else None,
+        "terminal_state": loop_state.terminal_state if loop_state is not None else None,
         "loop_iteration": int(loop_state.iteration_count or 0) if loop_state is not None else 0,
         "loop_checkpoint_count": int(loop_state.checkpoint_count or 0) if loop_state is not None else 0,
         "loop_recovery_count": int(loop_state.recovery_count or 0) if loop_state is not None else 0,
@@ -362,11 +364,19 @@ def _runtime_delivery_projection(
         "latest_report_id": latest_report.report_id if latest_report is not None else None,
         "latest_report_kind": latest_report.kind if latest_report is not None else None,
         "latest_report_status": latest_report.status if latest_report is not None else None,
+        "last_progress_at": loop_state.last_progress_at if loop_state is not None else None,
+        "last_report_at": loop_state.last_report_at if loop_state is not None else None,
+        "next_review_at": loop_state.next_review_at if loop_state is not None else None,
         "true_blocker_count": len(loop_state.true_blockers) if loop_state is not None else 0,
         "completion_ready": bool(completion.get("all_required_satisfied")) if completion else None,
         "continuation": dict(loop_state.continuation or {}) if loop_state is not None else {},
         "next_action": dict(loop_state.next_action or {}) if loop_state is not None else {},
         "last_pass": dict(loop_state.last_pass or {}) if loop_state is not None else {},
+        "last_progress": dict(loop_state.last_progress or {}) if loop_state is not None else {},
+        "last_report": dict(loop_state.last_report or {}) if loop_state is not None else {},
+        "owed_follow_up": dict(loop_state.owed_follow_up or {}) if loop_state is not None else {},
+        "reporting_cadence": dict(loop_state.reporting_cadence or {}) if loop_state is not None else {},
+        "last_watchdog_decision": dict(loop_state.last_watchdog_decision or {}) if loop_state is not None else {},
         "execution_budget": model_dump_compat(contract.execution_budget) if contract is not None and getattr(contract, "execution_budget", None) is not None else None,
         "reporting_policy": model_dump_compat(contract.checkpoint_policy) if contract is not None and getattr(contract, "checkpoint_policy", None) is not None else None,
         "execution_discipline": dict(metadata.get("execution_discipline") or {}),
@@ -666,6 +676,8 @@ def _runtime_roadmap_projection(
         "objective_id": contract.objective_id if contract is not None else None,
         "objective": contract.objective if contract is not None else None,
         "status": (state or {}).get("status"),
+        "liveness": (state or {}).get("liveness"),
+        "terminal_state": (state or {}).get("terminal_state"),
         "iteration_count": int((state or {}).get("iteration_count", 0) or 0),
         "checkpoint_count": int((state or {}).get("checkpoint_count", 0) or 0),
         "recovery_count": int((state or {}).get("recovery_count", 0) or 0),
@@ -675,11 +687,19 @@ def _runtime_roadmap_projection(
         "current_snapshot_id": snapshot.snapshot_id if snapshot is not None else None,
         "latest_report_id": (latest_report or {}).get("report_id") if latest_report is not None else None,
         "latest_report_kind": (latest_report or {}).get("kind") if latest_report is not None else None,
+        "last_progress_at": (state or {}).get("last_progress_at"),
+        "last_report_at": (state or {}).get("last_report_at"),
+        "next_review_at": (state or {}).get("next_review_at"),
         "true_blocker_count": len((state or {}).get("true_blockers") or []),
         "completion_ready": bool(completion.get("all_required_satisfied")) if completion else None,
         "continuation": dict((state or {}).get("continuation") or {}),
         "next_action": dict((state or {}).get("next_action") or {}),
         "last_pass": dict((state or {}).get("last_pass") or {}),
+        "last_progress": dict((state or {}).get("last_progress") or {}),
+        "last_report": dict((state or {}).get("last_report") or {}),
+        "owed_follow_up": dict((state or {}).get("owed_follow_up") or {}),
+        "reporting_cadence": dict((state or {}).get("reporting_cadence") or {}),
+        "last_watchdog_decision": dict((state or {}).get("last_watchdog_decision") or {}),
         "execution_budget": model_dump_compat(contract.execution_budget) if contract is not None and getattr(contract, "execution_budget", None) is not None else None,
         "reporting_policy": model_dump_compat(contract.reporting_policy) if contract is not None and getattr(contract, "reporting_policy", None) is not None else None,
         "execution_discipline": dict(metadata.get("execution_discipline") or {}),
@@ -1170,6 +1190,188 @@ async def _execute_runtime_batch(*, limit: int = 25, now_iso: Optional[str] = No
     )
 
 
+
+def _process_has_running_nodes(process: Dict[str, Any]) -> bool:
+    nodes = process.get("nodes") if isinstance(process.get("nodes"), dict) else {}
+    return any(str((node or {}).get("status") or "") == "running" for node in nodes.values() if isinstance(node, dict))
+
+
+
+def _process_has_waiting_nodes(process: Dict[str, Any]) -> bool:
+    nodes = process.get("nodes") if isinstance(process.get("nodes"), dict) else {}
+    return any(str((node or {}).get("status") or "") in {"waiting", "ready", "scheduled"} for node in nodes.values() if isinstance(node, dict))
+
+
+
+def _runtime_watchdog_now(now_iso: Optional[str]) -> datetime:
+    return _parse_optional_dt(now_iso) or datetime.now().astimezone()
+
+
+
+def _runtime_roadmap_watchdog_decision(*, process: Dict[str, Any], contract: RoadmapObjectiveContract, state: Optional[RoadmapExecutionState], now: datetime) -> Optional[Dict[str, Any]]:
+    if state is None:
+        return {"decision": "auto_resume", "classification": "bootstrap", "reason": "missing_state"}
+    if str(state.liveness or "live") == "terminal" or str(state.status or "") not in {"active", "blocked"}:
+        return None
+    running = _process_has_running_nodes(process)
+    waiting = _process_has_waiting_nodes(process)
+    review_due = False
+    if state.next_review_at:
+        due_at = _parse_optional_dt(state.next_review_at)
+        review_due = due_at is not None and due_at <= now
+    last_progress = _parse_optional_dt(state.last_progress_at)
+    idle_seconds = (now - last_progress).total_seconds() if last_progress is not None else None
+    abnormal_idle = str((state.continuation or {}).get("mode") or "") == "continue_now"
+    if not abnormal_idle and not running and not waiting and str(state.status or "") == "active":
+        abnormal_idle = idle_seconds is None or idle_seconds >= int(contract.reporting_policy.abnormal_idle_grace_seconds or 0)
+    if abnormal_idle:
+        return {
+            "decision": "auto_resume",
+            "classification": "abnormal_idle",
+            "reason": str((state.continuation or {}).get("reason") or (state.next_action or {}).get("kind") or state.status),
+            "idle_seconds": idle_seconds,
+            "review_due": review_due,
+        }
+    if review_due and str(state.status or "") == "blocked":
+        return {
+            "decision": "report_blocker",
+            "classification": "expected_wait",
+            "reason": str((state.continuation or {}).get("reason") or "blocked"),
+            "idle_seconds": idle_seconds,
+            "review_due": True,
+        }
+    if review_due:
+        return {
+            "decision": "report_status",
+            "classification": "expected_wait",
+            "reason": str((state.continuation or {}).get("reason") or (state.next_action or {}).get("kind") or state.status),
+            "idle_seconds": idle_seconds,
+            "review_due": True,
+        }
+    return None
+
+
+
+def _runtime_delivery_watchdog_decision(*, process: Dict[str, Any], contract: ProductionBuildContract, state: Optional[ProductionBuildLoopState], now: datetime) -> Optional[Dict[str, Any]]:
+    if state is None:
+        return {"decision": "auto_resume", "classification": "bootstrap", "reason": "missing_state"}
+    if str(state.liveness or "live") == "terminal" or str(state.status or "") not in {"active", "blocked"}:
+        return None
+    running = _process_has_running_nodes(process)
+    waiting = _process_has_waiting_nodes(process)
+    review_due = False
+    if state.next_review_at:
+        due_at = _parse_optional_dt(state.next_review_at)
+        review_due = due_at is not None and due_at <= now
+    last_progress = _parse_optional_dt(state.last_progress_at)
+    idle_seconds = (now - last_progress).total_seconds() if last_progress is not None else None
+    abnormal_idle = str((state.continuation or {}).get("mode") or "") == "continue_now"
+    if not abnormal_idle and not running and not waiting and str(state.status or "") == "active":
+        abnormal_idle = idle_seconds is None or idle_seconds >= int(contract.checkpoint_policy.abnormal_idle_grace_seconds or 0)
+    if abnormal_idle:
+        return {
+            "decision": "auto_resume",
+            "classification": "abnormal_idle",
+            "reason": str((state.continuation or {}).get("reason") or (state.next_action or {}).get("kind") or state.status),
+            "idle_seconds": idle_seconds,
+            "review_due": review_due,
+        }
+    if review_due and str(state.status or "") == "blocked":
+        return {
+            "decision": "report_blocker",
+            "classification": "expected_wait",
+            "reason": str((state.continuation or {}).get("reason") or "blocked"),
+            "idle_seconds": idle_seconds,
+            "review_due": True,
+        }
+    if review_due:
+        return {
+            "decision": "report_status",
+            "classification": "expected_wait",
+            "reason": str((state.continuation or {}).get("reason") or (state.next_action or {}).get("kind") or state.status),
+            "idle_seconds": idle_seconds,
+            "review_due": True,
+        }
+    return None
+
+
+
+def _run_runtime_no_silent_idle_watchdog(*, now_iso: Optional[str] = None, limit: int = 25) -> Dict[str, Any]:
+    stores = _runtime_delivery_stores()
+    now = _runtime_watchdog_now(now_iso)
+    reviewed = 0
+    actions: List[Dict[str, Any]] = []
+    for process in list_runtime_processes()[: max(1, int(limit or 1))]:
+        process_id = process.get("process_id")
+        if not process_id:
+            continue
+        reviewed += 1
+        snapshot = stores["snapshot_store"].load(process_id)
+        shared_state = stores["shared_state_store"].load(process_id)
+        workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+        metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+        if (stores["roadmap_store"].load_contract(process_id) is not None or stores["roadmap_store"].load_state(process_id) is not None or isinstance(metadata.get("roadmap_executor"), dict)) and (snapshot is not None or shared_state is not None):
+            if snapshot is None or shared_state is None:
+                _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
+            contract = _resolve_runtime_roadmap_contract(process_id, process=process, stores=stores, request=RuntimeRoadmapReconcileRequest())
+            state = stores["roadmap_store"].load_state(process_id)
+            decision = _runtime_roadmap_watchdog_decision(process=process, contract=contract, state=state, now=now)
+            if decision is not None:
+                reconciled = reconcile_roadmap_execution(
+                    contract,
+                    roadmap_store=stores["roadmap_store"],
+                    snapshot_store=stores["snapshot_store"],
+                    shared_state_store=stores["shared_state_store"],
+                    mailbox=stores["mailbox"],
+                    supervisor=stores["supervisor"],
+                    release_store=stores["release_store"],
+                    controller_id="runtime-watchdog",
+                    controller_session_id=f"runtime-watchdog:{process_id}",
+                    journal=stores["journal"],
+                    now=now,
+                    watchdog_context={**decision, "source": "runtime_tick", "process_id": process_id},
+                )
+                process = _sync_runtime_process_roadmap_state(
+                    process_id,
+                    process=get_runtime_process(process_id) or process,
+                    stores=stores,
+                    event_kind="runtime_roadmap_watchdog",
+                    event_payload={"decision": decision.get("decision"), "classification": decision.get("classification"), "status": (reconciled.get("state") or {}).get("status")},
+                )
+                actions.append({"kind": "roadmap", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None})
+                continue
+        if (stores["loop_store"].load_contract(process_id) is not None or stores["loop_store"].load_state(process_id) is not None or isinstance(metadata.get("production_build_loop"), dict)) and (snapshot is not None or shared_state is not None):
+            if snapshot is None or shared_state is None:
+                _bootstrap_runtime_delivery_state(process_id, process=process, stores=stores)
+            contract = _resolve_runtime_delivery_contract(process_id, process=process, stores=stores, request=RuntimeDeliveryReconcileRequest())
+            state = stores["loop_store"].load_state(process_id)
+            decision = _runtime_delivery_watchdog_decision(process=process, contract=contract, state=state, now=now)
+            if decision is not None:
+                reconciled = reconcile_production_build_loop(
+                    contract,
+                    loop_store=stores["loop_store"],
+                    snapshot_store=stores["snapshot_store"],
+                    shared_state_store=stores["shared_state_store"],
+                    journal=stores["journal"],
+                    mailbox=stores["mailbox"],
+                    supervisor=stores["supervisor"],
+                    release_store=stores["release_store"],
+                    controller_id="runtime-watchdog",
+                    controller_session_id=f"runtime-watchdog:{process_id}",
+                    now=now,
+                    watchdog_context={**decision, "source": "runtime_tick", "process_id": process_id},
+                )
+                process = _sync_runtime_process_delivery_state(
+                    process_id,
+                    process=get_runtime_process(process_id) or process,
+                    stores=stores,
+                    event_kind="runtime_delivery_watchdog",
+                    event_payload={"decision": decision.get("decision"), "classification": decision.get("classification"), "status": (reconciled.get("state") or {}).get("status")},
+                )
+                actions.append({"kind": "delivery", "process_id": process_id, "decision": decision, "status": (reconciled.get("state") or {}).get("status"), "report": (reconciled.get("report") or {}).get("kind") if isinstance(reconciled.get("report"), dict) else None})
+    return {"reviewed": reviewed, "actions": actions, "action_count": len(actions)}
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 @router.get("/status")
@@ -1248,9 +1450,11 @@ async def tick_runtime(request: RuntimeTickRequest):
     """Advance the reasoning runtime and optionally execute due ready nodes."""
     if not bool(request.execute):
         tick = reasoning_scheduler_tick(now_iso=request.now_iso, limit=request.limit)
-        return {"success": True, "tick": tick, "executed": [], "executed_count": 0}
+        watchdog = _run_runtime_no_silent_idle_watchdog(now_iso=request.now_iso, limit=request.limit)
+        return {"success": True, "tick": tick, "executed": [], "executed_count": 0, "watchdog": watchdog}
     batch = await _execute_runtime_batch(limit=request.limit, now_iso=request.now_iso)
-    return {"success": True, **batch}
+    watchdog = _run_runtime_no_silent_idle_watchdog(now_iso=request.now_iso, limit=request.limit)
+    return {"success": True, **batch, "watchdog": watchdog}
 
 
 @router.get("/runtime/status")

@@ -8,6 +8,7 @@ from cortex_server.runtime.production_build_loop import (
     ProductionBuildContract,
     ProductionBuildLoopState,
     ProductionBuildLoopStore,
+    ProductionCheckpointPolicy,
     ProductionCompletionCriterion,
     ProductionPassBudget,
     ProductionStageGate,
@@ -300,6 +301,130 @@ def test_production_loop_auto_chains_across_stage_promotions_with_bounded_pass_b
     assert len(reports) >= 2
     assert all("validation=" in report.summary or report.kind != "checkpoint" for report in reports)
     assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["status"] == "completed"
+
+
+
+def test_production_loop_persists_live_follow_up_and_emits_watchdog_review_reports(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_prod_watchdog_review"
+    artifact_bundle = f"artifact_release_bundle:{process_id}"
+
+    seeded = harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="build", agent_id="builder")
+    shared_state = harness.shared_state_store.save(
+        SharedProcessState(
+            process_id=process_id,
+            revision_id="rev_2",
+            goals=list(seeded["shared_state"].goals),
+            active_plan_node_ids=list(seeded["shared_state"].active_plan_node_ids),
+            runtime_constraints=dict(seeded["shared_state"].runtime_constraints),
+            world_state={**dict(seeded["shared_state"].world_state), "release_stage": "build_verified"},
+            belief_refs=list(seeded["shared_state"].belief_refs),
+            open_questions=[],
+            agent_ownership=dict(seeded["shared_state"].agent_ownership),
+            metadata=dict(seeded["shared_state"].metadata),
+        ),
+        expected_revision_id="rev_1",
+        actor="builder",
+        provenance={"phase": "release_seed"},
+    )
+    harness.journal.append(
+        process_id=process_id,
+        kind="artifact_written",
+        revision_id=shared_state.revision_id,
+        actor="builder",
+        payload={"artifact_id": artifact_bundle},
+    )
+    snapshot = harness._checkpoint_from_journal(
+        process_id=process_id,
+        metadata={"release_stage": "build_verified"},
+        world_state_overrides={"release_stage": "build_verified"},
+    )
+    release_state = ReleaseWorkflowState(
+        process_id=process_id,
+        candidate_ref="build:watchdog-prod",
+        target_environment="production",
+        revision_id=shared_state.revision_id,
+        current_stage="build_verified",
+        status="preparing",
+    )
+    release_state = record_release_fencepost(
+        release_state,
+        capture_release_rollback_fencepost(snapshot=snapshot, shared_state=shared_state, stage="build_verified"),
+    )
+    harness.release_store.save(release_state, actor="builder", provenance={"phase": "build_verified"})
+
+    loop_store = ProductionBuildLoopStore(tmp_path / "loop_store")
+    contract = _contract(
+        process_id,
+        completion_criteria=[
+            ProductionCompletionCriterion(criterion_id="bundle", summary="Release bundle must exist", kind="artifact_present", artifact_id=artifact_bundle),
+            ProductionCompletionCriterion(criterion_id="release", summary="Release must reach production", kind="release_stage", stage="production"),
+        ],
+        stage_gates=[
+            ProductionStageGate(stage="canary_verified", required_fencepost_stages=["build_verified"], required_artifacts=[artifact_bundle], require_dependability=False),
+            ProductionStageGate(stage="production", required_fencepost_stages=["build_verified", "canary_verified"], required_artifacts=[artifact_bundle, f"artifact_smoke_report:{process_id}"], require_dependability=False),
+        ],
+    ).model_copy(
+        update={
+            "checkpoint_policy": ProductionCheckpointPolicy(
+                report_every_iterations=10,
+                live_review_seconds=60,
+                proactive_report_seconds=120,
+                blocker_followup_seconds=60,
+            )
+        }
+    )
+
+    first_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    first = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-watchdog-prod-1",
+        now=first_now,
+    )
+
+    persisted = loop_store.load_state(process_id)
+    assert first["state"]["status"] == "active"
+    assert persisted is not None
+    assert persisted.liveness == "live"
+    assert persisted.terminal_state is None
+    assert persisted.last_progress_at is not None
+    assert persisted.next_review_at is not None
+    assert persisted.owed_follow_up["owed"] is True
+    assert persisted.reporting_cadence["review_interval_seconds"] in {0, 60}
+
+    second = reconcile_production_build_loop(
+        contract,
+        loop_store=loop_store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        journal=harness.journal,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="runtime-watchdog",
+        controller_session_id="sess-watchdog-prod-2",
+        now=first_now + timedelta(minutes=3),
+        watchdog_context={"decision": "report_status", "classification": "expected_wait", "source": "test"},
+    )
+
+    reviewed = loop_store.load_state(process_id)
+    reports = loop_store.reports(process_id)
+    assert second["report"] is not None
+    assert reviewed is not None
+    assert reviewed.last_watchdog_decision["decision"] == "report_status"
+    assert reviewed.last_report_at == second["report"]["recorded_at"]
+    assert any(reason in second["report"]["metadata"]["reasons"] for reason in ["review_due", "status_followup_due", "stage_change", "idle_recovery"])
+    assert "status_followup_due" in second["report"]["metadata"]["reasons"]
+    assert reports[-1].metadata["reporting_cadence"]["review_interval_seconds"] in {0, 60}
+    assert reports[-1].metadata["owed_follow_up"]["owed"] is True
 
 
 

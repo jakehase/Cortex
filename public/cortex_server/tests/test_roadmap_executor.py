@@ -10,6 +10,7 @@ from cortex_server.runtime.roadmap_executor import (
     RoadmapObjectiveContract,
     RoadmapPassBudget,
     RoadmapPhaseDefinition,
+    RoadmapReportingPolicy,
     RoadmapSuccessCriterion,
     RoadmapTaskDefinition,
     RoadmapTaskState,
@@ -621,6 +622,76 @@ def test_roadmap_executor_emits_budget_exhaustion_checkpoint_with_broad_progress
     assert persisted.metadata["execution_discipline"]["progress"]["task_completed"] == 3
     assert persisted.metadata["validation_policy"]["scope"] == "broad"
     assert reports[-1].metadata["execution_discipline"]["latest_decisions"]["budget_exhausted"] is True
+
+
+
+def test_roadmap_executor_persists_live_follow_up_and_emits_watchdog_review_reports(tmp_path):
+    harness = RuntimeSoakHarness(tmp_path / "soak", sleep_fn=lambda seconds: None)
+    process_id = "proc_roadmap_watchdog_review"
+    store = RoadmapExecutionStore(tmp_path / "roadmap_store")
+    harness._seed_waiting_process(process_id=process_id, revision_id="rev_1", node_id="feature_build", agent_id="builder")
+
+    contract = _contract(process_id).model_copy(
+        update={
+            "reporting_policy": RoadmapReportingPolicy(
+                report_every_iterations=10,
+                live_review_seconds=60,
+                proactive_report_seconds=120,
+                blocker_followup_seconds=60,
+            )
+        }
+    )
+    first_now = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    first = reconcile_roadmap_execution(
+        contract,
+        roadmap_store=store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="controller",
+        controller_session_id="sess-watchdog-1",
+        journal=harness.journal,
+        now=first_now,
+    )
+
+    persisted = store.load_state(process_id)
+    assert first["state"]["status"] == "active"
+    assert persisted is not None
+    assert persisted.liveness == "live"
+    assert persisted.terminal_state is None
+    assert persisted.last_progress_at is not None
+    assert persisted.next_review_at is not None
+    assert persisted.owed_follow_up["owed"] is True
+    assert persisted.reporting_cadence["review_interval_seconds"] == 60
+
+    second = reconcile_roadmap_execution(
+        contract,
+        roadmap_store=store,
+        snapshot_store=harness.snapshot_store,
+        shared_state_store=harness.shared_state_store,
+        mailbox=harness.mailbox,
+        supervisor=harness.supervisor,
+        release_store=harness.release_store,
+        controller_id="runtime-watchdog",
+        controller_session_id="sess-watchdog-2",
+        journal=harness.journal,
+        now=first_now + timedelta(minutes=3),
+        watchdog_context={"decision": "report_status", "classification": "expected_wait", "source": "test"},
+    )
+
+    reviewed = store.load_state(process_id)
+    reports = store.reports(process_id)
+    assert second["report"] is not None
+    assert reviewed is not None
+    assert reviewed.last_watchdog_decision["decision"] == "report_status"
+    assert reviewed.last_report_at == second["report"]["recorded_at"]
+    assert reviewed.last_report["report_id"] == second["report"]["report_id"]
+    assert any(reason in second["report"]["metadata"]["reasons"] for reason in ["review_due", "status_followup_due", "worker_dispatch", "idle_recovery"])
+    assert "status_followup_due" in second["report"]["metadata"]["reasons"]
+    assert reports[-1].metadata["reporting_cadence"]["review_interval_seconds"] == 60
+    assert reports[-1].metadata["owed_follow_up"]["owed"] is True
 
 
 
