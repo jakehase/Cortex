@@ -36,12 +36,24 @@ Behavior
 - moves tasks to `running` on prompt start
 - moves tasks to `internal_complete` when agent/subagent work finishes successfully
 - runs validator pass automatically for important tasks; failed validator keeps task in `internal_complete`
+- for important implementation/build tasks, injects an **objective grounding** checklist before execution:
+  - identify the exact anchor artifact/message/roadmap being followed
+  - identify the target repo/path/codebase being changed
+  - identify whether the work is product code vs scaffolding/docs/tests
+  - do not claim feature implementation unless the diff touches real product-surface files
 - auto-delivers a completion message after threshold using OpenClaw delivery runtime
 - does not treat attempted delivery as closure
 - moves to `notification_sent` only after outbound runtime success
 - moves to `delivery_confirmed` and `closed` after observed send confirmation path (`message_sent` fallback)
 - injects a mandatory done/evidence/what-remains guard into the next prompt while a completed task is still awaiting confirmed user-visible delivery
 - recovers stale `running` tasks on gateway restart into `internal_complete` so they can still notify instead of disappearing
+
+Objective grounding validator
+- important implementation/build tasks now require short grounding proof in their completion summary before validator pass:
+  - `Anchor: ...`
+  - `Target path:` or `Target repo:` or `Codebase:`
+  - `Diff scope:` / `Implementation surface:` / `Product files:` (or explicit `scaffolding only`)
+- this does **not** prove semantic correctness by itself, but it blocks the easy failure mode where scaffolding or docs work is reported as feature implementation without any explicit grounding proof
 
 Machine-readable metrics
 `state/completion-integrity/metrics.json` includes:
@@ -59,6 +71,7 @@ Regression coverage
 Tests cover:
 - normal agent completion -> auto-delivery -> confirmation -> close
 - important-task validator gating
+- objective-grounding injection + validator proof requirement for important implementation tasks
 - stale running task recovery across restart
 - deduped/repeated auto-delivery attempts
 - subagent completion + next-turn reminder injection
