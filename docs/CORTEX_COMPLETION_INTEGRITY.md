@@ -41,6 +41,10 @@ Behavior
   - identify the target repo/path/codebase being changed
   - identify whether the work is product code vs scaffolding/docs/tests
   - do not claim feature implementation unless the diff touches real product-surface files
+- when the inbound message is a **reply** and the replied message text is present, injects a **reply-thread grounding** anchor:
+  - treat the replied message as the primary scope anchor before repo search or memory search
+  - require completion summaries to include `Reply anchor: ...` for important grounded implementation tasks
+  - prevent ambiguous prompts like “this”, “continue”, “previous roadmap”, or “phases 1-3” from drifting to unrelated phase-shaped docs
 - auto-delivers a completion message after threshold using OpenClaw delivery runtime
 - does not treat attempted delivery as closure
 - moves to `notification_sent` only after outbound runtime success
@@ -51,6 +55,7 @@ Behavior
 Objective grounding validator
 - important implementation/build tasks now require short grounding proof in their completion summary before validator pass:
   - `Anchor: ...`
+  - `Reply anchor: ...` when the current message is a reply and the replied message sets scope
   - `Target path:` or `Target repo:` or `Codebase:`
   - `Diff scope:` / `Implementation surface:` / `Product files:` (or explicit `scaffolding only`)
 - this does **not** prove semantic correctness by itself, but it blocks the easy failure mode where scaffolding or docs work is reported as feature implementation without any explicit grounding proof
@@ -72,6 +77,7 @@ Tests cover:
 - normal agent completion -> auto-delivery -> confirmation -> close
 - important-task validator gating
 - objective-grounding injection + validator proof requirement for important implementation tasks
+- reply-thread grounding injection + explicit `Reply anchor:` validator requirement
 - stale running task recovery across restart
 - deduped/repeated auto-delivery attempts
 - subagent completion + next-turn reminder injection
