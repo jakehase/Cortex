@@ -45,6 +45,10 @@ Behavior
   - treat the replied message as the primary scope anchor before repo search or memory search
   - require completion summaries to include `Reply anchor: ...` for important grounded implementation tasks
   - prevent ambiguous prompts like “this”, “continue”, “previous roadmap”, or “phases 1-3” from drifting to unrelated phase-shaped docs
+- when the prompt asks for a **1:1 / full / exact clone**, injects a **clone parity contract**:
+  - interpret clone requests as parity-first, not MVP-first
+  - reject completions that describe the result as a prototype, first-pass, vertical slice, scaffold-only build, or mini version
+  - require explicit parity proof before validator pass
 - auto-delivers a completion message after threshold using OpenClaw delivery runtime
 - does not treat attempted delivery as closure
 - moves to `notification_sent` only after outbound runtime success
@@ -59,6 +63,14 @@ Objective grounding validator
   - `Target path:` or `Target repo:` or `Codebase:`
   - `Diff scope:` / `Implementation surface:` / `Product files:` (or explicit `scaffolding only`)
 - this does **not** prove semantic correctness by itself, but it blocks the easy failure mode where scaffolding or docs work is reported as feature implementation without any explicit grounding proof
+
+Clone parity validator
+- important tasks that explicitly ask for a `1:1`, `full`, or `exact` clone now additionally require:
+  - `Parity status: full`
+  - `Surface coverage: ...`
+  - `Parity evidence:` / `Parity checks:` / `Parity tests:`
+  - `Remaining gaps: ...`
+- validator fails if the completion summary also frames the result as a `prototype`, `first-pass`, `vertical slice`, `MVP`, `mini version`, `working slice`, or `partial parity`
 
 Machine-readable metrics
 `state/completion-integrity/metrics.json` includes:
@@ -78,6 +90,7 @@ Tests cover:
 - important-task validator gating
 - objective-grounding injection + validator proof requirement for important implementation tasks
 - reply-thread grounding injection + explicit `Reply anchor:` validator requirement
+- clone parity injection + rejection of prototype-style completions for `1:1 clone` tasks
 - stale running task recovery across restart
 - deduped/repeated auto-delivery attempts
 - subagent completion + next-turn reminder injection
