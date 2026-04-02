@@ -25,6 +25,24 @@ Hard task state machine
 - `closed` - completion lifecycle is done
 - `failed` - task execution or delivery/validation path failed hard
 
+Task contract model
+- important execution tasks now carry a persisted **Task Contract** in state
+- contract fields:
+  - requested fidelity
+  - requested scope
+  - stop condition
+- contract proof is required before validator pass for important grounded/campaign/parity work
+
+Fidelity lattice
+- `prototype`
+- `production_slice`
+- `parity_for_scope`
+- `full_clone`
+
+This is treated as an ordered lattice, not vibe text.
+The runtime now records an inferred requested fidelity and injects it back into the prompt contract.
+Clone requests default to `full_clone`.
+
 Trust tiers / policy
 - `background`: recurring cron-like work, excluded from user-visible tracking
 - `normal`: lightweight user-visible tasks; light validation only
@@ -49,6 +67,13 @@ Behavior
   - interpret clone requests as parity-first, not MVP-first
   - reject completions that describe the result as a prototype, first-pass, vertical slice, scaffold-only build, or mini version
   - require explicit parity proof before validator pass
+- when the prompt is a long-horizon roadmap/program/phase/campaign task, injects a **campaign runtime contract**:
+  - treat the task as a persistent campaign, not a one-shot pass
+  - require explicit campaign mode and supervisor status in completion/blocker summaries
+  - prevent “worker stopped after one pass while supervisor is still red” from counting as valid closure
+- when the scope implies multiple surfaces/programs/phases, injects a **surface matrix contract**:
+  - require a machine-readable surface matrix/checklist
+  - require supervisor truth to be derived from that matrix, not only file presence
 - auto-delivers a completion message after threshold using OpenClaw delivery runtime
 - does not treat attempted delivery as closure
 - moves to `notification_sent` only after outbound runtime success
@@ -64,6 +89,13 @@ Objective grounding validator
   - `Diff scope:` / `Implementation surface:` / `Product files:` (or explicit `scaffolding only`)
 - this does **not** prove semantic correctness by itself, but it blocks the easy failure mode where scaffolding or docs work is reported as feature implementation without any explicit grounding proof
 
+Task contract validator
+- important grounded/campaign/parity tasks now additionally require:
+  - `Fidelity: ...`
+  - `Scope: ...`
+  - `Stop condition: ...`
+- this prevents silent scope-shrinkage or fidelity downgrades during execution
+
 Clone parity validator
 - important tasks that explicitly ask for a `1:1`, `full`, or `exact` clone now additionally require:
   - `Parity status: full`
@@ -71,6 +103,23 @@ Clone parity validator
   - `Parity evidence:` / `Parity checks:` / `Parity tests:`
   - `Remaining gaps: ...`
 - validator fails if the completion summary also frames the result as a `prototype`, `first-pass`, `vertical slice`, `MVP`, `mini version`, `working slice`, or `partial parity`
+- for structured blocker stops, clone/parity tasks may instead report:
+  - `Parity status: blocked|incomplete|not full`
+  - plus a valid blocker report under the campaign runtime rules
+
+Campaign runtime validator
+- campaign-required tasks now require:
+  - `Campaign mode: persistent`
+  - `Supervisor status: green` for completion, or
+  - `Supervisor status: red` + `Blocker: ...` + `Next action: ...` for a blocker stop
+- if the supervisor is red and no blocker report is present, validator fails with a campaign-stop error
+
+Surface matrix validator
+- multi-surface/program/phase tasks now require:
+  - `Surface matrix: ...` or `Surface checklist: ...`
+  - `Surface matrix status: all_complete|partial|blocked`
+- full clone/parity claims require `Surface matrix status: all_complete`
+- blocker-mode campaign stops may use `Surface matrix status: blocked`
 
 Machine-readable metrics
 `state/completion-integrity/metrics.json` includes:
@@ -91,6 +140,9 @@ Tests cover:
 - objective-grounding injection + validator proof requirement for important implementation tasks
 - reply-thread grounding injection + explicit `Reply anchor:` validator requirement
 - clone parity injection + rejection of prototype-style completions for `1:1 clone` tasks
+- task-contract injection + proof requirement (`Fidelity`, `Scope`, `Stop condition`)
+- campaign runtime injection + blocker-only stop rule when supervisor stays red
+- surface matrix injection + matrix-status truth gating
 - stale running task recovery across restart
 - deduped/repeated auto-delivery attempts
 - subagent completion + next-turn reminder injection
