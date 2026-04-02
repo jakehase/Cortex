@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-04-01T23:48:30Z",
+  "by_category": {
+    "preference_memory": {
+      "state_unexpected": 5,
+      "compression_ratio": 5,
+      "packet_missing": 1,
+      "state_missing": 1
+    },
+    "preference_override": {
+      "packet_unexpected": 5,
+      "state_unexpected": 5
+    },
+    "active_project_continuity": {
+      "packet_unexpected": 1,
+      "state_unexpected": 5
+    },
+    "stale_memory_suppression": {
+      "packet_unexpected": 4
+    },
+    "false_memory_trap": {
+      "packet_unexpected": 4,
+      "state_unexpected": 4,
+      "state_missing": 1
+    },
+    "cross_turn_followup": {
+      "packet_unexpected": 1,
+      "state_unexpected": 2
+    },
+    "long_sequence_durability": {
+      "packet_unexpected": 3,
+      "state_unexpected": 4
+    }
+  }
+}

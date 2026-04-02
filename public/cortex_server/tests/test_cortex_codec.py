@@ -46,6 +46,70 @@ def test_build_codec_state_extracts_preferences_projects_and_open_loops():
     assert "Projects:" in state["summary"]
 
 
+def test_codec_recognizes_begin_replies_with_as_preference_and_not_project_noise():
+    state = build_codec_state(
+        [
+            {
+                "text": "Begin replies with [Memoria].",
+                "tags": ["preference"],
+            }
+        ]
+    )
+
+    assert state["identity_state"]["preferences"] == ["Begin replies with [Memoria]."]
+    assert not state["project_state"]["active_projects"]
+
+
+def test_codec_preference_revision_supersedes_prior_preference():
+    first = build_codec_state([
+        {"text": "Start replies with [Cortex].", "tags": ["preference"]},
+    ])
+    second = build_codec_state(
+        [{"text": "Start replies with [Neural] instead.", "tags": ["preference"]}],
+        previous_state=first,
+    )
+
+    assert second["identity_state"]["preferences"] == ["Start replies with [Neural] instead."]
+    assert second["identity_state"]["preference_revision_count"] >= 1
+    assert second["identity_state"]["preference_revisions"][-1]["superseded_text"] == "Start replies with [Cortex]."
+
+
+def test_codec_preference_revision_supports_call_me_alias_changes():
+    first = build_codec_state([
+        {"text": "Call me Jake.", "tags": ["preference"]},
+    ])
+    second = build_codec_state(
+        [{"text": "Call me J instead.", "tags": ["preference"]}],
+        previous_state=first,
+    )
+
+    assert second["identity_state"]["preferences"] == ["Call me J instead."]
+    assert second["identity_state"]["preference_revision_count"] >= 1
+
+
+def test_codec_project_extraction_filters_generic_tag_and_sentence_noise():
+    state = build_codec_state(
+        [
+            {
+                "text": "Thanks for checking.",
+                "tags": ["note"],
+                "metadata": {"project": "Memory Supervisor"},
+            },
+            {
+                "text": "We should land the Nexus Router migration.",
+                "tags": ["planning"],
+            },
+        ]
+    )
+
+    assert "Memory Supervisor" in state["project_state"]["active_projects"]
+    assert "Nexus Router" in state["project_state"]["active_projects"]
+    assert "note" not in state["project_state"]["active_projects"]
+    assert "Thanks" not in state["project_state"]["active_projects"]
+    assert "planning" not in state["project_state"]["active_projects"]
+    assert "We" not in state["project_state"]["active_projects"]
+
+
 def test_apply_codec_outcome_feedback_promotes_observed_lessons():
     state = build_codec_state([
         {"text": "Build a verifier loop for research answers.", "metadata": {"project": "Verifier"}}

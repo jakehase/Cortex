@@ -1,0 +1,9 @@
+{
+  "generated_at": "2026-04-02T00:02:00Z",
+  "baseline_overall_pass_rate": 0.341,
+  "final_overall_pass_rate": 0.886,
+  "pass_rate_gain": 0.545,
+  "false_memory_reduction": 0.545,
+  "stale_memory_reduction": 0.114,
+  "omission_reduction": 0.045
+}

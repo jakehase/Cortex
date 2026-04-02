@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-04-02T00:12:00Z",
+  "winner": "cfg_balanced_roomy",
+  "config": {
+    "name": "cfg_balanced_roomy",
+    "max_items_per_bucket": 8,
+    "packet_chars": 420,
+    "codec_globals": {
+      "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+      "CODEC_PACKET_INCLUDE_STALE": false,
+      "CODEC_PACKET_USE_PROMOTION": true,
+      "CODEC_PACKET_INCLUDE_GOALS": false,
+      "CODEC_PACKET_INCLUDE_PATTERNS": false
+    }
+  },
+  "rationale": [
+    "matched the best overall pass rate in the matrix",
+    "held false-memory and stale-memory failures at the best observed level",
+    "kept packet size materially below the baseline while preserving full project/open-loop continuity"
+  ]
+}

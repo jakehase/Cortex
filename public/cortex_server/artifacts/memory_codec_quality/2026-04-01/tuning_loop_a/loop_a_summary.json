@@ -1,0 +1,38 @@
+{
+  "schema_version": "cortex.memory_codec_quality.loop_a.v1",
+  "generated_at": "2026-04-02T00:00:00Z",
+  "baseline_run": "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/baseline/baseline.memory_codec.json",
+  "input_run": "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/tuning_loop_a/loop_a_candidate.memory_codec.json",
+  "changes": [
+    "Expanded preference phrase coverage to catch begin replies with/reply prefix forms.",
+    "Added preference revision resolution for start replies/call me/prefer claims so newer preferences supersede old ones.",
+    "Hardened project extraction to reject generic tags and sentence-leading verb noise while preserving metadata and strong project names."
+  ],
+  "metrics": {
+    "overall_pass_rate": 0.773,
+    "false_memory_rate": 0.227,
+    "stale_memory_failure_rate": 0.114,
+    "open_loop_continuity_accuracy": 0.923,
+    "preference_recall_accuracy": 0.5,
+    "avg_packet_chars": 67.182
+  },
+  "delta_vs_previous": {
+    "overall_pass_rate": 0.432,
+    "false_memory_rate": -0.432,
+    "stale_memory_failure_rate": 0.0,
+    "open_loop_continuity_accuracy": 0.385,
+    "preference_recall_accuracy": 0.5,
+    "avg_packet_chars": -30.932
+  },
+  "remaining_hotspots": [
+    "preference_memory::compression_ratio",
+    "stale_memory_suppression::packet_unexpected",
+    "preference_memory::active_projects::unexpected",
+    "preference_override::packet_unexpected",
+    "preference_override::preferences::unexpected",
+    "active_project_continuity::active_projects::unexpected",
+    "long_sequence_durability::packet_unexpected",
+    "false_memory_trap::packet_unexpected"
+  ],
+  "winning_config_snapshot": "cfg_balanced_roomy"
+}

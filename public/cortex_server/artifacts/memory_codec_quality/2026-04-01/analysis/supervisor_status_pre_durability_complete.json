@@ -1,0 +1,171 @@
+{
+  "all_complete": false,
+  "artifacts_root": "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01",
+  "completion_summary_path": null,
+  "date": "2026-04-01",
+  "next_stage": "durability_run_1",
+  "schema_version": "cortex.memory_codec_quality.supervisor.v1",
+  "stages": [
+    {
+      "completed": true,
+      "details": {
+        "case_count": 44
+      },
+      "label": "Memory/codec corpus (40+ cases)",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [],
+      "stage": "corpus",
+      "status": "complete"
+    },
+    {
+      "completed": true,
+      "details": {},
+      "label": "Baseline quality run",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [],
+      "stage": "baseline",
+      "status": "complete"
+    },
+    {
+      "completed": true,
+      "details": {
+        "experiment_count": 8,
+        "winner": "cfg_balanced_roomy"
+      },
+      "label": "Experiment matrix (8+ configs)",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [],
+      "stage": "experiments",
+      "status": "complete"
+    },
+    {
+      "completed": true,
+      "details": {
+        "cluster_count": 20
+      },
+      "label": "Failure cluster triage queue (20+ clusters)",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [],
+      "stage": "triage_queue",
+      "status": "complete"
+    },
+    {
+      "completed": true,
+      "details": {},
+      "label": "Tuning loop A",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [],
+      "stage": "tuning_loop_a",
+      "status": "complete"
+    },
+    {
+      "completed": true,
+      "details": {},
+      "label": "Tuning loop B",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [],
+      "stage": "tuning_loop_b",
+      "status": "complete"
+    },
+    {
+      "completed": false,
+      "details": {},
+      "label": "Memory durability run 1 (30m)",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/durability_run_1.json",
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/durability_run_1.md"
+      ],
+      "stage": "durability_run_1",
+      "status": "pending"
+    },
+    {
+      "completed": false,
+      "details": {},
+      "label": "Foreground work during durability window 1",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/foreground_window_1_summary.md"
+      ],
+      "stage": "foreground_window_1",
+      "status": "pending"
+    },
+    {
+      "completed": false,
+      "details": {},
+      "label": "Memory durability run 2 (30m)",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/durability_run_2.json",
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/durability_run_2.md"
+      ],
+      "stage": "durability_run_2",
+      "status": "pending"
+    },
+    {
+      "completed": false,
+      "details": {},
+      "label": "Foreground work during durability window 2",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/foreground_window_2_summary.md"
+      ],
+      "stage": "foreground_window_2",
+      "status": "pending"
+    },
+    {
+      "completed": false,
+      "details": {},
+      "label": "Memory durability run 3 (30m)",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/durability_run_3.json",
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/durability_run_3.md"
+      ],
+      "stage": "durability_run_3",
+      "status": "pending"
+    },
+    {
+      "completed": false,
+      "details": {},
+      "label": "Foreground work during durability window 3",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/foreground_window_3_summary.md"
+      ],
+      "stage": "foreground_window_3",
+      "status": "pending"
+    },
+    {
+      "completed": false,
+      "details": {},
+      "label": "Final rerun",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/final/final.memory_codec.json"
+      ],
+      "stage": "final_rerun",
+      "status": "pending"
+    },
+    {
+      "completed": false,
+      "details": {},
+      "label": "Broad validation",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [
+        "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/validation/validation_summary.json"
+      ],
+      "stage": "validation",
+      "status": "pending"
+    },
+    {
+      "completed": true,
+      "details": {},
+      "label": "Final memory/codec quality report",
+      "last_verified_at": "2026-04-01T23:54:22Z",
+      "missing_artifacts": [],
+      "stage": "final_report",
+      "status": "complete"
+    }
+  ]
+}

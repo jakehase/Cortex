@@ -1,0 +1,701 @@
+{
+  "schema_version": "cortex.memory_codec_quality.triage.v1",
+  "generated_at": "2026-04-01T23:28:38Z",
+  "cluster_count": 20,
+  "clusters": [
+    {
+      "cluster_id": "preference_memory::compression_ratio",
+      "label": "preference_memory",
+      "failure_kind": "compression_ratio",
+      "case_ids": [
+        "pref_memory_01",
+        "pref_memory_02",
+        "pref_memory_03",
+        "pref_memory_04",
+        "pref_memory_05"
+      ],
+      "runs": [
+        "baseline_current",
+        "cfg_balanced_280",
+        "cfg_balanced_320",
+        "cfg_balanced_roomy",
+        "cfg_compact_220",
+        "cfg_goals_patterns_on",
+        "cfg_legacy_roomy",
+        "cfg_no_promotion",
+        "cfg_stale_allowed"
+      ],
+      "examples": [
+        {
+          "case_id": "pref_memory_01",
+          "run": "baseline_current",
+          "detail": {
+            "observed": 0.438,
+            "min": 1.0
+          }
+        },
+        {
+          "case_id": "pref_memory_02",
+          "run": "baseline_current",
+          "detail": {
+            "observed": 0.236,
+            "min": 1.0
+          }
+        },
+        {
+          "case_id": "pref_memory_03",
+          "run": "baseline_current",
+          "detail": {
+            "observed": 0.383,
+            "min": 1.0
+          }
+        }
+      ],
+      "count": 45
+    },
+    {
+      "cluster_id": "stale_memory_suppression::packet_unexpected",
+      "label": "stale_memory_suppression",
+      "failure_kind": "packet_unexpected",
+      "case_ids": [
+        "stale_01",
+        "stale_02",
+        "stale_03",
+        "stale_04"
+      ],
+      "runs": [
+        "baseline_current",
+        "cfg_goals_patterns_on",
+        "cfg_legacy_roomy",
+        "cfg_stale_allowed"
+      ],
+      "examples": [
+        {
+          "case_id": "stale_01",
+          "run": "baseline_current",
+          "detail": [
+            "Important decision: old path is default."
+          ]
+        },
+        {
+          "case_id": "stale_02",
+          "run": "baseline_current",
+          "detail": [
+            "Prefer markdown tables."
+          ]
+        },
+        {
+          "case_id": "stale_03",
+          "run": "baseline_current",
+          "detail": [
+            "Need to fix the old scroll bug?"
+          ]
+        }
+      ],
+      "count": 14
+    },
+    {
+      "cluster_id": "preference_memory::active_projects::unexpected",
+      "label": "preference_memory",
+      "failure_kind": "state_unexpected",
+      "case_ids": [
+        "pref_memory_01",
+        "pref_memory_02",
+        "pref_memory_03",
+        "pref_memory_04",
+        "pref_memory_05"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "pref_memory_01",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "preference",
+              "Start"
+            ]
+          }
+        },
+        {
+          "case_id": "pref_memory_02",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "Call",
+              "Jake",
+              "preference"
+            ]
+          }
+        },
+        {
+          "case_id": "pref_memory_03",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "Prefer",
+              "preference"
+            ]
+          }
+        }
+      ],
+      "count": 5
+    },
+    {
+      "cluster_id": "preference_override::packet_unexpected",
+      "label": "preference_override",
+      "failure_kind": "packet_unexpected",
+      "case_ids": [
+        "pref_override_01",
+        "pref_override_02",
+        "pref_override_03",
+        "pref_override_04",
+        "pref_override_05"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "pref_override_01",
+          "run": "baseline_current",
+          "detail": [
+            "Start replies with [Cortex]."
+          ]
+        },
+        {
+          "case_id": "pref_override_02",
+          "run": "baseline_current",
+          "detail": [
+            "Call me Jake."
+          ]
+        },
+        {
+          "case_id": "pref_override_03",
+          "run": "baseline_current",
+          "detail": [
+            "Prefer concise answers."
+          ]
+        }
+      ],
+      "count": 5
+    },
+    {
+      "cluster_id": "preference_override::preferences::unexpected",
+      "label": "preference_override",
+      "failure_kind": "state_unexpected",
+      "case_ids": [
+        "pref_override_01",
+        "pref_override_02",
+        "pref_override_03",
+        "pref_override_04",
+        "pref_override_05"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "pref_override_01",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "preferences",
+            "present": [
+              "Start replies with [Cortex]."
+            ]
+          }
+        },
+        {
+          "case_id": "pref_override_02",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "preferences",
+            "present": [
+              "Call me Jake."
+            ]
+          }
+        },
+        {
+          "case_id": "pref_override_03",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "preferences",
+            "present": [
+              "Prefer concise answers."
+            ]
+          }
+        }
+      ],
+      "count": 5
+    },
+    {
+      "cluster_id": "active_project_continuity::active_projects::unexpected",
+      "label": "active_project_continuity",
+      "failure_kind": "state_unexpected",
+      "case_ids": [
+        "project_01",
+        "project_02",
+        "project_03",
+        "project_04",
+        "project_05"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "project_01",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "preference",
+              "Start"
+            ]
+          }
+        },
+        {
+          "case_id": "project_02",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "Need",
+              "planning"
+            ]
+          }
+        },
+        {
+          "case_id": "project_03",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "We",
+              "planning"
+            ]
+          }
+        }
+      ],
+      "count": 5
+    },
+    {
+      "cluster_id": "long_sequence_durability::packet_unexpected",
+      "label": "long_sequence_durability",
+      "failure_kind": "packet_unexpected",
+      "case_ids": [
+        "durability_01",
+        "durability_02",
+        "durability_03"
+      ],
+      "runs": [
+        "baseline_current",
+        "cfg_legacy_roomy",
+        "cfg_stale_allowed"
+      ],
+      "examples": [
+        {
+          "case_id": "durability_01",
+          "run": "baseline_current",
+          "detail": [
+            "Start replies with [Cortex]."
+          ]
+        },
+        {
+          "case_id": "durability_02",
+          "run": "baseline_current",
+          "detail": [
+            "legacy bridge is default."
+          ]
+        },
+        {
+          "case_id": "durability_03",
+          "run": "baseline_current",
+          "detail": [
+            "Call me Jake."
+          ]
+        }
+      ],
+      "count": 5
+    },
+    {
+      "cluster_id": "false_memory_trap::packet_unexpected",
+      "label": "false_memory_trap",
+      "failure_kind": "packet_unexpected",
+      "case_ids": [
+        "false_memory_01",
+        "false_memory_02",
+        "false_memory_03",
+        "false_memory_04"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "false_memory_01",
+          "run": "baseline_current",
+          "detail": [
+            "Projects:",
+            "Thanks",
+            "note"
+          ]
+        },
+        {
+          "case_id": "false_memory_02",
+          "run": "baseline_current",
+          "detail": [
+            "Projects:",
+            "We",
+            "planning"
+          ]
+        },
+        {
+          "case_id": "false_memory_03",
+          "run": "baseline_current",
+          "detail": [
+            "Actually | feedback"
+          ]
+        }
+      ],
+      "count": 4
+    },
+    {
+      "cluster_id": "false_memory_trap::active_projects::unexpected",
+      "label": "false_memory_trap",
+      "failure_kind": "state_unexpected",
+      "case_ids": [
+        "false_memory_01",
+        "false_memory_02",
+        "false_memory_03",
+        "false_memory_04"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "false_memory_01",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "Thanks",
+              "note"
+            ]
+          }
+        },
+        {
+          "case_id": "false_memory_02",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "We",
+              "planning"
+            ]
+          }
+        },
+        {
+          "case_id": "false_memory_03",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "Actually",
+              "feedback"
+            ]
+          }
+        }
+      ],
+      "count": 4
+    },
+    {
+      "cluster_id": "long_sequence_durability::preferences::unexpected",
+      "label": "long_sequence_durability",
+      "failure_kind": "state_unexpected",
+      "case_ids": [
+        "durability_01",
+        "durability_03"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "durability_01",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "preferences",
+            "present": [
+              "Start replies with [Cortex]."
+            ]
+          }
+        },
+        {
+          "case_id": "durability_03",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "preferences",
+            "present": [
+              "Call me Jake."
+            ]
+          }
+        }
+      ],
+      "count": 2
+    },
+    {
+      "cluster_id": "long_sequence_durability::active_projects::unexpected",
+      "label": "long_sequence_durability",
+      "failure_kind": "state_unexpected",
+      "case_ids": [
+        "durability_01",
+        "durability_04"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "durability_01",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "Start",
+              "preference"
+            ]
+          }
+        },
+        {
+          "case_id": "durability_04",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "Actually",
+              "feedback"
+            ]
+          }
+        }
+      ],
+      "count": 2
+    },
+    {
+      "cluster_id": "long_sequence_durability::packet_missing",
+      "label": "long_sequence_durability",
+      "failure_kind": "packet_missing",
+      "case_ids": [
+        "durability_01",
+        "durability_04"
+      ],
+      "runs": [
+        "cfg_compact_220"
+      ],
+      "examples": [
+        {
+          "case_id": "durability_01",
+          "run": "cfg_compact_220",
+          "detail": [
+            "Memory Codec Lab"
+          ]
+        },
+        {
+          "case_id": "durability_04",
+          "run": "cfg_compact_220",
+          "detail": [
+            "Runtime Watcher"
+          ]
+        }
+      ],
+      "count": 2
+    },
+    {
+      "cluster_id": "preference_memory::packet_missing",
+      "label": "preference_memory",
+      "failure_kind": "packet_missing",
+      "case_ids": [
+        "pref_memory_04"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "pref_memory_04",
+          "run": "baseline_current",
+          "detail": [
+            "Begin replies with [Memoria]."
+          ]
+        }
+      ],
+      "count": 1
+    },
+    {
+      "cluster_id": "preference_memory::preferences::missing",
+      "label": "preference_memory",
+      "failure_kind": "state_missing",
+      "case_ids": [
+        "pref_memory_04"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "pref_memory_04",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "preferences",
+            "missing": [
+              "Begin replies with [Memoria]."
+            ]
+          }
+        }
+      ],
+      "count": 1
+    },
+    {
+      "cluster_id": "active_project_continuity::packet_unexpected",
+      "label": "active_project_continuity",
+      "failure_kind": "packet_unexpected",
+      "case_ids": [
+        "project_01"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "project_01",
+          "run": "baseline_current",
+          "detail": [
+            "preference | Start"
+          ]
+        }
+      ],
+      "count": 1
+    },
+    {
+      "cluster_id": "false_memory_trap::preferences::missing",
+      "label": "false_memory_trap",
+      "failure_kind": "state_missing",
+      "case_ids": [
+        "false_memory_04"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "false_memory_04",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "preferences",
+            "missing": [
+              "Begin replies with [Memoria]."
+            ]
+          }
+        }
+      ],
+      "count": 1
+    },
+    {
+      "cluster_id": "cross_turn_followup::packet_unexpected",
+      "label": "cross_turn_followup",
+      "failure_kind": "packet_unexpected",
+      "case_ids": [
+        "followup_03"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "followup_03",
+          "run": "baseline_current",
+          "detail": [
+            "Prefer concise answers."
+          ]
+        }
+      ],
+      "count": 1
+    },
+    {
+      "cluster_id": "cross_turn_followup::preferences::unexpected",
+      "label": "cross_turn_followup",
+      "failure_kind": "state_unexpected",
+      "case_ids": [
+        "followup_03"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "followup_03",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "preferences",
+            "present": [
+              "Prefer concise answers."
+            ]
+          }
+        }
+      ],
+      "count": 1
+    },
+    {
+      "cluster_id": "cross_turn_followup::active_projects::unexpected",
+      "label": "cross_turn_followup",
+      "failure_kind": "state_unexpected",
+      "case_ids": [
+        "followup_04"
+      ],
+      "runs": [
+        "baseline_current"
+      ],
+      "examples": [
+        {
+          "case_id": "followup_04",
+          "run": "baseline_current",
+          "detail": {
+            "bucket": "active_projects",
+            "present": [
+              "Thanks",
+              "note"
+            ]
+          }
+        }
+      ],
+      "count": 1
+    },
+    {
+      "cluster_id": "stale_memory_suppression::packet_missing",
+      "label": "stale_memory_suppression",
+      "failure_kind": "packet_missing",
+      "case_ids": [
+        "stale_03"
+      ],
+      "runs": [
+        "cfg_stale_allowed"
+      ],
+      "examples": [
+        {
+          "case_id": "stale_03",
+          "run": "cfg_stale_allowed",
+          "detail": [
+            "Build the fresh verifier loop now."
+          ]
+        }
+      ],
+      "count": 1
+    }
+  ]
+}

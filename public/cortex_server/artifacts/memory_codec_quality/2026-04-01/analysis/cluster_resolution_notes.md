@@ -1,0 +1,22 @@
+# Cluster resolution notes
+
+- preference_memory::compression_ratio: accepted_remaining_tradeoff
+- stale_memory_suppression::packet_unexpected: loop_b_freshness_packet_packing
+- preference_memory::active_projects::unexpected: loop_a_project_filtering
+- preference_override::packet_unexpected: loop_a_preference_revision
+- preference_override::preferences::unexpected: loop_a_preference_revision
+- active_project_continuity::active_projects::unexpected: loop_a_project_filtering
+- long_sequence_durability::packet_unexpected: loop_b_freshness_packet_packing
+- false_memory_trap::packet_unexpected: loop_a_project_filtering
+- false_memory_trap::active_projects::unexpected: loop_a_project_filtering
+- long_sequence_durability::preferences::unexpected: loop_a_preference_revision
+- long_sequence_durability::active_projects::unexpected: loop_a_project_filtering
+- long_sequence_durability::packet_missing: loop_b_freshness_packet_packing
+- preference_memory::packet_missing: pending
+- preference_memory::preferences::missing: pending
+- active_project_continuity::packet_unexpected: pending
+- false_memory_trap::preferences::missing: loop_a_project_filtering
+- cross_turn_followup::packet_unexpected: pending
+- cross_turn_followup::preferences::unexpected: loop_a_preference_revision
+- cross_turn_followup::active_projects::unexpected: loop_a_project_filtering
+- stale_memory_suppression::packet_missing: loop_b_freshness_packet_packing

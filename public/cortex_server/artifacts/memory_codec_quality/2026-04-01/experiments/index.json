@@ -1,0 +1,232 @@
+{
+  "schema_version": "cortex.memory_codec_quality.experiments.v1",
+  "generated_at": "2026-04-01T23:28:32Z",
+  "corpus_path": "benchmarks/cortex_memory_codec_quality_corpus_2026-04-01.json",
+  "experiments": [
+    {
+      "name": "cfg_balanced_roomy",
+      "path": "artifacts/memory_codec_quality/2026-04-01/experiments/cfg_balanced_roomy.memory_codec.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "omission_rate": 0.0,
+      "preference_recall_accuracy": 0.5,
+      "open_loop_continuity_accuracy": 1.0,
+      "codec_overuse_rate": 0.0,
+      "codec_underuse_rate": 0.045,
+      "avg_latency_ms": 0.605,
+      "avg_packet_chars": 53.068,
+      "avg_compression_ratio": 0.586,
+      "config": {
+        "name": "cfg_balanced_roomy",
+        "max_items_per_bucket": 8,
+        "packet_chars": 420,
+        "codec_globals": {
+          "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+          "CODEC_PACKET_INCLUDE_STALE": false,
+          "CODEC_PACKET_USE_PROMOTION": true,
+          "CODEC_PACKET_INCLUDE_GOALS": false,
+          "CODEC_PACKET_INCLUDE_PATTERNS": false
+        }
+      },
+      "winner_score": 0.584
+    },
+    {
+      "name": "cfg_balanced_320",
+      "path": "artifacts/memory_codec_quality/2026-04-01/experiments/cfg_balanced_320.memory_codec.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "omission_rate": 0.0,
+      "preference_recall_accuracy": 0.5,
+      "open_loop_continuity_accuracy": 1.0,
+      "codec_overuse_rate": 0.0,
+      "codec_underuse_rate": 0.045,
+      "avg_latency_ms": 0.583,
+      "avg_packet_chars": 53.068,
+      "avg_compression_ratio": 0.586,
+      "config": {
+        "name": "cfg_balanced_320",
+        "max_items_per_bucket": 8,
+        "packet_chars": 320,
+        "codec_globals": {
+          "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+          "CODEC_PACKET_INCLUDE_STALE": false,
+          "CODEC_PACKET_USE_PROMOTION": true,
+          "CODEC_PACKET_INCLUDE_GOALS": false,
+          "CODEC_PACKET_INCLUDE_PATTERNS": false
+        }
+      },
+      "winner_score": 0.584
+    },
+    {
+      "name": "cfg_balanced_280",
+      "path": "artifacts/memory_codec_quality/2026-04-01/experiments/cfg_balanced_280.memory_codec.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "omission_rate": 0.0,
+      "preference_recall_accuracy": 0.5,
+      "open_loop_continuity_accuracy": 1.0,
+      "codec_overuse_rate": 0.0,
+      "codec_underuse_rate": 0.045,
+      "avg_latency_ms": 0.571,
+      "avg_packet_chars": 53.068,
+      "avg_compression_ratio": 0.586,
+      "config": {
+        "name": "cfg_balanced_280",
+        "max_items_per_bucket": 6,
+        "packet_chars": 280,
+        "codec_globals": {
+          "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+          "CODEC_PACKET_INCLUDE_STALE": false,
+          "CODEC_PACKET_USE_PROMOTION": true,
+          "CODEC_PACKET_INCLUDE_GOALS": false,
+          "CODEC_PACKET_INCLUDE_PATTERNS": false
+        }
+      },
+      "winner_score": 0.584
+    },
+    {
+      "name": "cfg_no_promotion",
+      "path": "artifacts/memory_codec_quality/2026-04-01/experiments/cfg_no_promotion.memory_codec.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "omission_rate": 0.0,
+      "preference_recall_accuracy": 0.5,
+      "open_loop_continuity_accuracy": 1.0,
+      "codec_overuse_rate": 0.0,
+      "codec_underuse_rate": 0.045,
+      "avg_latency_ms": 0.551,
+      "avg_packet_chars": 53.068,
+      "avg_compression_ratio": 0.586,
+      "config": {
+        "name": "cfg_no_promotion",
+        "max_items_per_bucket": 8,
+        "packet_chars": 320,
+        "codec_globals": {
+          "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+          "CODEC_PACKET_INCLUDE_STALE": false,
+          "CODEC_PACKET_USE_PROMOTION": false,
+          "CODEC_PACKET_INCLUDE_GOALS": false,
+          "CODEC_PACKET_INCLUDE_PATTERNS": false
+        }
+      },
+      "winner_score": 0.584
+    },
+    {
+      "name": "cfg_goals_patterns_on",
+      "path": "artifacts/memory_codec_quality/2026-04-01/experiments/cfg_goals_patterns_on.memory_codec.json",
+      "overall_pass_rate": 0.841,
+      "false_memory_rate": 0.159,
+      "stale_memory_failure_rate": 0.045,
+      "omission_rate": 0.0,
+      "preference_recall_accuracy": 0.5,
+      "open_loop_continuity_accuracy": 1.0,
+      "codec_overuse_rate": 0.0,
+      "codec_underuse_rate": 0.045,
+      "avg_latency_ms": 0.575,
+      "avg_packet_chars": 62.773,
+      "avg_compression_ratio": 0.534,
+      "config": {
+        "name": "cfg_goals_patterns_on",
+        "max_items_per_bucket": 8,
+        "packet_chars": 320,
+        "codec_globals": {
+          "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+          "CODEC_PACKET_INCLUDE_STALE": false,
+          "CODEC_PACKET_USE_PROMOTION": true,
+          "CODEC_PACKET_INCLUDE_GOALS": true,
+          "CODEC_PACKET_INCLUDE_PATTERNS": true
+        }
+      },
+      "winner_score": 0.557
+    },
+    {
+      "name": "cfg_compact_220",
+      "path": "artifacts/memory_codec_quality/2026-04-01/experiments/cfg_compact_220.memory_codec.json",
+      "overall_pass_rate": 0.841,
+      "false_memory_rate": 0.159,
+      "stale_memory_failure_rate": 0.0,
+      "omission_rate": 0.045,
+      "preference_recall_accuracy": 0.5,
+      "open_loop_continuity_accuracy": 0.846,
+      "codec_overuse_rate": 0.0,
+      "codec_underuse_rate": 0.045,
+      "avg_latency_ms": 0.55,
+      "avg_packet_chars": 52.227,
+      "avg_compression_ratio": 0.588,
+      "config": {
+        "name": "cfg_compact_220",
+        "max_items_per_bucket": 4,
+        "packet_chars": 220,
+        "codec_globals": {
+          "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 1,
+          "CODEC_PACKET_INCLUDE_STALE": false,
+          "CODEC_PACKET_USE_PROMOTION": true,
+          "CODEC_PACKET_INCLUDE_GOALS": false,
+          "CODEC_PACKET_INCLUDE_PATTERNS": false
+        }
+      },
+      "winner_score": 0.539
+    },
+    {
+      "name": "cfg_stale_allowed",
+      "path": "artifacts/memory_codec_quality/2026-04-01/experiments/cfg_stale_allowed.memory_codec.json",
+      "overall_pass_rate": 0.773,
+      "false_memory_rate": 0.227,
+      "stale_memory_failure_rate": 0.114,
+      "omission_rate": 0.023,
+      "preference_recall_accuracy": 0.5,
+      "open_loop_continuity_accuracy": 0.923,
+      "codec_overuse_rate": 0.0,
+      "codec_underuse_rate": 0.045,
+      "avg_latency_ms": 0.567,
+      "avg_packet_chars": 56.523,
+      "avg_compression_ratio": 0.565,
+      "config": {
+        "name": "cfg_stale_allowed",
+        "max_items_per_bucket": 8,
+        "packet_chars": 320,
+        "codec_globals": {
+          "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+          "CODEC_PACKET_INCLUDE_STALE": true,
+          "CODEC_PACKET_USE_PROMOTION": true,
+          "CODEC_PACKET_INCLUDE_GOALS": false,
+          "CODEC_PACKET_INCLUDE_PATTERNS": false
+        }
+      },
+      "winner_score": 0.509
+    },
+    {
+      "name": "cfg_legacy_roomy",
+      "path": "artifacts/memory_codec_quality/2026-04-01/experiments/cfg_legacy_roomy.memory_codec.json",
+      "overall_pass_rate": 0.773,
+      "false_memory_rate": 0.227,
+      "stale_memory_failure_rate": 0.114,
+      "omission_rate": 0.0,
+      "preference_recall_accuracy": 0.5,
+      "open_loop_continuity_accuracy": 0.923,
+      "codec_overuse_rate": 0.0,
+      "codec_underuse_rate": 0.045,
+      "avg_latency_ms": 0.738,
+      "avg_packet_chars": 67.182,
+      "avg_compression_ratio": 0.516,
+      "config": {
+        "name": "cfg_legacy_roomy",
+        "max_items_per_bucket": 8,
+        "packet_chars": 420,
+        "codec_globals": {
+          "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 3,
+          "CODEC_PACKET_INCLUDE_STALE": true,
+          "CODEC_PACKET_USE_PROMOTION": false,
+          "CODEC_PACKET_INCLUDE_GOALS": true,
+          "CODEC_PACKET_INCLUDE_PATTERNS": true
+        }
+      },
+      "winner_score": 0.508
+    }
+  ],
+  "winner": "cfg_balanced_roomy"
+}

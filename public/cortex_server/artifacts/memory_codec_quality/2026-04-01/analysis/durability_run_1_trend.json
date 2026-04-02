@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-04-02T00:06:00Z",
+  "rounds_observed": 50,
+  "first_round": {
+    "round": 7733,
+    "recorded_at": "2026-04-02T00:00:16Z",
+    "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7733.json",
+    "overall_pass_rate": 0.886,
+    "false_memory_rate": 0.114,
+    "stale_memory_failure_rate": 0.0,
+    "avg_packet_chars": 53.068,
+    "elapsed_seconds": 0.037
+  },
+  "last_round": {
+    "round": 7782,
+    "recorded_at": "2026-04-02T00:00:28Z",
+    "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7782.json",
+    "overall_pass_rate": 0.886,
+    "false_memory_rate": 0.114,
+    "stale_memory_failure_rate": 0.0,
+    "avg_packet_chars": 53.068,
+    "elapsed_seconds": 0.025
+  },
+  "pass_rate_range": [
+    0.886,
+    0.886
+  ],
+  "false_memory_rate_range": [
+    0.114,
+    0.114
+  ],
+  "stale_memory_rate_range": [
+    0.0,
+    0.0
+  ],
+  "packet_chars_range": [
+    53.068,
+    53.068
+  ],
+  "pass_rate_stdev": 0.0,
+  "packet_chars_stdev": 0.0
+}

@@ -1,0 +1,529 @@
+{
+  "schema_version": "cortex.memory_codec_quality.durability.v1",
+  "generated_at": "2026-04-02T00:00:28Z",
+  "started_at": "2026-04-01T23:30:28Z",
+  "completed_at": "2026-04-02T00:00:28Z",
+  "duration_seconds": 1800,
+  "round_count": 7782,
+  "corpus_path": "benchmarks/cortex_memory_codec_quality_corpus_2026-04-01.json",
+  "config": {
+    "name": "cfg_balanced_roomy",
+    "max_items_per_bucket": 8,
+    "packet_chars": 420,
+    "codec_globals": {
+      "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+      "CODEC_PACKET_INCLUDE_STALE": false,
+      "CODEC_PACKET_USE_PROMOTION": true,
+      "CODEC_PACKET_INCLUDE_GOALS": false,
+      "CODEC_PACKET_INCLUDE_PATTERNS": false
+    }
+  },
+  "rounds": [
+    {
+      "round": 7733,
+      "recorded_at": "2026-04-02T00:00:16Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7733.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.037
+    },
+    {
+      "round": 7734,
+      "recorded_at": "2026-04-02T00:00:17Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7734.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7735,
+      "recorded_at": "2026-04-02T00:00:17Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7735.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.027
+    },
+    {
+      "round": 7736,
+      "recorded_at": "2026-04-02T00:00:17Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7736.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7737,
+      "recorded_at": "2026-04-02T00:00:17Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7737.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.031
+    },
+    {
+      "round": 7738,
+      "recorded_at": "2026-04-02T00:00:17Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7738.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7739,
+      "recorded_at": "2026-04-02T00:00:18Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7739.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7740,
+      "recorded_at": "2026-04-02T00:00:18Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7740.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7741,
+      "recorded_at": "2026-04-02T00:00:18Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7741.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7742,
+      "recorded_at": "2026-04-02T00:00:18Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7742.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7743,
+      "recorded_at": "2026-04-02T00:00:19Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7743.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7744,
+      "recorded_at": "2026-04-02T00:00:19Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7744.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7745,
+      "recorded_at": "2026-04-02T00:00:19Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7745.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7746,
+      "recorded_at": "2026-04-02T00:00:19Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7746.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.031
+    },
+    {
+      "round": 7747,
+      "recorded_at": "2026-04-02T00:00:20Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7747.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.033
+    },
+    {
+      "round": 7748,
+      "recorded_at": "2026-04-02T00:00:20Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7748.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.027
+    },
+    {
+      "round": 7749,
+      "recorded_at": "2026-04-02T00:00:20Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7749.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7750,
+      "recorded_at": "2026-04-02T00:00:20Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7750.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7751,
+      "recorded_at": "2026-04-02T00:00:20Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7751.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7752,
+      "recorded_at": "2026-04-02T00:00:21Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7752.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7753,
+      "recorded_at": "2026-04-02T00:00:21Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7753.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7754,
+      "recorded_at": "2026-04-02T00:00:21Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7754.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7755,
+      "recorded_at": "2026-04-02T00:00:21Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7755.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.031
+    },
+    {
+      "round": 7756,
+      "recorded_at": "2026-04-02T00:00:22Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7756.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7757,
+      "recorded_at": "2026-04-02T00:00:22Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7757.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7758,
+      "recorded_at": "2026-04-02T00:00:22Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7758.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7759,
+      "recorded_at": "2026-04-02T00:00:22Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7759.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7760,
+      "recorded_at": "2026-04-02T00:00:23Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7760.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7761,
+      "recorded_at": "2026-04-02T00:00:23Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7761.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7762,
+      "recorded_at": "2026-04-02T00:00:23Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7762.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7763,
+      "recorded_at": "2026-04-02T00:00:23Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7763.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7764,
+      "recorded_at": "2026-04-02T00:00:23Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7764.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7765,
+      "recorded_at": "2026-04-02T00:00:24Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7765.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7766,
+      "recorded_at": "2026-04-02T00:00:24Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7766.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7767,
+      "recorded_at": "2026-04-02T00:00:24Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7767.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7768,
+      "recorded_at": "2026-04-02T00:00:24Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7768.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7769,
+      "recorded_at": "2026-04-02T00:00:25Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7769.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7770,
+      "recorded_at": "2026-04-02T00:00:25Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7770.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.026
+    },
+    {
+      "round": 7771,
+      "recorded_at": "2026-04-02T00:00:25Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7771.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.029
+    },
+    {
+      "round": 7772,
+      "recorded_at": "2026-04-02T00:00:25Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7772.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.039
+    },
+    {
+      "round": 7773,
+      "recorded_at": "2026-04-02T00:00:26Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7773.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7774,
+      "recorded_at": "2026-04-02T00:00:26Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7774.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.024
+    },
+    {
+      "round": 7775,
+      "recorded_at": "2026-04-02T00:00:26Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7775.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.03
+    },
+    {
+      "round": 7776,
+      "recorded_at": "2026-04-02T00:00:26Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7776.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7777,
+      "recorded_at": "2026-04-02T00:00:26Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7777.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.03
+    },
+    {
+      "round": 7778,
+      "recorded_at": "2026-04-02T00:00:27Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7778.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.032
+    },
+    {
+      "round": 7779,
+      "recorded_at": "2026-04-02T00:00:27Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7779.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7780,
+      "recorded_at": "2026-04-02T00:00:27Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7780.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.03
+    },
+    {
+      "round": 7781,
+      "recorded_at": "2026-04-02T00:00:27Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7781.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    },
+    {
+      "round": 7782,
+      "recorded_at": "2026-04-02T00:00:28Z",
+      "run_path": "artifacts/memory_codec_quality/2026-04-01/durability/run1_rounds/round_7782.json",
+      "overall_pass_rate": 0.886,
+      "false_memory_rate": 0.114,
+      "stale_memory_failure_rate": 0.0,
+      "avg_packet_chars": 53.068,
+      "elapsed_seconds": 0.025
+    }
+  ],
+  "summary": {
+    "avg_pass_rate": 0.886,
+    "avg_false_memory_rate": 0.114,
+    "avg_stale_memory_failure_rate": 0.0,
+    "avg_packet_chars": 53.068
+  }
+}

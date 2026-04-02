@@ -1,0 +1,2348 @@
+{
+  "schema_version": "cortex.memory_codec_quality.run.v1",
+  "generated_at": "2026-04-02T00:31:15Z",
+  "corpus_path": "benchmarks/cortex_memory_codec_quality_corpus_2026-04-01.json",
+  "corpus_fingerprint": "3cfc8889989a784f",
+  "config": {
+    "name": "cfg_balanced_roomy",
+    "max_items_per_bucket": 8,
+    "packet_chars": 420,
+    "codec_globals": {
+      "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+      "CODEC_PACKET_INCLUDE_STALE": false,
+      "CODEC_PACKET_USE_PROMOTION": true,
+      "CODEC_PACKET_INCLUDE_GOALS": false,
+      "CODEC_PACKET_INCLUDE_PATTERNS": false
+    }
+  },
+  "case_count": 44,
+  "elapsed_seconds": 0.027,
+  "results": [
+    {
+      "id": "pref_memory_01",
+      "title": "Retain reply prefix preference",
+      "category": "preference_memory",
+      "surface": "codec_state",
+      "passed": false,
+      "quality_label": "soft_fail",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.8,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "failure_count": 1,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 35,
+      "raw_state_chars": 28,
+      "compression_ratio": 0.8,
+      "latency_ms": 0.51,
+      "continuity_success": false,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Start replies with [Cortex].",
+      "summary": "Preferences: Start replies with [Cortex].",
+      "state_excerpt": {
+        "preferences": [
+          "Start replies with [Cortex]."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_memory_02",
+      "title": "Retain call-me preference",
+      "category": "preference_memory",
+      "surface": "codec_state",
+      "passed": false,
+      "quality_label": "soft_fail",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.65,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "failure_count": 1,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 20,
+      "raw_state_chars": 13,
+      "compression_ratio": 0.65,
+      "latency_ms": 0.361,
+      "continuity_success": false,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Call me Jake.",
+      "summary": "Preferences: Call me Jake.",
+      "state_excerpt": {
+        "preferences": [
+          "Call me Jake."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_memory_03",
+      "title": "Retain concise-answer preference",
+      "category": "preference_memory",
+      "surface": "codec_state",
+      "passed": false,
+      "quality_label": "soft_fail",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.767,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "failure_count": 1,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 30,
+      "raw_state_chars": 23,
+      "compression_ratio": 0.767,
+      "latency_ms": 0.344,
+      "continuity_success": false,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Prefer concise answers.",
+      "summary": "Preferences: Prefer concise answers.",
+      "state_excerpt": {
+        "preferences": [
+          "Prefer concise answers."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_memory_04",
+      "title": "Recognize begin-replies preference form",
+      "category": "preference_memory",
+      "surface": "codec_state",
+      "passed": false,
+      "quality_label": "soft_fail",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.806,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "failure_count": 1,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 36,
+      "raw_state_chars": 29,
+      "compression_ratio": 0.806,
+      "latency_ms": 0.243,
+      "continuity_success": false,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Begin replies with [Memoria].",
+      "summary": "Preferences: Begin replies with [Memoria].",
+      "state_excerpt": {
+        "preferences": [
+          "Begin replies with [Memoria]."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_memory_05",
+      "title": "Retain multi-part preference sentence",
+      "category": "preference_memory",
+      "surface": "codec_state",
+      "passed": false,
+      "quality_label": "soft_fail",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.865,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "failure_count": 1,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 52,
+      "raw_state_chars": 45,
+      "compression_ratio": 0.865,
+      "latency_ms": 0.246,
+      "continuity_success": false,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Prefer short answers and begin with [Cortex].",
+      "summary": "Preferences: Prefer short answers and begin with [Cortex].",
+      "state_excerpt": {
+        "preferences": [
+          "Prefer short answers and begin with [Cortex]."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_override_01",
+      "title": "New reply prefix supersedes old prefix",
+      "category": "preference_override",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 43,
+      "raw_state_chars": 36,
+      "compression_ratio": 0.837,
+      "latency_ms": 0.478,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Start replies with [Neural] instead.",
+      "summary": "Preferences: Start replies with [Neural] instead.",
+      "state_excerpt": {
+        "preferences": [
+          "Start replies with [Neural] instead."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_override_02",
+      "title": "Call-me alias supersedes old alias",
+      "category": "preference_override",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 25,
+      "raw_state_chars": 18,
+      "compression_ratio": 0.72,
+      "latency_ms": 0.599,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Call me J instead.",
+      "summary": "Preferences: Call me J instead.",
+      "state_excerpt": {
+        "preferences": [
+          "Call me J instead."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_override_03",
+      "title": "Detailed answer preference supersedes concise",
+      "category": "preference_override",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 35,
+      "raw_state_chars": 28,
+      "compression_ratio": 0.8,
+      "latency_ms": 0.636,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Prefer detailed answers now.",
+      "summary": "Preferences: Prefer detailed answers now.",
+      "state_excerpt": {
+        "preferences": [
+          "Prefer detailed answers now."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_override_04",
+      "title": "Negative preference revision removes prior positive",
+      "category": "preference_override",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 68,
+      "raw_state_chars": 61,
+      "compression_ratio": 0.897,
+      "latency_ms": 0.499,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Do not start replies with [Alpha]. Start replies with [Beta].",
+      "summary": "Preferences: Do not start replies with [Alpha]. Start replies with [Beta].",
+      "state_excerpt": {
+        "preferences": [
+          "Do not start replies with [Alpha]. Start replies with [Beta]."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "pref_override_05",
+      "title": "Revision with correction phrasing replaces old preference",
+      "category": "preference_override",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 66,
+      "raw_state_chars": 59,
+      "compression_ratio": 0.894,
+      "latency_ms": 0.486,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Correction: prefer bullet lists instead of markdown tables.",
+      "summary": "Preferences: Correction: prefer bullet lists instead of markdown tables.",
+      "state_excerpt": {
+        "preferences": [
+          "Correction: prefer bullet lists instead of markdown tables."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "project_01",
+      "title": "Metadata project retained without preference noise",
+      "category": "active_project_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs",
+        "Projects"
+      ],
+      "packet_chars": 59,
+      "raw_state_chars": 28,
+      "compression_ratio": 0.475,
+      "latency_ms": 0.259,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Start replies with [Cortex].\nProjects: Cortex Memory",
+      "summary": "Projects: Cortex Memory | Preferences: Start replies with [Cortex].",
+      "state_excerpt": {
+        "preferences": [
+          "Start replies with [Cortex]."
+        ],
+        "active_projects": [
+          "Cortex Memory"
+        ],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "project_02",
+      "title": "Kebab-case project retained without leading-verb noise",
+      "category": "active_project_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open"
+      ],
+      "packet_chars": 68,
+      "raw_state_chars": 35,
+      "compression_ratio": 0.515,
+      "latency_ms": 0.389,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: memory-codec-lab\nOpen: Need to ship memory-codec-lab soon.",
+      "summary": "Projects: memory-codec-lab | Goals: Need to ship memory-codec-lab soon. | Open loops: Need to ship memory-codec-lab soon.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "memory-codec-lab"
+        ],
+        "active_goals": [
+          "Need to ship memory-codec-lab soon."
+        ],
+        "open_loops": [
+          "Need to ship memory-codec-lab soon."
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "active_goals",
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "project_03",
+      "title": "Title-case project retained without pronoun noise",
+      "category": "active_project_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects"
+      ],
+      "packet_chars": 22,
+      "raw_state_chars": 42,
+      "compression_ratio": 1.909,
+      "latency_ms": 0.136,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: Nexus Router",
+      "summary": "Projects: Nexus Router",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Nexus Router"
+        ],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 0,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "project_04",
+      "title": "Topic metadata retained without generic tag noise",
+      "category": "active_project_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open"
+      ],
+      "packet_chars": 79,
+      "raw_state_chars": 45,
+      "compression_ratio": 0.57,
+      "latency_ms": 0.248,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: Memory Supervisor\nOpen: Need to tighten memory supervisor heuristics.",
+      "summary": "Projects: Memory Supervisor | Open loops: Need to tighten memory supervisor heuristics.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Memory Supervisor"
+        ],
+        "active_goals": [],
+        "open_loops": [
+          "Need to tighten memory supervisor heuristics."
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "project_05",
+      "title": "Project persists across unrelated follow-up without new noise",
+      "category": "active_project_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Goals"
+      ],
+      "packet_chars": 72,
+      "raw_state_chars": 22,
+      "compression_ratio": 0.306,
+      "latency_ms": 0.523,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: OpenClaw Bridge\nGoals: Build the OpenClaw Bridge retry policy.",
+      "summary": "Projects: OpenClaw Bridge | Goals: Build the OpenClaw Bridge retry policy.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "OpenClaw Bridge"
+        ],
+        "active_goals": [
+          "Build the OpenClaw Bridge retry policy."
+        ],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 1,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "open_loop_01",
+      "title": "Need-to phrase becomes open loop",
+      "category": "open_loop_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Open"
+      ],
+      "packet_chars": 39,
+      "raw_state_chars": 33,
+      "compression_ratio": 0.846,
+      "latency_ms": 0.2,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Open: Need to benchmark packet packing?",
+      "summary": "Open loops: Need to benchmark packet packing?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [
+          "Need to benchmark packet packing?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "open_loop_02",
+      "title": "Question phrasing remains an open loop",
+      "category": "open_loop_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open"
+      ],
+      "packet_chars": 77,
+      "raw_state_chars": 48,
+      "compression_ratio": 0.623,
+      "latency_ms": 0.246,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: stale-memory\nOpen: What remains is tuning stale-memory suppression?",
+      "summary": "Projects: stale-memory | Open loops: What remains is tuning stale-memory suppression?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "stale-memory"
+        ],
+        "active_goals": [],
+        "open_loops": [
+          "What remains is tuning stale-memory suppression?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "open_loop_03",
+      "title": "Open loop survives unrelated follow-up",
+      "category": "open_loop_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open"
+      ],
+      "packet_chars": 60,
+      "raw_state_chars": 23,
+      "compression_ratio": 0.383,
+      "latency_ms": 0.432,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: Acknowledge\nOpen: Need to validate codec underuse?",
+      "summary": "Projects: Acknowledge | Open loops: Need to validate codec underuse?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Acknowledge"
+        ],
+        "active_goals": [],
+        "open_loops": [
+          "Need to validate codec underuse?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "open_loop_04",
+      "title": "Next-step phrasing is preserved",
+      "category": "open_loop_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open"
+      ],
+      "packet_chars": 80,
+      "raw_state_chars": 50,
+      "compression_ratio": 0.625,
+      "latency_ms": 0.254,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: long-sequence\nOpen: Next, verify the long-sequence durability summary?",
+      "summary": "Projects: long-sequence | Open loops: Next, verify the long-sequence durability summary?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "long-sequence"
+        ],
+        "active_goals": [],
+        "open_loops": [
+          "Next, verify the long-sequence durability summary?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "open_loop_05",
+      "title": "Project-linked open loop stays visible",
+      "category": "open_loop_continuity",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open",
+        "Facts"
+      ],
+      "packet_chars": 136,
+      "raw_state_chars": 49,
+      "compression_ratio": 0.36,
+      "latency_ms": 0.377,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: Cortex Memory\nOpen: Need to finish the Cortex Memory supervisor note?\nFacts: Need to finish the Cortex Memory supervisor note?",
+      "summary": "Projects: Cortex Memory | Open loops: Need to finish the Cortex Memory supervisor note?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Cortex Memory"
+        ],
+        "active_goals": [],
+        "open_loops": [
+          "Need to finish the Cortex Memory supervisor note?"
+        ],
+        "durable_facts": [
+          "Need to finish the Cortex Memory supervisor note?"
+        ],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "durable_facts",
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "stale_01",
+      "title": "Stale durable fact should not crowd out fresh preference",
+      "category": "stale_memory_suppression",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs",
+        "Open"
+      ],
+      "packet_chars": 67,
+      "raw_state_chars": 29,
+      "compression_ratio": 0.433,
+      "latency_ms": 0.98,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": true,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Jake prefers concise answers.\nOpen: Need to finish old task?",
+      "summary": "Open loops: Need to finish old task? | Preferences: Jake prefers concise answers.",
+      "state_excerpt": {
+        "preferences": [
+          "Jake prefers concise answers."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [
+          "Need to finish old task?"
+        ],
+        "durable_facts": [
+          "Important decision: old path is default."
+        ],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 1,
+        "promoted_buckets": [
+          "open_loops",
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "stale_02",
+      "title": "Stale preference should not appear ahead of fresh open loop",
+      "category": "stale_memory_suppression",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Open"
+      ],
+      "packet_chars": 47,
+      "raw_state_chars": 41,
+      "compression_ratio": 0.872,
+      "latency_ms": 0.63,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": true,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Open: Need to finish the new benchmark summary?",
+      "summary": "Open loops: Need to finish the new benchmark summary? | Preferences: Prefer markdown tables.",
+      "state_excerpt": {
+        "preferences": [
+          "Prefer markdown tables."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [
+          "Need to finish the new benchmark summary?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 1,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "stale_03",
+      "title": "Stale open loop should not appear once fresher goal arrives",
+      "category": "stale_memory_suppression",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Goals"
+      ],
+      "packet_chars": 65,
+      "raw_state_chars": 34,
+      "compression_ratio": 0.523,
+      "latency_ms": 0.939,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": true,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: Verifier Loop\nGoals: Build the fresh verifier loop now.",
+      "summary": "Projects: Verifier Loop | Goals: Build the fresh verifier loop now. | Open loops: Need to fix the old scroll bug?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Verifier Loop"
+        ],
+        "active_goals": [
+          "Build the fresh verifier loop now."
+        ],
+        "open_loops": [
+          "Need to fix the old scroll bug?"
+        ],
+        "durable_facts": [],
+        "patterns": [
+          "Need to fix the old scroll bug?"
+        ],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 1,
+        "promoted_buckets": [
+          "open_loops",
+          "patterns"
+        ]
+      }
+    },
+    {
+      "id": "stale_04",
+      "title": "Stale project should not dominate fresh fact packet",
+      "category": "stale_memory_suppression",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Facts"
+      ],
+      "packet_chars": 49,
+      "raw_state_chars": 42,
+      "compression_ratio": 0.857,
+      "latency_ms": 0.816,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": true,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Facts: Important decision: use the verifier loop.",
+      "summary": "Projects: Legacy Bridge | Goals: Build the Legacy Bridge rollout.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Legacy Bridge"
+        ],
+        "active_goals": [
+          "Build the Legacy Bridge rollout."
+        ],
+        "open_loops": [],
+        "durable_facts": [
+          "Important decision: use the verifier loop."
+        ],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 2,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "false_memory_01",
+      "title": "Generic thanks should not invent a project",
+      "category": "false_memory_trap",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [],
+      "packet_chars": 0,
+      "raw_state_chars": 6,
+      "compression_ratio": 0.0,
+      "latency_ms": 0.089,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": false,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 0,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "false_memory_02",
+      "title": "Generic planning sentence should not invent a project",
+      "category": "false_memory_trap",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [],
+      "packet_chars": 0,
+      "raw_state_chars": 20,
+      "compression_ratio": 0.0,
+      "latency_ms": 0.082,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": false,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 0,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "false_memory_03",
+      "title": "Feedback sentence should not become project names",
+      "category": "false_memory_trap",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Lessons"
+      ],
+      "packet_chars": 44,
+      "raw_state_chars": 35,
+      "compression_ratio": 0.795,
+      "latency_ms": 0.228,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Lessons: Actually that was wrong, try again.",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": [
+          "Actually that was wrong, try again."
+        ]
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 1,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "false_memory_04",
+      "title": "Preference verb and tag should not be captured as projects",
+      "category": "false_memory_trap",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs"
+      ],
+      "packet_chars": 36,
+      "raw_state_chars": 29,
+      "compression_ratio": 0.806,
+      "latency_ms": 0.218,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Begin replies with [Memoria].",
+      "summary": "Preferences: Begin replies with [Memoria].",
+      "state_excerpt": {
+        "preferences": [
+          "Begin replies with [Memoria]."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "codec_01",
+      "title": "Architecture planning learns to prefer codec",
+      "category": "codec_helpful",
+      "surface": "codec_policy",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [],
+      "packet_chars": 0,
+      "raw_state_chars": 0,
+      "compression_ratio": 0.0,
+      "latency_ms": 1.483,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": false,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": true,
+      "policy": {
+        "enabled": true,
+        "version": "cortex.codec.policy.v1",
+        "archetype": "planning",
+        "evaluations": 6,
+        "action": "prefer_codec",
+        "stage": "bounded_rollout",
+        "preferred_variant": "referents_plus_codec",
+        "confidence": 0.725,
+        "rollout_percent": 50,
+        "base_rollout_percent": 50,
+        "rollout_delta": 0,
+        "rollout_bucket": 53,
+        "rollout_hit": false,
+        "should_inject": true,
+        "boost_factor": 1.0,
+        "reason": "codec signal winning for this archetype (8.97 vs 0.00)",
+        "autotune": {
+          "runs": 0,
+          "overall_passes": 0,
+          "codec_wins": 0,
+          "avg_judge_margin": 0.0,
+          "avg_codec_margin": 0.0,
+          "last_run_at": "",
+          "last_reason": "collecting_evidence",
+          "rollout_delta": 0,
+          "action": "hold",
+          "confidence": 0.0
+        },
+        "wins": {
+          "query_only": 0,
+          "referents_only": 0,
+          "referents_plus_codec": 6
+        },
+        "weighted_wins": {
+          "query_only": 0.0,
+          "referents_only": 0.0,
+          "referents_plus_codec": 8.97
+        },
+        "step_patterns": {
+          "helpful": [],
+          "risky": []
+        },
+        "last_winner": "referents_plus_codec",
+        "last_judge_method": "oracle_judge"
+      },
+      "packet": "",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 0,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "codec_02",
+      "title": "Bugfix execution learns to skip codec",
+      "category": "codec_harmful",
+      "surface": "codec_policy",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [],
+      "packet_chars": 0,
+      "raw_state_chars": 0,
+      "compression_ratio": 0.0,
+      "latency_ms": 1.843,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": false,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {
+        "enabled": true,
+        "version": "cortex.codec.policy.v1",
+        "archetype": "coding",
+        "evaluations": 6,
+        "action": "skip_codec",
+        "stage": "bounded_rollout",
+        "preferred_variant": "query_only",
+        "confidence": 0.725,
+        "rollout_percent": 50,
+        "base_rollout_percent": 50,
+        "rollout_delta": 0,
+        "rollout_bucket": 22,
+        "rollout_hit": true,
+        "should_inject": false,
+        "boost_factor": 1.0,
+        "reason": "non-codec signal winning for this archetype (7.20 vs 0.00)",
+        "autotune": {
+          "runs": 0,
+          "overall_passes": 0,
+          "codec_wins": 0,
+          "avg_judge_margin": 0.0,
+          "avg_codec_margin": 0.0,
+          "last_run_at": "",
+          "last_reason": "collecting_evidence",
+          "rollout_delta": 0,
+          "action": "hold",
+          "confidence": 0.0
+        },
+        "wins": {
+          "query_only": 6,
+          "referents_only": 0,
+          "referents_plus_codec": 0
+        },
+        "weighted_wins": {
+          "query_only": 7.2,
+          "referents_only": 0.0,
+          "referents_plus_codec": 0.0
+        },
+        "step_patterns": {
+          "helpful": [],
+          "risky": []
+        },
+        "last_winner": "query_only",
+        "last_judge_method": "heuristic"
+      },
+      "packet": "",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 0,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "codec_03",
+      "title": "Successful outcomes can promote codec usage",
+      "category": "codec_helpful",
+      "surface": "codec_policy",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [],
+      "packet_chars": 0,
+      "raw_state_chars": 0,
+      "compression_ratio": 0.0,
+      "latency_ms": 1.237,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": false,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": true,
+      "policy": {
+        "enabled": true,
+        "version": "cortex.codec.policy.v1",
+        "archetype": "planning",
+        "evaluations": 6,
+        "action": "prefer_codec",
+        "stage": "active_rollout",
+        "preferred_variant": "referents_plus_codec",
+        "confidence": 0.908,
+        "rollout_percent": 100,
+        "base_rollout_percent": 100,
+        "rollout_delta": 0,
+        "rollout_bucket": 53,
+        "rollout_hit": true,
+        "should_inject": true,
+        "boost_factor": 1.5,
+        "reason": "codec signal winning for this archetype (12.17 vs 0.00)",
+        "autotune": {
+          "runs": 0,
+          "overall_passes": 0,
+          "codec_wins": 0,
+          "avg_judge_margin": 0.0,
+          "avg_codec_margin": 0.0,
+          "last_run_at": "",
+          "last_reason": "collecting_evidence",
+          "rollout_delta": 0,
+          "action": "hold",
+          "confidence": 0.0
+        },
+        "wins": {
+          "query_only": 0,
+          "referents_only": 0,
+          "referents_plus_codec": 6
+        },
+        "weighted_wins": {
+          "query_only": 0.0,
+          "referents_only": 0.0,
+          "referents_plus_codec": 8.97
+        },
+        "step_patterns": {
+          "helpful": [],
+          "risky": []
+        },
+        "last_winner": "referents_plus_codec",
+        "last_judge_method": "oracle_judge"
+      },
+      "packet": "",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 0,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "codec_04",
+      "title": "Successful direct outcomes can suppress codec usage",
+      "category": "codec_harmful",
+      "surface": "codec_policy",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [],
+      "packet_chars": 0,
+      "raw_state_chars": 0,
+      "compression_ratio": 0.0,
+      "latency_ms": 1.262,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": false,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {
+        "enabled": true,
+        "version": "cortex.codec.policy.v1",
+        "archetype": "coding",
+        "evaluations": 6,
+        "action": "skip_codec",
+        "stage": "active_rollout",
+        "preferred_variant": "query_only",
+        "confidence": 0.908,
+        "rollout_percent": 100,
+        "base_rollout_percent": 100,
+        "rollout_delta": 0,
+        "rollout_bucket": 22,
+        "rollout_hit": true,
+        "should_inject": false,
+        "boost_factor": 1.0,
+        "reason": "non-codec signal winning for this archetype (10.40 vs 0.00)",
+        "autotune": {
+          "runs": 0,
+          "overall_passes": 0,
+          "codec_wins": 0,
+          "avg_judge_margin": 0.0,
+          "avg_codec_margin": 0.0,
+          "last_run_at": "",
+          "last_reason": "collecting_evidence",
+          "rollout_delta": 0,
+          "action": "hold",
+          "confidence": 0.0
+        },
+        "wins": {
+          "query_only": 6,
+          "referents_only": 0,
+          "referents_plus_codec": 0
+        },
+        "weighted_wins": {
+          "query_only": 7.2,
+          "referents_only": 0.0,
+          "referents_plus_codec": 0.0
+        },
+        "step_patterns": {
+          "helpful": [],
+          "risky": []
+        },
+        "last_winner": "query_only",
+        "last_judge_method": "heuristic"
+      },
+      "packet": "",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 0,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "followup_01",
+      "title": "Durable fact revision supersedes prior fact",
+      "category": "cross_turn_followup",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Facts"
+      ],
+      "packet_chars": 60,
+      "raw_state_chars": 53,
+      "compression_ratio": 0.883,
+      "latency_ms": 0.605,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Facts: Important decision: default lane is not fast anymore.",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [
+          "Important decision: default lane is not fast anymore."
+        ],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 1,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "followup_02",
+      "title": "Lesson revision replaces old lesson",
+      "category": "cross_turn_followup",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Lessons"
+      ],
+      "packet_chars": 79,
+      "raw_state_chars": 70,
+      "compression_ratio": 0.886,
+      "latency_ms": 0.439,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Lessons: Actually use careful lane for research tasks because fast lane failed.",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [
+          "Actually use careful lane for research tasks because fast lane failed."
+        ],
+        "lessons": [
+          "Actually use careful lane for research tasks because fast lane failed."
+        ]
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "lessons",
+          "patterns"
+        ]
+      }
+    },
+    {
+      "id": "followup_03",
+      "title": "Preference revision plus open loop follow-up stays coherent",
+      "category": "cross_turn_followup",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs",
+        "Open"
+      ],
+      "packet_chars": 78,
+      "raw_state_chars": 28,
+      "compression_ratio": 0.359,
+      "latency_ms": 0.704,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Prefer detailed answers now.\nOpen: Need to verify the scroll transform?",
+      "summary": "Open loops: Need to verify the scroll transform? | Preferences: Prefer detailed answers now.",
+      "state_excerpt": {
+        "preferences": [
+          "Prefer detailed answers now."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [
+          "Need to verify the scroll transform?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "open_loops",
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "followup_04",
+      "title": "Project continuity survives follow-up without note noise",
+      "category": "cross_turn_followup",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Goals"
+      ],
+      "packet_chars": 71,
+      "raw_state_chars": 20,
+      "compression_ratio": 0.282,
+      "latency_ms": 0.525,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: Memory Supervisor\nGoals: Build the Memory Supervisor backlog.",
+      "summary": "Projects: Memory Supervisor | Goals: Build the Memory Supervisor backlog.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Memory Supervisor"
+        ],
+        "active_goals": [
+          "Build the Memory Supervisor backlog."
+        ],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 1,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "explain_01",
+      "title": "Packet explains preference usage with Prefs section",
+      "category": "explanation_memory_used",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs",
+        "Projects"
+      ],
+      "packet_chars": 54,
+      "raw_state_chars": 47,
+      "compression_ratio": 0.87,
+      "latency_ms": 0.375,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Prefer concise answers.\nProjects: Verifier Loop",
+      "summary": "Projects: Verifier Loop | Goals: Build the Verifier Loop. | Preferences: Prefer concise answers.",
+      "state_excerpt": {
+        "preferences": [
+          "Prefer concise answers."
+        ],
+        "active_projects": [
+          "Verifier Loop"
+        ],
+        "active_goals": [
+          "Build the Verifier Loop."
+        ],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 1,
+        "promoted_buckets": [
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "explain_02",
+      "title": "Packet explains open-loop usage with Open section",
+      "category": "explanation_memory_used",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open"
+      ],
+      "packet_chars": 72,
+      "raw_state_chars": 43,
+      "compression_ratio": 0.597,
+      "latency_ms": 0.245,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: stale-memory\nOpen: Need to benchmark stale-memory suppression?",
+      "summary": "Projects: stale-memory | Open loops: Need to benchmark stale-memory suppression?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "stale-memory"
+        ],
+        "active_goals": [],
+        "open_loops": [
+          "Need to benchmark stale-memory suppression?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "explain_03",
+      "title": "Packet explains fact usage with Facts section",
+      "category": "explanation_memory_used",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Facts"
+      ],
+      "packet_chars": 52,
+      "raw_state_chars": 45,
+      "compression_ratio": 0.865,
+      "latency_ms": 0.224,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Facts: Important decision: use bounded codec memory.",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [
+          "Important decision: use bounded codec memory."
+        ],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 0,
+        "candidate_count": 1,
+        "promoted_buckets": []
+      }
+    },
+    {
+      "id": "explain_04",
+      "title": "Packet explains lesson usage with Lessons section",
+      "category": "explanation_memory_used",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Lessons"
+      ],
+      "packet_chars": 59,
+      "raw_state_chars": 50,
+      "compression_ratio": 0.847,
+      "latency_ms": 0.297,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Lessons: Verifier loop worked and reduced obvious mistakes.",
+      "summary": "No stable state extracted yet.",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [],
+        "durable_facts": [],
+        "patterns": [
+          "Verifier loop worked and reduced obvious mistakes."
+        ],
+        "lessons": [
+          "Verifier loop worked and reduced obvious mistakes."
+        ]
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "lessons",
+          "patterns"
+        ]
+      }
+    },
+    {
+      "id": "durability_01",
+      "title": "Long sequence keeps newest prefix and project clean",
+      "category": "long_sequence_durability",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs",
+        "Projects",
+        "Open"
+      ],
+      "packet_chars": 137,
+      "raw_state_chars": 39,
+      "compression_ratio": 0.285,
+      "latency_ms": 1.464,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Start replies with [Mnemosyne] instead.\nProjects: warm-context | Memory Codec Lab\nOpen: Need to benchmark the warm-context budget?",
+      "summary": "Projects: Memory Codec Lab, warm-context | Goals: Build the Memory Codec Lab. | Open loops: Need to benchmark the warm-context budget? | Preferences: Start replies with [Mnemosyne] instead.",
+      "state_excerpt": {
+        "preferences": [
+          "Start replies with [Mnemosyne] instead."
+        ],
+        "active_projects": [
+          "Memory Codec Lab",
+          "warm-context"
+        ],
+        "active_goals": [
+          "Build the Memory Codec Lab."
+        ],
+        "open_loops": [
+          "Need to benchmark the warm-context budget?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 1,
+        "promoted_buckets": [
+          "open_loops",
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "durability_02",
+      "title": "Long sequence suppresses stale fact and keeps fresh loop",
+      "category": "long_sequence_durability",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open"
+      ],
+      "packet_chars": 75,
+      "raw_state_chars": 30,
+      "compression_ratio": 0.4,
+      "latency_ms": 1.258,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": true,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: Bridge Verifier\nOpen: Need to validate the fresh bridge rollback?",
+      "summary": "Projects: Bridge Verifier | Goals: Build the Bridge Verifier now. | Open loops: Need to validate the fresh bridge rollback?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Bridge Verifier"
+        ],
+        "active_goals": [
+          "Build the Bridge Verifier now."
+        ],
+        "open_loops": [
+          "Need to validate the fresh bridge rollback?"
+        ],
+        "durable_facts": [
+          "Important decision: legacy bridge is default."
+        ],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 2,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    },
+    {
+      "id": "durability_03",
+      "title": "Long sequence call-me revision removes old alias",
+      "category": "long_sequence_durability",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Prefs",
+        "Open"
+      ],
+      "packet_chars": 65,
+      "raw_state_chars": 18,
+      "compression_ratio": 0.277,
+      "latency_ms": 0.919,
+      "continuity_success": true,
+      "false_memory_indicator": false,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Prefs: Call me J instead.\nOpen: Need to finish the memory report?",
+      "summary": "Open loops: Need to finish the memory report? | Preferences: Call me J instead.",
+      "state_excerpt": {
+        "preferences": [
+          "Call me J instead."
+        ],
+        "active_projects": [],
+        "active_goals": [],
+        "open_loops": [
+          "Need to finish the memory report?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": []
+      },
+      "promotion_summary": {
+        "promoted_count": 2,
+        "candidate_count": 0,
+        "promoted_buckets": [
+          "open_loops",
+          "preferences"
+        ]
+      }
+    },
+    {
+      "id": "durability_04",
+      "title": "Long sequence avoids false project memory after feedback noise",
+      "category": "long_sequence_durability",
+      "surface": "codec_state",
+      "passed": true,
+      "quality_label": "pass",
+      "failures": [],
+      "failure_count": 0,
+      "memory_sources_used": [
+        "Projects",
+        "Open",
+        "Lessons"
+      ],
+      "packet_chars": 123,
+      "raw_state_chars": 37,
+      "compression_ratio": 0.301,
+      "latency_ms": 1.185,
+      "continuity_success": true,
+      "false_memory_indicator": true,
+      "stale_memory_indicator": false,
+      "omission_indicator": false,
+      "codec_used": true,
+      "codec_overuse_indicator": false,
+      "codec_underuse_indicator": false,
+      "policy": {},
+      "packet": "Projects: re-run | Runtime Watcher\nOpen: Need to re-run the watcher benchmark?\nLessons: Actually that was wrong, try again.",
+      "summary": "Projects: Runtime Watcher, re-run | Goals: Build the Runtime Watcher. | Open loops: Need to re-run the watcher benchmark?",
+      "state_excerpt": {
+        "preferences": [],
+        "active_projects": [
+          "Runtime Watcher",
+          "re-run"
+        ],
+        "active_goals": [
+          "Build the Runtime Watcher."
+        ],
+        "open_loops": [
+          "Need to re-run the watcher benchmark?"
+        ],
+        "durable_facts": [],
+        "patterns": [],
+        "lessons": [
+          "Actually that was wrong, try again."
+        ]
+      },
+      "promotion_summary": {
+        "promoted_count": 1,
+        "candidate_count": 2,
+        "promoted_buckets": [
+          "open_loops"
+        ]
+      }
+    }
+  ],
+  "aggregate": {
+    "overall_pass_rate": 0.886,
+    "false_memory_rate": 0.114,
+    "stale_memory_failure_rate": 0.0,
+    "omission_rate": 0.0,
+    "preference_recall_accuracy": 0.5,
+    "open_loop_continuity_accuracy": 1.0,
+    "codec_overuse_rate": 0.0,
+    "codec_underuse_rate": 0.045,
+    "latency_ms": {
+      "avg": 0.58,
+      "p95_approx": 1.262,
+      "max": 1.843
+    },
+    "packet_chars": {
+      "avg": 53.068,
+      "max": 137
+    },
+    "compression_ratio": {
+      "avg": 0.586,
+      "max": 1.909
+    },
+    "by_category": {
+      "active_project_continuity": {
+        "count": 5,
+        "pass_rate": 1.0
+      },
+      "codec_harmful": {
+        "count": 2,
+        "pass_rate": 1.0
+      },
+      "codec_helpful": {
+        "count": 2,
+        "pass_rate": 1.0
+      },
+      "cross_turn_followup": {
+        "count": 4,
+        "pass_rate": 1.0
+      },
+      "explanation_memory_used": {
+        "count": 4,
+        "pass_rate": 1.0
+      },
+      "false_memory_trap": {
+        "count": 4,
+        "pass_rate": 1.0
+      },
+      "long_sequence_durability": {
+        "count": 4,
+        "pass_rate": 1.0
+      },
+      "open_loop_continuity": {
+        "count": 5,
+        "pass_rate": 1.0
+      },
+      "preference_memory": {
+        "count": 5,
+        "pass_rate": 0.0
+      },
+      "preference_override": {
+        "count": 5,
+        "pass_rate": 1.0
+      },
+      "stale_memory_suppression": {
+        "count": 4,
+        "pass_rate": 1.0
+      }
+    }
+  }
+}

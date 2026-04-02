@@ -1,0 +1,100 @@
+{
+  "configs": [
+    {
+      "name": "cfg_legacy_roomy",
+      "max_items_per_bucket": 8,
+      "packet_chars": 420,
+      "codec_globals": {
+        "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 3,
+        "CODEC_PACKET_INCLUDE_STALE": true,
+        "CODEC_PACKET_USE_PROMOTION": false,
+        "CODEC_PACKET_INCLUDE_GOALS": true,
+        "CODEC_PACKET_INCLUDE_PATTERNS": true
+      }
+    },
+    {
+      "name": "cfg_balanced_roomy",
+      "max_items_per_bucket": 8,
+      "packet_chars": 420,
+      "codec_globals": {
+        "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+        "CODEC_PACKET_INCLUDE_STALE": false,
+        "CODEC_PACKET_USE_PROMOTION": true,
+        "CODEC_PACKET_INCLUDE_GOALS": false,
+        "CODEC_PACKET_INCLUDE_PATTERNS": false
+      }
+    },
+    {
+      "name": "cfg_balanced_320",
+      "max_items_per_bucket": 8,
+      "packet_chars": 320,
+      "codec_globals": {
+        "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+        "CODEC_PACKET_INCLUDE_STALE": false,
+        "CODEC_PACKET_USE_PROMOTION": true,
+        "CODEC_PACKET_INCLUDE_GOALS": false,
+        "CODEC_PACKET_INCLUDE_PATTERNS": false
+      }
+    },
+    {
+      "name": "cfg_balanced_280",
+      "max_items_per_bucket": 6,
+      "packet_chars": 280,
+      "codec_globals": {
+        "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+        "CODEC_PACKET_INCLUDE_STALE": false,
+        "CODEC_PACKET_USE_PROMOTION": true,
+        "CODEC_PACKET_INCLUDE_GOALS": false,
+        "CODEC_PACKET_INCLUDE_PATTERNS": false
+      }
+    },
+    {
+      "name": "cfg_compact_220",
+      "max_items_per_bucket": 4,
+      "packet_chars": 220,
+      "codec_globals": {
+        "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 1,
+        "CODEC_PACKET_INCLUDE_STALE": false,
+        "CODEC_PACKET_USE_PROMOTION": true,
+        "CODEC_PACKET_INCLUDE_GOALS": false,
+        "CODEC_PACKET_INCLUDE_PATTERNS": false
+      }
+    },
+    {
+      "name": "cfg_no_promotion",
+      "max_items_per_bucket": 8,
+      "packet_chars": 320,
+      "codec_globals": {
+        "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+        "CODEC_PACKET_INCLUDE_STALE": false,
+        "CODEC_PACKET_USE_PROMOTION": false,
+        "CODEC_PACKET_INCLUDE_GOALS": false,
+        "CODEC_PACKET_INCLUDE_PATTERNS": false
+      }
+    },
+    {
+      "name": "cfg_stale_allowed",
+      "max_items_per_bucket": 8,
+      "packet_chars": 320,
+      "codec_globals": {
+        "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+        "CODEC_PACKET_INCLUDE_STALE": true,
+        "CODEC_PACKET_USE_PROMOTION": true,
+        "CODEC_PACKET_INCLUDE_GOALS": false,
+        "CODEC_PACKET_INCLUDE_PATTERNS": false
+      }
+    },
+    {
+      "name": "cfg_goals_patterns_on",
+      "max_items_per_bucket": 8,
+      "packet_chars": 320,
+      "codec_globals": {
+        "CODEC_PACKET_MAX_ITEMS_PER_BUCKET": 2,
+        "CODEC_PACKET_INCLUDE_STALE": false,
+        "CODEC_PACKET_USE_PROMOTION": true,
+        "CODEC_PACKET_INCLUDE_GOALS": true,
+        "CODEC_PACKET_INCLUDE_PATTERNS": true
+      }
+    }
+  ]
+}

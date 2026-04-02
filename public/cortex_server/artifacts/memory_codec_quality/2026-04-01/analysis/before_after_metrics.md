@@ -1,0 +1,3 @@
+# Before/after metrics
+
+- overall_pass_rate: baseline=0.341 final_pre_durability=0.886 delta=0.545\n- false_memory_rate: baseline=0.659 final_pre_durability=0.114 delta=-0.545\n- stale_memory_failure_rate: baseline=0.114 final_pre_durability=0.0 delta=-0.114\n- omission_rate: baseline=0.045 final_pre_durability=0.0 delta=-0.045\n- preference_recall_accuracy: baseline=0.0 final_pre_durability=0.5 delta=0.5\n- open_loop_continuity_accuracy: baseline=0.538 final_pre_durability=1.0 delta=0.462\n- codec_overuse_rate: baseline=0.0 final_pre_durability=0.0 delta=0.0\n- codec_underuse_rate: baseline=0.045 final_pre_durability=0.045 delta=0.0\n

@@ -1,0 +1,10 @@
+{
+  "completion_summary_path": "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/completion_summary.json",
+  "created_at": "2026-04-02T01:11:25Z",
+  "date": "2026-04-01",
+  "note": "completion delivered via watcher",
+  "notified": true,
+  "notified_at": "2026-04-02T01:11:25Z",
+  "notify_count": 1,
+  "schema_version": "cortex.memory_codec_quality.notification.v1"
+}

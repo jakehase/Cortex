@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-04-02T00:13:00Z",
+  "rows": [
+    {
+      "category": "active_project_continuity",
+      "baseline_pass_rate": 0.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 1.0
+    },
+    {
+      "category": "codec_harmful",
+      "baseline_pass_rate": 1.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 0.0
+    },
+    {
+      "category": "codec_helpful",
+      "baseline_pass_rate": 1.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 0.0
+    },
+    {
+      "category": "cross_turn_followup",
+      "baseline_pass_rate": 0.5,
+      "loop_b_pass_rate": 1.0,
+      "delta": 0.5
+    },
+    {
+      "category": "explanation_memory_used",
+      "baseline_pass_rate": 1.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 0.0
+    },
+    {
+      "category": "false_memory_trap",
+      "baseline_pass_rate": 0.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 1.0
+    },
+    {
+      "category": "long_sequence_durability",
+      "baseline_pass_rate": 0.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 1.0
+    },
+    {
+      "category": "open_loop_continuity",
+      "baseline_pass_rate": 1.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 0.0
+    },
+    {
+      "category": "preference_memory",
+      "baseline_pass_rate": 0.0,
+      "loop_b_pass_rate": 0.0,
+      "delta": 0.0
+    },
+    {
+      "category": "preference_override",
+      "baseline_pass_rate": 0.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 1.0
+    },
+    {
+      "category": "stale_memory_suppression",
+      "baseline_pass_rate": 0.0,
+      "loop_b_pass_rate": 1.0,
+      "delta": 1.0
+    }
+  ]
+}

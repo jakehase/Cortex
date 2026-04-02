@@ -1,0 +1,81 @@
+{
+  "generated_at": "2026-04-02T00:05:00Z",
+  "count": 5,
+  "issues": [
+    {
+      "id": "pref_memory_01",
+      "category": "preference_memory",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.8,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "packet": "Prefs: Start replies with [Cortex]."
+    },
+    {
+      "id": "pref_memory_02",
+      "category": "preference_memory",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.65,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "packet": "Prefs: Call me Jake."
+    },
+    {
+      "id": "pref_memory_03",
+      "category": "preference_memory",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.767,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "packet": "Prefs: Prefer concise answers."
+    },
+    {
+      "id": "pref_memory_04",
+      "category": "preference_memory",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.806,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "packet": "Prefs: Begin replies with [Memoria]."
+    },
+    {
+      "id": "pref_memory_05",
+      "category": "preference_memory",
+      "failures": [
+        {
+          "kind": "compression_ratio",
+          "detail": {
+            "observed": 0.865,
+            "min": 1.0
+          },
+          "cluster": "preference_memory::compression_ratio"
+        }
+      ],
+      "packet": "Prefs: Prefer short answers and begin with [Cortex]."
+    }
+  ]
+}

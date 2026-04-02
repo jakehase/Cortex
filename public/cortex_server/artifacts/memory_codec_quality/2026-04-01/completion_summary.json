@@ -1,0 +1,98 @@
+{
+  "all_complete": true,
+  "artifacts_root": "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01",
+  "date": "2026-04-01",
+  "final_report_path": "/root/clawd/public/cortex_server/docs/CORTEX_MEMORY_CODEC_QUALITY_FINAL_REPORT_2026-04-01.md",
+  "generated_at": "2026-04-02T01:11:45Z",
+  "message_lines": [
+    "Memory/codec quality program complete for 2026-04-01.",
+    "Stages complete: 15/15.",
+    "Corpus cases: 44.",
+    "Experiment count: 8; winner: cfg_balanced_roomy.",
+    "Failure clusters: 20."
+  ],
+  "schema_version": "cortex.memory_codec_quality.completion.v1",
+  "stage_checklist": [
+    {
+      "completed": true,
+      "label": "Memory/codec corpus (40+ cases)",
+      "stage": "corpus"
+    },
+    {
+      "completed": true,
+      "label": "Baseline quality run",
+      "stage": "baseline"
+    },
+    {
+      "completed": true,
+      "label": "Experiment matrix (8+ configs)",
+      "stage": "experiments"
+    },
+    {
+      "completed": true,
+      "label": "Failure cluster triage queue (20+ clusters)",
+      "stage": "triage_queue"
+    },
+    {
+      "completed": true,
+      "label": "Tuning loop A",
+      "stage": "tuning_loop_a"
+    },
+    {
+      "completed": true,
+      "label": "Tuning loop B",
+      "stage": "tuning_loop_b"
+    },
+    {
+      "completed": true,
+      "label": "Memory durability run 1 (30m)",
+      "stage": "durability_run_1"
+    },
+    {
+      "completed": true,
+      "label": "Foreground work during durability window 1",
+      "stage": "foreground_window_1"
+    },
+    {
+      "completed": true,
+      "label": "Memory durability run 2 (30m)",
+      "stage": "durability_run_2"
+    },
+    {
+      "completed": true,
+      "label": "Foreground work during durability window 2",
+      "stage": "foreground_window_2"
+    },
+    {
+      "completed": true,
+      "label": "Memory durability run 3 (30m)",
+      "stage": "durability_run_3"
+    },
+    {
+      "completed": true,
+      "label": "Foreground work during durability window 3",
+      "stage": "foreground_window_3"
+    },
+    {
+      "completed": true,
+      "label": "Final rerun",
+      "stage": "final_rerun"
+    },
+    {
+      "completed": true,
+      "label": "Broad validation",
+      "stage": "validation"
+    },
+    {
+      "completed": true,
+      "label": "Final memory/codec quality report",
+      "stage": "final_report"
+    }
+  ],
+  "summary": {
+    "case_count": 44,
+    "experiment_count": 8,
+    "triage_cluster_count": 20,
+    "winner": "cfg_balanced_roomy"
+  }
+}

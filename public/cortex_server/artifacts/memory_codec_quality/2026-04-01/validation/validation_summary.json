@@ -1,0 +1,36 @@
+{
+  "schema_version": "cortex.memory_codec_quality.validation.v1",
+  "generated_at": "2026-04-02T00:04:00Z",
+  "commands": [
+    {
+      "command": "pytest -q tests/test_cortex_codec.py tests/test_codec_policy.py tests/test_nexus_codec_integration.py tests/test_oracle_codec_integration.py",
+      "result": "79 passed in 5.96s",
+      "status": "passed"
+    },
+    {
+      "command": "pytest -q tests/test_cortex_kernel_v2.py tests/test_nexus_codec_integration.py",
+      "result": "30 passed in 2.20s",
+      "status": "passed"
+    },
+    {
+      "command": "pytest -q tests/test_cortex_codec.py tests/test_codec_policy.py tests/test_nexus_codec_integration.py tests/test_oracle_codec_integration.py tests/test_cortex_kernel_v2.py",
+      "result": "88 passed in 5.73s",
+      "status": "passed"
+    },
+    {
+      "command": "pytest -q tests",
+      "result": "457 passed in 64.09s",
+      "status": "passed"
+    }
+  ],
+  "summary": {
+    "all_passed": true,
+    "focused_codec_suite": "passed",
+    "runtime_kernel_suite": "passed",
+    "broad_repo_suite": "passed"
+  },
+  "notes": [
+    "Validation was executed after the final rerun artifact was produced.",
+    "No regressions were observed in focused codec, runtime/kernel, or broad repo coverage."
+  ]
+}

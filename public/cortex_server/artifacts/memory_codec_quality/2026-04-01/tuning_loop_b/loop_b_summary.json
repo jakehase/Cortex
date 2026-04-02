@@ -1,0 +1,38 @@
+{
+  "schema_version": "cortex.memory_codec_quality.loop_b.v1",
+  "generated_at": "2026-04-02T00:00:00Z",
+  "baseline_run": "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/baseline/baseline.memory_codec.json",
+  "input_run": "/root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/tuning_loop_b/loop_b_candidate.memory_codec.json",
+  "changes": [
+    "Rebuilt packet compression around promoted/fresh items instead of raw insertion order.",
+    "Suppressed stale packet items by default and dropped low-signal goals/patterns unless they are needed to explain fresh work.",
+    "Kept a narrow project/goal fallback so fresh work is still surfaced when no stronger cold-memory bucket exists."
+  ],
+  "metrics": {
+    "overall_pass_rate": 0.886,
+    "false_memory_rate": 0.114,
+    "stale_memory_failure_rate": 0.0,
+    "open_loop_continuity_accuracy": 1.0,
+    "preference_recall_accuracy": 0.5,
+    "avg_packet_chars": 53.068
+  },
+  "delta_vs_previous": {
+    "overall_pass_rate": 0.113,
+    "false_memory_rate": -0.113,
+    "stale_memory_failure_rate": -0.114,
+    "open_loop_continuity_accuracy": 0.077,
+    "preference_recall_accuracy": 0.0,
+    "avg_packet_chars": -14.114
+  },
+  "remaining_hotspots": [
+    "preference_memory::compression_ratio",
+    "stale_memory_suppression::packet_unexpected",
+    "preference_memory::active_projects::unexpected",
+    "preference_override::packet_unexpected",
+    "preference_override::preferences::unexpected",
+    "active_project_continuity::active_projects::unexpected",
+    "long_sequence_durability::packet_unexpected",
+    "false_memory_trap::packet_unexpected"
+  ],
+  "winning_config_snapshot": "cfg_balanced_roomy"
+}

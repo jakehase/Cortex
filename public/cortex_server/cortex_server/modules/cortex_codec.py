@@ -22,6 +22,8 @@ PREFERENCE_HINTS = (
     "call me",
     "start replies",
     "begin with",
+    "begin replies with",
+    "reply prefix",
     "always",
 )
 
@@ -90,6 +92,42 @@ PROJECT_STOPWORDS = {
     "codec",
 }
 
+PROJECT_GENERIC_TAGS = {
+    "preference",
+    "preferences",
+    "planning",
+    "plan",
+    "decision",
+    "decisions",
+    "identity",
+    "feedback",
+    "note",
+    "notes",
+    "postmortem",
+    "research",
+    "nexus_query",
+    "nexus_response",
+}
+
+PROJECT_SINGLE_TOKEN_STOPWORDS = {
+    "start",
+    "begin",
+    "need",
+    "important",
+    "call",
+    "prefer",
+    "correction",
+    "actually",
+    "thanks",
+    "thank",
+    "note",
+    "feedback",
+    "planning",
+    "decision",
+    "we",
+    "do",
+}
+
 _SESSION_CODEC_STATE: Dict[str, Dict[str, Any]] = {}
 _SESSION_CODEC_LOCK = threading.Lock()
 _SESSION_CODEC_PERSIST: Dict[str, Dict[str, Any]] = {}
@@ -131,6 +169,11 @@ CODEC_ROLLUP_AUTOTUNE_MIN_RUNS = int(os.getenv("CODEC_ROLLUP_AUTOTUNE_MIN_RUNS",
 CODEC_ROLLUP_AUTOTUNE_MAX_OVERLAP_DELTA = float(os.getenv("CODEC_ROLLUP_AUTOTUNE_MAX_OVERLAP_DELTA", "0.06"))
 CODEC_ROLLUP_AUTOTUNE_MAX_BLEND_DELTA = float(os.getenv("CODEC_ROLLUP_AUTOTUNE_MAX_BLEND_DELTA", "0.18"))
 CODEC_ROLLUP_AUTOTUNE_MAX_CROSS_SESSION_SCORE_DELTA = float(os.getenv("CODEC_ROLLUP_AUTOTUNE_MAX_CROSS_SESSION_SCORE_DELTA", "0.03"))
+CODEC_PACKET_MAX_ITEMS_PER_BUCKET = int(os.getenv("CODEC_PACKET_MAX_ITEMS_PER_BUCKET", "2"))
+CODEC_PACKET_INCLUDE_STALE = os.getenv("CODEC_PACKET_INCLUDE_STALE", "0").strip().lower() in {"1", "true", "yes", "on"}
+CODEC_PACKET_USE_PROMOTION = os.getenv("CODEC_PACKET_USE_PROMOTION", "1").strip().lower() not in {"0", "false", "no", "off"}
+CODEC_PACKET_INCLUDE_GOALS = os.getenv("CODEC_PACKET_INCLUDE_GOALS", "0").strip().lower() in {"1", "true", "yes", "on"}
+CODEC_PACKET_INCLUDE_PATTERNS = os.getenv("CODEC_PACKET_INCLUDE_PATTERNS", "0").strip().lower() in {"1", "true", "yes", "on"}
 REVISION_LOG_LIMIT = 12
 REVISION_HINTS = (
     "actually",
@@ -909,7 +952,11 @@ def _export_schema_state(state: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "version": CODEC_SCHEMA_VERSION,
         "identity": {
-            "preferences": _schema_bucket(identity_state.get("preferences", [])),
+            "preferences": _schema_bucket(
+                identity_state.get("preferences", []),
+                revisions=identity_state.get("preference_revisions", []),
+                revision_count=int(identity_state.get("preference_revision_count", 0) or 0),
+            ),
         },
         "projects": {
             "active_projects": _schema_bucket(project_state.get("active_projects", [])),
@@ -963,6 +1010,8 @@ def _migrate_codec_state(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     payload["schema_version"] = CODEC_SCHEMA_VERSION
     payload["identity_state"] = {
         "preferences": _normalize_text_list(identity_state.get("preferences", [])),
+        "preference_revisions": _normalize_revision_log(identity_state.get("preference_revisions", [])),
+        "preference_revision_count": max(int(identity_state.get("preference_revision_count", 0) or 0), len(_normalize_revision_log(identity_state.get("preference_revisions", [])))),
     }
     payload["project_state"] = {
         "active_projects": _normalize_text_list(project_state.get("active_projects", [])),
@@ -1037,6 +1086,8 @@ def _boost_utility_bucket(
 
 def _extract_project_candidates(event: Dict[str, Any], text: str) -> List[str]:
     candidates: List[str] = []
+    preference_like = _contains_any(text, PREFERENCE_HINTS)
+    feedback_like = _contains_any(text, FAILURE_HINTS) and not _contains_any(text, OPEN_LOOP_HINTS)
 
     metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
     for key in ("project", "topic", "domain"):
@@ -1047,12 +1098,26 @@ def _extract_project_candidates(event: Dict[str, Any], text: str) -> List[str]:
     tags = event.get("tags")
     if isinstance(tags, list):
         for tag in tags:
-            if isinstance(tag, str) and tag.strip() and tag.lower() not in PROJECT_STOPWORDS:
-                candidates.append(tag.strip())
+            if not isinstance(tag, str) or not tag.strip():
+                continue
+            cleaned = tag.strip()
+            lowered = cleaned.lower()
+            if lowered in PROJECT_STOPWORDS or lowered in PROJECT_GENERIC_TAGS:
+                continue
+            if (preference_like or feedback_like) and not any(ch in cleaned for ch in "-_"):
+                continue
+            if any(ch in cleaned for ch in "-_") or cleaned.isupper() or (len(lowered) >= 5 and lowered not in PROJECT_SINGLE_TOKEN_STOPWORDS):
+                candidates.append(cleaned)
 
-    for match in re.findall(r"\b([A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+){0,2})\b", text):
-        cleaned = match.strip()
-        if cleaned and cleaned.lower() not in PROJECT_STOPWORDS:
+    if not preference_like and not feedback_like:
+        for match in re.findall(r"\b([A-Z][a-zA-Z0-9]+(?:\s+[A-Z][a-zA-Z0-9]+){0,2})\b", text):
+            cleaned = match.strip()
+            lowered = cleaned.lower()
+            if not cleaned or lowered in PROJECT_STOPWORDS or lowered in PROJECT_GENERIC_TAGS:
+                continue
+            parts = cleaned.split()
+            if len(parts) == 1 and (len(lowered) < 5 or lowered in PROJECT_SINGLE_TOKEN_STOPWORDS):
+                continue
             candidates.append(cleaned)
 
     for match in re.findall(r"\b([a-z0-9]+(?:[-_][a-z0-9]+)+)\b", text.lower()):
@@ -1142,6 +1207,30 @@ def _claim_signature(text: str) -> Dict[str, Any]:
             "key": "reply_prefix",
             "value": _normalize_claim_fragment(value),
             "polarity": -1 if prefix.startswith(("do not", "don't")) else 1,
+            "explicit_revision": explicit_revision,
+            "normalized_text": normalized,
+        }
+
+    match = re.match(r"^call me\s+(?P<value>.+)$", normalized)
+    if match:
+        value = _trim_claim_tail(match.group("value"))
+        return {
+            "kind": "call_me",
+            "key": "call_me",
+            "value": _normalize_claim_fragment(value),
+            "polarity": 1,
+            "explicit_revision": explicit_revision,
+            "normalized_text": normalized,
+        }
+
+    match = re.match(r"^prefer\s+(?P<value>.+)$", normalized)
+    if match:
+        value = _trim_claim_tail(match.group("value"))
+        return {
+            "kind": "preference_value",
+            "key": "prefer",
+            "value": _normalize_claim_fragment(value),
+            "polarity": 1,
             "explicit_revision": explicit_revision,
             "normalized_text": normalized,
         }
@@ -1355,6 +1444,15 @@ def build_codec_state(
 
     generated_at = _now_iso()
 
+    preference_resolution = _resolve_bucket_revisions(
+        previous_state.get("identity_state", {}).get("preferences"),
+        preferences,
+        previous_state.get("identity_state", {}).get("preference_revisions"),
+        bucket="preferences",
+        generated_at=generated_at,
+        limit=max_items_per_bucket,
+    )
+
     fact_resolution = _resolve_bucket_revisions(
         previous_state.get("world_state", {}).get("durable_facts"),
         facts,
@@ -1384,7 +1482,9 @@ def build_codec_state(
             "compression_mode": "state_not_transcript",
         },
         "identity_state": {
-            "preferences": _merge_ranked(previous_state.get("identity_state", {}).get("preferences"), preferences, limit=max_items_per_bucket),
+            "preferences": preference_resolution["items"],
+            "preference_revisions": preference_resolution["revisions"],
+            "preference_revision_count": preference_resolution["revision_count"],
         },
         "project_state": {
             "active_projects": _merge_ranked(previous_state.get("project_state", {}).get("active_projects"), projects, limit=max_items_per_bucket),
@@ -1500,6 +1600,69 @@ def apply_codec_outcome_feedback(
     return _migrate_codec_state(updated)
 
 
+def _packet_bucket_rank(bucket: str, item: str, state: Dict[str, Any]) -> Dict[str, Any]:
+    promoted = _promoted_texts(state, bucket)
+    promoted_index = promoted.index(item) if item in promoted else None
+    meta = _bucket_meta(state, bucket, item)
+    freshness = str(meta.get("freshness") or "")
+    freshness_rank = {"fresh": 0, "warm": 1, "aging": 2, "stale": 3}.get(freshness, 4)
+    return {
+        "text": item,
+        "promoted": promoted_index is not None,
+        "promoted_index": promoted_index if promoted_index is not None else 999,
+        "score": _coerce_float(meta.get("score"), _base_utility_score(item, bucket)),
+        "confidence": _coerce_float(meta.get("confidence"), 0.0),
+        "freshness": freshness,
+        "freshness_rank": freshness_rank,
+        "age_hours": _coerce_float(meta.get("age_hours"), 0.0),
+    }
+
+
+def _promoted_texts(state: Dict[str, Any], bucket: str) -> List[str]:
+    promoted = (state.get("promotion_state", {}) if isinstance(state.get("promotion_state", {}), dict) else {}).get("promoted", {})
+    rows = promoted.get(bucket) if isinstance(promoted.get(bucket), list) else []
+    return [str(row.get("text") or "") for row in rows if isinstance(row, dict) and _clean_text(row.get("text"))]
+
+
+def _bucket_meta(state: Dict[str, Any], bucket: str, item: str) -> Dict[str, Any]:
+    utility = (state.get("utility_state", {}) if isinstance(state.get("utility_state", {}), dict) else {}).get("bucket_scores", {})
+    bucket_scores = utility.get(bucket) if isinstance(utility.get(bucket), dict) else {}
+    return bucket_scores.get(_clean_text(item).lower()) if isinstance(bucket_scores.get(_clean_text(item).lower()), dict) else {}
+
+
+def _packet_bucket_items(bucket: str, state: Dict[str, Any], *, limit: int) -> List[str]:
+    bucket_map = {
+        "preferences": (state.get("identity_state", {}) if isinstance(state.get("identity_state", {}), dict) else {}).get("preferences", []),
+        "active_projects": (state.get("project_state", {}) if isinstance(state.get("project_state", {}), dict) else {}).get("active_projects", []),
+        "active_goals": (state.get("project_state", {}) if isinstance(state.get("project_state", {}), dict) else {}).get("active_goals", []),
+        "open_loops": (state.get("project_state", {}) if isinstance(state.get("project_state", {}), dict) else {}).get("open_loops", []),
+        "durable_facts": (state.get("world_state", {}) if isinstance(state.get("world_state", {}), dict) else {}).get("durable_facts", []),
+        "patterns": (state.get("failure_state", {}) if isinstance(state.get("failure_state", {}), dict) else {}).get("patterns", []),
+        "lessons": (state.get("failure_state", {}) if isinstance(state.get("failure_state", {}), dict) else {}).get("lessons", []),
+    }
+    items = _normalize_text_list(bucket_map.get(bucket, []), limit=64)
+    if not items:
+        return []
+
+    ranked = [_packet_bucket_rank(bucket, item, state) for item in items]
+    if not CODEC_PACKET_INCLUDE_STALE:
+        ranked = [row for row in ranked if row.get("freshness") != "stale"]
+    if CODEC_PACKET_USE_PROMOTION and any(row.get("promoted") for row in ranked):
+        ranked = [row for row in ranked if row.get("promoted")]
+    ranked.sort(
+        key=lambda row: (
+            0 if row.get("promoted") else 1,
+            int(row.get("promoted_index") or 999),
+            int(row.get("freshness_rank") or 9),
+            -_coerce_float(row.get("confidence"), 0.0),
+            -_coerce_float(row.get("score"), 0.0),
+            _coerce_float(row.get("age_hours"), 0.0),
+            str(row.get("text") or ""),
+        )
+    )
+    return [str(row.get("text") or "") for row in ranked[: max(1, int(limit))] if _clean_text(row.get("text"))]
+
+
 def compress_codec_for_prompt(state: Dict[str, Any], *, max_chars: int = 1200) -> str:
     """Render a compact prompt packet from Codec state.
 
@@ -1514,13 +1677,25 @@ def compress_codec_for_prompt(state: Dict[str, Any], *, max_chars: int = 1200) -
         if cleaned:
             sections.append(f"{label}: " + " | ".join(cleaned))
 
-    _line("Prefs", state.get("identity_state", {}).get("preferences"))
-    _line("Projects", state.get("project_state", {}).get("active_projects"))
-    _line("Goals", state.get("project_state", {}).get("active_goals"))
-    _line("Open", state.get("project_state", {}).get("open_loops"))
-    _line("Facts", state.get("world_state", {}).get("durable_facts"))
-    _line("FailurePatterns", state.get("failure_state", {}).get("patterns"))
-    _line("Lessons", state.get("failure_state", {}).get("lessons"))
+    bucket_order = [
+        ("Prefs", "preferences"),
+        ("Projects", "active_projects"),
+        ("Open", "open_loops"),
+        ("Facts", "durable_facts"),
+        ("Lessons", "lessons"),
+    ]
+    include_goals = CODEC_PACKET_INCLUDE_GOALS
+    if not include_goals and _packet_bucket_items("active_goals", state, limit=1):
+        include_goals = not any(
+            _packet_bucket_items(bucket, state, limit=1)
+            for bucket in ("preferences", "open_loops", "durable_facts", "lessons")
+        )
+    if include_goals:
+        bucket_order.insert(2, ("Goals", "active_goals"))
+    if CODEC_PACKET_INCLUDE_PATTERNS:
+        bucket_order.insert(-1, ("FailurePatterns", "patterns"))
+    for label, bucket in bucket_order:
+        _line(label, _packet_bucket_items(bucket, state, limit=max(1, int(CODEC_PACKET_MAX_ITEMS_PER_BUCKET))))
 
     packet = "\n".join(sections).strip()
     if len(packet) <= max_chars:
@@ -1529,11 +1704,17 @@ def compress_codec_for_prompt(state: Dict[str, Any], *, max_chars: int = 1200) -
     truncated_sections: List[str] = []
     remaining = max_chars
     for section in sections:
-        if remaining <= 0:
+        section = _clean_text(section)
+        if remaining <= 0 or not section:
             break
-        chunk = section[:remaining]
-        truncated_sections.append(chunk)
-        remaining -= len(chunk) + 1
+        section_len = len(section)
+        if section_len <= remaining:
+            truncated_sections.append(section)
+            remaining -= section_len + 1
+            continue
+        if remaining >= 24:
+            truncated_sections.append(section[: max(0, remaining - 1)] + "…")
+        break
     return "\n".join(truncated_sections).strip()
 
 
