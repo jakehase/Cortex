@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T03:25:56.651Z",
+      "updatedAt": "2026-04-03T03:30:59.589Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 214,
+        "runs": 215,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:25:56.659Z",
+        "lastRunAt": "2026-04-03T03:30:59.593Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T03:15:40.995Z",
+      "updatedAt": "2026-04-03T03:33:30.328Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 84,
+        "runs": 87,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:15:41.000Z",
+        "lastRunAt": "2026-04-03T03:33:30.332Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
