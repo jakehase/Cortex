@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T03:30:59.589Z",
+      "updatedAt": "2026-04-03T03:36:18.570Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 215,
+        "runs": 216,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:30:59.593Z",
+        "lastRunAt": "2026-04-03T03:36:18.574Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T03:33:30.328Z",
+      "updatedAt": "2026-04-03T03:38:58.500Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 87,
+        "runs": 88,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:33:30.332Z",
+        "lastRunAt": "2026-04-03T03:38:58.504Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -10846,6 +10846,77 @@
       "failedAt": "2026-04-03T03:27:30.359Z",
       "failureReason": "Expected values to be strictly equal: null !== 8 code: 'ERR_ASSERTION' name: 'AssertionError' expected: 8 actual: ~ operator: 'strictEqual' stack: |- TestContext.<anonymous> (file:///root/clawd/large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs:247:10) async Test.run (node:internal/test_runner/test:1054:7) async Test.processPendingSubtests (node:internal/test_runner/test:744:7)",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:3d8fbfce-7753-4f3a-8b08-34d3aa39e077:1775187532084:b67eed29103b5331",
+      "sessionKey": "agent:main:subagent:3d8fbfce-7753-4f3a-8b08-34d3aa39e077",
+      "createdAt": "2026-04-03T03:38:52.084Z",
+      "updatedAt": "2026-04-03T03:38:52.092Z",
+      "prompt": "[Thu 2026-04-02 22:38 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved running the orchestrator against the",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-03T03:38:52.084Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-03T03:38:52.092Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "[Thu 2026-04-02 22:38 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved running the orch",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
