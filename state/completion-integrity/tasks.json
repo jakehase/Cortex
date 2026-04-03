@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T05:15:51.529Z",
+      "updatedAt": "2026-04-03T05:20:42.140Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 236,
+        "runs": 237,
         "failures": [],
-        "lastRunAt": "2026-04-03T05:15:51.534Z",
+        "lastRunAt": "2026-04-03T05:20:42.145Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T04:48:37.898Z",
+      "updatedAt": "2026-04-03T05:25:09.149Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 92,
+        "runs": 93,
         "failures": [],
-        "lastRunAt": "2026-04-03T04:48:37.903Z",
+        "lastRunAt": "2026-04-03T05:25:09.157Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11055,11 +11055,11 @@
       "id": "agent:main:subagent:c2071574-8e93-4cde-985c-93f7b007a18a:1775191711008:0af736b2867ee631",
       "sessionKey": "agent:main:subagent:c2071574-8e93-4cde-985c-93f7b007a18a",
       "createdAt": "2026-04-03T04:48:31.008Z",
-      "updatedAt": "2026-04-03T05:07:27.148Z",
+      "updatedAt": "2026-04-03T05:22:50.116Z",
       "prompt": "[Thu 2026-04-02 23:48 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user wants another massive expansion wave for the ",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "complete --- duration_ms: 1.664624 type: 'test' ... # Subtest: wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete ok 692 - wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete --- duration_ms: 1.729825 type: 'test' ... # Subtest: wave6-cluster-growth keeps the generated wave 6 modules executable and policy-complete ok 693",
       "history": [
         {
@@ -11079,6 +11079,14 @@
           "completedAt": "2026-04-03T04:50:41.101Z",
           "completionSummary": "complete --- duration_ms: 1.643505 type: 'test' ... # Subtest: wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete ok 143 - wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete --- duration_ms: 1.599434 type: 'test' ... # Subtest: wave6-cluster-growth keeps the generated wave 6 modules executable and policy-complete ok 144",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-03T05:22:50.116Z",
+          "failedAt": "2026-04-03T05:22:50.116Z",
+          "failureReason": "{ \"ok\": false, \"artifactRoot\": \"artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign\", \"supervisorStatus\": \"red\", \"total\": 609700, \"matrixStatus\": \"partial\", \"blocker\": null } Process exited with code 1.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -11144,7 +11152,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-03T04:50:41.101Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-03T05:22:50.116Z",
+      "failureReason": "{ \"ok\": false, \"artifactRoot\": \"artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign\", \"supervisorStatus\": \"red\", \"total\": 609700, \"matrixStatus\": \"partial\", \"blocker\": null } Process exited with code 1.",
+      "failureSource": "runtime_message"
     }
   ]
 }
