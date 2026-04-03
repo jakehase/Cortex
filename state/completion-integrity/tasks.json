@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T04:46:07.586Z",
+      "updatedAt": "2026-04-03T04:50:44.839Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 230,
+        "runs": 231,
         "failures": [],
-        "lastRunAt": "2026-04-03T04:46:07.590Z",
+        "lastRunAt": "2026-04-03T04:50:44.847Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11055,12 +11055,12 @@
       "id": "agent:main:subagent:c2071574-8e93-4cde-985c-93f7b007a18a:1775191711008:0af736b2867ee631",
       "sessionKey": "agent:main:subagent:c2071574-8e93-4cde-985c-93f7b007a18a",
       "createdAt": "2026-04-03T04:48:31.008Z",
-      "updatedAt": "2026-04-03T04:48:31.015Z",
+      "updatedAt": "2026-04-03T04:50:41.101Z",
       "prompt": "[Thu 2026-04-02 23:48 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user wants another massive expansion wave for the ",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "complete --- duration_ms: 1.643505 type: 'test' ... # Subtest: wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete ok 143 - wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete --- duration_ms: 1.599434 type: 'test' ... # Subtest: wave6-cluster-growth keeps the generated wave 6 modules executable and policy-complete ok 144",
       "history": [
         {
           "from": null,
@@ -11071,6 +11071,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-03T04:48:31.015Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-03T04:50:41.101Z",
+          "completedAt": "2026-04-03T04:50:41.101Z",
+          "completionSummary": "complete --- duration_ms: 1.643505 type: 'test' ... # Subtest: wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete ok 143 - wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete --- duration_ms: 1.599434 type: 'test' ... # Subtest: wave6-cluster-growth keeps the generated wave 6 modules executable and policy-complete ok 144",
+          "completionSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -11082,8 +11090,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-03T04:50:41.109Z",
+            "reason": "task_contract_proof_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-03T04:50:41.109Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
       },
       "grounding": {
         "required": true,
@@ -11092,7 +11110,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -11100,7 +11118,7 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": true,
@@ -11119,8 +11137,10 @@
       "surfaceMatrix": {
         "required": true,
         "proofPresent": false,
-        "status": null
-      }
+        "status": "missing"
+      },
+      "completedAt": "2026-04-03T04:50:41.101Z",
+      "completionSource": "runtime_message"
     }
   ]
 }
