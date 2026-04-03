@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T04:40:44.811Z",
+      "updatedAt": "2026-04-03T04:46:07.586Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 229,
+        "runs": 230,
         "failures": [],
-        "lastRunAt": "2026-04-03T04:40:44.815Z",
+        "lastRunAt": "2026-04-03T04:46:07.590Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T04:43:03.817Z",
+      "updatedAt": "2026-04-03T04:48:37.898Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 91,
+        "runs": 92,
         "failures": [],
-        "lastRunAt": "2026-04-03T04:43:03.825Z",
+        "lastRunAt": "2026-04-03T04:48:37.903Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11050,6 +11050,77 @@
       "failedAt": "2026-04-03T04:37:21.506Z",
       "failureReason": "large-project-capability-stack/apps/qualification/run.mjs:115\\n' + 'if (!stackArchitecture.ok) throw new Error(`Stack architecture failed: ${JSON.stringify(stackArchitecture.violations)}`);\\n' + ' ^\\n' + '\\n' + 'Error: Stack architecture failed: [{\"rule\":\"anti-collapse-max-lines\",\"path\":\"apps/orchestrator-qualification/run.mjs\",\"message\":\"File exceeds 400 lines\"},{\"rule\":\"anti-collapse-max-lines\",",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:c2071574-8e93-4cde-985c-93f7b007a18a:1775191711008:0af736b2867ee631",
+      "sessionKey": "agent:main:subagent:c2071574-8e93-4cde-985c-93f7b007a18a",
+      "createdAt": "2026-04-03T04:48:31.008Z",
+      "updatedAt": "2026-04-03T04:48:31.015Z",
+      "prompt": "[Thu 2026-04-02 23:48 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user wants another massive expansion wave for the ",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-03T04:48:31.008Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-03T04:48:31.015Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "parity_for_scope",
+        "requestedScope": "[Thu 2026-04-02 23:48 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user wants another massive exp",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
