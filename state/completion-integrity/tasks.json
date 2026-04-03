@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T20:28:33.990Z",
+      "updatedAt": "2026-04-03T20:33:33.478Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 401,
+        "runs": 402,
         "failures": [],
-        "lastRunAt": "2026-04-03T20:28:33.998Z",
+        "lastRunAt": "2026-04-03T20:33:33.486Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11452,7 +11452,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1775246735391:0583f93fc6290a2e",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-04-03T20:05:35.391Z",
-      "updatedAt": "2026-04-03T20:07:44.580Z",
+      "updatedAt": "2026-04-03T20:33:47.633Z",
       "prompt": "Implement all 8 of your suggestions",
       "kind": "user_visible",
       "trustTier": "important",
@@ -11487,7 +11487,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 2,
+        "runs": 3,
         "failures": [
           {
             "at": "2026-04-03T20:06:14.031Z",
@@ -11496,9 +11496,13 @@
           {
             "at": "2026-04-03T20:07:44.586Z",
             "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-03T20:33:47.641Z",
+            "reason": "task_contract_proof_missing"
           }
         ],
-        "lastRunAt": "2026-04-03T20:07:44.586Z",
+        "lastRunAt": "2026-04-03T20:33:47.641Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
