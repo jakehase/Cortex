@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T03:21:04.412Z",
+      "updatedAt": "2026-04-03T03:25:56.651Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 213,
+        "runs": 214,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:21:04.420Z",
+        "lastRunAt": "2026-04-03T03:25:56.659Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -10769,11 +10769,11 @@
       "id": "agent:main:subagent:470d8ab3-2263-49b6-a128-3661251173cd:1775186133651:1aa331bf9d001cb2",
       "sessionKey": "agent:main:subagent:470d8ab3-2263-49b6-a128-3661251173cd",
       "createdAt": "2026-04-03T03:15:33.651Z",
-      "updatedAt": "2026-04-03T03:15:33.657Z",
+      "updatedAt": "2026-04-03T03:27:30.359Z",
       "prompt": "[Thu 2026-04-02 22:15 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved the next program to move from 32-age",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -10785,6 +10785,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-03T03:15:33.657Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-03T03:27:30.359Z",
+          "failedAt": "2026-04-03T03:27:30.359Z",
+          "failureReason": "Expected values to be strictly equal: null !== 8 code: 'ERR_ASSERTION' name: 'AssertionError' expected: 8 actual: ~ operator: 'strictEqual' stack: |- TestContext.<anonymous> (file:///root/clawd/large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs:247:10) async Test.run (node:internal/test_runner/test:1054:7) async Test.processPendingSubtests (node:internal/test_runner/test:744:7)",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -10834,7 +10842,10 @@
         "required": true,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-03T03:27:30.359Z",
+      "failureReason": "Expected values to be strictly equal: null !== 8 code: 'ERR_ASSERTION' name: 'AssertionError' expected: 8 actual: ~ operator: 'strictEqual' stack: |- TestContext.<anonymous> (file:///root/clawd/large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs:247:10) async Test.run (node:internal/test_runner/test:1054:7) async Test.processPendingSubtests (node:internal/test_runner/test:744:7)",
+      "failureSource": "runtime_message"
     }
   ]
 }
