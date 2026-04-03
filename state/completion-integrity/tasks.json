@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T02:50:58.444Z",
+      "updatedAt": "2026-04-03T02:56:35.288Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 207,
+        "runs": 208,
         "failures": [],
-        "lastRunAt": "2026-04-03T02:50:58.452Z",
+        "lastRunAt": "2026-04-03T02:56:35.295Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T02:53:44.474Z",
+      "updatedAt": "2026-04-03T02:59:09.628Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 81,
+        "runs": 82,
         "failures": [],
-        "lastRunAt": "2026-04-03T02:53:44.485Z",
+        "lastRunAt": "2026-04-03T02:59:09.633Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -10670,6 +10670,77 @@
       },
       "surfaceMatrix": {
         "required": false,
+        "proofPresent": false,
+        "status": null
+      }
+    },
+    {
+      "id": "agent:main:subagent:88bb2f4e-a99c-49ff-b4f8-0683a671734f:1775185135929:d95cabd116177851",
+      "sessionKey": "agent:main:subagent:88bb2f4e-a99c-49ff-b4f8-0683a671734f",
+      "createdAt": "2026-04-03T02:58:55.929Z",
+      "updatedAt": "2026-04-03T02:58:55.935Z",
+      "prompt": "[Thu 2026-04-02 21:58 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved building the multi-agent scale orche",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-03T02:58:55.929Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-03T02:58:55.935Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "[Thu 2026-04-02 21:58 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved building the mul",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
         "proofPresent": false,
         "status": null
       }
