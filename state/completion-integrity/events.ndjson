@@ -205,3 +205,5 @@
 {"at":"2026-04-03T20:05:35.398Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1775246735391:0583f93fc6290a2e","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"pending","to":"running"}
 {"at":"2026-04-03T20:06:14.025Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1775246735391:0583f93fc6290a2e","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"running","to":"internal_complete"}
 {"at":"2026-04-03T20:45:09.980Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1775246735391:0583f93fc6290a2e","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"internal_complete","to":"failed"}
+{"at":"2026-04-03T22:43:05.454Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1775256185446:efd92c5017ab9988","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"pending","to":"running"}
+{"at":"2026-04-03T22:43:05.511Z","type":"state_transition","taskId":"agent:main:whatsapp:direct:+17855410986:1775256185446:efd92c5017ab9988","sessionKey":"agent:main:whatsapp:direct:+17855410986","from":"running","to":"internal_complete"}
