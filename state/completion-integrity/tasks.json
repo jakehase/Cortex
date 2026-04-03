@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T03:55:45.829Z",
+      "updatedAt": "2026-04-03T04:00:52.967Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 220,
+        "runs": 221,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:55:45.834Z",
+        "lastRunAt": "2026-04-03T04:00:52.972Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T03:38:58.500Z",
+      "updatedAt": "2026-04-03T04:04:03.016Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 88,
+        "runs": 89,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:38:58.504Z",
+        "lastRunAt": "2026-04-03T04:04:03.023Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -10851,11 +10851,11 @@
       "id": "agent:main:subagent:3d8fbfce-7753-4f3a-8b08-34d3aa39e077:1775187532084:b67eed29103b5331",
       "sessionKey": "agent:main:subagent:3d8fbfce-7753-4f3a-8b08-34d3aa39e077",
       "createdAt": "2026-04-03T03:38:52.084Z",
-      "updatedAt": "2026-04-03T03:41:10.729Z",
+      "updatedAt": "2026-04-03T04:00:48.717Z",
       "prompt": "[Thu 2026-04-02 22:38 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved running the orchestrator against the",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "laybooks package exposes snapshot, policy, route, and fixture depth --- duration_ms: 1.10127 type: 'test' ... # Subtest: survey feedback tracks scores, averages, and qualitative comments ok 74 - survey feedback tracks scores, averages, and qualitative comments --- duration_ms: 29.696564 type: 'test' ... # Subtest: template-marketplace package exposes snapshot, policy, route, and fixture depth ok 7",
       "history": [
         {
@@ -10875,6 +10875,14 @@
           "completedAt": "2026-04-03T03:41:10.729Z",
           "completionSummary": "laybooks package exposes snapshot, policy, route, and fixture depth --- duration_ms: 1.10127 type: 'test' ... # Subtest: survey feedback tracks scores, averages, and qualitative comments ok 74 - survey feedback tracks scores, averages, and qualitative comments --- duration_ms: 29.696564 type: 'test' ... # Subtest: template-marketplace package exposes snapshot, policy, route, and fixture depth ok 7",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-03T04:00:48.717Z",
+          "failedAt": "2026-04-03T04:00:48.716Z",
+          "failureReason": "{ \"ok\": false, \"artifactRoot\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo\", \"highestPassingTier\": 100, \"qualificationMode\": \"real_mailchimp_repo_live_worker_farm\", \"blocker\": null, \"supervisorLog\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/validation/supervisor.log\" } Process exited with code 1.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -10936,7 +10944,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-03T03:41:10.729Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-03T04:00:48.716Z",
+      "failureReason": "{ \"ok\": false, \"artifactRoot\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo\", \"highestPassingTier\": 100, \"qualificationMode\": \"real_mailchimp_repo_live_worker_farm\", \"blocker\": null, \"supervisorLog\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/validation/supervisor.log\" } Process exited with code 1.",
+      "failureSource": "runtime_message"
     }
   ]
 }
