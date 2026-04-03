@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T17:06:04.751Z",
+      "updatedAt": "2026-04-03T17:10:49.683Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 380,
+        "runs": 381,
         "failures": [],
-        "lastRunAt": "2026-04-03T17:06:04.759Z",
+        "lastRunAt": "2026-04-03T17:10:49.691Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T16:57:24.988Z",
+      "updatedAt": "2026-04-03T17:12:37.841Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 109,
+        "runs": 110,
         "failures": [],
-        "lastRunAt": "2026-04-03T16:57:24.995Z",
+        "lastRunAt": "2026-04-03T17:12:37.846Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11268,12 +11268,12 @@
       "id": "agent:main:subagent:75914eb8-313a-47e8-ae6b-991168a59af7:1775235438315:d5826b9c4d2d7aaa",
       "sessionKey": "agent:main:subagent:75914eb8-313a-47e8-ae6b-991168a59af7",
       "createdAt": "2026-04-03T16:57:18.315Z",
-      "updatedAt": "2026-04-03T16:57:18.324Z",
+      "updatedAt": "2026-04-03T17:11:57.671Z",
       "prompt": "[Fri 2026-04-03 11:57 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Anchor: - current comparison artifacts under /root/clawd/large-p",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Fri 2026-04-03 11:57 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Anchor: - current comparison artifacts under /root/clawd/large-project-capability-stack/artifacts/benchmarks/cortex_vs_clawhip/ - actual clawhip repo cloned at /root/clawd/tmp_clawhip - current conversation where the user asked for a real head-to-head benchmark, not just a repo-level comparison Target path: /root/clawd/large-project-capability-stack Fidelity: production_slice Scope: buil",
       "history": [
         {
           "from": null,
@@ -11284,6 +11284,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-03T16:57:18.324Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-03T17:11:57.671Z",
+          "completedAt": "2026-04-03T17:11:57.670Z",
+          "completionSummary": "Fri 2026-04-03 11:57 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Anchor: - current comparison artifacts under /root/clawd/large-project-capability-stack/artifacts/benchmarks/cortex_vs_clawhip/ - actual clawhip repo cloned at /root/clawd/tmp_clawhip - current conversation where the user asked for a real head-to-head benchmark, not just a repo-level comparison Target path: /root/clawd/large-project-capability-stack Fidelity: production_slice Scope: buil",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -11295,8 +11303,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-03T17:11:57.679Z",
+            "reason": "task_contract_proof_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-03T17:11:57.679Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "grounding": {
         "required": true,
@@ -11305,7 +11323,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -11313,7 +11331,7 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": true,
@@ -11332,8 +11350,10 @@
       "surfaceMatrix": {
         "required": true,
         "proofPresent": false,
-        "status": null
-      }
+        "status": "missing"
+      },
+      "completedAt": "2026-04-03T17:11:57.670Z",
+      "completionSource": "agent_end"
     }
   ]
 }
