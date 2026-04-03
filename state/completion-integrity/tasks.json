@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "tasks": [
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773891950900",
@@ -38,7 +38,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773892250864",
@@ -77,7 +96,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773892550867",
@@ -116,7 +154,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773892850878",
@@ -155,7 +212,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773893150882",
@@ -194,7 +270,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773893450884",
@@ -233,7 +328,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773893750889",
@@ -272,7 +386,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773894050894",
@@ -311,7 +444,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773894350892",
@@ -350,7 +502,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773894650894",
@@ -389,7 +560,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773894950901",
@@ -428,7 +618,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773895250904",
@@ -467,7 +676,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773895550909",
@@ -506,7 +734,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773895850912",
@@ -545,7 +792,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773896150919",
@@ -584,7 +850,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773896450917",
@@ -623,7 +908,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773896750919",
@@ -662,7 +966,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773897050922",
@@ -701,7 +1024,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.438Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.438Z"
+      "completedAt": "2026-03-19T16:27:30.438Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773897350920",
@@ -740,7 +1082,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773897650922",
@@ -779,7 +1140,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773897950920",
@@ -818,7 +1198,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773898250925",
@@ -857,7 +1256,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773898550931",
@@ -896,7 +1314,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773898850931",
@@ -935,7 +1372,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773899150933",
@@ -974,7 +1430,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773899450935",
@@ -1013,7 +1488,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773899750936",
@@ -1052,7 +1546,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773900050940",
@@ -1091,7 +1604,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773900350946",
@@ -1130,7 +1662,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773900650957",
@@ -1169,7 +1720,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773900950954",
@@ -1208,7 +1778,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773901250956",
@@ -1247,7 +1836,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773901550959",
@@ -1286,7 +1894,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773901850960",
@@ -1325,7 +1952,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773902150961",
@@ -1364,7 +2010,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773902450962",
@@ -1403,7 +2068,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773902750974",
@@ -1442,7 +2126,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773903050971",
@@ -1481,7 +2184,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773903350981",
@@ -1520,7 +2242,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773903650978",
@@ -1559,7 +2300,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773903950988",
@@ -1598,7 +2358,26 @@
       "trustTier": "normal",
       "recoveredAt": "2026-03-19T16:27:30.439Z",
       "recoveryReason": "restart_or_stale_running",
-      "completedAt": "2026-03-19T16:27:30.439Z"
+      "completedAt": "2026-03-19T16:27:30.439Z",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773904250996",
@@ -1630,7 +2409,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773904550991",
@@ -1664,7 +2462,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773904850992",
@@ -1698,7 +2515,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773905150993",
@@ -1732,7 +2568,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773905451008",
@@ -1766,7 +2621,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773905751001",
@@ -1800,7 +2674,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773906051004",
@@ -1834,7 +2727,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773906351011",
@@ -1868,7 +2780,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773906651010",
@@ -1902,7 +2833,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773906951013",
@@ -1936,7 +2886,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773907251023",
@@ -1970,7 +2939,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773907551028",
@@ -2004,7 +2992,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773907851040",
@@ -2038,7 +3045,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773908151037",
@@ -2072,7 +3098,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773908451044",
@@ -2106,7 +3151,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773908751057",
@@ -2140,7 +3204,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773909051042",
@@ -2174,7 +3257,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773909351050",
@@ -2208,7 +3310,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773909651050",
@@ -2242,7 +3363,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773909951058",
@@ -2276,7 +3416,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773910251081",
@@ -2310,7 +3469,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773910551078",
@@ -2344,7 +3522,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773910851069",
@@ -2378,7 +3575,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773911151074",
@@ -2412,7 +3628,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773911451079",
@@ -2446,7 +3681,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773911751080",
@@ -2480,7 +3734,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912051098",
@@ -2514,7 +3787,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912351100",
@@ -2548,7 +3840,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912651101",
@@ -2582,7 +3893,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912951097",
@@ -2616,7 +3946,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913251103",
@@ -2650,7 +3999,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913551107",
@@ -2684,7 +4052,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913851117",
@@ -2718,7 +4105,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914151109",
@@ -2731,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-01T05:04:04.648Z",
+      "updatedAt": "2026-04-03T00:36:22.666Z",
       "history": [
         {
           "from": null,
@@ -2749,16 +4155,49 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 177,
+        "runs": 178,
         "failures": [],
-        "lastRunAt": "2026-04-01T05:04:04.655Z",
+        "lastRunAt": "2026-04-03T00:36:22.673Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
         }
       },
       "trustTier": "normal",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": true,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": true,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": false,
+        "proofPresent": true,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914451110",
@@ -2809,7 +4248,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-31T14:22:55.311Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914751116",
@@ -2860,7 +4318,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-31T12:41:07.278Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git b91e2a4..13d222b HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915051118",
@@ -2911,7 +4388,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-31T09:01:22.374Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 7f16c0a..5c875ec HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915351132",
@@ -2962,7 +4458,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-30T08:26:02.565Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git e82cd52..80d3749 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915651124",
@@ -3013,7 +4528,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-29T07:18:39.714Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773915951125",
@@ -3064,7 +4598,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-27T17:41:16.154Z",
       "failureReason": "branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) To https://github.com/jakehase/Cortex.git 3727532..ad1432b HEAD -> openclaw-sync ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773916251134",
@@ -3115,7 +4668,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-26T19:11:07.201Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git cb9f11a..cae710c HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773916551133",
@@ -3166,7 +4738,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-26T17:46:08.784Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git ba949a0..394ae74 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773916851134",
@@ -3217,7 +4808,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-26T14:54:24.304Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 7c90d27..0ee4f3e HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773917151140",
@@ -3268,7 +4878,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-26T14:44:16.080Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 9e2d293..e735789 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773917451146",
@@ -3319,7 +4948,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-26T14:04:28.718Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 3b4f55b..e93a606 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773917751157",
@@ -3370,7 +5018,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-26T12:34:27.753Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 4d43847..54d7a69 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918051150",
@@ -3421,7 +5088,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-26T10:09:13.745Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git a6e2a92..b10eaaf HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918351148",
@@ -3472,7 +5158,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-25T20:31:55.583Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918651156",
@@ -3523,7 +5228,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-23T17:51:14.371Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git b631001..f0933e6 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773918951158",
@@ -3568,7 +5292,26 @@
       "trustTier": "normal",
       "failedAt": "2026-03-23T16:53:50.938Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773919251165",
@@ -3619,7 +5362,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-23T16:48:50.939Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773919551165",
@@ -3670,7 +5432,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-23T14:26:32.270Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 516c935..b2738c2 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773919851167",
@@ -3721,7 +5502,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-23T14:01:27.540Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git ae085e7..f8f1b62 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920151166",
@@ -3772,7 +5572,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-20T18:18:32.873Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 32cacbf..c55f685 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920451170",
@@ -3823,7 +5642,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-20T17:18:18.790Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 9d5d35f..26b2895 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920495120",
@@ -3874,7 +5712,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-20T13:29:15.315Z",
       "failureReason": "Conversation info (untrusted metadata): ```json { \"message_id\": \"3A7D246A132C5D94BC23\", \"reply_to_id\": \"3EB033030702F2F8EDAC7C\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"has_reply_context\": true } ``` Sender (untrusted metadata): ```json { \"label\": \"Jake (+17855410986)\", \"id\": \"+17855410986\", \"name\": \"Jake\", \"e164\": \"+17855410986\" } ``` Replied message (untrusted, for context): ```json { \"s",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920656108",
@@ -3925,7 +5782,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-20T04:26:24.342Z",
       "failureReason": "[[reply_to_current]] **Done:** I added the missing bridge for background/runtime completions. **What I changed** - Wired `completion-integrity` into **`before_message_write`** - It now parses runtime/system messages like: - `Exec completed (...)` - `Exec failed (...)` - `Process exited ...` - Those now feed the same task state machine as subagent/agent completions: - success → `internal_complete`",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773920751175",
@@ -3976,7 +5852,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-20T13:26:07.808Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git fbb360c..d04db42 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1773920934380",
@@ -4027,7 +5922,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-20T01:15:57.958Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:979af9a7-b0a1-432d-8501-9f5673d7895c:1773937171502",
@@ -4059,7 +5973,26 @@
         "runs": 0,
         "failures": []
       },
-      "trustTier": "normal"
+      "trustTier": "normal",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:a59a2130-fe52-4351-ba0e-6fb86c33252d:1773951439223:f4c4973ee6a38f8f",
@@ -4109,7 +6042,26 @@
         }
       },
       "completedAt": "2026-03-19T20:25:45.957Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:4d341cdf-d188-45a5-8c14-af87ba07c118:1773954576904:ea83eb597552db3f",
@@ -4159,7 +6111,26 @@
         }
       },
       "completedAt": "2026-03-19T21:18:30.952Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "oracle-prod-bridge-general-ac1786e8e4:1773975667647:aba07bbe65e1b898",
@@ -4209,7 +6180,26 @@
         }
       },
       "completedAt": "2026-03-20T03:01:27.852Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774014239156:b6aedc32d51d02c7",
@@ -4275,7 +6265,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-20T18:55:35.005Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774034820273:4f1ddb88d32d1a5e",
@@ -4336,7 +6345,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-20T20:25:34.233Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:a44c177d-e198-484b-acda-a36905c3df7e:1774037794070:54d5ecdd72f8a065",
@@ -4386,7 +6414,26 @@
         }
       },
       "completedAt": "2026-03-20T20:18:37.149Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774041352036:1b6cece2b80ecf88",
@@ -4447,7 +6494,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-20T21:25:52.048Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774045243252:454abba3b3e78670",
@@ -4493,7 +6559,26 @@
       },
       "failedAt": "2026-03-20T22:30:43.263Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774049292934:6ff5db4cc43d63dd",
@@ -4554,7 +6639,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-21T00:34:21.438Z",
       "failureReason": "System: [2026-03-20 19:03:08 CDT] Exec completed (delta-se, code 0) :: {} System: [2026-03-20 19:03:15 CDT] Exec completed (fast-zep, code 1) :: \", line 563, in error return self._call_chain(*args) ^^^^^^^^^^^^^^^^^^^^^^^ File \"/usr/lib/python3.11/urllib/request.py\", line 496, in _call_chain result = func(*args) ^^^^^^^^^^… Conversation info (untrusted metadata): ```json { \"message_id\": \"3EB02C9A8",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774053919000:ca3a571b25be116c",
@@ -4600,7 +6704,26 @@
       },
       "failedAt": "2026-03-21T00:55:19.006Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "oracle-prod-bridge-general-a46597166a:1774062074535:b3b9253b9dd0a36a",
@@ -4650,7 +6773,26 @@
         }
       },
       "completedAt": "2026-03-21T03:01:31.467Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774104450869:209531707e69e55b",
@@ -4696,7 +6838,26 @@
       },
       "failedAt": "2026-03-21T14:47:58.860Z",
       "failureReason": "/root/clawd/docs/CORTEX_COMPLETION_INTEGRITY.md:11:- plugin: `plugins/completion-integrity` /root/clawd/docs/CORTEX_COMPLETION_INTEGRITY.md:12:- core: `plugins/completion-integrity/core.mjs` /root/clawd/docs/CORTEX_COMPLETION_INTEGRITY.md:13:- tests: `plugins/completion-integrity/core.test.mjs` /root/clawd/docs/CORTEX_COMPLETION_INTEGRITY.md:14:- state: `state/completion-integrity/tasks.json` /roo",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774133278704:454b04a80363e000",
@@ -4742,7 +6903,26 @@
       },
       "failedAt": "2026-03-21T22:53:18.986Z",
       "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 12.466041 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 1.637714 type: '",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774136652107:138cad166390ab1e",
@@ -4788,7 +6968,26 @@
       },
       "failedAt": "2026-03-21T23:48:44.255Z",
       "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 17.529009 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 1.877107 type: '",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774137457215:29e6f6945015d3dd",
@@ -4849,7 +7048,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-22T00:44:45.221Z",
       "failureReason": "TAP version 13 # Subtest: creative novelty prompt injects creativity governor and forces Dreamer/Muse/Synthesist/Validator ok 1 - creative novelty prompt injects creativity governor and forces Dreamer/Muse/Synthesist/Validator --- duration_ms: 15.142198 type: 'test' ... # Subtest: ordinary status prompt does not inject creativity governor ok 2 - ordinary status prompt does not inject creativity go",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774149861227:400c0b255407471a",
@@ -4910,7 +7128,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-22T03:34:21.241Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774150821083:5fd2bdf8f4f4cb88",
@@ -4971,7 +7208,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-22T03:59:18.250Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774155274777:ddae42fc1b16e537",
@@ -5032,7 +7288,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-22T18:00:01.648Z",
       "failureReason": "{\"0\":\"{\\\"module\\\":\\\"web-auto-reply\\\",\\\"runId\\\":\\\"e75928fc-d57d-4c46-bbc3-439da370b6b9\\\"}\",\"1\":{\"correlationId\":\"3A60FDCF12A38BA2E370\",\"connectionId\":\"152ec67d-196b-43fc-b995-3b9cf014957e\",\"to\":\"+17855410986\",\"from\":\"+17855410986\",\"text\":\"Here’s the concrete spec I’d use for **our** stack.\\n\\n**High-level design**\\n\\nAdd a new memory pipeline with 3 retrieval modes:\\n\\n- **M0: Fast recall**\\n- curr",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774202897367:c05bbd4cd9920a1d",
@@ -5093,7 +7368,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-23T03:53:39.100Z",
       "failureReason": "{\"0\":\"{\\\"subsystem\\\":\\\"gateway\\\"}\",\"1\":\"cortex-route-gate: appended self-model block session=agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69 degraded=0 predicted=1 creativity=false intent=\\\"cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync in /root/clawd\\\"\",\"_meta\":{\"runtime\":\"node\",\"runtimeVersion\":\"22.22.1\",\"hostname\":\"unknown\",\"name\":\"{\\\"subsystem\\\":\\\"gateway\\\"}\",\"parentNam",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774238627390:3f86fb2ee096bd52",
@@ -5154,7 +7448,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-25T03:17:07.339Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:0db9b886-c607-4d9f-ad02-e8600d7104b0:1774407748614:297a623cf40d19fd",
@@ -5204,7 +7517,26 @@
         }
       },
       "completedAt": "2026-03-25T03:07:07.004Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774414369308:b9af20b4d6a65f91",
@@ -5265,7 +7597,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-25T04:54:17.425Z",
       "failureReason": "tAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/). @router.on_event(\"startup\") cortex_server/routers/validator.py:40 /root/clawd/public/cortex_server/cortex_server/routers/validator.py:40: UserWarning: Field name \"schema\" in \"ValidateRequest\" shadows an attribute in parent \"BaseModel\" class ValidateRequest(BaseModel): cortex_server/routers/sentinel.py:288 /root/clawd/pu",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774414895379:2131e5c4d040a3f8",
@@ -5326,7 +7677,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-25T20:16:09.509Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774473466985:edde7371df00fb20",
@@ -5387,7 +7757,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-27T13:47:12.725Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774623931127:1edd702e0531a332",
@@ -5448,7 +7837,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-27T15:37:40.607Z",
       "failureReason": "(scheduler, \"DEFAULT_STATE_PATH\", scheduler_json) monkeypatch.setattr(scheduler, \"ENABLE_LEGACY_JSON_FALLBACK\", False) > assert scheduler.get_process(\"proc_legacy\") is None E AssertionError: assert {'nodes': {}, 'process_id': 'proc_legacy', 'results_by_node': {}, 'status': 'empty', ...} is None E + where {'nodes': {}, 'process_id': 'proc_legacy', 'results_by_node': {}, 'status': 'empty', ...} = <f",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774628164358:2515782d3f5f58be",
@@ -5509,7 +7917,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-27T16:32:37.348Z",
       "failureReason": "yload\": step.get(\"payload\"), \"headers\": {}, \"timeout_s\": 1}, \"status_code\": 200, \"response\": {\"ok\": True}, \"elapsed_ms\": 1.0, \"success\": True, } monkeypatch.setattr(orchestrator, \"_execute_single_step\", fake_execute_single_step) > graph = ReasoningPlanGraph( name=\"compensate_plan\", metadata={\"owner\": \"cortex\", \"session_key\": \"session:compensate\", \"archetype\": \"coding\"}, nodes=[ { \"node_id\": \"main\"",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774634760435:4cff5bff06481a04",
@@ -5570,7 +7997,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-27T18:56:49.744Z",
       "failureReason": "assert influence[\"captured_at_execution\"] is True E assert False is True tests/test_orchestrator_runtime.py:956: AssertionError ______________ test_workflow_policy_carries_belief_influence_ids _______________ tmp_path = PosixPath('/tmp/pytest-of-root/pytest-82/test_workflow_policy_carries_b0') monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x71d87c984150> def test_workflow_policy_carries",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774643355844:d130cf6ae0aabe41",
@@ -5631,7 +8077,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-27T21:05:45.029Z",
       "failureReason": "py:148: _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ /usr/lib/python3.11/concurrent/futures/_base.py:619: in result_iterator yield _result_or_cancel(fs.pop()) ^^^^^^^^^^^^^^^^^^^^^^^^^^^ /usr/lib/python3.11/concurrent/futures/_base.py:317: in _result_or_cancel return fut.result(timeout) ^^^^^^^^^^^^^^^^^^^ /usr/lib/python3.11/concurrent/futures/_base.py:449: in r",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774646773786:2392a435fdd01b70",
@@ -5692,7 +8157,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-27T22:01:23.206Z",
       "failureReason": "kflows.clear() async def fake_execute_single_step(client, step, *, step_index, results_by_node, workflow_metadata=None): return { \"step\": step_index, \"node_id\": step.get(\"node_id\"), \"title\": step.get(\"title\"), \"endpoint\": step.get(\"endpoint\"), \"method\": step.get(\"method\"), \"request\": {\"payload\": step.get(\"payload\"), \"headers\": {}, \"timeout_s\": 1}, \"status_code\": None, \"response\": None, \"elapsed_ms",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774649478909:027a432d8f3589cc",
@@ -5738,7 +8222,26 @@
       },
       "failedAt": "2026-03-27T22:11:23.819Z",
       "failureReason": "System: [2026-03-27 17:01:21 CDT] Exec completed (grand-ti, code 1) :: ked E + execution_failed tests/test_orchestrator_runtime.py:1565: AssertionError =========================== short test summary info ============================ FAILED tests/test… System: [2026-03-27 17:02:11 CDT] Exec completed (quick-sl, code 0) :: ..................................................... [100%] 53 passed in 2.7",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774706682797:52b3e850df5a376e",
@@ -5799,7 +8302,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-28T22:43:18.922Z",
       "failureReason": "ifespan Events](https://fastapi.tiangolo.com/advanced/events/). @router.on_event(\"startup\") cortex_server/routers/validator.py:40 /root/clawd/public/cortex_server/cortex_server/routers/validator.py:40: UserWarning: Field name \"schema\" in \"ValidateRequest\" shadows an attribute in parent \"BaseModel\" class ValidateRequest(BaseModel): cortex_server/routers/sentinel.py:288 /root/clawd/public/cortex_ser",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774791165056:715cc982d4a9b620",
@@ -5845,7 +8367,26 @@
       },
       "failedAt": "2026-03-29T13:32:49.967Z",
       "failureReason": "System: [2026-03-29 08:03:26 CDT] Exec completed (delta-se, code 1) :: = FAILED public/cortex_server/tests/test_orchestrator_runtime.py::test_runtime_analytics_summary_route_returns_time_windowed_snapshot FAILED public/cortex_server/tests/test_orches… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AF4F34C0547AEAE14CF\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774793788312:9f8ae29484e8d2f6",
@@ -5906,7 +8447,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-29T15:03:55.564Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:dae397fd-73bf-448a-a66e-8ddb3a1306c4:1774796061686:8cd127caf5cdb816",
@@ -5956,7 +8516,26 @@
         }
       },
       "completedAt": "2026-03-29T14:59:34.208Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774802669841:91fcbd2dcc25ed9a",
@@ -6017,7 +8596,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-29T23:04:49.454Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774829092721:4b62aed440df7373",
@@ -6078,7 +8676,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-30T00:42:58.773Z",
       "failureReason": "on( domain=domain, chosen=chosen, rationale=rationale, confidence=float(confidence or 0.0), task_id=task_id, alternatives=list(alternatives or []), inputs=dict(inputs or {}), metrics=dict(metrics or {}), ) E pydantic_core._pydantic_core.ValidationError: 1 validation error for PolicyDecision E domain E Input should be 'routing', 'memory', 'backend', 'verification', 'safety', 'planner' or 'scheduler",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774832136582:c8293778a8a6b82f",
@@ -6139,7 +8756,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-30T00:56:17.481Z",
       "failureReason": "System: [2026-03-29 19:42:54 CDT] Exec completed (briny-tr, code 1) :: _runtime_policy_explain_includes_operator_summaries FAILED tests/test_orchestrator_runtime.py::test_policy_explain_includes_policy_outcome_evaluation FAILED tests/test_orchestrato… System: [2026-03-29 19:43:45 CDT] Exec completed (mild-cru, code 1) :: r object test_runtime_policy_explain_route_returns_decision_belief_links.<loc",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774832939784:6a90e580c197ddde",
@@ -6185,7 +8821,26 @@
       },
       "failedAt": "2026-03-30T01:09:04.721Z",
       "failureReason": "System: [2026-03-29 20:01:27 CDT] Exec completed (sharp-cl, code 1) :: protective\" E AssertionError: assert None == 'protective' tests/test_reasoning_runtime_homeostasis.py:139: AssertionError =========================== short test summary info =====… System: [2026-03-29 20:01:48 CDT] Exec completed (vivid-cr, code 0) :: ........... [100%] 11 passed, 45 deselected in 1.94s System: [2026-03-29 20:0",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774836058472:df3bea29f96269d8",
@@ -6231,7 +8886,26 @@
       },
       "failedAt": "2026-03-30T02:01:06.529Z",
       "failureReason": "System: [2026-03-29 20:51:37 CDT] Exec completed (glow-tid, code 1) :: ================= short test summary info ============================ FAILED tests/test_reasoning_runtime_operator_controls.py::test_runtime_homeostasis_freeze_route_applies_patc… System: [2026-03-29 20:53:12 CDT] Exec completed (good-com, code 0) :: homeostasis_freeze_route_applies_patch_and_pauses_process PASSED [ 33%] tests",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774837654301:f89b9f0a97f68ea6",
@@ -6292,7 +8966,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-30T02:35:51.989Z",
       "failureReason": "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ E TypeError: resume_runtime_homeostasis() takes 1 positional argument but 2 were given tests/test_reasoning_runtime_operator_controls.py:127: TypeError __ test_runtime_homeostasis_controls_deny_unauthorized_actor_and_audit_denial __ tmp_path = PosixPat",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774842636293:cc0767dde27e8b6e",
@@ -6338,7 +9031,26 @@
       },
       "failedAt": "2026-03-30T03:50:42.538Z",
       "failureReason": "System: [2026-03-29 22:42:03 CDT] Exec completed (fast-kel, code 1) :: .<genexpr> at 0x7aa08a9c3a00>) tests/test_orchestrator_runtime.py:1083: AssertionError =========================== short test summary info ============================ FAILED test… System: [2026-03-29 22:42:25 CDT] Exec completed (plaid-or, code 0) :: ....... [100%] 7 passed in 0.74s System: [2026-03-29 22:43:23 CDT] Exec compl",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774845408753:bc30f6dc4312c859",
@@ -6384,7 +9096,26 @@
       },
       "failedAt": "2026-03-30T04:36:53.720Z",
       "failureReason": "System: [2026-03-29 23:15:49 CDT] Exec completed (swift-re, code 1) :: e) E E At index 2 diff: 'parallel' != 'sequential' E Use -v to get more diff tests/test_reasoning_runtime_r9_integration.py:121: AssertionError =========================== short t… System: [2026-03-29 23:16:38 CDT] Exec completed (fresh-da, code 0) :: ........... [100%] 11 passed in 0.78s System: [2026-03-29 23:17:40 CDT] Exec",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774847262698:c40dbdf1a1e34fcb",
@@ -6445,7 +9176,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-30T05:17:42.713Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774881095656:61018e81dd368a3e",
@@ -6506,7 +9256,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-30T14:57:15.373Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774884944166:00c32ff3fdac29ba",
@@ -6567,7 +9336,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-30T21:11:20.961Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774918142907:2d9e4190430c78df",
@@ -6628,7 +9416,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-31T01:13:23.810Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774920401525:e84cf6f57e9ca18e",
@@ -6689,7 +9496,26 @@
       "completionSource": "agent_end",
       "failedAt": "2026-03-31T02:11:51.725Z",
       "failureReason": "System: [2026-03-30 21:07:57 CDT] Exec completed (crisp-tr, code 1) :: ailbox.receive(to_agent=\"researcher\", process_id=\"proc_123\") > assert len(inflight) == 1 E assert 0 == 1 E + where 0 = len([]) tests/test_agent_mailbox.py:53: AssertionError =====… System: [2026-03-30 21:10:28 CDT] Exec completed (brisk-cl, code 0) :: ........................................................................ [ 38",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774924125525:6d668ac1bd31a13e",
@@ -6750,7 +9576,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-31T02:50:30.951Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774930018212:22e10fdb7d8d304c",
@@ -6811,7 +9656,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-31T05:16:51.220Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774960417211:5f302a02d1b19e5f",
@@ -6872,7 +9736,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-31T14:22:54.756Z",
       "failureReason": "agent_end reported failure",
-      "failureSource": "runtime"
+      "failureSource": "runtime",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
@@ -6922,7 +9805,26 @@
         }
       },
       "completedAt": "2026-03-31T15:14:19.071Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:b5800b1f-1c37-4ed0-8eed-fbeff6165aad:1774972961529:5975d6e5a80d4f15",
@@ -6972,7 +9874,26 @@
         }
       },
       "completedAt": "2026-03-31T16:17:36.066Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:6833e1f2-9d3a-4708-b9d9-e4329a7dc6a4:1774975309686:6c1dfad4d967bfbb",
@@ -7022,7 +9943,26 @@
         }
       },
       "completedAt": "2026-03-31T17:00:25.971Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:4df1df5e-f577-457b-8534-9b18ba1cf399:1774976911153:2e3cc61972a356d3",
@@ -7068,7 +10008,26 @@
       },
       "failedAt": "2026-03-31T17:30:15.695Z",
       "failureReason": "(no new output) Process exited with signal SIGTERM.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:6b3ef897-4a73-4fce-92bc-04857655a5a6:1774981631924:b2164ea00aeefb54",
@@ -7129,7 +10088,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-03-31T18:37:48.277Z",
       "failureReason": "fatal: The upstream branch of your current branch does not match the name of your current branch. To push to the upstream branch on the remote, use git push origin HEAD:main To push to the branch of the same name on the remote, use git push origin HEAD To choose either option permanently, see push.default in 'git help config'. To avoid automatically configuring an upstream branch when its name won",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:0084fa16-f105-4455-ac56-4256be4f3d31:1774985426877:800ed88f30b0d3b1",
@@ -7179,7 +10157,26 @@
         }
       },
       "completedAt": "2026-03-31T19:48:35.803Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:428b1eab-e6fa-4514-b29e-e5d916453108:1774993991224:53eee91916870162",
@@ -7225,7 +10222,26 @@
       },
       "failedAt": "2026-03-31T22:09:37.377Z",
       "failureReason": "ness.release_store.save( ReleaseWorkflowState( process_id=process_id, candidate_ref=\"build:auto-chain\", target_environment=\"production\", revision_id=shared_state.revision_id, current_stage=\"build_verified\", status=\"preparing\", ), actor=\"builder\", provenance={\"phase\": \"seed_release\"}, ) contract = _contract(process_id).model_copy( update={ \"execution_budget\": RoadmapPassBudget( max_auto_chain_passe",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:d8c463c8-99b6-49d7-8acf-c8a34939551a:1774995513480:2d97ccacf45b15c5",
@@ -7271,7 +10287,26 @@
       },
       "failedAt": "2026-03-31T22:33:59.008Z",
       "failureReason": "= ProductionBuildLoopStore(tmp_path / \"loop_store\") contract = _contract( process_id, completion_criteria=[ ProductionCompletionCriterion( criterion_id=\"final-release\", summary=\"Final release artifact must exist\", kind=\"artifact_present\", artifact_id=\"artifact_final_release\", ) ], promotion_stages=[], ) result = reconcile_production_build_loop( contract, loop_store=loop_store, snapshot_store=harne",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:5370a9d5-fe81-4117-af3d-f06a40458dda:1775001301235:8388a7f652eee5ab",
@@ -7321,7 +10356,26 @@
         }
       },
       "completedAt": "2026-04-01T00:05:56.427Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:1b55d274-e9e6-4077-9fea-1b9c939aa4f8:1775004739837:7a4993d87dabb776",
@@ -7367,7 +10421,26 @@
       },
       "failedAt": "2026-04-01T01:13:09.840Z",
       "failureReason": "persisted is not None assert persisted.liveness == \"live\" assert persisted.terminal_state is None assert persisted.last_progress_at is not None assert persisted.next_review_at is not None assert persisted.owed_follow_up[\"owed\"] is True assert persisted.reporting_cadence[\"review_interval_seconds\"] in {0, 60} second = reconcile_production_build_loop( contract, loop_store=loop_store, snapshot_store=h",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:4ca0183e-8e6f-4119-a339-aec1451ff99a:1775009601883:f4b083391d1f3452",
@@ -7428,7 +10501,26 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-01T02:32:52.005Z",
       "failureReason": "s\": 10, \"live_review_seconds\": 60, \"proactive_report_seconds\": 120, \"blocker_followup_seconds\": 60, }, dependability_profile=dict(MINIMAL_PROFILE), ), ) ) assert roadmap[\"state\"][\"status\"] == \"active\" assert delivery[\"state\"][\"status\"] == \"active\" tick = asyncio.run( orchestrator.tick_runtime( orchestrator.RuntimeTickRequest( limit=10, execute=False, now_iso=(first_now + timedelta(minutes=3)).isof",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:dd4fa500-59b2-4a9b-ac34-37de063c5688:1775012351747:9155be9fadc7cc24",
@@ -7478,7 +10570,26 @@
         }
       },
       "completedAt": "2026-04-01T03:19:59.755Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     },
     {
       "id": "agent:main:subagent:d07bfd57-f28a-4b05-9b51-6b1a49adb244:1775016347387:6d2ff4e5426205e2",
@@ -7528,7 +10639,26 @@
         }
       },
       "completedAt": "2026-04-01T04:15:42.055Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": null,
+        "requestedScope": null,
+        "stopCondition": null
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
