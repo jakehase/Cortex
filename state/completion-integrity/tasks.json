@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T03:10:25.149Z",
+      "updatedAt": "2026-04-03T03:15:37.373Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 211,
+        "runs": 212,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:10:25.156Z",
+        "lastRunAt": "2026-04-03T03:15:37.380Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T03:14:05.657Z",
+      "updatedAt": "2026-04-03T03:15:40.995Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 83,
+        "runs": 84,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:14:05.665Z",
+        "lastRunAt": "2026-04-03T03:15:41.000Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -10764,6 +10764,77 @@
       },
       "completedAt": "2026-04-03T03:13:27.625Z",
       "completionSource": "agent_end"
+    },
+    {
+      "id": "agent:main:subagent:470d8ab3-2263-49b6-a128-3661251173cd:1775186133651:1aa331bf9d001cb2",
+      "sessionKey": "agent:main:subagent:470d8ab3-2263-49b6-a128-3661251173cd",
+      "createdAt": "2026-04-03T03:15:33.651Z",
+      "updatedAt": "2026-04-03T03:15:33.657Z",
+      "prompt": "[Thu 2026-04-02 22:15 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved the next program to move from 32-age",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-03T03:15:33.651Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-03T03:15:33.657Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "parity_for_scope",
+        "requestedScope": "[Thu 2026-04-02 22:15 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved the next program",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
