@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T08:50:40.863Z",
+      "updatedAt": "2026-04-03T08:55:51.602Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 280,
+        "runs": 281,
         "failures": [],
-        "lastRunAt": "2026-04-03T08:50:40.867Z",
+        "lastRunAt": "2026-04-03T08:55:51.610Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,12 +9761,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T08:34:54.025Z",
+      "updatedAt": "2026-04-03T08:56:47.293Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Do it, but sketch phase 1-3 out then implement them 🦞 OpenClaw 2026.3.28 (f9b1079) 🕒 Time: Thursday, April 2nd, 2026 — 5:42 AM (America/Chicago) 🧠 Model: openai-codex/gpt-5.4 · 🔑 oauth (openai-codex:default) 🧮 Tokens: 11k in / 351 out 📚 Context: 11k/272k (4%) · 🧹 Compactio",
+      "completionSummary": "System: 2026-04-03 03:33:15 CDT Exec completed (vivid-ti, code 0) :: advisor.mjs, 158 , packages/acquisition-atlas/domain-acquisition-atlas.mjs, 158 , packages/acquisition-cockpit/domain-acquisition-cockpit.mjs, 158 , packages/acquis… Sender (",
       "history": [
         {
           "from": null,
@@ -9796,16 +9796,16 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 95,
+        "runs": 96,
         "failures": [],
-        "lastRunAt": "2026-04-03T08:34:54.033Z",
+        "lastRunAt": "2026-04-03T08:56:47.298Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "completedAt": "2026-03-31T15:14:19.071Z",
-      "completionSource": "agent_end",
+      "completionSource": "runtime_message",
       "contract": {
         "required": false,
         "proofPresent": true,
