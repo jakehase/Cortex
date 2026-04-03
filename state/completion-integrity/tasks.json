@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T03:06:19.432Z",
+      "updatedAt": "2026-04-03T03:10:25.149Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 210,
+        "runs": 211,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:06:19.437Z",
+        "lastRunAt": "2026-04-03T03:10:25.156Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,7 +9761,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-03T02:59:09.628Z",
+      "updatedAt": "2026-04-03T03:14:05.657Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 82,
+        "runs": 83,
         "failures": [],
-        "lastRunAt": "2026-04-03T02:59:09.633Z",
+        "lastRunAt": "2026-04-03T03:14:05.665Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -10678,12 +10678,12 @@
       "id": "agent:main:subagent:88bb2f4e-a99c-49ff-b4f8-0683a671734f:1775185135929:d95cabd116177851",
       "sessionKey": "agent:main:subagent:88bb2f4e-a99c-49ff-b4f8-0683a671734f",
       "createdAt": "2026-04-03T02:58:55.929Z",
-      "updatedAt": "2026-04-03T02:58:55.935Z",
+      "updatedAt": "2026-04-03T03:13:27.625Z",
       "prompt": "[Thu 2026-04-02 21:58 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved building the multi-agent scale orche",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Thu 2026-04-02 21:58 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Reply anchor: user approved building the multi-agent scale orchestrator as the next capability-stack program. Anchor: - current conversation establishing that 100-agent speed only works if memory is externalized into contracts, DAGs, leases, ownership, artifacts, and supervisor truth - current capability stack at /root/clawd/large-project-capability-stack - current Mailchimp clone campai",
       "history": [
         {
           "from": null,
@@ -10694,6 +10694,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-03T02:58:55.935Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-03T03:13:27.625Z",
+          "completedAt": "2026-04-03T03:13:27.625Z",
+          "completionSummary": "Thu 2026-04-02 21:58 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: Reply anchor: user approved building the multi-agent scale orchestrator as the next capability-stack program. Anchor: - current conversation establishing that 100-agent speed only works if memory is externalized into contracts, DAGs, leases, ownership, artifacts, and supervisor truth - current capability stack at /root/clawd/large-project-capability-stack - current Mailchimp clone campai",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -10705,8 +10713,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-03T03:13:27.635Z",
+            "reason": "task_contract_proof_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-03T03:13:27.635Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "grounding": {
         "required": true,
@@ -10715,7 +10733,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -10723,7 +10741,7 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": true,
@@ -10742,8 +10760,10 @@
       "surfaceMatrix": {
         "required": true,
         "proofPresent": false,
-        "status": null
-      }
+        "status": "missing"
+      },
+      "completedAt": "2026-04-03T03:13:27.625Z",
+      "completionSource": "agent_end"
     }
   ]
 }
