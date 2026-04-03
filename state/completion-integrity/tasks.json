@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T04:30:59.175Z",
+      "updatedAt": "2026-04-03T04:35:42.148Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 227,
+        "runs": 228,
         "failures": [],
-        "lastRunAt": "2026-04-03T04:30:59.180Z",
+        "lastRunAt": "2026-04-03T04:35:42.153Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -10953,11 +10953,11 @@
       "id": "agent:main:subagent:659f5bff-d197-4343-bbbb-39ebbe85f3a4:1775189640235:aec2639ddf12d605",
       "sessionKey": "agent:main:subagent:659f5bff-d197-4343-bbbb-39ebbe85f3a4",
       "createdAt": "2026-04-03T04:14:00.236Z",
-      "updatedAt": "2026-04-03T04:28:58.773Z",
+      "updatedAt": "2026-04-03T04:37:21.506Z",
       "prompt": "[Thu 2026-04-02 23:13 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved using the newly proven 100-agent rea",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "s and stable ids --- duration_ms: 1.107091 type: 'test' ... # Subtest: benchmark-studio package expands the real-repo wave with route catalogs ok 16 - benchmark-studio package expands the real-repo wave with route catalogs --- duration_ms: 1.174526 type: 'test' ... # Subtest: billing-analytics package exposes snapshot, policy, route, and fixture depth ok 17 - billing-analytics package exposes snap",
       "history": [
         {
@@ -10977,6 +10977,14 @@
           "completedAt": "2026-04-03T04:28:58.773Z",
           "completionSummary": "s and stable ids --- duration_ms: 1.107091 type: 'test' ... # Subtest: benchmark-studio package expands the real-repo wave with route catalogs ok 16 - benchmark-studio package expands the real-repo wave with route catalogs --- duration_ms: 1.174526 type: 'test' ... # Subtest: billing-analytics package exposes snapshot, policy, route, and fixture depth ok 17 - billing-analytics package exposes snap",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-03T04:37:21.506Z",
+          "failedAt": "2026-04-03T04:37:21.506Z",
+          "failureReason": "large-project-capability-stack/apps/qualification/run.mjs:115\\n' + 'if (!stackArchitecture.ok) throw new Error(`Stack architecture failed: ${JSON.stringify(stackArchitecture.violations)}`);\\n' + ' ^\\n' + '\\n' + 'Error: Stack architecture failed: [{\"rule\":\"anti-collapse-max-lines\",\"path\":\"apps/orchestrator-qualification/run.mjs\",\"message\":\"File exceeds 400 lines\"},{\"rule\":\"anti-collapse-max-lines\",",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -11038,7 +11046,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-03T04:28:58.773Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-03T04:37:21.506Z",
+      "failureReason": "large-project-capability-stack/apps/qualification/run.mjs:115\\n' + 'if (!stackArchitecture.ok) throw new Error(`Stack architecture failed: ${JSON.stringify(stackArchitecture.violations)}`);\\n' + ' ^\\n' + '\\n' + 'Error: Stack architecture failed: [{\"rule\":\"anti-collapse-max-lines\",\"path\":\"apps/orchestrator-qualification/run.mjs\",\"message\":\"File exceeds 400 lines\"},{\"rule\":\"anti-collapse-max-lines\",",
+      "failureSource": "runtime_message"
     }
   ]
 }
