@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T01:30:51.955Z",
+      "updatedAt": "2026-04-03T01:35:48.349Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 189,
+        "runs": 190,
         "failures": [],
-        "lastRunAt": "2026-04-03T01:30:51.961Z",
+        "lastRunAt": "2026-04-03T01:35:48.357Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9761,12 +9761,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1774969597026:783c36cd883c525a",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-03-31T15:06:37.026Z",
-      "updatedAt": "2026-04-01T04:45:29.125Z",
+      "updatedAt": "2026-04-03T01:39:13.550Z",
       "prompt": "I don’t want you to run staged tests, I want you to test it by implementing the days/week upgrades in one swoop. That would be the test. Make it extremely thorough, multi-agent, etc so yes continue but with this in mind",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Replied message (untrusted, for context): ```json sender_label: 136704681865420@lid, body: I’ve got the final substrate pieces written. Running focused validation first because this touched shared-state persistence, soak profiles, and runtime exports. ``` How’s this going? result",
+      "completionSummary": "Do it, but sketch phase 1-3 out then implement them 🦞 OpenClaw 2026.3.28 (f9b1079) 🕒 Time: Thursday, April 2nd, 2026 — 5:42 AM (America/Chicago) 🧠 Model: openai-codex/gpt-5.4 · 🔑 oauth (openai-codex:default) 🧮 Tokens: 11k in / 351 out 📚 Context: 11k/272k (4%) · 🧹 Compactio",
       "history": [
         {
           "from": null,
@@ -9796,9 +9796,9 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 77,
+        "runs": 78,
         "failures": [],
-        "lastRunAt": "2026-04-01T04:45:29.132Z",
+        "lastRunAt": "2026-04-03T01:39:13.556Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -9808,22 +9808,36 @@
       "completionSource": "agent_end",
       "contract": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "requestedFidelity": null,
         "requestedScope": null,
         "stopCondition": null
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": false,
+        "proofPresent": true,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
       }
     },
     {
