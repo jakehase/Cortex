@@ -4137,7 +4137,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:45:51.260Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-03T03:36:18.570Z",
+      "updatedAt": "2026-04-03T03:40:44.679Z",
       "history": [
         {
           "from": null,
@@ -4155,9 +4155,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 216,
+        "runs": 217,
         "failures": [],
-        "lastRunAt": "2026-04-03T03:36:18.574Z",
+        "lastRunAt": "2026-04-03T03:40:44.684Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -10851,12 +10851,12 @@
       "id": "agent:main:subagent:3d8fbfce-7753-4f3a-8b08-34d3aa39e077:1775187532084:b67eed29103b5331",
       "sessionKey": "agent:main:subagent:3d8fbfce-7753-4f3a-8b08-34d3aa39e077",
       "createdAt": "2026-04-03T03:38:52.084Z",
-      "updatedAt": "2026-04-03T03:38:52.092Z",
+      "updatedAt": "2026-04-03T03:41:10.729Z",
       "prompt": "[Thu 2026-04-02 22:38 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Reply anchor: user approved running the orchestrator against the",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "laybooks package exposes snapshot, policy, route, and fixture depth --- duration_ms: 1.10127 type: 'test' ... # Subtest: survey feedback tracks scores, averages, and qualitative comments ok 74 - survey feedback tracks scores, averages, and qualitative comments --- duration_ms: 29.696564 type: 'test' ... # Subtest: template-marketplace package exposes snapshot, policy, route, and fixture depth ok 7",
       "history": [
         {
           "from": null,
@@ -10867,6 +10867,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-03T03:38:52.092Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-03T03:41:10.729Z",
+          "completedAt": "2026-04-03T03:41:10.729Z",
+          "completionSummary": "laybooks package exposes snapshot, policy, route, and fixture depth --- duration_ms: 1.10127 type: 'test' ... # Subtest: survey feedback tracks scores, averages, and qualitative comments ok 74 - survey feedback tracks scores, averages, and qualitative comments --- duration_ms: 29.696564 type: 'test' ... # Subtest: template-marketplace package exposes snapshot, policy, route, and fixture depth ok 7",
+          "completionSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -10878,8 +10886,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-03T03:41:10.734Z",
+            "reason": "task_contract_proof_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-03T03:41:10.734Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
       },
       "grounding": {
         "required": true,
@@ -10888,7 +10906,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -10896,7 +10914,7 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": true,
@@ -10915,8 +10933,10 @@
       "surfaceMatrix": {
         "required": true,
         "proofPresent": false,
-        "status": null
-      }
+        "status": "missing"
+      },
+      "completedAt": "2026-04-03T03:41:10.729Z",
+      "completionSource": "runtime_message"
     }
   ]
 }

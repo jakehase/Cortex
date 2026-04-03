@@ -1,13 +1,13 @@
 {
   "version": 1,
   "counters": {
-    "silent_success_count": 275179,
+    "silent_success_count": 275254,
     "duplicate_reply_count": 0,
     "false_done_count": 0,
     "tool_error_count": 0,
     "recovery_success_count": 42,
-    "validator_runs": 3954,
-    "validator_failures": 2
+    "validator_runs": 3956,
+    "validator_failures": 3
   },
   "completion_to_notification_latency_ms": [],
   "completion_to_delivery_confirmed_latency_ms": [],
@@ -22,9 +22,8 @@
     }
   ],
   "task_state_counts": {
-    "internal_complete": 91,
-    "failed": 75,
-    "running": 1
+    "internal_complete": 92,
+    "failed": 75
   },
-  "updatedAt": "2026-04-03T03:40:05.907Z"
+  "updatedAt": "2026-04-03T03:45:05.908Z"
 }
