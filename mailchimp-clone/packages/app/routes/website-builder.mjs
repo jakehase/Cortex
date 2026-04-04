@@ -3,7 +3,7 @@ import { escapeHtml, readBody, redirect, text } from '../utils.mjs';
 import { websitePages, websiteValidation, createWebsite, createWebsitePage, updateWebsite, updateWebsitePage, reorderWebsiteNavigation, publishWebsite, recordWebsiteView, generateWebsiteCopyRecommendation, applyWebsiteCopyRecommendation, ensureCurrentProductState } from '../domain-current-product.mjs';
 
 function latestSuggestion(state, targetId, operation) {
-  return state.db.generatedSuggestions.find((entry) => entry.targetId === targetId && entry.operation === operation) || null;
+  return (state.db.generatedSuggestions || []).find((entry) => entry.targetId === targetId && entry.operation === operation) || null;
 }
 
 function pageUrl(website, sitePage) {
@@ -84,12 +84,16 @@ export function registerWebsiteBuilderRoutes(router, deps) {
     redirect(res, `/websites/${website.id}`);
   });
 
-  router.register('GET', '/websites/:id/ai', async ({ state, req, params, res }) => {
+  router.register('GET', '/websites/:id/ai', async ({ state, req, params, res, url }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
+    ensureCurrentProductState(state);
+    state.db.generatedSuggestions ||= [];
     const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
-    const sitePage = websitePages(state, website.id)[0];
-    const suggestion = latestSuggestion(state, sitePage.id, 'website_copy');
-    text(res, 200, page(`AI website copy: ${website.name}`, actor, `<div class="grid"><div class="card"><h3>Generate copy</h3><form method="post" action="/websites/${website.id}/ai/generate"><select name="pageId">${websitePages(state, website.id).map((pageEntry) => `<option value="${pageEntry.id}">${escapeHtml(pageEntry.name)}</option>`).join('')}</select><input name="goal" placeholder="lead capture"><input name="ctaLabel" placeholder="Join the list"><button>Generate website copy</button></form></div><div class="card"><h3>Last suggestion</h3>${suggestion ? `<p><strong>${escapeHtml(suggestion.suggestion.headline)}</strong></p><p>${escapeHtml(suggestion.suggestion.body)}</p><p>CTA: ${escapeHtml(suggestion.suggestion.ctaLabel)}</p><p>${escapeHtml(suggestion.suggestion.rationale)}</p><form method="post" action="/websites/${website.id}/ai/apply"><input type="hidden" name="pageId" value="${sitePage.id}"><input type="hidden" name="suggestionId" value="${suggestion.id}"><button>Apply suggestion</button></form>` : '<p>No website AI suggestions yet.</p>'}</div></div>`));
+    const pages = websitePages(state, website.id);
+    const requestedPageId = url.searchParams.get('pageId') || state.db.generatedSuggestions.find((entry) => entry.operation === 'website_copy' && pages.some((pageEntry) => pageEntry.id === entry.targetId))?.targetId || pages[0]?.id;
+    const sitePage = pages.find((pageEntry) => pageEntry.id === requestedPageId) || pages[0];
+    const suggestion = sitePage ? latestSuggestion(state, sitePage.id, 'website_copy') : null;
+    text(res, 200, page(`AI website copy: ${website.name}`, actor, `<div class="grid"><div class="card"><h3>Generate copy</h3><form method="post" action="/websites/${website.id}/ai/generate"><select name="pageId">${pages.map((pageEntry) => `<option value="${pageEntry.id}" ${pageEntry.id === sitePage?.id ? 'selected' : ''}>${escapeHtml(pageEntry.name)}</option>`).join('')}</select><input name="goal" placeholder="lead capture"><input name="ctaLabel" placeholder="Join the list"><button>Generate website copy</button></form></div><div class="card"><h3>Last suggestion</h3>${suggestion ? `<p><strong>${escapeHtml(suggestion.suggestion.headline)}</strong></p><p>${escapeHtml(suggestion.suggestion.body)}</p><p>CTA: ${escapeHtml(suggestion.suggestion.ctaLabel)}</p><p>${escapeHtml(suggestion.suggestion.rationale)}</p><form method="post" action="/websites/${website.id}/ai/apply"><input type="hidden" name="pageId" value="${sitePage.id}"><input type="hidden" name="suggestionId" value="${suggestion.id}"><button>Apply suggestion</button></form>` : '<p>No website AI suggestions yet.</p>'}</div></div>`));
   });
 
   router.register('POST', '/websites/:id/ai/generate', async ({ state, req, params, res }) => {
@@ -98,7 +102,7 @@ export function registerWebsiteBuilderRoutes(router, deps) {
     const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
     const sitePage = state.db.websitePages.find((entry) => entry.id === body.pageId && entry.websiteId === website.id);
     if (website && sitePage) generateWebsiteCopyRecommendation(state, actor, website, sitePage, body);
-    redirect(res, `/websites/${website.id}/ai`);
+    redirect(res, `/websites/${website.id}/ai?pageId=${sitePage?.id || ''}`);
   });
 
   router.register('POST', '/websites/:id/ai/apply', async ({ state, req, params, res }) => {
