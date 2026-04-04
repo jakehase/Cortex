@@ -3978,7 +3978,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:00:51.262Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T14:38:43.029Z",
+      "updatedAt": "2026-04-04T14:43:53.160Z",
       "history": [
         {
           "from": null,
@@ -3996,9 +3996,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 1,
+        "runs": 2,
         "failures": [],
-        "lastRunAt": "2026-04-04T14:38:43.037Z",
+        "lastRunAt": "2026-04-04T14:43:53.168Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -12441,12 +12441,12 @@
       "id": "agent:main:subagent:ccf998b3-c91e-4ba0-9089-df2aa900b4e3:1775313590311:1d0aaad1bfb7965e",
       "sessionKey": "agent:main:subagent:ccf998b3-c91e-4ba0-9089-df2aa900b4e3",
       "createdAt": "2026-04-04T14:39:50.311Z",
-      "updatedAt": "2026-04-04T14:41:39.439Z",
+      "updatedAt": "2026-04-04T14:44:42.706Z",
       "prompt": "[Sat 2026-04-04 09:39 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the SUPERVISOR for a long-run strict Mailchimp 1:1 clone",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "14:41:37.531Z , screenshot: /root/clawd/mailchimp-clone/artifacts/strict_1to1/current_product_browser_proof/validation/screenshots/automation_omnichannel.png, notes: , endedAt: 2026-04-04T14:41:37.733Z , id: content_depth, label: Content depth flows for reusable assets and lineage, startedAt: 2026-04-04T14:41:37.733Z, checks: id: content_template_save, det",
+      "completionSummary": "Sat 2026-04-04 09:39 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: You are the SUPERVISOR for a long-run strict Mailchimp 1:1 clone campaign. Grounding: - Reply anchor: user explicitly requested one full, extremely in-depth pass to finish the Mailchimp 1:1 clone entirely. - Primary anchors: - /root/clawd/mailchimp-clone/docs/MAILCHIMP_1TO1_AUDIT_2026-04-04.md - /root/clawd/mailchimp-clone/docs/MAILCHIMP_TRUE_1TO1_GAP_CLOSURE_PLAN_2026-04-04.md - /root/clawd/mailchimp-clone/docs/MAILCHIMP_TRUE_1TO1_EXECUTION_BRIEF_2026-04-04.md - /root/clawd/mailchimp-clone/strict_1to1_contract.json - Target path: /root/clawd/mailchimp-clone - Fidelity: full_clone - Campaign mode: persistent - Stop condition: supervisor_green_or_blocker_report Your job: 1. Read the strict contract and audit artifacts fir",
       "history": [
         {
           "from": null,
@@ -12476,17 +12476,21 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 1,
+        "runs": 2,
         "failures": [
           {
             "at": "2026-04-04T14:41:39.451Z",
             "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-04T14:44:42.712Z",
+            "reason": "task_contract_proof_missing"
           }
         ],
-        "lastRunAt": "2026-04-04T14:41:39.451Z",
+        "lastRunAt": "2026-04-04T14:44:42.712Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "grounding": {
@@ -12526,7 +12530,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-04T14:41:39.439Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
