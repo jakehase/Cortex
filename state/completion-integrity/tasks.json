@@ -3925,7 +3925,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:05:51.257Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T22:11:36.295Z",
+      "updatedAt": "2026-04-04T22:16:26.946Z",
       "history": [
         {
           "from": null,
@@ -3943,9 +3943,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 84,
+        "runs": 85,
         "failures": [],
-        "lastRunAt": "2026-04-04T22:11:36.302Z",
+        "lastRunAt": "2026-04-04T22:16:26.954Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -12602,12 +12602,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775338493156:215ad44aff4bf872",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-04T21:34:53.156Z",
-      "updatedAt": "2026-04-04T22:12:06.109Z",
+      "updatedAt": "2026-04-04T22:19:31.645Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Sat 2026-04-04 16:01 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Context This subagent session is persistent and remains available for thread follow-up messages. Subagent Task: You ",
+      "completionSummary": "complete --- duration_ms: 1.626914 type: 'test' ... # Subtest: wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete ok 699 - wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete --- duration_ms: 1.661989 ty",
       "history": [
         {
           "from": null,
@@ -12637,12 +12637,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 5,
+        "runs": 7,
         "failures": [],
-        "lastRunAt": "2026-04-04T22:12:06.117Z",
+        "lastRunAt": "2026-04-04T22:19:31.651Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "grounding": {
@@ -12682,7 +12682,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-04T21:37:37.888Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
