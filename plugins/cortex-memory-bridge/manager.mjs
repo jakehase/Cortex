@@ -1,6 +1,6 @@
 function resolveConfig(cfg) {
-  const entry = cfg?.plugins?.entries?.['cortex-memory-bridge'] || {};
-  const pluginCfg = entry.config || {};
+  const rootEntry = cfg?.plugins?.entries?.['cortex-memory-bridge'];
+  const pluginCfg = rootEntry?.config || (cfg && typeof cfg === 'object' ? cfg : {}) || {};
   return {
     baseUrl: String(pluginCfg.baseUrl || 'http://127.0.0.1:18888').replace(/\/$/, ''),
     searchPath: String(pluginCfg.searchPath || '/knowledge/search'),

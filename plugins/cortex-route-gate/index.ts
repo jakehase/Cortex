@@ -525,7 +525,7 @@ function renderPlan(plan: RoutePlan, prompt: string, duplicateRisk: boolean, cre
 }
 
 export default function register(api: any) {
-  const cfg = api.config || {};
+  const cfg = api.pluginConfig || api.config || {};
   if (!asBool(cfg.enabled, true)) return;
 
   const baseUrl = normalizeBaseUrl(cfg.baseUrl);
