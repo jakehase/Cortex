@@ -518,6 +518,29 @@ const plugin = {
   kind: 'memory',
   register(api: OpenClawPluginApi) {
     const recentOutputBySession = new Map<string, string>();
+
+    api.registerMemoryRuntime({
+      async getMemorySearchManager(params: { agentId: string }) {
+        try {
+          const mod = await import('./manager.mjs');
+          const manager = await mod.CortexMemorySearchManager.create({
+            cfg: (api.pluginConfig ?? {}) as Record<string, unknown>,
+            agentId: params?.agentId ?? 'main',
+          });
+          return { manager };
+        } catch (error) {
+          return {
+            manager: null,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+      resolveMemoryBackendConfig() {
+        return { backend: 'builtin' as const };
+      },
+      async closeAllMemorySearchManagers() {},
+    });
+
     api.registerTool(() => ({
       label: 'Memory Search', name: 'memory_search', description: 'Search Cortex-backed memory over HTTP.', parameters: SearchSchema,
       execute: async (_toolCallId, params) => {
