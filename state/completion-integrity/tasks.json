@@ -3978,7 +3978,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:00:51.262Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T14:48:17.512Z",
+      "updatedAt": "2026-04-04T14:53:45.755Z",
       "history": [
         {
           "from": null,
@@ -3996,9 +3996,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 3,
+        "runs": 4,
         "failures": [],
-        "lastRunAt": "2026-04-04T14:48:17.519Z",
+        "lastRunAt": "2026-04-04T14:53:45.761Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -12299,12 +12299,12 @@
       "id": "agent:main:subagent:c25cb94f-8255-4343-998a-f0e5fdc9e55d:1775313531079:f7dc9fdff80f36bf",
       "sessionKey": "agent:main:subagent:c25cb94f-8255-4343-998a-f0e5fdc9e55d",
       "createdAt": "2026-04-04T14:38:51.079Z",
-      "updatedAt": "2026-04-04T14:38:51.086Z",
+      "updatedAt": "2026-04-04T14:54:22.708Z",
       "prompt": "[Sat 2026-04-04 09:38 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the NOTIFIER/WATCHER for a long-run strict Mailchimp 1:1",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Sat 2026-04-04 09:38 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Task: You are the NOTIFIER/WATCHER for a long-run strict Mailchimp 1:1 clone campaign. Watch these artifacts: - /root/clawd/mailchimp-clone/artifacts/strict_1to1/supervisor_state.json - /root/clawd/mailchimp-clone/artifacts/strict_1to1/blocker_report.json - /root/clawd/mailchimp-clone/artifacts/strict_1to1/final_report.json Rules: - Wait until either: 1. supervisor_state.json says status=green and parityStatus=full, or 2. blocker_report.json exists and supervisor_state.json clearly reflects a blocker. - Do not notify on intermediate progress. - When the stop condition is met, send one concise summary back to the parent session in normal assistant voice. - If blocked, the message must clearly say completion was NOT achieved and",
       "history": [
         {
           "from": null,
@@ -12315,6 +12315,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-04T14:38:51.086Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-04T14:54:15.710Z",
+          "completedAt": "2026-04-04T14:54:15.710Z",
+          "completionSummary": "result: blocked, summary: Mailchimp strict 1:1 clone campaign did not complete., blocker: Truthful full Mailchimp 1:1 clone completion is blocked by repo-level architectural mismatch with the requested product class., nextAction: Build or adopt a real client application layer for editor-heavy surfaces., Replace single-file JSON persistence with a production-grade database and mi",
+          "completionSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -12326,8 +12334,22 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 2,
+        "failures": [
+          {
+            "at": "2026-04-04T14:54:15.719Z",
+            "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-04T14:54:22.717Z",
+            "reason": "task_contract_proof_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-04T14:54:22.717Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "grounding": {
         "required": true,
@@ -12336,7 +12358,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -12363,8 +12385,10 @@
       "surfaceMatrix": {
         "required": true,
         "proofPresent": false,
-        "status": null
-      }
+        "status": "missing"
+      },
+      "completedAt": "2026-04-04T14:54:15.710Z",
+      "completionSource": "agent_end"
     },
     {
       "id": "agent:main:subagent:6a02c779-01e5-48ea-bcc3-7fab993f1b3c:1775313590152:15253ac5d28a07e5",
