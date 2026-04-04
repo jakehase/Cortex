@@ -1,0 +1,3 @@
+import { buildPartnerOnboardingSnapshot, createPartnerOnboardingApiDocument } from '../service-partner-onboarding.mjs';
+
+export function createPartnerOnboardingApiRoutes(basePath = '/api/partner-onboarding') { const snapshot = buildPartnerOnboardingSnapshot(); return [{ id: 'partner-onboarding.api.overview', method: 'GET', path: basePath + '/overview', summary: snapshot.summary }, { id: 'partner-onboarding.api.validate', method: 'POST', path: basePath + '/validate', validation: snapshot.validation }, { id: 'partner-onboarding.api.document', method: 'GET', path: basePath + '/document', document: createPartnerOnboardingApiDocument(snapshot) }]; }

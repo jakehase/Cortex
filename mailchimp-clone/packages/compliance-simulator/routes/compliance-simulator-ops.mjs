@@ -1,0 +1,3 @@
+import { buildComplianceSimulatorSnapshot, createComplianceSimulatorChecklist } from '../service-compliance-simulator.mjs';
+
+export function createComplianceSimulatorOpsRoutes(basePath='/ops/compliance-simulator'){const snapshot=buildComplianceSimulatorSnapshot(); return [{id:'compliance-simulator.ops.health',method:'GET',path:basePath+'/health',checklist:createComplianceSimulatorChecklist(snapshot)},{id:'compliance-simulator.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'compliance-simulator.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

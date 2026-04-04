@@ -1,0 +1,3 @@
+import { buildDeliverabilityLabsSnapshot, createDeliverabilityLabsApiDocument } from '../service-deliverability-labs.mjs';
+
+export function createDeliverabilityLabsApiRoutes(basePath = '/api/deliverability-labs') { const snapshot = buildDeliverabilityLabsSnapshot(); return [{ id: 'deliverability-labs.api.overview', method: 'GET', path: basePath + '/overview', summary: snapshot.summary }, { id: 'deliverability-labs.api.validate', method: 'POST', path: basePath + '/validate', validation: snapshot.validation }, { id: 'deliverability-labs.api.document', method: 'GET', path: basePath + '/document', document: createDeliverabilityLabsApiDocument(snapshot) }]; }

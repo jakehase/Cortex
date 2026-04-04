@@ -1,0 +1,3 @@
+import { buildBillingRecoverySnapshot, createBillingRecoveryApiDocument } from '../service-billing-recovery.mjs';
+
+export function createBillingRecoveryApiRoutes(basePath = '/api/billing-recovery') { const snapshot = buildBillingRecoverySnapshot(); return [{ id: 'billing-recovery.api.overview', method: 'GET', path: basePath + '/overview', summary: snapshot.summary }, { id: 'billing-recovery.api.validate', method: 'POST', path: basePath + '/validate', validation: snapshot.validation }, { id: 'billing-recovery.api.document', method: 'GET', path: basePath + '/document', document: createBillingRecoveryApiDocument(snapshot) }]; }

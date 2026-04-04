@@ -1,0 +1,3 @@
+export function createRetentionScorecardsFixtures(){return {contacts:[{id:'retention-scorecards-contact-1',email:'retention.scorecards+1@example.com',tier:'growth'},{id:'retention-scorecards-contact-2',email:'retention.scorecards+2@example.com',tier:'premium'}],workspaces:[{id:'retention-scorecards-ws-1',name:'Retention Scorecards Demo One'},{id:'retention-scorecards-ws-2',name:'Retention Scorecards Demo Two'}],notes:['Final ladder fixture for Retention Scorecards','Supports regression catalog rendering']};}
+
+export function summarizeRetentionScorecardsFixtures(fixtures=createRetentionScorecardsFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

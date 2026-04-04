@@ -1,0 +1,3 @@
+import { buildReleaseTrainSnapshot, createReleaseTrainApiDocument } from '../service-release-train.mjs';
+
+export function createReleaseTrainApiRoutes(basePath = '/api/release-train') { const snapshot = buildReleaseTrainSnapshot(); return [{ id: 'release-train.api.overview', method: 'GET', path: basePath + '/overview', summary: snapshot.summary }, { id: 'release-train.api.validate', method: 'POST', path: basePath + '/validate', validation: snapshot.validation }, { id: 'release-train.api.document', method: 'GET', path: basePath + '/document', document: createReleaseTrainApiDocument(snapshot) }]; }

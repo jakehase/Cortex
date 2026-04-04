@@ -1,0 +1,135 @@
+import { page } from '../view.mjs';
+import { escapeHtml, readBody, redirect, text } from '../utils.mjs';
+import { websitePages, websiteValidation, createWebsite, createWebsitePage, updateWebsite, updateWebsitePage, reorderWebsiteNavigation, publishWebsite, recordWebsiteView, generateWebsiteCopyRecommendation, applyWebsiteCopyRecommendation, ensureCurrentProductState } from '../domain-current-product.mjs';
+
+function latestSuggestion(state, targetId, operation) {
+  return state.db.generatedSuggestions.find((entry) => entry.targetId === targetId && entry.operation === operation) || null;
+}
+
+function pageUrl(website, sitePage) {
+  return sitePage.slug ? `/sites/${website.slug}/${sitePage.slug}` : `/sites/${website.slug}`;
+}
+
+function renderWebsitePublic(website, sitePage, pages, form, campaign) {
+  const navLinks = pages.filter((entry) => entry.showInNav).map((entry) => `<a href="${pageUrl(website, entry)}">${escapeHtml(entry.name)}</a>`).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(sitePage.seoTitle || website.seoTitle)}</title><meta name="description" content="${escapeHtml(sitePage.seoDescription || website.seoDescription || '')}"><meta name="robots" content="${website.robotsIndex ? 'index,follow' : 'noindex,nofollow'}"><style>body{font-family:${escapeHtml(website.bodyFont)};margin:0;background:#f8fbff;color:#172033}header{padding:24px;background:${escapeHtml(website.primaryColor)};color:white}nav{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px}nav a{color:white;text-decoration:none;font-weight:700}.wrap{max-width:1100px;margin:0 auto;padding:32px}.hero{background:white;border-radius:20px;padding:28px;box-shadow:0 10px 24px rgba(23,32,51,.08)}.grid{display:grid;grid-template-columns:2fr 1fr;gap:24px}.card{background:white;border-radius:16px;padding:20px;box-shadow:0 6px 18px rgba(23,32,51,.07)}a.button{display:inline-block;padding:12px 16px;border-radius:999px;background:${escapeHtml(website.secondaryColor)};color:white;text-decoration:none;font-weight:700}</style></head><body><header><div class="wrap"><h1>${escapeHtml(website.name)}</h1>${website.announcementBar ? `<p>${escapeHtml(website.announcementBar)}</p>` : ''}<nav>${navLinks}</nav></div></header><main class="wrap"><div class="grid"><section class="hero"><p>${escapeHtml(sitePage.pageType)}</p><h2>${escapeHtml(sitePage.headline || sitePage.name)}</h2><p>${escapeHtml(sitePage.body || '')}</p>${sitePage.ctaUrl ? `<p><a class="button" href="${escapeHtml(sitePage.ctaUrl)}">${escapeHtml(sitePage.ctaLabel || 'Open')}</a></p>` : ''}${form ? `<p>Linked signup form: <a href="/f/${escapeHtml(form.slug)}">${escapeHtml(form.name)}</a></p>` : ''}${campaign ? `<p>Connected campaign: ${escapeHtml(campaign.name)}</p>` : ''}</section><aside><div class="card"><h3>Theme</h3><p>${escapeHtml(website.themePreset)}</p><p>${escapeHtml(website.headingFont)} / ${escapeHtml(website.bodyFont)}</p></div><div class="card"><h3>SEO</h3><p>${escapeHtml(sitePage.seoTitle || website.seoTitle)}</p><p>${escapeHtml(sitePage.seoDescription || website.seoDescription || '')}</p></div><div class="card"><h3>Analytics</h3><p>Views: ${sitePage.analytics?.views || 0}</p><p>Signups: ${sitePage.analytics?.signups || 0}</p><p>CTA clicks: ${sitePage.analytics?.ctaClicks || 0}</p></div></aside></div></main></body></html>`;
+}
+
+export function registerWebsiteBuilderRoutes(router, deps) {
+  const { requireAuth } = deps;
+
+  router.register('GET', '/websites', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    ensureCurrentProductState(state);
+    const websites = state.db.websites.filter((entry) => entry.workspaceId === actor.workspace.id);
+    text(res, 200, page('Website builder', actor, `<div class="grid"><div class="card"><h3>Create website</h3><form method="post" action="/websites"><input name="name" placeholder="Acme Studio" required><input name="slug" placeholder="acme-studio"><select name="themePreset"><option value="modern">modern</option><option value="editorial">editorial</option><option value="commerce">commerce</option></select><input name="seoDescription" placeholder="What this site is about"><button>Create website</button></form></div><div class="card"><h3>Parity notes</h3><p>Multi-page websites, navigation, sitewide themes, SEO metadata, publish history, and public rendering now live beside landing pages.</p></div></div><div class="grid">${websites.map((website) => `<div class="card"><h3><a href="/websites/${website.id}">${escapeHtml(website.name)}</a></h3><p>Status: ${escapeHtml(website.status)}</p><p>Pages: ${websitePages(state, website.id).length}</p><p>Public URL: <code>${escapeHtml(pageUrl(website, websitePages(state, website.id)[0] || { slug: '' }))}</code></p></div>`).join('') || '<div class="warn">No websites yet.</div>'}</div>`));
+  });
+
+  router.register('POST', '/websites', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = createWebsite(state, actor, await readBody(req));
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('GET', '/websites/:id', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    ensureCurrentProductState(state);
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return text(res, 404, page('Website missing', actor, '<div class="warn">Website not found.</div>'));
+    const pages = websitePages(state, website.id);
+    const validation = websiteValidation(state, website);
+    const history = state.db.websitePublishes.filter((entry) => entry.websiteId === website.id).slice(0, 6);
+    text(res, 200, page(`Website builder: ${website.name}`, actor, `<div class="grid"><div class="card"><h3>Site settings</h3><form method="post" action="/websites/${website.id}"><input name="name" value="${escapeHtml(website.name)}"><input name="slug" value="${escapeHtml(website.slug)}"><input name="defaultDomain" value="${escapeHtml(website.defaultDomain)}"><input name="faviconAssetName" value="${escapeHtml(website.faviconAssetName || '')}" placeholder="favicon.png"><select name="themePreset"><option value="modern" ${website.themePreset === 'modern' ? 'selected' : ''}>modern</option><option value="editorial" ${website.themePreset === 'editorial' ? 'selected' : ''}>editorial</option><option value="commerce" ${website.themePreset === 'commerce' ? 'selected' : ''}>commerce</option></select><input name="primaryColor" value="${escapeHtml(website.primaryColor)}"><input name="secondaryColor" value="${escapeHtml(website.secondaryColor)}"><input name="headingFont" value="${escapeHtml(website.headingFont)}"><input name="bodyFont" value="${escapeHtml(website.bodyFont)}"><input name="seoTitle" value="${escapeHtml(website.seoTitle)}"><textarea name="seoDescription">${escapeHtml(website.seoDescription || '')}</textarea><input name="canonicalBaseUrl" value="${escapeHtml(website.canonicalBaseUrl || '')}"><select name="robotsIndex"><option value="on" ${website.robotsIndex ? 'selected' : ''}>index</option><option value="off" ${website.robotsIndex ? '' : 'selected'}>noindex</option></select><input name="announcementBar" value="${escapeHtml(website.announcementBar || '')}" placeholder="Free shipping this week"><button>Save website</button></form>${validation.length ? `<div class="warn"><ul>${validation.map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul></div>` : '<div class="ok">Website validates cleanly for publish parity.</div>'}</div><div class="card"><h3>Create page</h3><form method="post" action="/websites/${website.id}/pages"><input name="name" placeholder="About"><input name="slug" placeholder="about"><select name="pageType"><option value="standard">standard</option><option value="about">about</option><option value="contact">contact</option><option value="store">store</option></select><input name="headline" placeholder="Meet the team"><textarea name="body" placeholder="Tell the story"></textarea><select name="linkedFormId"><option value="">No form</option>${state.db.forms.filter((entry) => entry.workspaceId === actor.workspace.id).map((form) => `<option value="${form.id}">${escapeHtml(form.name)}</option>`).join('')}</select><select name="linkedCampaignId"><option value="">No campaign</option>${state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id).map((campaign) => `<option value="${campaign.id}">${escapeHtml(campaign.name)}</option>`).join('')}</select><label><input type="checkbox" name="showInNav" value="on" checked> Show in navigation</label><button>Create page</button></form><p><a href="/websites/${website.id}/ai">AI website copy assistant</a></p></div><div class="card"><h3>Publish</h3><form method="post" action="/websites/${website.id}/publish"><button ${validation.length ? 'disabled' : ''}>Publish website</button></form><p>Public: <a href="${pageUrl(website, pages[0] || { slug: '' })}">${escapeHtml(pageUrl(website, pages[0] || { slug: '' }))}</a></p><p>Published at: ${website.publishedAt || 'not yet'}</p></div></div><div class="card"><h3>Navigation & pages</h3><table><tr><th>Page</th><th>Slug</th><th>Nav</th><th>Public</th><th>Edit</th></tr>${pages.map((sitePage) => `<tr><td>${escapeHtml(sitePage.name)}</td><td>${escapeHtml(sitePage.slug || 'home')}</td><td>${sitePage.showInNav ? 'shown' : 'hidden'}</td><td><code>${escapeHtml(pageUrl(website, sitePage))}</code></td><td><form method="post" action="/websites/${website.id}/pages/${sitePage.id}"><input name="name" value="${escapeHtml(sitePage.name)}"><input name="slug" value="${escapeHtml(sitePage.slug)}"><input name="headline" value="${escapeHtml(sitePage.headline || '')}"><textarea name="body">${escapeHtml(sitePage.body || '')}</textarea><select name="linkedFormId"><option value="">No form</option>${state.db.forms.filter((entry) => entry.workspaceId === actor.workspace.id).map((form) => `<option value="${form.id}" ${form.id === sitePage.linkedFormId ? 'selected' : ''}>${escapeHtml(form.name)}</option>`).join('')}</select><select name="linkedCampaignId"><option value="">No campaign</option>${state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id).map((campaign) => `<option value="${campaign.id}" ${campaign.id === sitePage.linkedCampaignId ? 'selected' : ''}>${escapeHtml(campaign.name)}</option>`).join('')}</select><label><input type="checkbox" name="showInNav" value="on" ${sitePage.showInNav ? 'checked' : ''}> Show in navigation</label><button>Save page</button></form></td></tr>`).join('')}</table><form method="post" action="/websites/${website.id}/navigation"><input name="pageOrder" value="${pages.map((entry) => entry.id).join(',')}" placeholder="page ids in order"><button>Save navigation order</button></form></div><div class="card"><h3>Publish history</h3><table><tr><th>When</th><th>Domain</th><th>Pages</th></tr>${history.map((entry) => `<tr><td>${entry.publishedAt}</td><td>${escapeHtml(entry.domain)}</td><td>${entry.pageCount}</td></tr>`).join('') || '<tr><td colspan="3">No publishes yet.</td></tr>'}</table></div>`));
+  });
+
+  router.register('POST', '/websites/:id', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return redirect(res, '/websites');
+    updateWebsite(state, actor, website, await readBody(req));
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('POST', '/websites/:id/pages', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return redirect(res, '/websites');
+    createWebsitePage(state, actor, website, await readBody(req));
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('POST', '/websites/:id/pages/:pageId', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    const sitePage = state.db.websitePages.find((entry) => entry.id === params.pageId && entry.websiteId === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website || !sitePage) return redirect(res, '/websites');
+    const body = await readBody(req); if (!('showInNav' in body)) body.showInNav = 'off';
+    updateWebsitePage(state, actor, website, sitePage, body);
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('POST', '/websites/:id/navigation', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return redirect(res, '/websites');
+    reorderWebsiteNavigation(state, actor, website, String((await readBody(req)).pageOrder || '').split(',').map((entry) => entry.trim()).filter(Boolean));
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('POST', '/websites/:id/publish', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return redirect(res, '/websites');
+    publishWebsite(state, actor, website);
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('GET', '/websites/:id/ai', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    const sitePage = websitePages(state, website.id)[0];
+    const suggestion = latestSuggestion(state, sitePage.id, 'website_copy');
+    text(res, 200, page(`AI website copy: ${website.name}`, actor, `<div class="grid"><div class="card"><h3>Generate copy</h3><form method="post" action="/websites/${website.id}/ai/generate"><select name="pageId">${websitePages(state, website.id).map((pageEntry) => `<option value="${pageEntry.id}">${escapeHtml(pageEntry.name)}</option>`).join('')}</select><input name="goal" placeholder="lead capture"><input name="ctaLabel" placeholder="Join the list"><button>Generate website copy</button></form></div><div class="card"><h3>Last suggestion</h3>${suggestion ? `<p><strong>${escapeHtml(suggestion.suggestion.headline)}</strong></p><p>${escapeHtml(suggestion.suggestion.body)}</p><p>CTA: ${escapeHtml(suggestion.suggestion.ctaLabel)}</p><p>${escapeHtml(suggestion.suggestion.rationale)}</p><form method="post" action="/websites/${website.id}/ai/apply"><input type="hidden" name="pageId" value="${sitePage.id}"><input type="hidden" name="suggestionId" value="${suggestion.id}"><button>Apply suggestion</button></form>` : '<p>No website AI suggestions yet.</p>'}</div></div>`));
+  });
+
+  router.register('POST', '/websites/:id/ai/generate', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const body = await readBody(req);
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    const sitePage = state.db.websitePages.find((entry) => entry.id === body.pageId && entry.websiteId === website.id);
+    if (website && sitePage) generateWebsiteCopyRecommendation(state, actor, website, sitePage, body);
+    redirect(res, `/websites/${website.id}/ai`);
+  });
+
+  router.register('POST', '/websites/:id/ai/apply', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const body = await readBody(req);
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    const sitePage = state.db.websitePages.find((entry) => entry.id === body.pageId && entry.websiteId === website.id);
+    if (sitePage) applyWebsiteCopyRecommendation(state, actor, sitePage, body.suggestionId);
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('GET', '/sites/:siteSlug', async ({ state, params, res, url }) => {
+    ensureCurrentProductState(state);
+    const website = state.db.websites.find((entry) => entry.slug === params.siteSlug && entry.status === 'published');
+    if (!website) return text(res, 404, page('Website missing', null, '<div class="warn">Website is missing or unpublished.</div>'));
+    const sitePage = websitePages(state, website.id).find((entry) => entry.id === website.homePageId) || websitePages(state, website.id)[0];
+    recordWebsiteView(state, website, sitePage, { referrer: url.searchParams.get('ref') || '' });
+    const form = state.db.forms.find((entry) => entry.id === sitePage.linkedFormId);
+    const campaign = state.db.campaigns.find((entry) => entry.id === sitePage.linkedCampaignId);
+    text(res, 200, renderWebsitePublic(website, sitePage, websitePages(state, website.id), form, campaign));
+  });
+
+  router.register('GET', '/sites/:siteSlug/:pageSlug', async ({ state, params, res, url }) => {
+    ensureCurrentProductState(state);
+    const website = state.db.websites.find((entry) => entry.slug === params.siteSlug && entry.status === 'published');
+    if (!website) return text(res, 404, page('Website missing', null, '<div class="warn">Website is missing or unpublished.</div>'));
+    const sitePage = websitePages(state, website.id).find((entry) => entry.slug === params.pageSlug);
+    if (!sitePage) return text(res, 404, page('Website page missing', null, '<div class="warn">Website page is missing.</div>'));
+    recordWebsiteView(state, website, sitePage, { referrer: url.searchParams.get('ref') || '' });
+    const form = state.db.forms.find((entry) => entry.id === sitePage.linkedFormId);
+    const campaign = state.db.campaigns.find((entry) => entry.id === sitePage.linkedCampaignId);
+    text(res, 200, renderWebsitePublic(website, sitePage, websitePages(state, website.id), form, campaign));
+  });
+}

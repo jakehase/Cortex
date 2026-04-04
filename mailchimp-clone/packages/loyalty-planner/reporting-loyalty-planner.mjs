@@ -1,0 +1,97 @@
+const MODULE = {
+  "id": "loyalty-planner",
+  "ordinal": 531,
+  "domain": "loyalty",
+  "surfaceId": "planner",
+  "surfaceTitle": "Planner",
+  "routeSegment": "planner",
+  "title": "Loyalty Planner",
+  "focus": "Loyalty Planner covers repeat purchase behavior, reward posture, and customer rescue depth through calendar planning and execution choreography.",
+  "descriptor": "repeat purchase behavior, reward posture, and customer rescue depth",
+  "groupId": "lifecycle",
+  "groupTitle": "Lifecycle, customer success, and messaging durability",
+  "groupDescription": "Customer lifecycle surfaces spanning automation, retention, support, subscriptions, surveys, and deliverability operations.",
+  "metrics": [
+    "health",
+    "retention",
+    "response",
+    "satisfaction",
+    "deliverability",
+    "durability"
+  ],
+  "lanes": [
+    "observe",
+    "coordinate",
+    "assist",
+    "resolve",
+    "measure",
+    "expand"
+  ],
+  "controls": [
+    "response-sla",
+    "journey-check",
+    "approval-ring",
+    "delivery-guard",
+    "satisfaction-review",
+    "recovery-kit"
+  ],
+  "evidenceTypes": [
+    "journey-log",
+    "service-brief",
+    "response-matrix",
+    "delivery-summary",
+    "retention-pack",
+    "experience-scorecard"
+  ],
+  "signals": [
+    "health",
+    "sentiment",
+    "recovery",
+    "sla",
+    "delivery",
+    "retention"
+  ],
+  "persona": "lifecycle operations lead",
+  "themes": [
+    "loyalty",
+    "planner",
+    "lifecycle",
+    "mailchimp-clone-scale-wave-seven"
+  ],
+  "tags": [
+    "loyalty",
+    "planner",
+    "lifecycle",
+    "loyalty-planner-wave-seven"
+  ]
+};
+
+export function createLoyaltyPlannerReportCards() {
+  return MODULE.metrics.map((metric, index) => ({
+    id: MODULE.id + '-report-' + (index + 1),
+    title: MODULE.title + ' ' + metric + ' review',
+    audience: index % 2 === 0 ? 'executive' : 'operator',
+    summary: MODULE.title + ' packages ' + metric + ' into a decision-ready review card.',
+    owner: MODULE.persona
+  }));
+}
+
+export function createLoyaltyPlannerReviewPackets() {
+  return MODULE.evidenceTypes.map((artifact, index) => ({
+    id: MODULE.id + '-packet-' + (index + 1),
+    artifact,
+    destination: MODULE.groupId + '-leadership',
+    summary: MODULE.groupTitle + ' consumes ' + artifact + ' during review cadences.'
+  }));
+}
+
+export function summarizeLoyaltyPlannerReporting() {
+  const cards = createLoyaltyPlannerReportCards();
+  const packets = createLoyaltyPlannerReviewPackets();
+  return {
+    totalCards: cards.length,
+    totalPackets: packets.length,
+    executiveCards: cards.filter((entry) => entry.audience === 'executive').length
+  };
+}
+

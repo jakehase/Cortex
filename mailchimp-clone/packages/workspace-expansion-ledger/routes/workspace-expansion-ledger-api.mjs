@@ -1,0 +1,3 @@
+import { buildWorkspaceExpansionLedgerSnapshot, createWorkspaceExpansionLedgerApiDocument } from '../service-workspace-expansion-ledger.mjs';
+
+export function createWorkspaceExpansionLedgerApiRoutes(basePath='/api/workspace-expansion-ledger'){const snapshot=buildWorkspaceExpansionLedgerSnapshot(); return [{id:'workspace-expansion-ledger.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'workspace-expansion-ledger.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'workspace-expansion-ledger.api.document',method:'GET',path:basePath+'/document',document:createWorkspaceExpansionLedgerApiDocument(snapshot)}];}

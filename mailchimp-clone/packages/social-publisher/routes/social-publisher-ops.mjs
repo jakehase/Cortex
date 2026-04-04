@@ -1,0 +1,3 @@
+import { buildSocialPublisherSnapshot, createSocialPublisherChecklist } from '../service-social-publisher.mjs';
+
+export function createSocialPublisherOpsRoutes(basePath = '/ops/social-publisher') { const snapshot = buildSocialPublisherSnapshot(); return [{ id: 'social-publisher.ops.health', method: 'GET', path: basePath + '/health', checklist: createSocialPublisherChecklist(snapshot) }, { id: 'social-publisher.ops.policies', method: 'GET', path: basePath + '/policies', policies: snapshot.policies }, { id: 'social-publisher.ops.metrics', method: 'GET', path: basePath + '/metrics', scorecards: snapshot.workspace.scorecards }]; }

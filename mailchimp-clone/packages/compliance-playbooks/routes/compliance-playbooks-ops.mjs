@@ -1,0 +1,3 @@
+import { buildCompliancePlaybooksSnapshot, createCompliancePlaybooksChecklist } from '../service-compliance-playbooks.mjs';
+
+export function createCompliancePlaybooksOpsRoutes(basePath='/ops/compliance-playbooks'){const snapshot=buildCompliancePlaybooksSnapshot(); return [{id:'compliance-playbooks.ops.health',method:'GET',path:basePath+'/health',checklist:createCompliancePlaybooksChecklist(snapshot)},{id:'compliance-playbooks.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'compliance-playbooks.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

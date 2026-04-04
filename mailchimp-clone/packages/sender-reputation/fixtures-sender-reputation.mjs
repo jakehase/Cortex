@@ -1,0 +1,3 @@
+export function createSenderReputationFixtures(){return {contacts:[{id:'sender-reputation-contact-1',email:'sender.reputation+1@example.com',tier:'growth'},{id:'sender-reputation-contact-2',email:'sender.reputation+2@example.com',tier:'premium'}],workspaces:[{id:'sender-reputation-ws-1',name:'Sender Reputation Demo One'},{id:'sender-reputation-ws-2',name:'Sender Reputation Demo Two'}],notes:['Final ladder fixture for Sender Reputation','Supports regression catalog rendering']};}
+
+export function summarizeSenderReputationFixtures(fixtures=createSenderReputationFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

@@ -1,0 +1,3 @@
+export function createJourneyAnnotationsFixtures(){return {contacts:[{id:'journey-annotations-contact-1',email:'journey.annotations+1@example.com',tier:'growth'},{id:'journey-annotations-contact-2',email:'journey.annotations+2@example.com',tier:'premium'}],workspaces:[{id:'journey-annotations-ws-1',name:'Journey Annotations Demo One'},{id:'journey-annotations-ws-2',name:'Journey Annotations Demo Two'}],notes:['Late closeout fixture for Journey Annotations','Supports regression catalog rendering']};}
+
+export function summarizeJourneyAnnotationsFixtures(fixtures=createJourneyAnnotationsFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

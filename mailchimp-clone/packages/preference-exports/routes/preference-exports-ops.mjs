@@ -1,0 +1,3 @@
+import { buildPreferenceExportsSnapshot, createPreferenceExportsChecklist } from '../service-preference-exports.mjs';
+
+export function createPreferenceExportsOpsRoutes(basePath='/ops/preference-exports'){const snapshot=buildPreferenceExportsSnapshot(); return [{id:'preference-exports.ops.health',method:'GET',path:basePath+'/health',checklist:createPreferenceExportsChecklist(snapshot)},{id:'preference-exports.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'preference-exports.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

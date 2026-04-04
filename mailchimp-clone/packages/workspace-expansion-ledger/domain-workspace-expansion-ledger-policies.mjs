@@ -1,0 +1,7 @@
+const DEFAULT_POLICIES=[{id:'workspace-expansion-ledger-policy-1',title:'Workspace Expansion Ledger guardrail',severity:'medium'},{id:'workspace-expansion-ledger-policy-2',title:'Workspace Expansion Ledger approval ring',severity:'high'},{id:'workspace-expansion-ledger-policy-3',title:'Workspace Expansion Ledger rollback lane',severity:'medium'}];
+
+export function createWorkspaceExpansionLedgerPolicies(overrides={}){return DEFAULT_POLICIES.map((policy,index)=>({...policy,owner:overrides.owner||'ledger-owner',status:overrides.status||(index===1?'watch':'active'),controls:['change-log','approval-ring','rollback-check'].slice(0,index+1),notes:overrides.notes||'Workspace Expansion Ledger policy pack for final ledgering.'}));}
+
+export function validateWorkspaceExpansionLedgerPolicies(policies=createWorkspaceExpansionLedgerPolicies()){const issues=[]; if(policies.length<3) issues.push('insufficient_policy_depth'); if(!policies.some((policy)=>policy.severity==='high')) issues.push('missing_high_severity_policy'); if(!policies.every((policy)=>policy.controls.length>=1)) issues.push('missing_controls'); return {ok:issues.length===0,issues,policyCount:policies.length};}
+
+export function policySummaryWorkspaceExpansionLedger(policies=createWorkspaceExpansionLedgerPolicies()){return {total:policies.length,watch:policies.filter((policy)=>policy.status==='watch').length,active:policies.filter((policy)=>policy.status==='active').length};}

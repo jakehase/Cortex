@@ -1,0 +1,3 @@
+export function createApprovalBatchesFixtures(){return {contacts:[{id:'approval-batches-contact-1',email:'approval.batches+1@example.com',tier:'growth'},{id:'approval-batches-contact-2',email:'approval.batches+2@example.com',tier:'premium'}],workspaces:[{id:'approval-batches-ws-1',name:'Approval Batches Demo One'},{id:'approval-batches-ws-2',name:'Approval Batches Demo Two'}],notes:['Final ladder fixture for Approval Batches','Supports regression catalog rendering']};}
+
+export function summarizeApprovalBatchesFixtures(fixtures=createApprovalBatchesFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

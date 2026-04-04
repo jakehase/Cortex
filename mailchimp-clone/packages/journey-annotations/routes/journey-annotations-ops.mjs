@@ -1,0 +1,3 @@
+import { buildJourneyAnnotationsSnapshot, createJourneyAnnotationsChecklist } from '../service-journey-annotations.mjs';
+
+export function createJourneyAnnotationsOpsRoutes(basePath='/ops/journey-annotations'){const snapshot=buildJourneyAnnotationsSnapshot(); return [{id:'journey-annotations.ops.health',method:'GET',path:basePath+'/health',checklist:createJourneyAnnotationsChecklist(snapshot)},{id:'journey-annotations.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'journey-annotations.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

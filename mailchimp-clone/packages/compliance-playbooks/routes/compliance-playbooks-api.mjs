@@ -1,0 +1,3 @@
+import { buildCompliancePlaybooksSnapshot, createCompliancePlaybooksApiDocument } from '../service-compliance-playbooks.mjs';
+
+export function createCompliancePlaybooksApiRoutes(basePath='/api/compliance-playbooks'){const snapshot=buildCompliancePlaybooksSnapshot(); return [{id:'compliance-playbooks.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'compliance-playbooks.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'compliance-playbooks.api.document',method:'GET',path:basePath+'/document',document:createCompliancePlaybooksApiDocument(snapshot)}];}

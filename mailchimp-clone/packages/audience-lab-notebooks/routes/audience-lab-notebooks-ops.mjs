@@ -1,0 +1,3 @@
+import { buildAudienceLabNotebooksSnapshot, createAudienceLabNotebooksChecklist } from '../service-audience-lab-notebooks.mjs';
+
+export function createAudienceLabNotebooksOpsRoutes(basePath='/ops/audience-lab-notebooks'){const snapshot=buildAudienceLabNotebooksSnapshot(); return [{id:'audience-lab-notebooks.ops.health',method:'GET',path:basePath+'/health',checklist:createAudienceLabNotebooksChecklist(snapshot)},{id:'audience-lab-notebooks.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'audience-lab-notebooks.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

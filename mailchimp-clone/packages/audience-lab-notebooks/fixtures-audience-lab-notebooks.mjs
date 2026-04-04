@@ -1,0 +1,3 @@
+export function createAudienceLabNotebooksFixtures(){return {contacts:[{id:'audience-lab-notebooks-contact-1',email:'audience.lab.notebooks+1@example.com',tier:'growth'},{id:'audience-lab-notebooks-contact-2',email:'audience.lab.notebooks+2@example.com',tier:'premium'}],workspaces:[{id:'audience-lab-notebooks-ws-1',name:'Audience Lab Notebooks Demo One'},{id:'audience-lab-notebooks-ws-2',name:'Audience Lab Notebooks Demo Two'}],notes:['Closeout fixture for Audience Lab Notebooks','Supports regression catalog rendering']};}
+
+export function summarizeAudienceLabNotebooksFixtures(fixtures=createAudienceLabNotebooksFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

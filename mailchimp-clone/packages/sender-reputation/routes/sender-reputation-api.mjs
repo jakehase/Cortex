@@ -1,0 +1,3 @@
+import { buildSenderReputationSnapshot, createSenderReputationApiDocument } from '../service-sender-reputation.mjs';
+
+export function createSenderReputationApiRoutes(basePath='/api/sender-reputation'){const snapshot=buildSenderReputationSnapshot(); return [{id:'sender-reputation.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'sender-reputation.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'sender-reputation.api.document',method:'GET',path:basePath+'/document',document:createSenderReputationApiDocument(snapshot)}];}

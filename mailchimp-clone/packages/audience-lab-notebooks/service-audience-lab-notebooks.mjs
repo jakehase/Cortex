@@ -1,0 +1,8 @@
+import { createAudienceLabNotebooksWorkspace, summarizeAudienceLabNotebooks, createAudienceLabNotebooksNarratives } from './domain-audience-lab-notebooks.mjs';
+import { createAudienceLabNotebooksPolicies, validateAudienceLabNotebooksPolicies, policySummaryAudienceLabNotebooks } from './domain-audience-lab-notebooks-policies.mjs';
+
+export function buildAudienceLabNotebooksSnapshot(workspaceName='Closeout workspace'){const workspace=createAudienceLabNotebooksWorkspace(workspaceName); const policies=createAudienceLabNotebooksPolicies(); return {workspace,summary:summarizeAudienceLabNotebooks(workspace),narratives:createAudienceLabNotebooksNarratives(workspace),policies,policySummary:policySummaryAudienceLabNotebooks(policies),validation:validateAudienceLabNotebooksPolicies(policies)};}
+
+export function createAudienceLabNotebooksChecklist(snapshot=buildAudienceLabNotebooksSnapshot()){return [{id:'audience-lab-notebooks-check-1',label:'Scope visible',ok:snapshot.summary.metricCount>=3},{id:'audience-lab-notebooks-check-2',label:'Policy depth',ok:snapshot.validation.ok},{id:'audience-lab-notebooks-check-3',label:'Narratives available',ok:snapshot.narratives.length>=4}];}
+
+export function createAudienceLabNotebooksApiDocument(snapshot=buildAudienceLabNotebooksSnapshot()){return {id:'audience-lab-notebooks-api',headline:snapshot.summary.name+' API contract',endpoints:[{method:'GET',path:'/api/audience-lab-notebooks/overview'},{method:'POST',path:'/api/audience-lab-notebooks/validate'},{method:'GET',path:'/api/audience-lab-notebooks/policies'}],checklist:createAudienceLabNotebooksChecklist(snapshot)};}

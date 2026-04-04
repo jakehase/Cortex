@@ -1,0 +1,25 @@
+{
+  "anchor": "/root/clawd/mailchimp-clone/docs/MAILCHIMP_CURRENT_PRODUCT_PARITY_GAP_ROADMAP_2026-04-03.md",
+  "replyAnchor": "User requested: 'Implement this roadmap fully, in one pass' after explicitly requiring due diligence about keeping superior existing implementations instead of blindly replacing them.",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "requestedFidelity": "full_clone",
+  "requestedScope": [
+    "Website builder depth",
+    "AI / generative marketing assistance",
+    "Experimentation / A-B / dynamic content depth",
+    "Predictive optimization / targeting depth",
+    "Ads / social / omnichannel depth",
+    "Content studio / asset workflow depth",
+    "Marketplace ecosystem realism / integration depth"
+  ],
+  "implementationSurface": "actual product code + tests + smoke/browser proof + updated surface matrix + supervisor/completion artifacts",
+  "preservationRules": [
+    "Do not duplicate or replace an existing superior implementation just because the roadmap listed it as a gap.",
+    "Treat package-level route catalogs, fixtures, and tests as evidence of partial implementation; audit them before adding new surfaces.",
+    "Prefer integrating and deepening existing package surfaces into the primary app shell over creating parallel substitute systems.",
+    "Do not claim completion for any gap family unless product-surface files, executable tests, and parity evidence all exist."
+  ],
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "campaignMode": "long_run_full_current_product_parity",
+  "createdAt": "2026-04-04T04:20:00Z"
+}

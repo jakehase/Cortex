@@ -1,0 +1,3 @@
+import { buildComplianceSimulatorSnapshot, createComplianceSimulatorApiDocument } from '../service-compliance-simulator.mjs';
+
+export function createComplianceSimulatorApiRoutes(basePath='/api/compliance-simulator'){const snapshot=buildComplianceSimulatorSnapshot(); return [{id:'compliance-simulator.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'compliance-simulator.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'compliance-simulator.api.document',method:'GET',path:basePath+'/document',document:createComplianceSimulatorApiDocument(snapshot)}];}

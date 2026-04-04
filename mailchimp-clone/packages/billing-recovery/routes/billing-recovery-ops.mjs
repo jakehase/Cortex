@@ -1,0 +1,3 @@
+import { buildBillingRecoverySnapshot, createBillingRecoveryChecklist } from '../service-billing-recovery.mjs';
+
+export function createBillingRecoveryOpsRoutes(basePath = '/ops/billing-recovery') { const snapshot = buildBillingRecoverySnapshot(); return [{ id: 'billing-recovery.ops.health', method: 'GET', path: basePath + '/health', checklist: createBillingRecoveryChecklist(snapshot) }, { id: 'billing-recovery.ops.policies', method: 'GET', path: basePath + '/policies', policies: snapshot.policies }, { id: 'billing-recovery.ops.metrics', method: 'GET', path: basePath + '/metrics', scorecards: snapshot.workspace.scorecards }]; }

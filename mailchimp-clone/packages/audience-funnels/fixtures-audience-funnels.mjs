@@ -1,0 +1,3 @@
+export function createAudienceFunnelsFixtures(){return {contacts:[{id:'audience-funnels-contact-1',email:'audience.funnels+1@example.com',tier:'growth'},{id:'audience-funnels-contact-2',email:'audience.funnels+2@example.com',tier:'premium'}],workspaces:[{id:'audience-funnels-ws-1',name:'Audience Funnels Demo One'},{id:'audience-funnels-ws-2',name:'Audience Funnels Demo Two'}],notes:['Final continuation fixture for Audience Funnels','Supports regression catalog rendering']};}
+
+export function summarizeAudienceFunnelsFixtures(fixtures=createAudienceFunnelsFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

@@ -1,0 +1,3 @@
+export function createPreferenceExportsFixtures(){return {contacts:[{id:'preference-exports-contact-1',email:'preference.exports+1@example.com',tier:'growth'},{id:'preference-exports-contact-2',email:'preference.exports+2@example.com',tier:'premium'}],workspaces:[{id:'preference-exports-ws-1',name:'Preference Exports Demo One'},{id:'preference-exports-ws-2',name:'Preference Exports Demo Two'}],notes:['Late closeout fixture for Preference Exports','Supports regression catalog rendering']};}
+
+export function summarizePreferenceExportsFixtures(fixtures=createPreferenceExportsFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

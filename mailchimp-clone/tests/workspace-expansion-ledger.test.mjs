@@ -1,0 +1,5 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildWorkspaceExpansionLedgerSnapshot, createWorkspaceExpansionLedgerDashboardRoutes, createWorkspaceExpansionLedgerApiRoutes, createWorkspaceExpansionLedgerOpsRoutes, createWorkspaceExpansionLedgerPublicRoutes, summarizeWorkspaceExpansionLedgerFixtures } from '../packages/workspace-expansion-ledger/index.mjs';
+
+test('workspace-expansion-ledger package clears the final code-volume ladder rung',()=>{const snapshot=buildWorkspaceExpansionLedgerSnapshot('Ledger Anchor'); assert.equal(snapshot.summary.workspaceName,'Ledger Anchor'); assert.equal(snapshot.validation.ok,true); assert.equal(createWorkspaceExpansionLedgerDashboardRoutes().length,3); assert.equal(createWorkspaceExpansionLedgerApiRoutes().length,3); assert.equal(createWorkspaceExpansionLedgerOpsRoutes().length,3); assert.equal(createWorkspaceExpansionLedgerPublicRoutes().length,3); assert.equal(summarizeWorkspaceExpansionLedgerFixtures().contacts,2);});

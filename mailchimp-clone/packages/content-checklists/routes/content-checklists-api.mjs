@@ -1,0 +1,3 @@
+import { buildContentChecklistsSnapshot, createContentChecklistsApiDocument } from '../service-content-checklists.mjs';
+
+export function createContentChecklistsApiRoutes(basePath='/api/content-checklists'){const snapshot=buildContentChecklistsSnapshot(); return [{id:'content-checklists.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'content-checklists.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'content-checklists.api.document',method:'GET',path:basePath+'/document',document:createContentChecklistsApiDocument(snapshot)}];}

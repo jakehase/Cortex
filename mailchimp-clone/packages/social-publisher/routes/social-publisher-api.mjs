@@ -1,0 +1,3 @@
+import { buildSocialPublisherSnapshot, createSocialPublisherApiDocument } from '../service-social-publisher.mjs';
+
+export function createSocialPublisherApiRoutes(basePath = '/api/social-publisher') { const snapshot = buildSocialPublisherSnapshot(); return [{ id: 'social-publisher.api.overview', method: 'GET', path: basePath + '/overview', summary: snapshot.summary }, { id: 'social-publisher.api.validate', method: 'POST', path: basePath + '/validate', validation: snapshot.validation }, { id: 'social-publisher.api.document', method: 'GET', path: basePath + '/document', document: createSocialPublisherApiDocument(snapshot) }]; }

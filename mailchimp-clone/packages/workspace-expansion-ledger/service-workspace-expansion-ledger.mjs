@@ -1,0 +1,8 @@
+import { createWorkspaceExpansionLedgerWorkspace, summarizeWorkspaceExpansionLedger, createWorkspaceExpansionLedgerNarratives } from './domain-workspace-expansion-ledger.mjs';
+import { createWorkspaceExpansionLedgerPolicies, validateWorkspaceExpansionLedgerPolicies, policySummaryWorkspaceExpansionLedger } from './domain-workspace-expansion-ledger-policies.mjs';
+
+export function buildWorkspaceExpansionLedgerSnapshot(workspaceName='Ledger workspace'){const workspace=createWorkspaceExpansionLedgerWorkspace(workspaceName); const policies=createWorkspaceExpansionLedgerPolicies(); return {workspace,summary:summarizeWorkspaceExpansionLedger(workspace),narratives:createWorkspaceExpansionLedgerNarratives(workspace),policies,policySummary:policySummaryWorkspaceExpansionLedger(policies),validation:validateWorkspaceExpansionLedgerPolicies(policies)};}
+
+export function createWorkspaceExpansionLedgerChecklist(snapshot=buildWorkspaceExpansionLedgerSnapshot()){return [{id:'workspace-expansion-ledger-check-1',label:'Scope visible',ok:snapshot.summary.metricCount>=3},{id:'workspace-expansion-ledger-check-2',label:'Policy depth',ok:snapshot.validation.ok},{id:'workspace-expansion-ledger-check-3',label:'Narratives available',ok:snapshot.narratives.length>=4}];}
+
+export function createWorkspaceExpansionLedgerApiDocument(snapshot=buildWorkspaceExpansionLedgerSnapshot()){return {id:'workspace-expansion-ledger-api',headline:snapshot.summary.name+' API contract',endpoints:[{method:'GET',path:'/api/workspace-expansion-ledger/overview'},{method:'POST',path:'/api/workspace-expansion-ledger/validate'},{method:'GET',path:'/api/workspace-expansion-ledger/policies'}],checklist:createWorkspaceExpansionLedgerChecklist(snapshot)};}

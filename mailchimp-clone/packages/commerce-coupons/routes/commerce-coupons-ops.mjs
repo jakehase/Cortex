@@ -1,0 +1,3 @@
+import { buildCommerceCouponsSnapshot, createCommerceCouponsChecklist } from '../service-commerce-coupons.mjs';
+
+export function createCommerceCouponsOpsRoutes(basePath = '/ops/commerce-coupons') { const snapshot = buildCommerceCouponsSnapshot(); return [{ id: 'commerce-coupons.ops.health', method: 'GET', path: basePath + '/health', checklist: createCommerceCouponsChecklist(snapshot) }, { id: 'commerce-coupons.ops.policies', method: 'GET', path: basePath + '/policies', policies: snapshot.policies }, { id: 'commerce-coupons.ops.metrics', method: 'GET', path: basePath + '/metrics', scorecards: snapshot.workspace.scorecards }]; }

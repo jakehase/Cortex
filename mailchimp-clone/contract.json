@@ -1,0 +1,26 @@
+{
+  "anchor": "true large-scale Mailchimp clone campaign using /root/clawd/large-project-capability-stack against /root/clawd/mailchimp-clone with Programs 4-7 plus architecture evolution",
+  "replyAnchor": "user approved starting the true large-scale Mailchimp clone program under the new capability stack",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "requestedFidelity": "full_clone",
+  "requestedScope": [
+    "Program 4 — Automation/journeys",
+    "Program 5 — Forms/landing pages",
+    "Program 6 — Reports/analytics/API/admin",
+    "Program 7 — Deep parity sweep + hardening",
+    "Architecture refactor from collapsed single-file server to scalable app/package split"
+  ],
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "blockerPolicy": "if supervisor red without real blocker continue; stop only on structured blocker report",
+  "evidenceRequirements": [
+    "tests",
+    "smoke",
+    "architecture-enforcer",
+    "surface-matrix",
+    "supervisor-state",
+    "final-report"
+  ],
+  "implementationSurface": "actual product code + tests + contract/graph/matrix/supervisor/notifier artifacts + architecture evolution",
+  "campaignMode": "persistent",
+  "createdAt": "2026-04-03T00:14:54.260Z"
+}

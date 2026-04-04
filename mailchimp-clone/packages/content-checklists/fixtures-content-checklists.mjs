@@ -1,0 +1,3 @@
+export function createContentChecklistsFixtures(){return {contacts:[{id:'content-checklists-contact-1',email:'content.checklists+1@example.com',tier:'growth'},{id:'content-checklists-contact-2',email:'content.checklists+2@example.com',tier:'premium'}],workspaces:[{id:'content-checklists-ws-1',name:'Content Checklists Demo One'},{id:'content-checklists-ws-2',name:'Content Checklists Demo Two'}],notes:['Late closeout fixture for Content Checklists','Supports regression catalog rendering']};}
+
+export function summarizeContentChecklistsFixtures(fixtures=createContentChecklistsFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

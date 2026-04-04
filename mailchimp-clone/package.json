@@ -1,0 +1,32 @@
+{
+  "name": "mailchimp-clone",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:browser": "node --test --test-concurrency=1 tests/browser-realism.test.mjs",
+    "browser:install": "npx playwright install chromium",
+    "worker": "node scripts/worker.mjs",
+    "smoke": "node scripts/smoke-full-clone.mjs",
+    "supervisor": "node scripts/supervisor.mjs",
+    "watch": "node scripts/watch-completion.mjs",
+    "notify": "node scripts/notify-once.mjs",
+    "wave1:browser-proof": "node scripts/run-wave1-browser-proof.mjs",
+    "wave1:worker": "node scripts/wave1-browser-worker.mjs",
+    "wave1:supervisor": "node scripts/wave1-browser-supervisor.mjs",
+    "wave1:watch": "node scripts/wave1-browser-watch.mjs",
+    "wave1:notify": "node scripts/wave1-browser-notify.mjs",
+    "wave2:smoke": "node scripts/smoke-wave2-integration-enterprise.mjs",
+    "wave2:worker": "node scripts/wave2-integration-enterprise-worker.mjs",
+    "wave2:supervisor": "node scripts/wave2-integration-enterprise-supervisor.mjs",
+    "wave2:watch": "node scripts/wave2-integration-enterprise-watch.mjs",
+    "wave2:notify": "node scripts/wave2-integration-enterprise-notify.mjs",
+    "loc500k:campaign": "node scripts/loc-500k-campaign.mjs",
+    "loc500k:supervisor": "node scripts/loc-500k-supervisor.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
+  }
+}

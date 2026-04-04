@@ -1,0 +1,3 @@
+import { buildRetentionScorecardsSnapshot, createRetentionScorecardsChecklist } from '../service-retention-scorecards.mjs';
+
+export function createRetentionScorecardsOpsRoutes(basePath='/ops/retention-scorecards'){const snapshot=buildRetentionScorecardsSnapshot(); return [{id:'retention-scorecards.ops.health',method:'GET',path:basePath+'/health',checklist:createRetentionScorecardsChecklist(snapshot)},{id:'retention-scorecards.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'retention-scorecards.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

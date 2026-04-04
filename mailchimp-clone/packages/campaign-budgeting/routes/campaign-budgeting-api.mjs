@@ -1,0 +1,3 @@
+import { buildCampaignBudgetingSnapshot, createCampaignBudgetingApiDocument } from '../service-campaign-budgeting.mjs';
+
+export function createCampaignBudgetingApiRoutes(basePath = '/api/campaign-budgeting') { const snapshot = buildCampaignBudgetingSnapshot(); return [{ id: 'campaign-budgeting.api.overview', method: 'GET', path: basePath + '/overview', summary: snapshot.summary }, { id: 'campaign-budgeting.api.validate', method: 'POST', path: basePath + '/validate', validation: snapshot.validation }, { id: 'campaign-budgeting.api.document', method: 'GET', path: basePath + '/document', document: createCampaignBudgetingApiDocument(snapshot) }]; }

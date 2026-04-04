@@ -1,0 +1,3 @@
+import { buildContentChecklistsSnapshot, createContentChecklistsChecklist } from '../service-content-checklists.mjs';
+
+export function createContentChecklistsOpsRoutes(basePath='/ops/content-checklists'){const snapshot=buildContentChecklistsSnapshot(); return [{id:'content-checklists.ops.health',method:'GET',path:basePath+'/health',checklist:createContentChecklistsChecklist(snapshot)},{id:'content-checklists.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'content-checklists.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

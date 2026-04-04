@@ -1,0 +1,3 @@
+import { buildCampaignBudgetingSnapshot, createCampaignBudgetingChecklist } from '../service-campaign-budgeting.mjs';
+
+export function createCampaignBudgetingOpsRoutes(basePath = '/ops/campaign-budgeting') { const snapshot = buildCampaignBudgetingSnapshot(); return [{ id: 'campaign-budgeting.ops.health', method: 'GET', path: basePath + '/health', checklist: createCampaignBudgetingChecklist(snapshot) }, { id: 'campaign-budgeting.ops.policies', method: 'GET', path: basePath + '/policies', policies: snapshot.policies }, { id: 'campaign-budgeting.ops.metrics', method: 'GET', path: basePath + '/metrics', scorecards: snapshot.workspace.scorecards }]; }

@@ -1,0 +1,3 @@
+export function createWorkspaceBudgetsFixtures(){return {contacts:[{id:'workspace-budgets-contact-1',email:'workspace.budgets+1@example.com',tier:'growth'},{id:'workspace-budgets-contact-2',email:'workspace.budgets+2@example.com',tier:'premium'}],workspaces:[{id:'workspace-budgets-ws-1',name:'Workspace Budgets Demo One'},{id:'workspace-budgets-ws-2',name:'Workspace Budgets Demo Two'}],notes:['Late closeout fixture for Workspace Budgets','Supports regression catalog rendering']};}
+
+export function summarizeWorkspaceBudgetsFixtures(fixtures=createWorkspaceBudgetsFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

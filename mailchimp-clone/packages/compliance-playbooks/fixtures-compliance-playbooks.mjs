@@ -1,0 +1,3 @@
+export function createCompliancePlaybooksFixtures(){return {contacts:[{id:'compliance-playbooks-contact-1',email:'compliance.playbooks+1@example.com',tier:'growth'},{id:'compliance-playbooks-contact-2',email:'compliance.playbooks+2@example.com',tier:'premium'}],workspaces:[{id:'compliance-playbooks-ws-1',name:'Compliance Playbooks Demo One'},{id:'compliance-playbooks-ws-2',name:'Compliance Playbooks Demo Two'}],notes:['Final continuation fixture for Compliance Playbooks','Supports regression catalog rendering']};}
+
+export function summarizeCompliancePlaybooksFixtures(fixtures=createCompliancePlaybooksFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

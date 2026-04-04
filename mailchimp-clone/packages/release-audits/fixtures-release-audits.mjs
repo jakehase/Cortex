@@ -1,0 +1,3 @@
+export function createReleaseAuditsFixtures(){return {contacts:[{id:'release-audits-contact-1',email:'release.audits+1@example.com',tier:'growth'},{id:'release-audits-contact-2',email:'release.audits+2@example.com',tier:'premium'}],workspaces:[{id:'release-audits-ws-1',name:'Release Audits Demo One'},{id:'release-audits-ws-2',name:'Release Audits Demo Two'}],notes:['Closeout fixture for Release Audits','Supports regression catalog rendering']};}
+
+export function summarizeReleaseAuditsFixtures(fixtures=createReleaseAuditsFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

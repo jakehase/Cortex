@@ -1,0 +1,3 @@
+import { buildPartnerOnboardingSnapshot, createPartnerOnboardingChecklist } from '../service-partner-onboarding.mjs';
+
+export function createPartnerOnboardingOpsRoutes(basePath = '/ops/partner-onboarding') { const snapshot = buildPartnerOnboardingSnapshot(); return [{ id: 'partner-onboarding.ops.health', method: 'GET', path: basePath + '/health', checklist: createPartnerOnboardingChecklist(snapshot) }, { id: 'partner-onboarding.ops.policies', method: 'GET', path: basePath + '/policies', policies: snapshot.policies }, { id: 'partner-onboarding.ops.metrics', method: 'GET', path: basePath + '/metrics', scorecards: snapshot.workspace.scorecards }]; }

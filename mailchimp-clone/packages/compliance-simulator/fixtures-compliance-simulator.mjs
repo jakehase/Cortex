@@ -1,0 +1,3 @@
+export function createComplianceSimulatorFixtures(){return {contacts:[{id:'compliance-simulator-contact-1',email:'compliance.simulator+1@example.com',tier:'growth'},{id:'compliance-simulator-contact-2',email:'compliance.simulator+2@example.com',tier:'premium'}],workspaces:[{id:'compliance-simulator-ws-1',name:'Compliance Simulator Demo One'},{id:'compliance-simulator-ws-2',name:'Compliance Simulator Demo Two'}],notes:['Closeout fixture for Compliance Simulator','Supports regression catalog rendering']};}
+
+export function summarizeComplianceSimulatorFixtures(fixtures=createComplianceSimulatorFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

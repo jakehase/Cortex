@@ -1,0 +1,3 @@
+import { buildPreferenceExportsSnapshot, createPreferenceExportsApiDocument } from '../service-preference-exports.mjs';
+
+export function createPreferenceExportsApiRoutes(basePath='/api/preference-exports'){const snapshot=buildPreferenceExportsSnapshot(); return [{id:'preference-exports.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'preference-exports.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'preference-exports.api.document',method:'GET',path:basePath+'/document',document:createPreferenceExportsApiDocument(snapshot)}];}

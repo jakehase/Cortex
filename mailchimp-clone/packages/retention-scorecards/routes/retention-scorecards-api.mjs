@@ -1,0 +1,3 @@
+import { buildRetentionScorecardsSnapshot, createRetentionScorecardsApiDocument } from '../service-retention-scorecards.mjs';
+
+export function createRetentionScorecardsApiRoutes(basePath='/api/retention-scorecards'){const snapshot=buildRetentionScorecardsSnapshot(); return [{id:'retention-scorecards.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'retention-scorecards.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'retention-scorecards.api.document',method:'GET',path:basePath+'/document',document:createRetentionScorecardsApiDocument(snapshot)}];}

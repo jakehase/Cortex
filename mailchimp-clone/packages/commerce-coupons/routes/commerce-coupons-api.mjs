@@ -1,0 +1,3 @@
+import { buildCommerceCouponsSnapshot, createCommerceCouponsApiDocument } from '../service-commerce-coupons.mjs';
+
+export function createCommerceCouponsApiRoutes(basePath = '/api/commerce-coupons') { const snapshot = buildCommerceCouponsSnapshot(); return [{ id: 'commerce-coupons.api.overview', method: 'GET', path: basePath + '/overview', summary: snapshot.summary }, { id: 'commerce-coupons.api.validate', method: 'POST', path: basePath + '/validate', validation: snapshot.validation }, { id: 'commerce-coupons.api.document', method: 'GET', path: basePath + '/document', document: createCommerceCouponsApiDocument(snapshot) }]; }

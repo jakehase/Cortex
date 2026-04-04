@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "meta": {
+    "title": "mailchimp-full-clone-program-4-7",
+    "createdAt": "2026-04-03T00:14:54.260Z",
+    "targetPath": "/root/clawd/mailchimp-clone"
+  },
+  "issues": [
+    {
+      "id": "arch_refactor_foundation",
+      "title": "Refactor repo into scalable app/package structure",
+      "lane": "architecture",
+      "owner": "unassigned",
+      "deps": [],
+      "parentId": null,
+      "children": [
+        "program4_automation_journeys",
+        "program5_forms_landing_pages",
+        "program6_reports_api_admin"
+      ],
+      "acceptanceCriteria": [
+        "src/server.js becomes a thin wrapper",
+        "product routes split across modular files",
+        "architecture enforcer passes"
+      ],
+      "status": "complete",
+      "artifacts": [
+        "apps/web/server.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/routes/audience.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "tests/architecture-hardening.test.mjs"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "program4_automation_journeys",
+      "title": "Program 4 automation overview and journey builder",
+      "lane": "program4",
+      "owner": "unassigned",
+      "deps": [
+        "arch_refactor_foundation"
+      ],
+      "parentId": null,
+      "children": [
+        "program7_hardening_regression"
+      ],
+      "acceptanceCriteria": [
+        "automation overview route exists",
+        "journey builder supports trigger, delay, branch, publish/pause/resume",
+        "broken-journey validation is visible"
+      ],
+      "status": "complete",
+      "artifacts": [
+        "packages/app/routes/automations.mjs",
+        "tests/automation-journeys.test.mjs"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "program5_forms_landing_pages",
+      "title": "Program 5 forms and landing page surfaces",
+      "lane": "program5",
+      "owner": "unassigned",
+      "deps": [
+        "arch_refactor_foundation"
+      ],
+      "parentId": null,
+      "children": [
+        "program7_hardening_regression"
+      ],
+      "acceptanceCriteria": [
+        "form builder exists",
+        "hosted signup/embed flow creates contacts",
+        "landing pages have publish validation and linkage"
+      ],
+      "status": "complete",
+      "artifacts": [
+        "packages/app/routes/forms.mjs",
+        "tests/forms-landing.test.mjs"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "program6_reports_api_admin",
+      "title": "Program 6 reports, analytics, API and admin surfaces",
+      "lane": "program6",
+      "owner": "unassigned",
+      "deps": [
+        "arch_refactor_foundation"
+      ],
+      "parentId": null,
+      "children": [
+        "program7_hardening_regression"
+      ],
+      "acceptanceCriteria": [
+        "reports overview and drilldown exist",
+        "API keys and webhooks exist",
+        "export history and admin state routes exist"
+      ],
+      "status": "complete",
+      "artifacts": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs",
+        "tests/reports-admin.test.mjs"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "program7_hardening_regression",
+      "title": "Program 7 parity sweep and hardening",
+      "lane": "program7",
+      "owner": "unassigned",
+      "deps": [
+        "program4_automation_journeys",
+        "program5_forms_landing_pages",
+        "program6_reports_api_admin"
+      ],
+      "parentId": null,
+      "children": [
+        "supervision_and_completion_artifacts"
+      ],
+      "acceptanceCriteria": [
+        "full regression suite passes",
+        "live smoke passes",
+        "final report and parity evidence exist"
+      ],
+      "status": "complete",
+      "artifacts": [
+        "tests/platform-spine.test.mjs",
+        "tests/audience-core.test.mjs",
+        "tests/campaign-pipeline.test.mjs",
+        "artifacts/mailchimp_clone/full_clone/validation/live_smoke_full_clone.json",
+        "docs/MAILCHIMP_FULL_CLONE_FINAL_REPORT_2026-04-02.md"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "supervision_and_completion_artifacts",
+      "title": "Contract, issue graph, surface matrix, supervisor state, notifier state, and summary are present",
+      "lane": "control-plane",
+      "owner": "unassigned",
+      "deps": [
+        "program7_hardening_regression"
+      ],
+      "parentId": null,
+      "children": [],
+      "acceptanceCriteria": [
+        "contract exists",
+        "issue graph exists",
+        "surface matrix all complete",
+        "program state green",
+        "completion summary exists"
+      ],
+      "status": "complete",
+      "artifacts": [
+        "contract.json",
+        "issue_graph.json",
+        "surface_matrix.json",
+        "program_state.json",
+        "completion_summary.json",
+        "notification_state.json"
+      ],
+      "notes": ""
+    }
+  ]
+}

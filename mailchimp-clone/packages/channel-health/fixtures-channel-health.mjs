@@ -1,0 +1,3 @@
+export function createChannelHealthFixtures(){return {contacts:[{id:'channel-health-contact-1',email:'channel.health+1@example.com',tier:'growth'},{id:'channel-health-contact-2',email:'channel.health+2@example.com',tier:'premium'}],workspaces:[{id:'channel-health-ws-1',name:'Channel Health Demo One'},{id:'channel-health-ws-2',name:'Channel Health Demo Two'}],notes:['Final continuation fixture for Channel Health','Supports regression catalog rendering']};}
+
+export function summarizeChannelHealthFixtures(fixtures=createChannelHealthFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

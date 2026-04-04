@@ -1,0 +1,3 @@
+import { buildJourneyAnnotationsSnapshot, createJourneyAnnotationsApiDocument } from '../service-journey-annotations.mjs';
+
+export function createJourneyAnnotationsApiRoutes(basePath='/api/journey-annotations'){const snapshot=buildJourneyAnnotationsSnapshot(); return [{id:'journey-annotations.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'journey-annotations.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'journey-annotations.api.document',method:'GET',path:basePath+'/document',document:createJourneyAnnotationsApiDocument(snapshot)}];}

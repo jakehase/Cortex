@@ -1,0 +1,3 @@
+import { buildReleaseTrainSnapshot, createReleaseTrainChecklist } from '../service-release-train.mjs';
+
+export function createReleaseTrainOpsRoutes(basePath = '/ops/release-train') { const snapshot = buildReleaseTrainSnapshot(); return [{ id: 'release-train.ops.health', method: 'GET', path: basePath + '/health', checklist: createReleaseTrainChecklist(snapshot) }, { id: 'release-train.ops.policies', method: 'GET', path: basePath + '/policies', policies: snapshot.policies }, { id: 'release-train.ops.metrics', method: 'GET', path: basePath + '/metrics', scorecards: snapshot.workspace.scorecards }]; }

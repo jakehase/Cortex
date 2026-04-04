@@ -1,0 +1,3 @@
+import { buildWorkspaceBudgetsSnapshot, createWorkspaceBudgetsApiDocument } from '../service-workspace-budgets.mjs';
+
+export function createWorkspaceBudgetsApiRoutes(basePath='/api/workspace-budgets'){const snapshot=buildWorkspaceBudgetsSnapshot(); return [{id:'workspace-budgets.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'workspace-budgets.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'workspace-budgets.api.document',method:'GET',path:basePath+'/document',document:createWorkspaceBudgetsApiDocument(snapshot)}];}

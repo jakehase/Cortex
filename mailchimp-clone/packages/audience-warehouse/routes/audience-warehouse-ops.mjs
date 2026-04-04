@@ -1,0 +1,3 @@
+import { buildAudienceWarehouseSnapshot, createAudienceWarehouseChecklist } from '../service-audience-warehouse.mjs';
+
+export function createAudienceWarehouseOpsRoutes(basePath = '/ops/audience-warehouse') { const snapshot = buildAudienceWarehouseSnapshot(); return [{ id: 'audience-warehouse.ops.health', method: 'GET', path: basePath + '/health', checklist: createAudienceWarehouseChecklist(snapshot) }, { id: 'audience-warehouse.ops.policies', method: 'GET', path: basePath + '/policies', policies: snapshot.policies }, { id: 'audience-warehouse.ops.metrics', method: 'GET', path: basePath + '/metrics', scorecards: snapshot.workspace.scorecards }]; }

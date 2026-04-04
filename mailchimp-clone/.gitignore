@@ -1,0 +1,7 @@
+node_modules/
+artifacts/
+data/
+completion_summary.json
+notification_state.json
+program_state.json
+*.log

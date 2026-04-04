@@ -1,0 +1,3 @@
+import { buildAudienceWarehouseSnapshot, createAudienceWarehouseApiDocument } from '../service-audience-warehouse.mjs';
+
+export function createAudienceWarehouseApiRoutes(basePath = '/api/audience-warehouse') { const snapshot = buildAudienceWarehouseSnapshot(); return [{ id: 'audience-warehouse.api.overview', method: 'GET', path: basePath + '/overview', summary: snapshot.summary }, { id: 'audience-warehouse.api.validate', method: 'POST', path: basePath + '/validate', validation: snapshot.validation }, { id: 'audience-warehouse.api.document', method: 'GET', path: basePath + '/document', document: createAudienceWarehouseApiDocument(snapshot) }]; }

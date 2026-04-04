@@ -1,0 +1,3 @@
+import { buildAudienceLabNotebooksSnapshot, createAudienceLabNotebooksApiDocument } from '../service-audience-lab-notebooks.mjs';
+
+export function createAudienceLabNotebooksApiRoutes(basePath='/api/audience-lab-notebooks'){const snapshot=buildAudienceLabNotebooksSnapshot(); return [{id:'audience-lab-notebooks.api.overview',method:'GET',path:basePath+'/overview',summary:snapshot.summary},{id:'audience-lab-notebooks.api.validate',method:'POST',path:basePath+'/validate',validation:snapshot.validation},{id:'audience-lab-notebooks.api.document',method:'GET',path:basePath+'/document',document:createAudienceLabNotebooksApiDocument(snapshot)}];}

@@ -1,0 +1,3 @@
+import { buildWorkspaceExpansionLedgerSnapshot, createWorkspaceExpansionLedgerChecklist } from '../service-workspace-expansion-ledger.mjs';
+
+export function createWorkspaceExpansionLedgerOpsRoutes(basePath='/ops/workspace-expansion-ledger'){const snapshot=buildWorkspaceExpansionLedgerSnapshot(); return [{id:'workspace-expansion-ledger.ops.health',method:'GET',path:basePath+'/health',checklist:createWorkspaceExpansionLedgerChecklist(snapshot)},{id:'workspace-expansion-ledger.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'workspace-expansion-ledger.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

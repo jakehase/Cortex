@@ -1,0 +1,3 @@
+import { buildWorkspaceBudgetsSnapshot, createWorkspaceBudgetsChecklist } from '../service-workspace-budgets.mjs';
+
+export function createWorkspaceBudgetsOpsRoutes(basePath='/ops/workspace-budgets'){const snapshot=buildWorkspaceBudgetsSnapshot(); return [{id:'workspace-budgets.ops.health',method:'GET',path:basePath+'/health',checklist:createWorkspaceBudgetsChecklist(snapshot)},{id:'workspace-budgets.ops.policies',method:'GET',path:basePath+'/policies',policies:snapshot.policies},{id:'workspace-budgets.ops.metrics',method:'GET',path:basePath+'/metrics',scorecards:snapshot.workspace.scorecards}];}

@@ -1,0 +1,3 @@
+export function createCampaignOpsFixtures(){return {contacts:[{id:'campaign-ops-contact-1',email:'campaign.ops+1@example.com',tier:'growth'},{id:'campaign-ops-contact-2',email:'campaign.ops+2@example.com',tier:'premium'}],workspaces:[{id:'campaign-ops-ws-1',name:'Campaign Ops Demo One'},{id:'campaign-ops-ws-2',name:'Campaign Ops Demo Two'}],notes:['Final continuation fixture for Campaign Ops','Supports regression catalog rendering']};}
+
+export function summarizeCampaignOpsFixtures(fixtures=createCampaignOpsFixtures()){return {contacts:fixtures.contacts.length,workspaces:fixtures.workspaces.length,notes:fixtures.notes.length};}

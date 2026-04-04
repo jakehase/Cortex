@@ -1,0 +1,3 @@
+import { buildDeliverabilityLabsSnapshot, createDeliverabilityLabsChecklist } from '../service-deliverability-labs.mjs';
+
+export function createDeliverabilityLabsOpsRoutes(basePath = '/ops/deliverability-labs') { const snapshot = buildDeliverabilityLabsSnapshot(); return [{ id: 'deliverability-labs.ops.health', method: 'GET', path: basePath + '/health', checklist: createDeliverabilityLabsChecklist(snapshot) }, { id: 'deliverability-labs.ops.policies', method: 'GET', path: basePath + '/policies', policies: snapshot.policies }, { id: 'deliverability-labs.ops.metrics', method: 'GET', path: basePath + '/metrics', scorecards: snapshot.workspace.scorecards }]; }
