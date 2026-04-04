@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T03:58:41.705Z",
+      "updatedAt": "2026-04-04T04:03:28.471Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 62,
+        "runs": 63,
         "failures": [],
-        "lastRunAt": "2026-04-04T03:58:41.713Z",
+        "lastRunAt": "2026-04-04T04:03:28.479Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11854,11 +11854,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1775270278266:6db6345c1539fd3b",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-04-04T02:37:58.266Z",
-      "updatedAt": "2026-04-04T03:35:30.230Z",
+      "updatedAt": "2026-04-04T04:04:58.216Z",
       "prompt": "No, I want to keep whatever is best (Cortex's original or clawhip) and just add it into Cortex if that makes sense. I don't want to just implement it all without due diligence on if it's replacing something that was superior",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 sentences and ask what they want to do. If the runtime model differs from default_model in the system prompt, mention the default model. Do not mention internal steps, files, tools, or reasoning. Current time: Friday, April 3rd,",
       "history": [
         {
@@ -11878,6 +11878,14 @@
           "completedAt": "2026-04-04T02:38:17.216Z",
           "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 sentences and ask what they want to do. If the runtime model differs from default_model in the system prompt, mention the default model. Do not mention internal steps, files, tools, or reasoning. Current time: Friday, April 3rd,",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-04T04:04:58.216Z",
+          "failedAt": "2026-04-04T04:04:58.216Z",
+          "failureReason": "System: [2026-04-03 22:32:55 CDT] Exec completed (grand-fa, code 0) :: .............. [100%] 14 passed in 5.98s System: [2026-04-03 22:33:41 CDT] Exec completed (grand-la, code 0) :: ........................................................................ [ 65%] ...................................... [100%] 110 passed in 36.93s System: [2026-04-03 22:34:20 CDT] Exec failed (calm-kel, code 0) :: 90",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -11959,7 +11967,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-04T02:38:17.216Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-04T04:04:58.216Z",
+      "failureReason": "System: [2026-04-03 22:32:55 CDT] Exec completed (grand-fa, code 0) :: .............. [100%] 14 passed in 5.98s System: [2026-04-03 22:33:41 CDT] Exec completed (grand-la, code 0) :: ........................................................................ [ 65%] ...................................... [100%] 110 passed in 36.93s System: [2026-04-03 22:34:20 CDT] Exec failed (calm-kel, code 0) :: 90",
+      "failureSource": "runtime_message"
     }
   ]
 }
