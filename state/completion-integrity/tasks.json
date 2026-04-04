@@ -3978,7 +3978,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:00:51.262Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T14:43:53.160Z",
+      "updatedAt": "2026-04-04T14:48:17.512Z",
       "history": [
         {
           "from": null,
@@ -3996,9 +3996,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-04-04T14:43:53.168Z",
+        "lastRunAt": "2026-04-04T14:48:17.519Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -12370,11 +12370,11 @@
       "id": "agent:main:subagent:6a02c779-01e5-48ea-bcc3-7fab993f1b3c:1775313590152:15253ac5d28a07e5",
       "sessionKey": "agent:main:subagent:6a02c779-01e5-48ea-bcc3-7fab993f1b3c",
       "createdAt": "2026-04-04T14:39:50.153Z",
-      "updatedAt": "2026-04-04T14:39:50.160Z",
+      "updatedAt": "2026-04-04T14:49:21.795Z",
       "prompt": "[Sat 2026-04-04 09:39 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the WORKER for a long-run strict Mailchimp 1:1 clone cam",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -12386,6 +12386,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-04T14:39:50.160Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-04T14:49:21.795Z",
+          "failedAt": "2026-04-04T14:49:21.795Z",
+          "failureReason": "on-planner generated scale surface stays executable and policy-complete --- duration_ms: 2.804135 type: 'test' ... # Subtest: localization-qa routes honor custom base paths and stable ids ok 596 - localization-qa routes honor custom base paths and stable ids --- duration_ms: 1.092955 type: 'test' ... # Subtest: localization-qa package expands the real-repo wave with route catalogs ok 597 - localiz",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -12435,7 +12443,10 @@
         "required": true,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-04T14:49:21.795Z",
+      "failureReason": "on-planner generated scale surface stays executable and policy-complete --- duration_ms: 2.804135 type: 'test' ... # Subtest: localization-qa routes honor custom base paths and stable ids ok 596 - localization-qa routes honor custom base paths and stable ids --- duration_ms: 1.092955 type: 'test' ... # Subtest: localization-qa package expands the real-repo wave with route catalogs ok 597 - localiz",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:subagent:ccf998b3-c91e-4ba0-9089-df2aa900b4e3:1775313590311:1d0aaad1bfb7965e",
