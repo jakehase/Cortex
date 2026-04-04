@@ -3975,10 +3975,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T13:56:18.004Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 8:55 AM (America/Chicago) / 2026-03-19 13:55 UTC\"}],\"timestamp\":1773928553719},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:00:51.262Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-03-19T13:56:18.004Z",
+      "updatedAt": "2026-04-04T14:38:43.029Z",
       "history": [
         {
           "from": null,
@@ -3996,28 +3996,48 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-04-04T14:38:43.037Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "trustTier": "normal",
       "contract": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "requestedFidelity": null,
         "requestedScope": null,
         "stopCondition": null
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completionSource": "agent_end",
+      "grounding": {
+        "required": false,
+        "ambiguousReference": false,
+        "proofPresent": true,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
       }
     },
     {
@@ -4026,18 +4046,26 @@
       "createdAt": "2026-03-19T09:45:51.107Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T13:51:04.275Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:55:51.253Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T14:33:34.196Z",
+      "updatedAt": "2026-04-04T14:38:12.697Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T13:51:04.275Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-04T14:38:12.697Z",
+          "failedAt": "2026-04-04T14:38:12.697Z",
+          "failureReason": "To https://github.com/jakehase/Cortex.git 41991414..6976331f HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -4091,7 +4119,10 @@
       "cloneParity": {
         "required": false,
         "proofPresent": true
-      }
+      },
+      "failedAt": "2026-04-04T14:38:12.697Z",
+      "failureReason": "To https://github.com/jakehase/Cortex.git 41991414..6976331f HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913851117",
@@ -12263,6 +12294,239 @@
       "failedAt": "2026-04-04T14:37:01.005Z",
       "failureReason": "System: [2026-04-04 09:00:31 CDT] Exec completed (tidal-se, code 1) :: l/process/task_queues:103:5) async TestContext.<anonymous> (file:///root/clawd/mailchimp-clone/tests/current-product-browser-realism.test.mjs:6:18) async Test.run (node:internal/t… System: [2026-04-04 09:01:27 CDT] Exec completed (tidy-orb, code 1) :: wd/mailchimp-clone/packages/app/router.mjs:25:21) Server.<anonymous> (file://",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:c25cb94f-8255-4343-998a-f0e5fdc9e55d:1775313531079:f7dc9fdff80f36bf",
+      "sessionKey": "agent:main:subagent:c25cb94f-8255-4343-998a-f0e5fdc9e55d",
+      "createdAt": "2026-04-04T14:38:51.079Z",
+      "updatedAt": "2026-04-04T14:38:51.086Z",
+      "prompt": "[Sat 2026-04-04 09:38 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the NOTIFIER/WATCHER for a long-run strict Mailchimp 1:1",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-04T14:38:51.079Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-04T14:38:51.086Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": false,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": true,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "full_clone",
+        "requestedScope": "[Sat 2026-04-04 09:38 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the NOTIFIER/WATCHER for a long-run ",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      }
+    },
+    {
+      "id": "agent:main:subagent:6a02c779-01e5-48ea-bcc3-7fab993f1b3c:1775313590152:15253ac5d28a07e5",
+      "sessionKey": "agent:main:subagent:6a02c779-01e5-48ea-bcc3-7fab993f1b3c",
+      "createdAt": "2026-04-04T14:39:50.153Z",
+      "updatedAt": "2026-04-04T14:39:50.160Z",
+      "prompt": "[Sat 2026-04-04 09:39 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the WORKER for a long-run strict Mailchimp 1:1 clone cam",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-04T14:39:50.153Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-04T14:39:50.160Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": true,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "full_clone",
+        "requestedScope": "[Sat 2026-04-04 09:39 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the WORKER for a long-run strict Mai",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      }
+    },
+    {
+      "id": "agent:main:subagent:ccf998b3-c91e-4ba0-9089-df2aa900b4e3:1775313590311:1d0aaad1bfb7965e",
+      "sessionKey": "agent:main:subagent:ccf998b3-c91e-4ba0-9089-df2aa900b4e3",
+      "createdAt": "2026-04-04T14:39:50.311Z",
+      "updatedAt": "2026-04-04T14:41:39.439Z",
+      "prompt": "[Sat 2026-04-04 09:39 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the SUPERVISOR for a long-run strict Mailchimp 1:1 clone",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "internal_complete",
+      "completionSummary": "14:41:37.531Z , screenshot: /root/clawd/mailchimp-clone/artifacts/strict_1to1/current_product_browser_proof/validation/screenshots/automation_omnichannel.png, notes: , endedAt: 2026-04-04T14:41:37.733Z , id: content_depth, label: Content depth flows for reusable assets and lineage, startedAt: 2026-04-04T14:41:37.733Z, checks: id: content_template_save, det",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-04T14:39:50.311Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-04T14:39:50.320Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-04T14:41:39.439Z",
+          "completedAt": "2026-04-04T14:41:39.439Z",
+          "completionSummary": "14:41:37.531Z , screenshot: /root/clawd/mailchimp-clone/artifacts/strict_1to1/current_product_browser_proof/validation/screenshots/automation_omnichannel.png, notes: , endedAt: 2026-04-04T14:41:37.733Z , id: content_depth, label: Content depth flows for reusable assets and lineage, startedAt: 2026-04-04T14:41:37.733Z, checks: id: content_template_save, det",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-04T14:41:39.451Z",
+            "reason": "task_contract_proof_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-04T14:41:39.451Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": true,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "full_clone",
+        "requestedScope": "[Sat 2026-04-04 09:39 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: You are the SUPERVISOR for a long-run strict",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-04T14:41:39.439Z",
+      "completionSource": "runtime_message"
     }
   ]
 }
