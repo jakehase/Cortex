@@ -1,0 +1,10 @@
+--- /usr/lib/node_modules/openclaw/dist/auth-profiles-B5ypC5S-.js.bak-whatsapp-thread-bindings-20260404141059	2026-04-04 14:10:59.921005061 -0500
++++ /usr/lib/node_modules/openclaw/dist/auth-profiles-B5ypC5S-.js	2026-04-04 14:40:46.311578905 -0500
+@@ -180172,6 +180172,7 @@
+ 	}
+ 	if (requestThreadBinding) {
+ 		const bindResult = await ensureThreadBindingForSubagentSpawn({
++			cfg,
+ 			hookRunner,
+ 			childSessionKey,
+ 			agentId: targetAgentId,
