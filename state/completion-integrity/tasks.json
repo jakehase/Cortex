@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T05:18:29.475Z",
+      "updatedAt": "2026-04-04T05:23:44.353Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 78,
+        "runs": 79,
         "failures": [],
-        "lastRunAt": "2026-04-04T05:18:29.481Z",
+        "lastRunAt": "2026-04-04T05:23:44.358Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -12062,11 +12062,11 @@
       "id": "agent:main:subagent:19194c57-9e03-4536-af2c-4cd11c9fed34:1775279389521:31067cd73599ea0e",
       "sessionKey": "agent:main:subagent:19194c57-9e03-4536-af2c-4cd11c9fed34",
       "createdAt": "2026-04-04T05:09:49.521Z",
-      "updatedAt": "2026-04-04T05:09:49.529Z",
+      "updatedAt": "2026-04-04T05:26:24.521Z",
       "prompt": "[Sat 2026-04-04 00:09 CDT] [Subagent Context] You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. [Subagent Task]: Implement the Mailchimp current-product parity roadmap as a long",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -12078,6 +12078,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-04T05:09:49.529Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-04T05:26:24.521Z",
+          "failedAt": "2026-04-04T05:26:24.521Z",
+          "failureReason": "livery</button></form></div><div class=\"card\"><h3>Send now</h3><form method=\"post\" action=\"/campaigns/camp_e6297f27a7ca/send\"><button >Queue immediate send</button></form></div><div class=\"card\"><h3>Experimentation</h3><p><a href=\"/campaigns/camp_e6297f27a7ca/experiments\">Open A/B and dynamic content lab</a></p><p>Winner promoted: not yet</p></div><div class=\"card\"><h3>Optimization</h3><p><a href=",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -12127,7 +12135,10 @@
         "required": true,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-04T05:26:24.521Z",
+      "failureReason": "livery</button></form></div><div class=\"card\"><h3>Send now</h3><form method=\"post\" action=\"/campaigns/camp_e6297f27a7ca/send\"><button >Queue immediate send</button></form></div><div class=\"card\"><h3>Experimentation</h3><p><a href=\"/campaigns/camp_e6297f27a7ca/experiments\">Open A/B and dynamic content lab</a></p><p>Winner promoted: not yet</p></div><div class=\"card\"><h3>Optimization</h3><p><a href=",
+      "failureSource": "runtime_message"
     }
   ]
 }
