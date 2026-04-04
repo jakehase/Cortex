@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T13:48:31.199Z",
+      "updatedAt": "2026-04-04T13:53:40.232Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 180,
+        "runs": 181,
         "failures": [],
-        "lastRunAt": "2026-04-04T13:48:31.207Z",
+        "lastRunAt": "2026-04-04T13:53:40.240Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11976,12 +11976,12 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1775277688046:9cc306c1b4952d85",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-04-04T04:41:28.046Z",
-      "updatedAt": "2026-04-04T13:44:46.848Z",
+      "updatedAt": "2026-04-04T13:55:05.087Z",
       "prompt": "System: [2026-04-03 23:06:00 CDT] Exec completed (delta-me, code 0) :: admin shell, API auth --- duration_ms: 139.456429 type: 'test' ... # Subtest: Program 6 reports, analytics, API/admin surfaces, export and history state ok 7 - Program 6",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Commit/push it and then do another extremely thorough audit of Mailchimp. Over every single detail from frontend to backend and make sure what we have matches it 1:1 🦞 OpenClaw 2026.3.28 (f9b1079) 🕒 Time: Saturday, April 4th, 2026 — 8:36 AM (America/Chicago) 🧠 Model: openai-co",
+      "completionSummary": "System: 2026-04-04 08:38:05 CDT Exec completed (nimble-o, code 0) :: reply , id: continuation.preferences-center, ok: true, detail: hosted preference profile updates , id: continuation.transactional-messaging, ok: true, deta… System: 2026-04-04 08:38:36 CDT Exec completed (fast-s",
       "history": [
         {
           "from": null,
@@ -12011,12 +12011,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 11,
+        "runs": 12,
         "failures": [],
-        "lastRunAt": "2026-04-04T13:44:46.853Z",
+        "lastRunAt": "2026-04-04T13:55:05.092Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "grounding": {
@@ -12056,7 +12056,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-04T04:41:28.114Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     },
     {
       "id": "agent:main:subagent:19194c57-9e03-4536-af2c-4cd11c9fed34:1775279389521:31067cd73599ea0e",
