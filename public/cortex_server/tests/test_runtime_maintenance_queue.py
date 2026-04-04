@@ -306,3 +306,60 @@ def test_runtime_maintenance_queue_reflects_session_blockers(tmp_path, monkeypat
     assert queue_item["status"] == "blocked"
     assert queue_item["projection"]["session_plane"]["status"] == "blocked"
     assert "need human answer" in queue_item["projection"]["session_plane"]["open_questions"]
+
+
+def test_runtime_maintenance_queue_does_not_block_on_single_retry_without_human_question(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(
+        orchestrator,
+        "resilient_delivery_attempt",
+        lambda dependency, operation, **kwargs: {"success": True, "dependency": dependency, "queued": False, "result": operation()},
+    )
+    orchestrator.workflows.clear()
+
+    item = asyncio.run(
+        orchestrator.intake_runtime_maintenance_item(
+            orchestrator.RuntimeMaintenanceIntakeRequest(
+                title="Retry should stay active",
+                text="A single retry-needed without a human blocker should not demote the queue item to blocked.",
+                item_kind="fix",
+                max_active_items=1,
+                dependability_profile=dict(MINIMAL_PROFILE),
+                reporting_policy=dict(REPORTING_POLICY),
+                message=orchestrator.RuntimeMaintenanceIntakeMessage(
+                    text="Retry should stay active",
+                    channel="whatsapp",
+                    conversation_id="chat:maintenance:retry",
+                    session_key="session:maintenance:retry",
+                    message_id="wamid.queue.retry.1",
+                ),
+            )
+        )
+    )["item"]
+
+    now = datetime(2026, 3, 4, tzinfo=timezone.utc)
+    asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=False, now_iso=now.isoformat().replace("+00:00", "Z"))))
+    queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item["item_id"]))["item"]
+
+    asyncio.run(
+        orchestrator.record_runtime_session_event(
+            orchestrator.RuntimeSessionEventRequest(
+                process_id=queue_item["process_id"],
+                event="session.retry-needed",
+                session_id=queue_item["projection"]["session_plane"]["session_id"],
+                session_name=queue_item["projection"]["session_plane"]["session_name"],
+                tool="codex",
+                summary="retry scheduled",
+            )
+        )
+    )
+    asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=False, now_iso=(now + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"))))
+    queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item["item_id"]))["item"]
+
+    assert queue_item["status"] == "active"
+    assert queue_item["projection"]["session_plane"]["status"] == "retry-needed"

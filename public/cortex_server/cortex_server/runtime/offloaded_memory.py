@@ -34,6 +34,8 @@ class RuntimeMemoryStore:
         if not self.hot_path.exists():
             self.hot_path.write_text(
                 "# Runtime Memory\n\n"
+                "> Non-authoritative runtime notes only.\n\n"
+                "Authoritative runtime state lives in snapshots, shared state, and the process journal.\n\n"
                 "Hot pointers only. Detailed runtime memory lives in:\n"
                 "- processes/\n"
                 "- sessions/\n"
@@ -59,6 +61,7 @@ class RuntimeMemoryStore:
         self.ensure_layout()
         text = (
             f"## {_now().isoformat()} {title}\n"
+            "authority: non-authoritative\n"
             f"{note.strip()}\n"
         )
         if metadata:
@@ -75,6 +78,7 @@ class RuntimeMemoryStore:
         path = self._session_path(event.process_id, session_id)
         text = (
             f"## {event.ts} {event.kind}\n"
+            "authority: non-authoritative\n"
             f"tool: {event.tool or 'unknown'}\n"
             f"summary: {event.summary or event.operator_summary}\n"
             f"operator_summary: {event.operator_summary}\n"

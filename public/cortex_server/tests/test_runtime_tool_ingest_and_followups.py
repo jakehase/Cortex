@@ -25,7 +25,7 @@ def _workflow() -> dict:
     }
 
 
-def test_tool_ingest_normalizes_events_and_enqueues_follow_up(tmp_path, monkeypatch):
+def test_tool_ingest_normalizes_events_without_follow_up_by_default(tmp_path, monkeypatch):
     monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
     monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
     monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
@@ -52,11 +52,46 @@ def test_tool_ingest_normalizes_events_and_enqueues_follow_up(tmp_path, monkeypa
     assert result["event"]["kind"] == "session.blocked"
     assert result["session"]["status"] == "blocked"
     assert result["snapshot"]["session_state"]["status"] == "blocked"
-    assert result["follow_up_dispatch"]["runtime_kind"] == "session"
-    assert result["follow_up_dispatch"]["summary"] == "need API key"
+    assert result["snapshot"]["session_state"]["authority"] == "derived"
+    assert result["follow_up_dispatch"] is None
 
     dlq = asyncio.run(orchestrator.get_runtime_delivery_dlq())
     assert dlq["entries"] == []
 
     sessions = asyncio.run(orchestrator.list_runtime_sessions(process_id=process["process_id"]))
     assert sessions["sessions"][0]["open_questions"] == ["need API key"]
+
+
+def test_tool_ingest_enqueues_follow_up_when_explicit_policy_allows_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(scheduler, "DEFAULT_STATE_PATH", tmp_path / "reasoning_scheduler.json")
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", tmp_path / "runtime.db")
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", tmp_path / "runtime_delivery")
+    monkeypatch.setattr(
+        orchestrator,
+        "resilient_delivery_attempt",
+        lambda dependency, operation, **kwargs: {"success": True, "dependency": dependency, "queued": False, "result": operation()},
+    )
+
+    workflow = _workflow()
+    workflow["metadata"]["session_follow_up_policy"] = {
+        "enabled": True,
+        "allowed_update_kinds": ["blocker"],
+        "auto_send_owned_whatsapp": False,
+    }
+    process = scheduler.create_process_from_workflow(workflow)
+    result = asyncio.run(
+        orchestrator.ingest_runtime_tool_event(
+            orchestrator.RuntimeToolIngestRequest(
+                process_id=process["process_id"],
+                tool="codex",
+                event="task.blocked",
+                session_id="sess_1",
+                session_name="issue-123",
+                payload={"reason": "need API key"},
+            )
+        )
+    )
+
+    assert result["follow_up_dispatch"]["runtime_kind"] == "session"
+    assert result["follow_up_dispatch"]["summary"] == "need API key"
+    assert result["follow_up_dispatch"]["metadata"]["policy_source"] == "session_follow_up_policy"

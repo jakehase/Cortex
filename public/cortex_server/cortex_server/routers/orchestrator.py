@@ -83,6 +83,10 @@ from cortex_server.runtime import (
     WatchRegistration,
     WatcherRuntimeStore,
     adapt_tool_event,
+    derive_session_plane,
+    resolve_session_follow_up_policy,
+    session_follow_up_allowed,
+    session_plane_is_blocking,
     apply_release_rollback_restore,
     capture_release_rollback_fencepost,
     detect_true_blockers,
@@ -187,6 +191,12 @@ def _upsert_runtime_shared_state_from_session_event(process_id: str, event: Any,
         )
     world_state = dict(current.world_state or {})
     session_row = stores["session_registry"].get(process_id=process_id, session_id=str(event.session_id or process_id))
+    derived_session_plane = derive_session_plane(
+        process=get_runtime_process(process_id) or {"process_id": process_id},
+        session_rows=[model_dump_compat(session_row)] if session_row is not None else [],
+        watcher_rows=[model_dump_compat(row) for row in stores["watcher_store"].list(process_id=process_id)],
+        shared_state=model_dump_compat(current),
+    )
     world_state.update(
         {
             "last_session_event": event.kind,
@@ -194,11 +204,9 @@ def _upsert_runtime_shared_state_from_session_event(process_id: str, event: Any,
             "last_session_summary": event.summary or event.operator_summary,
             "last_session_tool": event.tool,
             "session_status": session_row.status if session_row is not None else None,
+            "session_plane": derived_session_plane,
         }
     )
-    open_questions = list(current.open_questions or [])
-    if event.kind in {"session.blocked", "session.handoff-needed", "session.retry-needed", "session.test-failed", "session.stale"}:
-        open_questions = _append_unique_text(open_questions, event.summary or event.operator_summary)
     updated = SharedProcessState(
         process_id=current.process_id,
         state_id=current.state_id,
@@ -210,10 +218,10 @@ def _upsert_runtime_shared_state_from_session_event(process_id: str, event: Any,
         runtime_constraints=dict(current.runtime_constraints or {}),
         world_state=world_state,
         belief_refs=list(current.belief_refs or []),
-        open_questions=open_questions,
+        open_questions=list(current.open_questions or []),
         agent_ownership=dict(current.agent_ownership or {}),
         operator_overrides=dict(current.operator_overrides or {}),
-        metadata={**dict(current.metadata or {}), "last_session_event_id": event.event_id},
+        metadata={**dict(current.metadata or {}), "last_session_event_id": event.event_id, "session_plane_authority": "derived"},
     )
     return shared_state_store.save(updated, expected_revision_id=current.revision_id, actor=str(event.tool or "runtime-session"), provenance={"source": "runtime_session_event", "event_kind": event.kind})
 
@@ -387,21 +395,8 @@ def _runtime_session_plane_status(*, stores: Dict[str, Any], process_id: Optiona
 def _snapshot_session_state(*, process: Dict[str, Any], stores: Dict[str, Any], process_id: str) -> Dict[str, Any]:
     session_rows = [model_dump_compat(row) for row in stores["session_registry"].list(process_id=process_id)]
     watcher_rows = [model_dump_compat(row) for row in stores["watcher_store"].list(process_id=process_id)]
-    projection = dict(process.get("session_projection") or {})
-    primary = dict(session_rows[0]) if session_rows else {}
-    return {
-        "projection": projection,
-        "status": str(primary.get("status") or projection.get("status") or process.get("status") or "scheduled"),
-        "session_id": str(primary.get("session_id") or projection.get("session_id") or process_id),
-        "session_name": str(primary.get("session_name") or projection.get("session_name") or ((process.get("workflow") or {}).get("name") or process_id)),
-        "tool": str(primary.get("tool") or projection.get("tool") or "cortex-runtime"),
-        "retry_count": int(primary.get("retry_count") or projection.get("retry_count") or 0),
-        "open_questions": list(primary.get("open_questions") or projection.get("open_questions") or []),
-        "watcher_ids": list(primary.get("watcher_ids") or []),
-        "watcher_count": len(watcher_rows),
-        "sessions": session_rows,
-        "watchers": watcher_rows,
-    }
+    derived = derive_session_plane(process=process, session_rows=session_rows, watcher_rows=watcher_rows)
+    return dict(derived or {"authority": "derived", "authority_source": "process", "status": str(process.get("status") or "scheduled"), "session_id": process_id, "session_name": ((process.get("workflow") or {}).get("name") if isinstance(process.get("workflow"), dict) else None) or process_id, "tool": "cortex-runtime", "retry_count": 0, "watcher_count": len(watcher_rows), "session_count": len(session_rows), "open_questions": [], "watcher_ids": [], "sessions": session_rows, "watchers": watcher_rows})
 
 
 def _upsert_runtime_snapshot_session_state(*, process_id: str, stores: Dict[str, Any], process: Optional[Dict[str, Any]] = None) -> Optional[ProcessSnapshot]:
@@ -477,6 +472,21 @@ def _runtime_session_follow_up_context(process: Dict[str, Any]) -> Dict[str, Any
     }
 
 
+def _runtime_session_follow_up_policy(process: Dict[str, Any], *, stores: Dict[str, Any]) -> Dict[str, Any]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    process_id = str(process.get("process_id") or "").strip()
+    roadmap_contract = stores["roadmap_store"].load_contract(process_id) if process_id else None
+    production_contract = stores["loop_store"].load_contract(process_id) if process_id else None
+    roadmap_policy = model_dump_compat(getattr(roadmap_contract, "reporting_policy", None)) if roadmap_contract is not None and getattr(roadmap_contract, "reporting_policy", None) is not None else None
+    production_policy = model_dump_compat(getattr(production_contract, "checkpoint_policy", None)) if production_contract is not None and getattr(production_contract, "checkpoint_policy", None) is not None else None
+    return resolve_session_follow_up_policy(
+        workflow_metadata=metadata,
+        roadmap_reporting_policy=roadmap_policy,
+        production_checkpoint_policy=production_policy,
+    )
+
+
 _SESSION_FOLLOW_UP_EVENT_KINDS = {
     "session.blocked": "blocker",
     "session.retry-needed": "retry",
@@ -493,6 +503,9 @@ def _enqueue_session_follow_up(*, process: Dict[str, Any], event: Any, stores: D
     if not update_kind:
         return None
     context = _runtime_session_follow_up_context(process)
+    policy = _runtime_session_follow_up_policy(process, stores=stores)
+    if not session_follow_up_allowed(policy, update_kind=update_kind):
+        return None
     summary = str(event.summary or event.operator_summary).strip() or event.kind
     fingerprint = f"session:{process.get('process_id')}:{event.session_id or process.get('process_id')}:{event.kind}:{summary}"
     record = stores["follow_up_store"].enqueue(
@@ -516,10 +529,11 @@ def _enqueue_session_follow_up(*, process: Dict[str, Any], event: Any, stores: D
                 "tool": event.tool,
                 "operator_summary": event.operator_summary,
                 "owned": context.get("owned"),
+                "policy_source": policy.get("source"),
             },
         )
     )
-    if context.get("owned") and str(context.get("channel") or "").strip().lower() == "whatsapp":
+    if bool(policy.get("auto_send_owned_whatsapp")) and context.get("owned") and str(context.get("channel") or "").strip().lower() == "whatsapp":
         success, error = _deliver_runtime_follow_up(record)
         now_iso = datetime.now().astimezone().isoformat(timespec="milliseconds").replace("+00:00", "Z")
         if success:
@@ -1599,10 +1613,8 @@ def _runtime_maintenance_queue_sync(
             if derived in {"active", "completed", "blocked"}:
                 derived_status = derived
         session_plane = _snapshot_session_state(process=process, stores=stores, process_id=item.process_id) if item.process_id and isinstance(process, dict) else None
-        if derived_status == "active" and isinstance(session_plane, dict):
-            session_status = str(session_plane.get("status") or "").strip()
-            if session_status in {"blocked", "retry-needed", "handoff-needed", "stale", "test-failed", "failed"}:
-                derived_status = "blocked"
+        if derived_status == "active" and isinstance(session_plane, dict) and session_plane_is_blocking(session_plane):
+            derived_status = "blocked"
         if derived_status == "active":
             active_count += 1
             item.claimed_at = item.claimed_at or now_iso

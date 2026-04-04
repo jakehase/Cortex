@@ -15,6 +15,15 @@ from cortex_server.runtime.watchers import WatchRegistration, WatcherRuntimeStor
 from cortex_server.runtime.delivery_resilience import DeliveryDeadLetterEntry, DeliveryDeadLetterStore, resilient_delivery_attempt
 from cortex_server.runtime.offloaded_memory import RuntimeMemoryStore
 from cortex_server.runtime.tool_event_adapter import adapt_tool_event
+from cortex_server.runtime.session_plane import (
+    SESSION_BLOCKER_STATUSES,
+    derive_session_plane,
+    merge_unique_text,
+    resolve_session_follow_up_policy,
+    session_follow_up_allowed,
+    session_plane_blocker_entry,
+    session_plane_is_blocking,
+)
 from cortex_server.runtime.production_build_loop import (
     BuildLoopControllerOwner,
     ProductionBlockerRule,
@@ -125,6 +134,13 @@ __all__ = [
     "DeliveryDeadLetterStore",
     "RuntimeMemoryStore",
     "adapt_tool_event",
+    "SESSION_BLOCKER_STATUSES",
+    "derive_session_plane",
+    "merge_unique_text",
+    "resolve_session_follow_up_policy",
+    "session_follow_up_allowed",
+    "session_plane_blocker_entry",
+    "session_plane_is_blocking",
     "ReleaseRollbackFencepost",
     "ReleaseWorkflowHistoryRecord",
     "ReleaseWorkflowState",

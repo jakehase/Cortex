@@ -21,6 +21,7 @@ from cortex_server.modules.reasoning_scheduler import (
     resume_process,
     wake_process,
 )
+from cortex_server.runtime import derive_session_plane, session_plane_blocker_entry
 
 
 JsonDict = Dict[str, Any]
@@ -71,9 +72,6 @@ def _sync_queue(stores: Dict[str, Any]) -> Dict[str, Any]:
     return orchestrator._runtime_maintenance_queue_sync(stores=stores, now=None, allow_claim=False)
 
 
-_SESSION_BLOCKER_STATUSES = {"blocked", "retry-needed", "handoff-needed", "stale", "test-failed", "failed"}
-
-
 def _session_plane_view(
     *,
     process: Optional[JsonDict],
@@ -84,50 +82,17 @@ def _session_plane_view(
     queue_projection = ((queue_item or {}).get("projection") if isinstance((queue_item or {}).get("projection"), dict) else {}) or {}
     queue_session_plane = dict(queue_projection.get("session_plane") or {}) if isinstance(queue_projection.get("session_plane"), dict) else {}
     snapshot_session_state = dict((snapshot or {}).get("session_state") or {}) if isinstance((snapshot or {}).get("session_state"), dict) else {}
-    process_projection = dict((process or {}).get("session_projection") or {}) if isinstance((process or {}).get("session_projection"), dict) else {}
-    if not queue_session_plane and not snapshot_session_state and not process_projection:
-        return None
-
-    open_questions: List[str] = []
-    for source in (
-        queue_session_plane.get("open_questions") if isinstance(queue_session_plane.get("open_questions"), list) else [],
-        snapshot_session_state.get("open_questions") if isinstance(snapshot_session_state.get("open_questions"), list) else [],
-        process_projection.get("open_questions") if isinstance(process_projection.get("open_questions"), list) else [],
-        (shared_state or {}).get("open_questions") if isinstance((shared_state or {}).get("open_questions"), list) else [],
-    ):
-        for value in source:
-            text = str(value or "").strip()
-            if text and text not in open_questions:
-                open_questions.append(text)
-
-    status = (
-        str(queue_session_plane.get("status") or "").strip()
-        or str(snapshot_session_state.get("status") or "").strip()
-        or str(process_projection.get("status") or "").strip()
-        or str((process or {}).get("status") or "").strip()
-        or "unknown"
+    watcher_rows = list(queue_session_plane.get("watchers") or []) if isinstance(queue_session_plane.get("watchers"), list) else []
+    if not watcher_rows and isinstance(queue_session_plane.get("watcher_count"), int) and int(queue_session_plane.get("watcher_count") or 0) > 0:
+        watcher_rows = [{} for _ in range(int(queue_session_plane.get("watcher_count") or 0))]
+    return derive_session_plane(
+        process=process,
+        session_rows=list(queue_session_plane.get("sessions") or []),
+        watcher_rows=watcher_rows,
+        snapshot_state=snapshot_session_state,
+        shared_state=shared_state,
+        queue_session_plane=queue_session_plane,
     )
-    session_count = int(queue_session_plane.get("session_count") or len(queue_session_plane.get("sessions") or []) or (1 if (snapshot_session_state or process_projection) else 0))
-    watcher_count = int(queue_session_plane.get("watcher_count") or snapshot_session_state.get("watcher_count") or 0)
-    retry_count = int(queue_session_plane.get("retry_count") or snapshot_session_state.get("retry_count") or process_projection.get("retry_count") or 0)
-    operator_summary = (
-        str(queue_session_plane.get("operator_summary") or "").strip()
-        or str(snapshot_session_state.get("last_summary") or "").strip()
-        or str(process_projection.get("last_summary") or "").strip()
-        or (open_questions[0] if open_questions else None)
-    )
-    return {
-        "status": status,
-        "session_id": str(queue_session_plane.get("session_id") or snapshot_session_state.get("session_id") or process_projection.get("session_id") or (process or {}).get("process_id") or "").strip() or None,
-        "session_name": str(queue_session_plane.get("session_name") or snapshot_session_state.get("session_name") or process_projection.get("session_name") or (((process or {}).get("workflow") or {}).get("name") if isinstance((process or {}).get("workflow"), dict) else "") or "").strip() or None,
-        "tool": str(queue_session_plane.get("tool") or snapshot_session_state.get("tool") or process_projection.get("tool") or "").strip() or None,
-        "retry_count": retry_count,
-        "watcher_count": watcher_count,
-        "session_count": session_count,
-        "open_questions": open_questions,
-        "last_event_kind": str(snapshot_session_state.get("last_event_kind") or process_projection.get("last_event_kind") or "").strip() or None,
-        "operator_summary": operator_summary,
-    }
 
 
 def _status_rank(status: Optional[str]) -> int:
@@ -490,15 +455,9 @@ def _objective_view(*, process: Optional[JsonDict], queue_item: Optional[JsonDic
     blockers: List[JsonDict] = []
     blockers.extend(list((roadmap_state or {}).get("true_blockers") or []))
     blockers.extend(list((delivery_state or {}).get("true_blockers") or []))
-    if isinstance(session_plane, dict) and str(session_plane.get("status") or "") in _SESSION_BLOCKER_STATUSES:
-        blockers.append(
-            {
-                "source": "session_plane",
-                "summary": str(session_plane.get("operator_summary") or ((session_plane.get("open_questions") or ["session plane blocked"])[0])).strip() or "session plane blocked",
-                "requires_human": bool(session_plane.get("open_questions")),
-                "terminal": str(session_plane.get("status") or "") in {"failed", "test-failed"},
-            }
-        )
+    session_blocker = session_plane_blocker_entry(session_plane)
+    if isinstance(session_blocker, dict):
+        blockers.append(session_blocker)
     if queue_payload is not None and str(queue_payload.get("status") or "") == "blocked" and not blockers:
         blockers.append(
             {

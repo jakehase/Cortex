@@ -12,5 +12,8 @@ def test_runtime_memory_store_writes_hot_index_and_shards(tmp_path: Path):
     assert (tmp_path / "memory" / "MEMORY.md").exists()
     assert process_path.exists()
     assert session_path.exists()
+    assert "Non-authoritative runtime notes only" in (tmp_path / "memory" / "MEMORY.md").read_text(encoding="utf-8")
+    assert "authority: non-authoritative" in process_path.read_text(encoding="utf-8")
     assert "retry loop" in process_path.read_text(encoding="utf-8")
+    assert "authority: non-authoritative" in session_path.read_text(encoding="utf-8")
     assert "worker started" in session_path.read_text(encoding="utf-8")
