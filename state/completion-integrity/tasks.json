@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T02:48:35.192Z",
+      "updatedAt": "2026-04-04T02:53:34.960Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 48,
+        "runs": 49,
         "failures": [],
-        "lastRunAt": "2026-04-04T02:48:35.197Z",
+        "lastRunAt": "2026-04-04T02:53:34.965Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11854,7 +11854,7 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1775270278266:6db6345c1539fd3b",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-04-04T02:37:58.266Z",
-      "updatedAt": "2026-04-04T02:38:17.216Z",
+      "updatedAt": "2026-04-04T02:57:47.257Z",
       "prompt": "No, I want to keep whatever is best (Cortex's original or clawhip) and just add it into Cortex if that makes sense. I don't want to just implement it all without due diligence on if it's replacing something that was superior",
       "kind": "user_visible",
       "trustTier": "important",
@@ -11889,14 +11889,22 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 1,
+        "runs": 3,
         "failures": [
           {
             "at": "2026-04-04T02:38:17.225Z",
             "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-04T02:57:01.339Z",
+            "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-04T02:57:47.262Z",
+            "reason": "task_contract_proof_missing"
           }
         ],
-        "lastRunAt": "2026-04-04T02:38:17.225Z",
+        "lastRunAt": "2026-04-04T02:57:47.262Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
