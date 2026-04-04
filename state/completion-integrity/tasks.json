@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T01:38:33.104Z",
+      "updatedAt": "2026-04-04T01:43:18.239Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 34,
+        "runs": 35,
         "failures": [],
-        "lastRunAt": "2026-04-04T01:38:33.112Z",
+        "lastRunAt": "2026-04-04T01:43:18.247Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11684,6 +11684,88 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-04T01:25:25.621Z",
       "failureReason": "id=\"chat:maintenance:blocker\", session_key=\"session:maintenance:blocker\", message_id=\"wamid.queue.blocker.1\", ), ) ) )[\"item\"] now = datetime(2026, 3, 3, tzinfo=timezone.utc) asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=False, now_iso=now.isoformat().replace(\"+00:00\", \"Z\")))) queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item[\"i",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1775267244583:9affe57596a4b3ce",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-04-04T01:47:24.583Z",
+      "updatedAt": "2026-04-04T01:47:24.652Z",
+      "prompt": "System: [2026-04-03 20:25:21 CDT] Exec completed (dawn-orb, code 1) :: ----------------------------- Captured stdout call ----------------------------- [DIPLOMAT] BRIEFING: [Cortex] Runtime update ═══════════════════ ⏰ 20:25 roadmap objecti",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-04T01:47:24.583Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-04T01:47:24.590Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-04T01:47:24.652Z",
+          "failedAt": "2026-04-04T01:47:24.652Z",
+          "failureReason": "System: [2026-04-03 20:25:21 CDT] Exec completed (dawn-orb, code 1) :: ----------------------------- Captured stdout call ----------------------------- [DIPLOMAT] BRIEFING: [Cortex] Runtime update ═══════════════════ ⏰ 20:25 roadmap objective active … System: [2026-04-03 20:25:55 CDT] Exec completed (kind-riv, code 0) :: ..... [100%] 5 passed in 0.89s System: [2026-04-03 20:26:40 CDT] Exec complet",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-03 20:25:21 CDT] Exec completed (dawn-orb, code 1) :: ----------------------------- Captured stdout call ----------------------------- [DIPLOMAT] BRIEFING: [Cortex] Runtime update ═══════════════════ ⏰ 2",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-04T01:47:24.652Z",
+      "failureReason": "System: [2026-04-03 20:25:21 CDT] Exec completed (dawn-orb, code 1) :: ----------------------------- Captured stdout call ----------------------------- [DIPLOMAT] BRIEFING: [Cortex] Runtime update ═══════════════════ ⏰ 20:25 roadmap objective active … System: [2026-04-03 20:25:55 CDT] Exec completed (kind-riv, code 0) :: ..... [100%] 5 passed in 0.89s System: [2026-04-03 20:26:40 CDT] Exec complet",
       "failureSource": "runtime_message"
     }
   ]
