@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T02:28:37.065Z",
+      "updatedAt": "2026-04-04T02:33:28.542Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 44,
+        "runs": 45,
         "failures": [],
-        "lastRunAt": "2026-04-04T02:28:37.079Z",
+        "lastRunAt": "2026-04-04T02:33:28.550Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11849,6 +11849,77 @@
       "failedAt": "2026-04-04T02:16:45.030Z",
       "failureReason": "System: [2026-04-03 21:09:04 CDT] Exec completed (nova-dun, code 0) :: ────────────────────────────────┴────────┴─────────┴──────────────┴─────────────────────────────────┘ FAQ: https://docs.openclaw.ai/faq Troubleshooting: https://docs.openclaw.ai/t… System: [2026-04-03 21:09:06 CDT] Exec completed (good-cov, code 0) :: ts/cortex_roadmap/r9_adaptive_routing_brain/step4/replay_probe_latest.json:36",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1775270278266:6db6345c1539fd3b",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-04-04T02:37:58.266Z",
+      "updatedAt": "2026-04-04T02:37:58.274Z",
+      "prompt": "No, I want to keep whatever is best (Cortex's original or clawhip) and just add it into Cortex if that makes sense. I don't want to just implement it all without due diligence on if it's replacing something that was superior",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-04T02:37:58.266Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-04T02:37:58.274Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "No, I want to keep whatever is best (Cortex's original or clawhip) and just add it into Cortex if that makes sense. I don't want to just implement it all without due diligence on if it's replacing something that was supe",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
