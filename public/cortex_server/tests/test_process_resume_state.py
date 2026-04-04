@@ -31,6 +31,7 @@ def test_compile_runtime_resume_state_merges_durable_sources():
         completed_steps=["step0"],
         assigned_agents={"step1": "planner"},
         runtime_policy={"verification_mode": "strict"},
+        session_state={"status": "blocked", "retry_count": 2, "open_questions": ["Need API key"]},
         world_state={"service": "degraded"},
         belief_refs=["claim-1"],
         artifact_refs=["artifact-1"],
@@ -66,6 +67,8 @@ def test_compile_runtime_resume_state_merges_durable_sources():
     assert resume.source_handoff_id == handoff.handoff_id
     assert resume.assigned_agents["step1"] == "planner"
     assert resume.assigned_agents["step2"] == "researcher"
+    assert resume.session_state["status"] == "blocked"
+    assert resume.session_state["retry_count"] == 2
     assert resume.runtime_constraints["verification_mode"] == "strict"
     assert resume.runtime_constraints["execution_mode"] == "sequential"
     assert resume.world_state["service"] == "degraded"
@@ -117,6 +120,7 @@ def test_assemble_runtime_process_explain_surfaces_resume_state():
         completed_steps=["step0"],
         assigned_agents={"step1": "planner"},
         runtime_policy={"verification_mode": "strict"},
+        session_state={"status": "retry-needed", "retry_count": 1},
         world_state={"service": "degraded"},
         belief_refs=["claim-1"],
         artifact_refs=["artifact-1"],
@@ -168,5 +172,7 @@ def test_assemble_runtime_process_explain_surfaces_resume_state():
     assert explained["runtime_resume_state"]["source_state_id"] == "state_1"
     assert explained["runtime_resume_state"]["handoff_objective"] == "Investigate degraded service"
     assert explained["runtime_resume_state"]["runtime_constraints"]["execution_mode"] == "sequential"
+    assert explained["runtime_resume_state"]["session_state"]["status"] == "retry-needed"
+    assert explained["session_plane_summary"]["status"] == "retry-needed"
     assert explained["runtime_resume_state"]["world_state"]["service"] == "degraded"
     assert explained["runtime_resume_state"]["world_state"]["region"] == "us-central"

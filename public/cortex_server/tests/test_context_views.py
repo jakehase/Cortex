@@ -23,6 +23,7 @@ def test_compile_working_context_view_merges_snapshot_shared_state_and_handoff()
         active_steps=["step1"],
         waiting_steps=["step2"],
         runtime_policy={"verification_mode": "strict"},
+        session_state={"status": "blocked", "open_questions": ["Need approval"]},
         world_state={"service": "degraded"},
         belief_refs=["claim-1"],
         artifact_refs=["artifact-1"],
@@ -73,6 +74,7 @@ def test_compile_working_context_view_merges_snapshot_shared_state_and_handoff()
     assert view.source_snapshot_id == "snap_1"
     assert view.source_state_id == "state_1"
     assert view.source_handoff_id == handoff.handoff_id
+    assert view.session_state["status"] == "blocked"
     assert view.ownership_scope == ["step1"]
     assert view.recent_event_ids == ["evt_2", "evt_3"]
     assert view.omitted_event_count == 1
@@ -87,7 +89,7 @@ def test_compile_working_context_view_merges_snapshot_shared_state_and_handoff()
 
 
 def test_compile_handoff_context_view_surfaces_transfer_packet():
-    snapshot = ProcessSnapshot(process_id="proc_123", snapshot_id="snap_1", lifecycle_state="running", active_steps=["step1"], world_state={"service": "degraded"}, belief_refs=["claim-1"])
+    snapshot = ProcessSnapshot(process_id="proc_123", snapshot_id="snap_1", lifecycle_state="running", active_steps=["step1"], session_state={"status": "running", "watcher_count": 2}, world_state={"service": "degraded"}, belief_refs=["claim-1"])
     state = SharedProcessState(
         process_id="proc_123",
         state_id="state_1",
@@ -125,6 +127,7 @@ def test_compile_handoff_context_view_surfaces_transfer_packet():
     assert view.artifact_ref_ids == ["artifact-2"]
     assert view.lifecycle_state == "running"
     assert view.runtime_constraints["verification_mode"] == "strict"
+    assert view.session_state["status"] == "running"
     assert view.world_state["service"] == "degraded"
     assert view.world_state["region"] == "us-central"
     assert "claim-1" in view.belief_refs and "claim-2" in view.belief_refs

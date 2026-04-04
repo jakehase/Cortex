@@ -122,6 +122,8 @@ def test_runtime_maintenance_intake_claim_and_follow_up(tmp_path, monkeypatch):
     assert queue_item["status"] == "active"
     assert queue_item["process_id"] is not None
     assert queue_item["projection"]["roadmap_status"] == "active"
+    assert queue_item["projection"]["session_plane"]["status"] in {"running", "scheduled", "active"}
+    assert queue_item["projection"]["session_plane"]["watcher_count"] >= 1
     assert queue_item["projection"]["conversation_ownership"]["conversation_id"] == "chat:maintenance:intake"
 
     tick_two = asyncio.run(
@@ -135,9 +137,11 @@ def test_runtime_maintenance_intake_claim_and_follow_up(tmp_path, monkeypatch):
     )
     queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item["item_id"]))["item"]
     follow_ups = orchestrator._runtime_delivery_stores()["follow_up_store"].list(process_id=queue_item["process_id"], runtime_kind="roadmap")
+    queue_status = asyncio.run(orchestrator.get_runtime_maintenance_queue())["queue"]
 
     assert tick_two["watchdog"]["action_count"] >= 1
     assert queue_item["projection"]["follow_through"]["outbound_update"]["delivery_status"] == "sent"
+    assert queue_status["session_counts"][queue_item["projection"]["session_plane"]["status"]] >= 1
     assert len(follow_ups) == 1
     assert len(sent) == 1
     assert "Fix WhatsApp intake bridge" in sent[0]["message"]
@@ -238,8 +242,67 @@ def test_runtime_maintenance_queue_autonomously_advances_next_item(tmp_path, mon
     assert tick_two["watchdog"]["maintenance_queue"]["action_count"] == 1
     assert queue["counts"]["completed"] == 1
     assert queue["counts"]["active"] == 1
+    assert queue["session_counts"][second_item["projection"]["session_plane"]["status"]] >= 1
     assert first_item["status"] == "completed"
     assert first_item["completed_at"] is not None
     assert second_item["status"] == "active"
     assert second_item["process_id"] is not None
     assert second_item["process_id"] != first_item["process_id"]
+
+
+def test_runtime_maintenance_queue_reflects_session_blockers(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(
+        orchestrator,
+        "resilient_delivery_attempt",
+        lambda dependency, operation, **kwargs: {"success": True, "dependency": dependency, "queued": False, "result": operation()},
+    )
+    orchestrator.workflows.clear()
+
+    item = asyncio.run(
+        orchestrator.intake_runtime_maintenance_item(
+            orchestrator.RuntimeMaintenanceIntakeRequest(
+                title="Unstick coding worker",
+                text="Queue item should reflect live session blockers.",
+                item_kind="fix",
+                max_active_items=1,
+                dependability_profile=dict(MINIMAL_PROFILE),
+                reporting_policy=dict(REPORTING_POLICY),
+                message=orchestrator.RuntimeMaintenanceIntakeMessage(
+                    text="Please unstick the coding worker",
+                    channel="whatsapp",
+                    conversation_id="chat:maintenance:blocker",
+                    session_key="session:maintenance:blocker",
+                    message_id="wamid.queue.blocker.1",
+                ),
+            )
+        )
+    )["item"]
+
+    now = datetime(2026, 3, 3, tzinfo=timezone.utc)
+    asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=False, now_iso=now.isoformat().replace("+00:00", "Z"))))
+    queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item["item_id"]))["item"]
+
+    asyncio.run(
+        orchestrator.record_runtime_session_event(
+            orchestrator.RuntimeSessionEventRequest(
+                process_id=queue_item["process_id"],
+                event="session.blocked",
+                session_id=queue_item["projection"]["session_plane"]["session_id"],
+                session_name=queue_item["projection"]["session_plane"]["session_name"],
+                tool="codex",
+                summary="need human answer",
+            )
+        )
+    )
+    asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=False, now_iso=(now + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"))))
+    queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item["item_id"]))["item"]
+
+    assert queue_item["status"] == "blocked"
+    assert queue_item["projection"]["session_plane"]["status"] == "blocked"
+    assert "need human answer" in queue_item["projection"]["session_plane"]["open_questions"]

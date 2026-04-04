@@ -72,6 +72,7 @@ class WorkingContextView(BaseModel):
     active_plan_node_ids: List[str] = Field(default_factory=list)
     open_decisions: List[Dict[str, Any]] = Field(default_factory=list)
     runtime_constraints: Dict[str, Any] = Field(default_factory=dict)
+    session_state: Dict[str, Any] = Field(default_factory=dict)
     world_state: Dict[str, Any] = Field(default_factory=dict)
     belief_refs: List[str] = Field(default_factory=list)
     artifact_refs: List[str] = Field(default_factory=list)
@@ -113,6 +114,7 @@ class HandoffContextView(BaseModel):
     lifecycle_state: Optional[str] = None
     active_plan_node_ids: List[str] = Field(default_factory=list)
     runtime_constraints: Dict[str, Any] = Field(default_factory=dict)
+    session_state: Dict[str, Any] = Field(default_factory=dict)
     world_state: Dict[str, Any] = Field(default_factory=dict)
     belief_refs: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -174,6 +176,7 @@ def compile_working_context_view(
         active_plan_node_ids=list(shared_state.active_plan_node_ids or snapshot.active_steps),
         open_decisions=[row.model_dump() if hasattr(row, "model_dump") else row.dict() for row in shared_state.open_decisions],
         runtime_constraints=dict(shared_state.runtime_constraints or snapshot.runtime_policy),
+        session_state=dict(snapshot.session_state or {}),
         world_state={**dict(snapshot.world_state or {}), **dict(shared_state.world_state or {})},
         belief_refs=_dedupe_strs(belief_refs),
         artifact_refs=_dedupe_strs(artifact_refs),
@@ -228,6 +231,7 @@ def compile_handoff_context_view(
         lifecycle_state=snapshot.lifecycle_state if snapshot else None,
         active_plan_node_ids=list(shared_state.active_plan_node_ids or (snapshot.active_steps if snapshot else [])),
         runtime_constraints=dict(shared_state.runtime_constraints or (snapshot.runtime_policy if snapshot else {})),
+        session_state=dict((snapshot.session_state if snapshot else {}) or {}),
         world_state={**dict(snapshot.world_state or {}), **dict(shared_state.world_state or {})} if snapshot else dict(shared_state.world_state or {}),
         belief_refs=_dedupe_strs(list(shared_state.belief_refs) + (list(snapshot.belief_refs) if snapshot else [])),
         metadata={

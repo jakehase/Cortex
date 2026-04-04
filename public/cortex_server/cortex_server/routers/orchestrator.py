@@ -60,8 +60,10 @@ from cortex_server.modules.reasoning_scheduler import (
 from cortex_server.runtime import (
     AgentMailbox,
     AgentSupervisor,
+    DeliveryDeadLetterStore,
     MaintenanceQueueItem,
     MaintenanceQueueStore,
+    RuntimeMemoryStore,
     ProcessJournal,
     ProcessSnapshot,
     ProcessSnapshotStore,
@@ -75,15 +77,21 @@ from cortex_server.runtime import (
     RoadmapObjectiveContract,
     RuntimeFollowUpDispatch,
     RuntimeFollowUpStore,
+    SessionRegistryStore,
     SharedProcessState,
     SharedProcessStateStore,
+    WatchRegistration,
+    WatcherRuntimeStore,
+    adapt_tool_event,
     apply_release_rollback_restore,
     capture_release_rollback_fencepost,
     detect_true_blockers,
     evaluate_production_completion,
+    normalize_session_event,
     record_release_fencepost,
     reconcile_production_build_loop,
     reconcile_roadmap_execution,
+    resilient_delivery_attempt,
 )
 
 router = APIRouter()
@@ -124,6 +132,10 @@ def _runtime_delivery_stores() -> Dict[str, Any]:
         "snapshot_store": ProcessSnapshotStore(root / "snapshots"),
         "shared_state_store": SharedProcessStateStore(root / "shared_state"),
         "journal": ProcessJournal(root / "journal.jsonl"),
+        "session_registry": SessionRegistryStore(root / "session_registry.json"),
+        "watcher_store": WatcherRuntimeStore(root / "watchers.json"),
+        "runtime_memory_store": RuntimeMemoryStore(root / "memory"),
+        "delivery_dlq": DeliveryDeadLetterStore(root / "delivery_dlq.jsonl"),
         "mailbox": AgentMailbox(root / "mailbox.json"),
         "supervisor": AgentSupervisor(root / "leases.json"),
         "release_store": ReleaseWorkflowStore(root / "release_workflow"),
@@ -140,6 +152,380 @@ def _parse_optional_dt(value: Optional[str]) -> Optional[datetime]:
     if not text:
         return None
     return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+def _next_runtime_revision_id(process_id: str, current_revision_id: Optional[str] = None) -> str:
+    suffix = datetime.now().strftime("%Y%m%dT%H%M%S%fZ")
+    current = str(current_revision_id or "").strip()
+    base = current.rsplit("@", 1)[0] if current else f"runtime_{process_id}"
+    return f"{base}@{suffix}"
+
+
+def _append_unique_text(rows: List[str], value: Optional[str]) -> List[str]:
+    out = [str(row).strip() for row in (rows or []) if str(row).strip()]
+    text = str(value or "").strip()
+    if text and text not in out:
+        out.append(text)
+    return out
+
+
+def _upsert_runtime_shared_state_from_session_event(process_id: str, event: Any, *, stores: Dict[str, Any]) -> Optional[SharedProcessState]:
+    shared_state_store = stores["shared_state_store"]
+    current = shared_state_store.load(process_id)
+    if current is None:
+        current = SharedProcessState(
+            process_id=process_id,
+            revision_id=_next_runtime_revision_id(process_id),
+            goals=[f"Track runtime state for {process_id}"],
+            active_plan_node_ids=[],
+            runtime_constraints={},
+            world_state={},
+            belief_refs=[],
+            open_questions=[],
+            agent_ownership={},
+            metadata={"bootstrapped_from_session_event": True},
+        )
+    world_state = dict(current.world_state or {})
+    session_row = stores["session_registry"].get(process_id=process_id, session_id=str(event.session_id or process_id))
+    world_state.update(
+        {
+            "last_session_event": event.kind,
+            "last_session_event_at": event.ts,
+            "last_session_summary": event.summary or event.operator_summary,
+            "last_session_tool": event.tool,
+            "session_status": session_row.status if session_row is not None else None,
+        }
+    )
+    open_questions = list(current.open_questions or [])
+    if event.kind in {"session.blocked", "session.handoff-needed", "session.retry-needed", "session.test-failed", "session.stale"}:
+        open_questions = _append_unique_text(open_questions, event.summary or event.operator_summary)
+    updated = SharedProcessState(
+        process_id=current.process_id,
+        state_id=current.state_id,
+        revision_id=_next_runtime_revision_id(process_id, current.revision_id),
+        updated_at=datetime.utcnow().isoformat(timespec="milliseconds") + "Z",
+        goals=list(current.goals or []),
+        active_plan_node_ids=list(current.active_plan_node_ids or []),
+        open_decisions=list(current.open_decisions or []),
+        runtime_constraints=dict(current.runtime_constraints or {}),
+        world_state=world_state,
+        belief_refs=list(current.belief_refs or []),
+        open_questions=open_questions,
+        agent_ownership=dict(current.agent_ownership or {}),
+        operator_overrides=dict(current.operator_overrides or {}),
+        metadata={**dict(current.metadata or {}), "last_session_event_id": event.event_id},
+    )
+    return shared_state_store.save(updated, expected_revision_id=current.revision_id, actor=str(event.tool or "runtime-session"), provenance={"source": "runtime_session_event", "event_kind": event.kind})
+
+
+def _record_runtime_session_event(*, process_id: str, event: Any, stores: Dict[str, Any]) -> Dict[str, Any]:
+    process = get_runtime_process(process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{process_id}' not found")
+
+    session_registry = stores["session_registry"]
+    journal = stores["journal"]
+    runtime_memory_store = stores["runtime_memory_store"]
+
+    session_registry.apply_event(event)
+    journal.append(
+        process_id=process_id,
+        kind=event.kind,
+        actor=event.tool,
+        payload={
+            **dict(event.payload or {}),
+            "operator_summary": event.operator_summary,
+            "session_id": event.session_id,
+            "session_name": event.session_name,
+            "raw_event": event.raw_event,
+        },
+    )
+    record_runtime_event(process_id, event.kind, {**dict(event.payload or {}), "operator_summary": event.operator_summary})
+    shared_state = _upsert_runtime_shared_state_from_session_event(process_id, event, stores=stores)
+    memory_path = runtime_memory_store.write_session_event(event)
+    refreshed = get_runtime_process(process_id)
+    snapshot = _upsert_runtime_snapshot_session_state(process_id=process_id, stores=stores, process=refreshed or process)
+    follow_up = _enqueue_session_follow_up(process=refreshed or process, event=event, stores=stores)
+    return {
+        "success": True,
+        "process": refreshed or process,
+        "session": (session_registry.get(process_id=process_id, session_id=str(event.session_id or process_id))),
+        "shared_state": shared_state,
+        "snapshot": snapshot,
+        "memory_path": str(memory_path),
+        "event": event,
+        "follow_up_dispatch": follow_up,
+    }
+
+
+def _runtime_workspace_targets_from_process(process: Dict[str, Any]) -> List[str]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    candidates = []
+    for key in ("workspace_path", "workspace_root", "repo_root", "repo_path", "target_path"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            candidates.append(value)
+    for value in (metadata.get("workspace_paths") or []):
+        text = str(value or "").strip()
+        if text:
+            candidates.append(text)
+    out: List[str] = []
+    for value in candidates:
+        if value not in out:
+            out.append(value)
+    return out
+
+
+def _bootstrap_runtime_session_plane(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    session_id = str(metadata.get("runtime_session_id") or process_id).strip() or process_id
+    session_name = str(workflow.get("name") or session_id).strip() or session_id
+    tool = str(metadata.get("runtime_tool") or "cortex-runtime").strip() or "cortex-runtime"
+
+    session = stores["session_registry"].register(
+        process_id=process_id,
+        session_id=session_id,
+        session_name=session_name,
+        tool=tool,
+        source="runtime_bootstrap",
+        stale_after_seconds=int(metadata.get("session_stale_after_seconds") or 900),
+        parent_process={"process_id": process_id, "workflow_name": workflow.get("name")},
+        metadata={"bootstrapped": True},
+    )
+    default_watchers: List[Dict[str, Any]] = []
+    heartbeat_watcher = stores["watcher_store"].register(
+        WatchRegistration(
+            process_id=process_id,
+            kind="session-heartbeat",
+            target=session_id,
+            session_id=session_id,
+            session_name=session_name,
+            tool=tool,
+            stale_after_seconds=session.stale_after_seconds,
+            metadata={"bootstrapped": True},
+        )
+    )
+    stores["session_registry"].attach_watcher(process_id=process_id, session_id=session_id, watcher_id=heartbeat_watcher.watch_id)
+    default_watchers.append(model_dump_compat(heartbeat_watcher))
+
+    for target in _runtime_workspace_targets_from_process(process):
+        watcher = stores["watcher_store"].register(
+            WatchRegistration(
+                process_id=process_id,
+                kind="workspace",
+                target=target,
+                session_id=session_id,
+                session_name=session_name,
+                tool="workspace",
+                debounce_seconds=float(metadata.get("workspace_debounce_seconds") or 1.0),
+                metadata={"bootstrapped": True},
+            )
+        )
+        stores["session_registry"].attach_watcher(process_id=process_id, session_id=session_id, watcher_id=watcher.watch_id)
+        default_watchers.append(model_dump_compat(watcher))
+
+    stores["runtime_memory_store"].write_process_note(
+        process_id=process_id,
+        title="Session plane bootstrapped",
+        note=f"bootstrapped session={session_id} tool={tool} watchers={len(default_watchers)}",
+        metadata={"session_id": session_id, "watcher_count": len(default_watchers)},
+    )
+
+    event = normalize_session_event(
+        process_id,
+        "session.started",
+        tool=tool,
+        session_id=session_id,
+        session_name=session_name,
+        summary="runtime session plane bootstrapped",
+        payload={"bootstrapped": True, "watcher_count": len(default_watchers)},
+    )
+    recorded = _record_runtime_session_event(process_id=process_id, event=event, stores=stores)
+    return {
+        "session": model_dump_compat(recorded.get("session")),
+        "shared_state": model_dump_compat(recorded.get("shared_state")) if recorded.get("shared_state") is not None else None,
+        "memory_path": recorded.get("memory_path"),
+        "watchers": default_watchers,
+        "event": model_dump_compat(event),
+    }
+
+
+def _ensure_runtime_session_plane_bootstrap(process_id: str, *, process: Dict[str, Any], stores: Dict[str, Any]) -> Dict[str, Any]:
+    existing_sessions = [model_dump_compat(row) for row in stores["session_registry"].list(process_id=process_id)]
+    existing_watchers = [model_dump_compat(row) for row in stores["watcher_store"].list(process_id=process_id)]
+    if existing_sessions:
+        session = existing_sessions[0]
+        return {
+            "session": session,
+            "shared_state": model_dump_compat(stores["shared_state_store"].load(process_id)) if stores["shared_state_store"].load(process_id) is not None else None,
+            "memory_path": None,
+            "watchers": existing_watchers,
+            "event": None,
+        }
+    return _bootstrap_runtime_session_plane(process_id, process=process, stores=stores)
+
+
+def _runtime_session_plane_status(*, stores: Dict[str, Any], process_id: Optional[str] = None) -> Dict[str, Any]:
+    stores["session_registry"].detect_stale()
+    sessions = stores["session_registry"].list(process_id=process_id)
+    watchers = stores["watcher_store"].list(process_id=process_id)
+    by_status: Dict[str, int] = {}
+    for row in sessions:
+        status = str(row.status or "unknown")
+        by_status[status] = by_status.get(status, 0) + 1
+    return {
+        "session_count": len(sessions),
+        "watcher_count": len(watchers),
+        "sessions_by_status": by_status,
+        "dlq_count": len(stores["delivery_dlq"].list()),
+        "memory_root": str(stores["runtime_memory_store"].root),
+    }
+
+
+def _snapshot_session_state(*, process: Dict[str, Any], stores: Dict[str, Any], process_id: str) -> Dict[str, Any]:
+    session_rows = [model_dump_compat(row) for row in stores["session_registry"].list(process_id=process_id)]
+    watcher_rows = [model_dump_compat(row) for row in stores["watcher_store"].list(process_id=process_id)]
+    projection = dict(process.get("session_projection") or {})
+    primary = dict(session_rows[0]) if session_rows else {}
+    return {
+        "projection": projection,
+        "status": str(primary.get("status") or projection.get("status") or process.get("status") or "scheduled"),
+        "session_id": str(primary.get("session_id") or projection.get("session_id") or process_id),
+        "session_name": str(primary.get("session_name") or projection.get("session_name") or ((process.get("workflow") or {}).get("name") or process_id)),
+        "tool": str(primary.get("tool") or projection.get("tool") or "cortex-runtime"),
+        "retry_count": int(primary.get("retry_count") or projection.get("retry_count") or 0),
+        "open_questions": list(primary.get("open_questions") or projection.get("open_questions") or []),
+        "watcher_ids": list(primary.get("watcher_ids") or []),
+        "watcher_count": len(watcher_rows),
+        "sessions": session_rows,
+        "watchers": watcher_rows,
+    }
+
+
+def _upsert_runtime_snapshot_session_state(*, process_id: str, stores: Dict[str, Any], process: Optional[Dict[str, Any]] = None) -> Optional[ProcessSnapshot]:
+    snapshot_store = stores["snapshot_store"]
+    snapshot = snapshot_store.load(process_id)
+    current_process = process or get_runtime_process(process_id)
+    if not isinstance(current_process, dict):
+        return snapshot
+    session_state = _snapshot_session_state(process=current_process, stores=stores, process_id=process_id)
+    if snapshot is None:
+        workflow = current_process.get("workflow") if isinstance(current_process.get("workflow"), dict) else {}
+        metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+        nodes = current_process.get("nodes") if isinstance(current_process.get("nodes"), dict) else {}
+        active_steps = [node_id for node_id, row in nodes.items() if isinstance(row, dict) and str(row.get("status") or "") == "running"]
+        waiting_steps = [node_id for node_id, row in nodes.items() if isinstance(row, dict) and str(row.get("status") or "") in {"waiting", "blocked", "ready", "pending"}]
+        completed_steps = [node_id for node_id, row in nodes.items() if isinstance(row, dict) and str(row.get("status") or "") == "completed"]
+        failed_steps = [node_id for node_id, row in nodes.items() if isinstance(row, dict) and str(row.get("status") or "") in {"failed", "cancelled"}]
+        if str(current_process.get("status") or "") in {"completed"}:
+            lifecycle_state = "completed"
+        elif str(current_process.get("status") or "") in {"failed", "cancelled"}:
+            lifecycle_state = "failed"
+        elif active_steps:
+            lifecycle_state = "running"
+        else:
+            lifecycle_state = "waiting"
+        latest_event = stores["journal"].latest(process_id=process_id)
+        if latest_event is None:
+            latest_event = stores["journal"].append(
+                process_id=process_id,
+                kind="runtime_session_snapshot_bootstrap",
+                actor="runtime-session",
+                payload={"process_status": current_process.get("status"), "workflow_name": workflow.get("name")},
+            )
+        shared_state = stores["shared_state_store"].load(process_id)
+        snapshot = ProcessSnapshot(
+            process_id=process_id,
+            last_event_id=latest_event.event_id,
+            event_count=max(1, len(stores["journal"].load(process_id=process_id))),
+            lifecycle_state=lifecycle_state,
+            active_steps=active_steps,
+            waiting_steps=waiting_steps,
+            completed_steps=completed_steps,
+            failed_steps=failed_steps,
+            assigned_agents={node_id: owner for node_id, owner in dict((shared_state.agent_ownership if shared_state is not None else {}) or {}).items()},
+            runtime_policy=dict(((metadata.get("policy") or {}).get("settings") or {})),
+            session_state=session_state,
+            world_state={**dict((shared_state.world_state if shared_state is not None else {}) or {}), "process_status": str(current_process.get("status") or lifecycle_state), "session_status": session_state.get("status")},
+            belief_refs=list((shared_state.belief_refs if shared_state is not None else []) or []),
+            artifact_refs=[],
+            metadata={"bootstrapped_from_session_event": True},
+        )
+    snapshot.session_state = session_state
+    snapshot.metadata = {**dict(snapshot.metadata or {}), "session_plane": {"status": session_state.get("status"), "watcher_count": session_state.get("watcher_count"), "session_count": len(session_state.get("sessions") or [])}}
+    snapshot.world_state = {**dict(snapshot.world_state or {}), "session_status": session_state.get("status"), "session_retry_count": session_state.get("retry_count")}
+    return snapshot_store.save(snapshot)
+
+
+def _runtime_session_follow_up_context(process: Dict[str, Any]) -> Dict[str, Any]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    conversation = metadata.get("runtime_conversation") if isinstance(metadata.get("runtime_conversation"), dict) else {}
+    owned = bool(conversation.get("owned", True))
+    channel = str(conversation.get("channel") or metadata.get("runtime_channel") or "").strip() or None
+    conversation_id = str(conversation.get("conversation_id") or metadata.get("runtime_conversation_id") or "").strip() or None
+    owner = str(conversation.get("owner") or process.get("owner") or metadata.get("owner") or "").strip() or None
+    session_key = str(conversation.get("session_key") or process.get("session_key") or metadata.get("session_key") or "").strip() or None
+    return {
+        "owned": owned,
+        "channel": channel,
+        "conversation_id": conversation_id,
+        "owner": owner,
+        "session_key": session_key,
+    }
+
+
+_SESSION_FOLLOW_UP_EVENT_KINDS = {
+    "session.blocked": "blocker",
+    "session.retry-needed": "retry",
+    "session.test-failed": "test_failure",
+    "session.stale": "stale",
+    "session.handoff-needed": "handoff",
+    "session.failed": "failure",
+    "session.pr-created": "pr",
+}
+
+
+def _enqueue_session_follow_up(*, process: Dict[str, Any], event: Any, stores: Dict[str, Any]) -> Optional[RuntimeFollowUpDispatch]:
+    update_kind = _SESSION_FOLLOW_UP_EVENT_KINDS.get(str(event.kind or "").strip())
+    if not update_kind:
+        return None
+    context = _runtime_session_follow_up_context(process)
+    summary = str(event.summary or event.operator_summary).strip() or event.kind
+    fingerprint = f"session:{process.get('process_id')}:{event.session_id or process.get('process_id')}:{event.kind}:{summary}"
+    record = stores["follow_up_store"].enqueue(
+        RuntimeFollowUpDispatch(
+            process_id=str(process.get("process_id") or "").strip(),
+            runtime_kind="session",
+            fingerprint=fingerprint,
+            update_kind=update_kind,
+            title="[Cortex] Session follow-up",
+            message=summary,
+            status=str(event.kind or "session.event"),
+            channel=context.get("channel"),
+            owner=context.get("owner"),
+            session_key=context.get("session_key"),
+            conversation_id=context.get("conversation_id"),
+            objective=str(((process.get("workflow") or {}).get("name")) or "").strip() or None,
+            summary=summary,
+            metadata={
+                "session_id": event.session_id,
+                "session_name": event.session_name,
+                "tool": event.tool,
+                "operator_summary": event.operator_summary,
+                "owned": context.get("owned"),
+            },
+        )
+    )
+    if context.get("owned") and str(context.get("channel") or "").strip().lower() == "whatsapp":
+        success, error = _deliver_runtime_follow_up(record)
+        now_iso = datetime.now().astimezone().isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        if success:
+            return stores["follow_up_store"].mark_sent(record.dispatch_id, when_iso=now_iso)
+        return stores["follow_up_store"].mark_failed(record.dispatch_id, error=str(error or "send_failed"), when_iso=now_iso)
+    return record
 
 
 
@@ -227,12 +613,15 @@ def _bootstrap_runtime_delivery_state(process_id: str, *, process: Dict[str, Any
                 failed_steps=failed_steps,
                 assigned_agents=assigned_agents,
                 runtime_policy=dict(((metadata.get("policy") or {}).get("settings") or {})),
+                session_state=_snapshot_session_state(process=process, stores=stores, process_id=process_id),
                 world_state={**dict(shared_state.world_state), "process_status": str(process.get("status") or lifecycle_state)},
                 belief_refs=list(shared_state.belief_refs),
                 artifact_refs=[],
                 metadata={"bootstrapped_from_runtime_process": True},
             )
         )
+    else:
+        snapshot = _upsert_runtime_snapshot_session_state(process_id=process_id, stores=stores, process=process) or snapshot
     return {"snapshot": snapshot, "shared_state": shared_state}
 
 
@@ -946,10 +1335,14 @@ def _maintenance_queue_item_projection(
     process: Optional[Dict[str, Any]],
     state: Optional[Dict[str, Any]],
     latest_report: Optional[Dict[str, Any]],
+    stores: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     conversation = dict((state or {}).get("conversation_ownership") or {})
     follow_through = dict((state or {}).get("follow_through") or {})
     metadata = dict(item.metadata or {})
+    session_plane = None
+    if item.process_id and isinstance(stores, dict):
+        session_plane = _snapshot_session_state(process=process or (get_runtime_process(item.process_id) or {}), stores=stores, process_id=item.process_id)
     return {
         "item_id": item.item_id,
         "queue_name": item.queue_name,
@@ -968,6 +1361,7 @@ def _maintenance_queue_item_projection(
         "next_action": dict((state or {}).get("next_action") or {}),
         "continuation": dict((state or {}).get("continuation") or {}),
         "owed_follow_up": dict((state or {}).get("owed_follow_up") or {}),
+        "session_plane": session_plane,
         "conversation_ownership": conversation,
         "follow_through": follow_through,
         "latest_report_kind": (latest_report or {}).get("kind"),
@@ -999,6 +1393,12 @@ def _runtime_maintenance_queue_status_payload(*, stores: Dict[str, Any]) -> Dict
         "completed": sum(1 for item in items if item.status == "completed"),
         "blocked": sum(1 for item in items if item.status == "blocked"),
     }
+    session_counts: Dict[str, int] = {}
+    for item in items:
+        projection = item.projection if isinstance(item.projection, dict) else {}
+        session_plane = projection.get("session_plane") if isinstance(projection.get("session_plane"), dict) else {}
+        session_status = str(session_plane.get("status") or "none").strip() or "none"
+        session_counts[session_status] = session_counts.get(session_status, 0) + 1
     return {
         "success": True,
         "queue": {
@@ -1006,6 +1406,7 @@ def _runtime_maintenance_queue_status_payload(*, stores: Dict[str, Any]) -> Dict
             "updated_at": queue_state.updated_at,
             "max_active_items": int(queue_state.max_active_items or 1),
             "counts": counts,
+            "session_counts": session_counts,
             "items": [model_dump_compat(item) for item in items],
         },
     }
@@ -1197,6 +1598,11 @@ def _runtime_maintenance_queue_sync(
             derived = str(state_payload.get("status") or "").strip()
             if derived in {"active", "completed", "blocked"}:
                 derived_status = derived
+        session_plane = _snapshot_session_state(process=process, stores=stores, process_id=item.process_id) if item.process_id and isinstance(process, dict) else None
+        if derived_status == "active" and isinstance(session_plane, dict):
+            session_status = str(session_plane.get("status") or "").strip()
+            if session_status in {"blocked", "retry-needed", "handoff-needed", "stale", "test-failed", "failed"}:
+                derived_status = "blocked"
         if derived_status == "active":
             active_count += 1
             item.claimed_at = item.claimed_at or now_iso
@@ -1210,7 +1616,7 @@ def _runtime_maintenance_queue_sync(
         if derived_status != item.status:
             item.status = derived_status
             item.last_transition_at = now_iso
-        item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report)
+        item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report, stores=stores)
         by_id[item.item_id] = item
 
     capacity = max(1, int(queue_state.max_active_items or 1))
@@ -1226,6 +1632,7 @@ def _runtime_maintenance_queue_sync(
                     session_key=str((item.source_message or {}).get("session_key") or "").strip() or None,
                 )
             item.process_id = process.get("process_id")
+            _ensure_runtime_session_plane_bootstrap(item.process_id, process=process, stores=stores)
             _bootstrap_runtime_delivery_state(item.process_id, process=process, stores=stores)
             contract = _maintenance_queue_contract_for_process(item, process_id=item.process_id)
             reconciled = reconcile_roadmap_execution(
@@ -1262,7 +1669,7 @@ def _runtime_maintenance_queue_sync(
             if item.status == "blocked":
                 item.blocked_at = item.blocked_at or now_iso
             item.last_transition_at = now_iso
-            item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report)
+            item.projection = _maintenance_queue_item_projection(item, process=process, state=state_payload, latest_report=latest_report, stores=stores)
             by_id[item.item_id] = item
             actions.append(
                 {
@@ -1359,6 +1766,68 @@ class RuntimeTickRequest(BaseModel):
     limit: int = 25
     now_iso: Optional[str] = None
     execute: bool = True
+
+
+class RuntimeSessionRegisterRequest(BaseModel):
+    process_id: str
+    session_id: str
+    session_name: Optional[str] = None
+    tool: Optional[str] = None
+    source: str = "runtime"
+    stale_after_seconds: int = 900
+    parent_process: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeSessionEventRequest(BaseModel):
+    process_id: str
+    event: str
+    session_id: Optional[str] = None
+    session_name: Optional[str] = None
+    tool: Optional[str] = None
+    summary: Optional[str] = None
+    status: Optional[str] = None
+    payload: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeSessionHeartbeatRequest(BaseModel):
+    process_id: str
+    session_id: str
+    stale_after_seconds: Optional[int] = None
+
+
+class RuntimeWatcherRegisterRequest(BaseModel):
+    process_id: str
+    kind: str
+    target: str
+    session_id: Optional[str] = None
+    session_name: Optional[str] = None
+    tool: Optional[str] = None
+    debounce_seconds: float = 1.0
+    stale_after_seconds: int = 900
+    keywords: List[str] = Field(default_factory=list)
+    enabled: bool = True
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeWatcherReconcileRequest(BaseModel):
+    now_iso: Optional[str] = None
+
+
+class RuntimeMemoryNoteRequest(BaseModel):
+    process_id: str
+    title: str
+    note: str
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RuntimeToolIngestRequest(BaseModel):
+    process_id: str
+    tool: str
+    event: str
+    session_id: Optional[str] = None
+    session_name: Optional[str] = None
+    payload: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RuntimePolicyApplyRequest(BaseModel):
@@ -2219,13 +2688,20 @@ async def schedule_plan_runtime(request: RuntimePlanRequest):
     """Store a plan graph as a managed reasoning process without executing it yet."""
     workflow = _store_workflow_from_plan(request.graph)
     try:
-        return runtime_service.schedule_runtime_plan(
+        scheduled = runtime_service.schedule_runtime_plan(
             request,
             workflow=workflow,
             create_approval_grant_fn=create_approval_grant,
             build_workflow_policy_fn=build_workflow_policy,
             create_process_from_workflow_fn=create_process_from_workflow,
         )
+        stores = _runtime_delivery_stores()
+        process_id = str(((scheduled.get("process") or {}).get("process_id")) or "").strip()
+        process = get_runtime_process(process_id) if process_id else None
+        bootstrap = _ensure_runtime_session_plane_bootstrap(process_id, process=process, stores=stores) if process_id and process else None
+        if bootstrap is not None:
+            scheduled["session_plane"] = bootstrap
+        return scheduled
     except ReasoningSchedulerError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2233,23 +2709,251 @@ async def schedule_plan_runtime(request: RuntimePlanRequest):
 @router.post("/runtime/tick")
 async def tick_runtime(request: RuntimeTickRequest):
     """Advance the reasoning runtime and optionally execute due ready nodes."""
+    stores = _runtime_delivery_stores()
     if not bool(request.execute):
         tick = reasoning_scheduler_tick(now_iso=request.now_iso, limit=request.limit)
         watchdog = _run_runtime_no_silent_idle_watchdog(now_iso=request.now_iso, limit=request.limit)
-        return {"success": True, "tick": tick, "executed": [], "executed_count": 0, "watchdog": watchdog}
+        session_watchdog = await reconcile_runtime_watchers(RuntimeWatcherReconcileRequest(now_iso=request.now_iso))
+        return {"success": True, "tick": tick, "executed": [], "executed_count": 0, "watchdog": watchdog, "session_watchdog": session_watchdog, "session_plane": _runtime_session_plane_status(stores=stores)}
     batch = await _execute_runtime_batch(limit=request.limit, now_iso=request.now_iso)
     watchdog = _run_runtime_no_silent_idle_watchdog(now_iso=request.now_iso, limit=request.limit)
-    return {"success": True, **batch, "watchdog": watchdog}
+    session_watchdog = await reconcile_runtime_watchers(RuntimeWatcherReconcileRequest(now_iso=request.now_iso))
+    return {"success": True, **batch, "watchdog": watchdog, "session_watchdog": session_watchdog, "session_plane": _runtime_session_plane_status(stores=stores)}
 
 
 @router.get("/runtime/status")
 async def get_runtime_scheduler_status():
-    return {"success": True, "runtime": get_runtime_status()}
+    stores = _runtime_delivery_stores()
+    return {"success": True, "runtime": {**get_runtime_status(), "session_plane": _runtime_session_plane_status(stores=stores)}}
 
 
 @router.get("/runtime/processes")
 async def get_runtime_processes():
-    return {"success": True, "processes": list_runtime_processes()}
+    stores = _runtime_delivery_stores()
+    session_rows = stores["session_registry"].list()
+    watcher_rows = stores["watcher_store"].list()
+    sessions_by_process: Dict[str, List[Dict[str, Any]]] = {}
+    for row in session_rows:
+        sessions_by_process.setdefault(row.process_id, []).append(model_dump_compat(row))
+    watcher_count_by_process: Dict[str, int] = {}
+    for row in watcher_rows:
+        watcher_count_by_process[row.process_id] = watcher_count_by_process.get(row.process_id, 0) + 1
+    processes = []
+    for row in list_runtime_processes():
+        process_id = str(row.get("process_id") or "").strip()
+        process_copy = dict(row)
+        process_copy["session_plane"] = {
+            "sessions": sessions_by_process.get(process_id, []),
+            "watcher_count": watcher_count_by_process.get(process_id, 0),
+        }
+        processes.append(process_copy)
+    return {"success": True, "processes": processes}
+
+
+@router.post("/runtime/session/register")
+async def register_runtime_session(request: RuntimeSessionRegisterRequest):
+    process = get_runtime_process(request.process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
+    stores = _runtime_delivery_stores()
+    record = stores["session_registry"].register(
+        process_id=request.process_id,
+        session_id=request.session_id,
+        session_name=request.session_name,
+        tool=request.tool,
+        source=request.source,
+        stale_after_seconds=request.stale_after_seconds,
+        parent_process=request.parent_process,
+        metadata=request.metadata,
+    )
+    return {"success": True, "process": process, "session": model_dump_compat(record)}
+
+
+@router.get("/runtime/sessions")
+async def list_runtime_sessions(process_id: Optional[str] = None):
+    stores = _runtime_delivery_stores()
+    stores["session_registry"].detect_stale()
+    return {"success": True, "sessions": [model_dump_compat(row) for row in stores["session_registry"].list(process_id=process_id)]}
+
+
+@router.post("/runtime/session/event")
+async def record_runtime_session_event(request: RuntimeSessionEventRequest):
+    stores = _runtime_delivery_stores()
+    event = normalize_session_event(
+        request.process_id,
+        request.event,
+        tool=request.tool,
+        session_id=request.session_id,
+        session_name=request.session_name,
+        summary=request.summary,
+        status=request.status,
+        payload=request.payload,
+    )
+    delivery = resilient_delivery_attempt(
+        "runtime_session_event_ingest",
+        lambda: _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores),
+        process_id=request.process_id,
+        event_kind=event.kind,
+        payload=model_dump_compat(event),
+        dlq_store=stores["delivery_dlq"],
+    )
+    if not delivery.get("success"):
+        raise HTTPException(status_code=409, detail=delivery)
+    result = dict(delivery.get("result") or {})
+    return {
+        "success": True,
+        "event": model_dump_compat(result.get("event")),
+        "session": model_dump_compat(result.get("session")),
+        "shared_state": model_dump_compat(result.get("shared_state")) if result.get("shared_state") is not None else None,
+        "snapshot": model_dump_compat(result.get("snapshot")) if result.get("snapshot") is not None else None,
+        "memory_path": result.get("memory_path"),
+        "process": result.get("process"),
+        "follow_up_dispatch": model_dump_compat(result.get("follow_up_dispatch")) if result.get("follow_up_dispatch") is not None else None,
+        "delivery": {k: v for k, v in delivery.items() if k != "result"},
+    }
+
+
+@router.post("/runtime/session/heartbeat")
+async def heartbeat_runtime_session(request: RuntimeSessionHeartbeatRequest):
+    stores = _runtime_delivery_stores()
+    process = get_runtime_process(request.process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
+    session = stores["session_registry"].heartbeat(
+        process_id=request.process_id,
+        session_id=request.session_id,
+        stale_after_seconds=request.stale_after_seconds,
+    )
+    event = normalize_session_event(
+        request.process_id,
+        "session.heartbeat",
+        tool=session.tool,
+        session_id=session.session_id,
+        session_name=session.session_name,
+        summary="heartbeat",
+        payload={"stale_after_seconds": session.stale_after_seconds},
+    )
+    result = _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores)
+    return {
+        "success": True,
+        "session": model_dump_compat(result.get("session")),
+        "event": model_dump_compat(result.get("event")),
+        "memory_path": result.get("memory_path"),
+    }
+
+
+@router.post("/runtime/watchers/register")
+async def register_runtime_watcher(request: RuntimeWatcherRegisterRequest):
+    stores = _runtime_delivery_stores()
+    process = get_runtime_process(request.process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
+    watcher = stores["watcher_store"].register(
+        WatchRegistration(
+            process_id=request.process_id,
+            kind=request.kind,
+            target=request.target,
+            session_id=request.session_id,
+            session_name=request.session_name,
+            tool=request.tool,
+            debounce_seconds=request.debounce_seconds,
+            stale_after_seconds=request.stale_after_seconds,
+            keywords=list(request.keywords or []),
+            enabled=bool(request.enabled),
+            metadata=dict(request.metadata or {}),
+        )
+    )
+    if request.session_id:
+        try:
+            stores["session_registry"].attach_watcher(process_id=request.process_id, session_id=request.session_id, watcher_id=watcher.watch_id)
+        except KeyError:
+            pass
+    return {"success": True, "watcher": model_dump_compat(watcher)}
+
+
+@router.get("/runtime/watchers")
+async def list_runtime_watchers(process_id: Optional[str] = None):
+    stores = _runtime_delivery_stores()
+    return {"success": True, "watchers": [model_dump_compat(row) for row in stores["watcher_store"].list(process_id=process_id)]}
+
+
+@router.post("/runtime/watchers/reconcile")
+async def reconcile_runtime_watchers(request: RuntimeWatcherReconcileRequest = RuntimeWatcherReconcileRequest()):
+    stores = _runtime_delivery_stores()
+    now_dt = _parse_optional_dt(request.now_iso)
+    stores["session_registry"].detect_stale(now=now_dt)
+    emitted = stores["watcher_store"].reconcile(session_registry=stores["session_registry"], now=now_dt)
+    recorded = []
+    for event in emitted:
+        delivery = resilient_delivery_attempt(
+            "runtime_session_event_ingest",
+            lambda event=event: _record_runtime_session_event(process_id=event.process_id, event=event, stores=stores),
+            process_id=event.process_id,
+            event_kind=event.kind,
+            payload=model_dump_compat(event),
+            dlq_store=stores["delivery_dlq"],
+        )
+        recorded.append({
+            "event": model_dump_compat(event),
+            "delivery": {k: v for k, v in delivery.items() if k != "result"},
+        })
+    return {"success": True, "emitted_count": len(emitted), "emitted": recorded}
+
+
+@router.post("/runtime/memory/note")
+async def write_runtime_memory_note(request: RuntimeMemoryNoteRequest):
+    process = get_runtime_process(request.process_id)
+    if not process:
+        raise HTTPException(status_code=404, detail=f"Runtime process '{request.process_id}' not found")
+    stores = _runtime_delivery_stores()
+    path = stores["runtime_memory_store"].write_process_note(
+        process_id=request.process_id,
+        title=request.title,
+        note=request.note,
+        metadata=request.metadata,
+    )
+    record_runtime_event(request.process_id, "runtime.memory.noted", {"title": request.title, "path": str(path)})
+    return {"success": True, "process": process, "path": str(path)}
+
+
+@router.post("/runtime/tools/ingest")
+async def ingest_runtime_tool_event(request: RuntimeToolIngestRequest):
+    stores = _runtime_delivery_stores()
+    event = adapt_tool_event(
+        request.process_id,
+        tool=request.tool,
+        event=request.event,
+        session_id=request.session_id,
+        session_name=request.session_name,
+        payload=request.payload,
+    )
+    delivery = resilient_delivery_attempt(
+        "runtime_tool_event_ingest",
+        lambda: _record_runtime_session_event(process_id=request.process_id, event=event, stores=stores),
+        process_id=request.process_id,
+        event_kind=event.kind,
+        payload=model_dump_compat(event),
+        dlq_store=stores["delivery_dlq"],
+    )
+    if not delivery.get("success"):
+        raise HTTPException(status_code=409, detail=delivery)
+    result = dict(delivery.get("result") or {})
+    return {
+        "success": True,
+        "event": model_dump_compat(result.get("event")),
+        "session": model_dump_compat(result.get("session")),
+        "shared_state": model_dump_compat(result.get("shared_state")) if result.get("shared_state") is not None else None,
+        "snapshot": model_dump_compat(result.get("snapshot")) if result.get("snapshot") is not None else None,
+        "memory_path": result.get("memory_path"),
+        "follow_up_dispatch": model_dump_compat(result.get("follow_up_dispatch")) if result.get("follow_up_dispatch") is not None else None,
+        "delivery": {k: v for k, v in delivery.items() if k != "result"},
+    }
+
+
+@router.get("/runtime/delivery/dlq")
+async def get_runtime_delivery_dlq(dependency: Optional[str] = None):
+    stores = _runtime_delivery_stores()
+    return {"success": True, "entries": [model_dump_compat(row) for row in stores["delivery_dlq"].list(dependency=dependency)]}
 
 
 async def explain_runtime_process(process_id: str):
@@ -2267,7 +2971,7 @@ async def explain_runtime_process(process_id: str):
 
 @router.get("/runtime/process/{process_id}")
 async def get_runtime_process_view(process_id: str, events_limit: int = 25):
-    return await runtime_service.runtime_process_view(
+    response = await runtime_service.runtime_process_view(
         process_id,
         events_limit=events_limit,
         get_runtime_process_fn=get_runtime_process,
@@ -2279,6 +2983,13 @@ async def get_runtime_process_view(process_id: str, events_limit: int = 25):
         get_belief_fn=get_belief,
         select_influential_beliefs_fn=select_influential_beliefs,
     )
+    stores = _runtime_delivery_stores()
+    response["session_plane"] = {
+        "status": _runtime_session_plane_status(stores=stores, process_id=process_id),
+        "sessions": [model_dump_compat(row) for row in stores["session_registry"].list(process_id=process_id)],
+        "watchers": [model_dump_compat(row) for row in stores["watcher_store"].list(process_id=process_id)],
+    }
+    return response
 
 
 @router.get("/runtime/delivery/{process_id}")
@@ -2506,7 +3217,7 @@ async def intake_runtime_maintenance_item(request: RuntimeMaintenanceIntakeReque
         "done_world_state_key": dict(contract.metadata or {}).get("done_world_state_key"),
         "maintenance_queue": dict((contract.metadata or {}).get("maintenance_queue") or {}),
     }
-    item.projection = _maintenance_queue_item_projection(item, process=None, state=None, latest_report=None)
+    item.projection = _maintenance_queue_item_projection(item, process=None, state=None, latest_report=None, stores=stores)
     queued = stores["maintenance_queue_store"].enqueue(item)
     _runtime_maintenance_queue_sync(stores=stores, now=None, allow_claim=False)
     return {
@@ -2563,6 +3274,19 @@ async def get_runtime_process_lineage(process_id: str, limit: int = 120):
         "workflow_name": (((process or {}).get("workflow") or {}).get("name") if isinstance((process or {}).get("workflow"), dict) else None),
     }
     bundle["capability_matrix"] = capability_matrix()
+    return bundle
+
+
+@router.get("/runtime/processes/{process_id}/traceability")
+async def get_runtime_process_traceability(process_id: str, limit: int = 120):
+    bundle = await get_runtime_process_lineage(process_id, limit=limit)
+    bundle["traceability_contract"] = {
+        "schema_version": "cortex.traceability.contract.v1",
+        "raw_event_class": "observed_evidence",
+        "derived_state_class": "inferred_state",
+        "memory_class": "learned_memory",
+        "override_class": "operator_overrides",
+    }
     return bundle
 
 @router.get("/runtime/policy-explain/{process_id}")

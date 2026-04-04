@@ -120,6 +120,26 @@ def save_state(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def _append_event(state: Dict[str, Any], process_id: str, kind: str, payload: Dict[str, Any]) -> None:
     events = state.setdefault("events", [])
+    process = ((state.get("processes") or {}).get(process_id)) if isinstance(state.get("processes"), dict) else None
+    if isinstance(process, dict):
+        projection = _ensure_session_projection(process)
+        projection["last_event_kind"] = str(kind or "").strip() or projection.get("last_event_kind")
+        projection["last_event_at"] = _now_iso()
+        if str(kind or "").startswith("session."):
+            projection["last_session_event"] = str(kind or "").strip()
+            projection["status"] = _session_projection_status_for_event(process, kind=str(kind or ""), payload=payload)
+            summary = str(payload.get("summary") or payload.get("operator_summary") or payload.get("reason") or "").strip()
+            if summary:
+                projection["last_summary"] = summary
+            if str(kind or "") == "session.retry-needed":
+                projection["retry_count"] = int(projection.get("retry_count", 0) or 0) + 1
+            if str(kind or "") in {"session.blocked", "session.stale", "session.handoff-needed", "session.test-failed"}:
+                questions = [str(row).strip() for row in (projection.get("open_questions") or []) if str(row).strip()]
+                if summary and summary not in questions:
+                    questions.append(summary)
+                projection["open_questions"] = questions
+            if str(kind or "").startswith("session.test-"):
+                projection["test_status"] = str(kind or "").split("session.", 1)[-1]
     events.append(
         normalize_runtime_event(
             process_id=process_id,
@@ -131,6 +151,68 @@ def _append_event(state: Dict[str, Any], process_id: str, kind: str, payload: Di
     )
     if len(events) > 300:
         del events[:-300]
+
+
+def _session_identity(process: Dict[str, Any]) -> Dict[str, Any]:
+    workflow = process.get("workflow") if isinstance(process.get("workflow"), dict) else {}
+    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+    session_id = str(metadata.get("runtime_session_id") or process.get("session_key") or process.get("process_id") or "").strip() or str(process.get("process_id") or "")
+    session_name = str(workflow.get("name") or session_id).strip() or session_id
+    tool = str(metadata.get("runtime_tool") or "cortex-runtime").strip() or "cortex-runtime"
+    return {"session_id": session_id, "session_name": session_name, "tool": tool}
+
+
+def _ensure_session_projection(process: Dict[str, Any]) -> Dict[str, Any]:
+    projection = process.get("session_projection") if isinstance(process.get("session_projection"), dict) else {}
+    identity = _session_identity(process)
+    projection.setdefault("session_id", identity["session_id"])
+    projection.setdefault("session_name", identity["session_name"])
+    projection.setdefault("tool", identity["tool"])
+    projection.setdefault("status", str(process.get("status") or "scheduled"))
+    projection.setdefault("retry_count", 0)
+    projection.setdefault("open_questions", [])
+    projection.setdefault("test_status", None)
+    process["session_projection"] = projection
+    return projection
+
+
+def _session_projection_status_for_event(process: Dict[str, Any], *, kind: str, payload: Optional[Dict[str, Any]] = None) -> str:
+    payload = dict(payload or {})
+    mapping = {
+        "session.started": "running",
+        "session.finished": "finished",
+        "session.failed": "failed",
+        "session.blocked": "blocked",
+        "session.retry-needed": "retry-needed",
+        "session.handoff-needed": "handoff-needed",
+        "session.stale": "stale",
+        "session.pr-created": "pr-created",
+    }
+    if kind == "session.test-started":
+        return "testing"
+    if kind == "session.test-finished":
+        return "running" if str(process.get("status") or "") not in {"completed", "failed"} else str(process.get("status") or "running")
+    if kind == "session.test-failed":
+        return "test-failed"
+    return mapping.get(str(kind or "").strip(), str(process.get("status") or payload.get("status") or "scheduled"))
+
+
+def _node_is_test(row: Dict[str, Any]) -> bool:
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    if bool(metadata.get("is_test")) or str(metadata.get("step_kind") or "").strip().lower() == "test":
+        return True
+    title = str(row.get("title") or "").lower()
+    return "test" in title or "pytest" in title
+
+
+def _session_event_payload(process: Dict[str, Any], *, summary: Optional[str] = None, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    identity = _session_identity(process)
+    payload = {**identity}
+    if summary:
+        payload["summary"] = str(summary).strip()
+    if extra:
+        payload.update(dict(extra))
+    return payload
 
 
 
@@ -448,10 +530,12 @@ def create_process_from_workflow(
             "results_by_node": {},
             "nodes": {node_id: _make_node_state(step, default_start_at=start_at, workflow=workflow) for node_id, step in steps_by_id.items()},
         }
+        _ensure_session_projection(process)
         _refresh_process(process)
         state = load_state()
         state.setdefault("processes", {})[pid] = process
         _append_event(state, pid, "process_created", {"workflow_name": workflow.get("name"), "nodes": list(steps_by_id.keys())})
+        _append_event(state, pid, "session.started", _session_event_payload(process, summary="runtime process created"))
         save_state(state)
         return process
 def list_processes() -> List[Dict[str, Any]]:
@@ -708,6 +792,11 @@ def scheduler_tick(*, now_iso: Optional[str] = None, limit: int = 50) -> Dict[st
             "process_count": len(processes),
             "runnable_count": len(runnable),
             "runnable": runnable,
+            "session_projection": {
+                "active_sessions": sum(1 for row in processes.values() if isinstance(row, dict) and isinstance(row.get("session_projection"), dict)),
+                "testing_sessions": sum(1 for row in processes.values() if isinstance(row, dict) and str(((row.get("session_projection") or {}).get("status") or "")) == "testing"),
+                "blocked_sessions": sum(1 for row in processes.values() if isinstance(row, dict) and str(((row.get("session_projection") or {}).get("status") or "")) in {"blocked", "stale", "retry-needed", "handoff-needed", "test-failed"}),
+            },
         }
 def mark_node_running(process_id: str, node_id: str) -> Dict[str, Any]:
     with _LOCK:
@@ -725,6 +814,8 @@ def mark_node_running(process_id: str, node_id: str) -> Dict[str, Any]:
         process["status"] = "running"
         process["updated_at"] = _now_iso()
         _append_event(state, process_id, "node_running", {"node_id": node_id, "attempts": row["attempts"]})
+        if _node_is_test(row):
+            _append_event(state, process_id, "session.test-started", _session_event_payload(process, summary=f"tests started: {row.get('title')}", extra={"node_id": node_id, "attempts": row["attempts"]}))
         save_state(state)
         return process
 def record_node_result(process_id: str, node_id: str, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -770,6 +861,10 @@ def record_node_result(process_id: str, node_id: str, result: Dict[str, Any]) ->
             process["wake_requested_at"] = None
             _refresh_process(process)
             _append_event(state, process_id, "node_completed", {"node_id": node_id, "status_code": result.get("status_code"), "attempts": attempts})
+            if _node_is_test(row):
+                _append_event(state, process_id, "session.test-finished", _session_event_payload(process, summary=f"tests finished: {row.get('title')}", extra={"node_id": node_id, "status_code": result.get("status_code")}))
+            if str(process.get("status") or "") == "completed":
+                _append_event(state, process_id, "session.finished", _session_event_payload(process, summary="runtime process completed"))
             save_state(state)
             return process
 
@@ -783,6 +878,7 @@ def record_node_result(process_id: str, node_id: str, result: Dict[str, Any]) ->
             process.setdefault("results_by_node", {}).pop(node_id, None)
             _refresh_process(process)
             _append_event(state, process_id, "node_retry_scheduled", {"node_id": node_id, "attempts": attempts, "max_attempts": max_attempts, "retry_at": row.get("retry_at")})
+            _append_event(state, process_id, "session.retry-needed", _session_event_payload(process, summary=f"retry scheduled for {row.get('title')}", extra={"node_id": node_id, "retry_at": row.get("retry_at"), "attempts": attempts}))
             save_state(state)
             return process
 
@@ -824,6 +920,10 @@ def record_node_result(process_id: str, node_id: str, result: Dict[str, Any]) ->
 
         _refresh_process(process)
         _append_event(state, process_id, "node_failed", {"node_id": node_id, "status_code": result.get("status_code"), "attempts": attempts})
+        if _node_is_test(row):
+            _append_event(state, process_id, "session.test-failed", _session_event_payload(process, summary=f"tests failed: {row.get('title')}", extra={"node_id": node_id, "status_code": result.get("status_code"), "error": result.get("error")}))
+        if str(process.get("status") or "") == "failed":
+            _append_event(state, process_id, "session.failed", _session_event_payload(process, summary=f"runtime process failed at {row.get('title')}", extra={"node_id": node_id, "error": result.get("error")}))
         save_state(state)
         return process
 
@@ -836,6 +936,7 @@ def wake_process(process_id: str) -> Dict[str, Any]:
         process["wake_requested_at"] = _now_iso()
         _refresh_process(process)
         _append_event(state, process_id, "process_wake", {})
+        _append_event(state, process_id, "session.started", _session_event_payload(process, summary="runtime process woken"))
         save_state(state)
         return process
 def cancel_process(process_id: str, *, reason: str = "cancelled_by_operator") -> Dict[str, Any]:
@@ -850,6 +951,7 @@ def cancel_process(process_id: str, *, reason: str = "cancelled_by_operator") ->
         process["completed_at"] = process.get("completed_at") or _now_iso()
         process["updated_at"] = _now_iso()
         _append_event(state, process_id, "process_cancelled", {"reason": reason})
+        _append_event(state, process_id, "session.failed", _session_event_payload(process, summary=f"runtime process cancelled: {reason}", extra={"reason": reason}))
         save_state(state)
         return process
 
@@ -863,6 +965,7 @@ def pause_process(process_id: str) -> Dict[str, Any]:
         process["status"] = "paused"
         process["updated_at"] = _now_iso()
         _append_event(state, process_id, "process_paused", {})
+        _append_event(state, process_id, "session.blocked", _session_event_payload(process, summary="runtime process paused"))
         save_state(state)
         return process
 def resume_process(process_id: str) -> Dict[str, Any]:
@@ -874,6 +977,7 @@ def resume_process(process_id: str) -> Dict[str, Any]:
         process["enabled"] = True
         _refresh_process(process)
         _append_event(state, process_id, "process_resumed", {})
+        _append_event(state, process_id, "session.started", _session_event_payload(process, summary="runtime process resumed"))
         save_state(state)
         return process
 
@@ -914,6 +1018,7 @@ def runtime_status() -> Dict[str, Any]:
                 "enabled": row.get("enabled"),
                 "run_count": row.get("run_count"),
                 "next_run_at": (((row.get("recurrence") or {}).get("next_run_at"))),
+                "session_projection": dict(row.get("session_projection") or {}),
             }
             for row in processes
         ],

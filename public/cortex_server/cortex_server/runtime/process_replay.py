@@ -23,6 +23,7 @@ def default_process_state(process_id: str) -> JsonDict:
         "failed_steps": [],
         "assigned_agents": {},
         "runtime_policy": {},
+        "session_state": {},
         "world_state": {},
         "belief_refs": [],
         "artifact_refs": [],
@@ -43,6 +44,7 @@ def state_from_snapshot(snapshot: ProcessSnapshot) -> JsonDict:
         "failed_steps": list(snapshot.failed_steps),
         "assigned_agents": dict(snapshot.assigned_agents),
         "runtime_policy": dict(snapshot.runtime_policy),
+        "session_state": dict(snapshot.session_state),
         "world_state": dict(snapshot.world_state),
         "belief_refs": list(snapshot.belief_refs),
         "artifact_refs": list(snapshot.artifact_refs),
@@ -119,6 +121,7 @@ def apply_event(state: JsonDict, event: ProcessEvent) -> JsonDict:
             state["failed_steps"] = _restore_list(restore.get("failed_steps"))
             state["assigned_agents"] = _restore_map(restore.get("assigned_agents"))
             state["runtime_policy"] = _restore_map(restore.get("runtime_policy"))
+            state["session_state"] = _restore_map(restore.get("session_state"))
             state["world_state"] = _restore_map(restore.get("world_state"))
             state["belief_refs"] = _restore_list(restore.get("belief_refs"))
             state["artifact_refs"] = _restore_list(restore.get("artifact_refs"))
@@ -167,6 +170,40 @@ def apply_event(state: JsonDict, event: ProcessEvent) -> JsonDict:
         state["runtime_policy"] = {**dict(state.get("runtime_policy") or {}), **dict(payload.get("metadata_overrides") or {})}
     elif kind == "operator_override":
         state["runtime_policy"] = {**dict(state.get("runtime_policy") or {}), **dict(payload.get("runtime_policy") or payload.get("metadata_overrides") or {})}
+    elif kind.startswith("session."):
+        session_state = dict(state.get("session_state") or {})
+        session_state["last_event_kind"] = kind
+        session_state["last_event_id"] = event.event_id
+        summary = str(payload.get("summary") or payload.get("operator_summary") or payload.get("reason") or "").strip()
+        if summary:
+            session_state["last_summary"] = summary
+        session_state["tool"] = str(payload.get("tool") or session_state.get("tool") or "").strip() or session_state.get("tool")
+        session_state["session_id"] = str(payload.get("session_id") or session_state.get("session_id") or "").strip() or session_state.get("session_id")
+        session_state["session_name"] = str(payload.get("session_name") or session_state.get("session_name") or "").strip() or session_state.get("session_name")
+        mapping = {
+            "session.started": "running",
+            "session.finished": "finished",
+            "session.failed": "failed",
+            "session.blocked": "blocked",
+            "session.retry-needed": "retry-needed",
+            "session.handoff-needed": "handoff-needed",
+            "session.stale": "stale",
+            "session.pr-created": "pr-created",
+            "session.test-started": "testing",
+            "session.test-finished": "running",
+            "session.test-failed": "test-failed",
+        }
+        session_state["status"] = mapping.get(kind, session_state.get("status") or state.get("lifecycle_state"))
+        if kind == "session.retry-needed":
+            session_state["retry_count"] = int(session_state.get("retry_count", 0) or 0) + 1
+        if kind in {"session.blocked", "session.retry-needed", "session.handoff-needed", "session.stale", "session.test-failed"} and summary:
+            questions = [str(row).strip() for row in (session_state.get("open_questions") or []) if str(row).strip()]
+            if summary not in questions:
+                questions.append(summary)
+            session_state["open_questions"] = questions
+        if kind.startswith("session.test-"):
+            session_state["test_status"] = kind.split("session.", 1)[-1]
+        state["session_state"] = session_state
 
     return state
 

@@ -269,6 +269,7 @@ def compile_runtime_resume_sections(
             "runtime_resume_state": None,
             "runtime_resume_available": False,
             "runtime_resume_operator_summary": "durable resume state unavailable",
+            "session_plane_summary": {"status": "unavailable", "retry_count": 0, "watcher_count": 0, "open_question_count": 0, "operator_summary": "session plane unavailable"},
         }
 
     resume_state = compile_runtime_resume_state(
@@ -279,6 +280,19 @@ def compile_runtime_resume_sections(
         leases=leases,
         handoff=handoff,
     )
+    session_state = dict(resume_state.session_state or {})
+    session_status = str(session_state.get("status") or "unknown").strip() or "unknown"
+    session_questions = [str(row).strip() for row in (session_state.get("open_questions") or []) if str(row).strip()]
+    session_plane_summary = {
+        "status": session_status,
+        "retry_count": int(session_state.get("retry_count", 0) or 0),
+        "watcher_count": int(session_state.get("watcher_count", 0) or 0),
+        "open_question_count": len(session_questions),
+        "operator_summary": (
+            f"session plane {session_status} with {int(session_state.get('watcher_count', 0) or 0)} watchers"
+            + (f" and {len(session_questions)} open questions" if session_questions else "")
+        ),
+    }
     return {
         "runtime_resume_state": _model_dump_compat(resume_state),
         "runtime_resume_available": True,
@@ -287,6 +301,7 @@ def compile_runtime_resume_sections(
             f"rev {resume_state.revision_id} with {resume_state.queued_messages} queued messages and "
             f"{len(resume_state.active_leases)} active leases"
         ),
+        "session_plane_summary": session_plane_summary,
     }
 
 

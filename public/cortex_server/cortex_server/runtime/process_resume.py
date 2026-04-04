@@ -33,6 +33,7 @@ class RuntimeResumeState(BaseModel):
     queued_messages: int = 0
     inflight_messages: int = 0
     dead_letter_messages: int = 0
+    session_state: Dict[str, Any] = Field(default_factory=dict)
     world_state: Dict[str, Any] = Field(default_factory=dict)
     runtime_constraints: Dict[str, Any] = Field(default_factory=dict)
     belief_refs: List[str] = Field(default_factory=list)
@@ -91,6 +92,7 @@ def compile_runtime_resume_state(
         queued_messages=sum(1 for row in messages if row.delivery_status == "queued"),
         inflight_messages=sum(1 for row in messages if row.delivery_status == "inflight"),
         dead_letter_messages=sum(1 for row in messages if row.delivery_status == "dead_letter"),
+        session_state=dict(snapshot.session_state or {}),
         world_state={**dict(snapshot.world_state), **dict(shared_state.world_state)},
         runtime_constraints={**dict(snapshot.runtime_policy), **dict(shared_state.runtime_constraints)},
         belief_refs=_dedupe(list(snapshot.belief_refs) + list(shared_state.belief_refs)),

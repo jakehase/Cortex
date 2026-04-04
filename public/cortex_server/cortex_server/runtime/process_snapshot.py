@@ -34,6 +34,7 @@ class ProcessSnapshot(BaseModel):
     failed_steps: List[str] = Field(default_factory=list)
     assigned_agents: Dict[str, str] = Field(default_factory=dict)
     runtime_policy: Dict[str, Any] = Field(default_factory=dict)
+    session_state: Dict[str, Any] = Field(default_factory=dict)
     world_state: Dict[str, Any] = Field(default_factory=dict)
     belief_refs: List[str] = Field(default_factory=list)
     artifact_refs: List[str] = Field(default_factory=list)

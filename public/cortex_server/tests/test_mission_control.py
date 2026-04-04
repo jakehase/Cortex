@@ -211,11 +211,15 @@ def test_mission_control_unifies_mixed_runtime_work_and_reports_live_state(tmp_p
 
     assert roadmap_detail["objective"]["conversation_ownership"]["conversation_id"] == "chat:mission:roadmap"
     assert "dispatch_count" in roadmap_detail["objective"]["follow_up"]
+    assert roadmap_detail["objective"]["session_plane"]["status"] in {"running", "scheduled", "active"}
     assert delivery_detail["objective"]["delivery"]["release_stage"] == "build_verified"
     assert "dispatch_count" in delivery_detail["objective"]["follow_up"]
     assert maintenance_detail["objective"]["queue"]["status"] == "active"
     assert maintenance_detail["objective"]["queue"]["item_kind"] == "fix"
+    assert maintenance_detail["objective"]["session_plane"]["watcher_count"] >= 1
     assert "dispatch_count" in maintenance_detail["objective"]["follow_up"]
+    assert "by_session_status" in board["summary"]
+    assert "session_counts" in board["summary"]["maintenance_queue"]
     assert isinstance(sent, list)
 
 
@@ -486,3 +490,76 @@ def test_mission_control_activity_feed_surfaces_agent_evidence(tmp_path, monkeyp
     assert any(row["event_kind"] == "command_stdout" for row in lineage["classes"]["observed_evidence"])
     assert any(row["fact_kind"] == "process_status" for row in lineage["classes"]["inferred_state"])
     assert capabilities["capability_matrix"]["version"] == "cortex.evidence.capability_matrix.v1"
+
+
+def test_mission_control_surfaces_session_plane_blockers_and_summary(tmp_path, monkeypatch):
+    db_path = tmp_path / "runtime.db"
+    delivery_root = tmp_path / "delivery"
+
+    monkeypatch.setattr(orchestrator, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(orchestrator, "RUNTIME_DELIVERY_ROOT", delivery_root)
+    monkeypatch.setattr(scheduler, "DEFAULT_DB_PATH", db_path)
+    monkeypatch.setattr(
+        orchestrator,
+        "resilient_delivery_attempt",
+        lambda dependency, operation, **kwargs: {"success": True, "dependency": dependency, "queued": False, "result": operation()},
+    )
+    orchestrator.workflows.clear()
+
+    maintenance = asyncio.run(
+        mission_control.mission_control_create_objective(
+            mission_control.MissionControlCreateRequest(
+                kind="maintenance",
+                title="Session plane blocker objective",
+                objective="Mission Control should reflect live session blockers.",
+                session_key="session:mission:blocker",
+                channel="whatsapp",
+                conversation_id="chat:mission:blocker",
+                maintenance={
+                    "item_kind": "fix",
+                    "max_active_items": 1,
+                    "dependability_profile": dict(MINIMAL_PROFILE),
+                    "reporting_policy": dict(ROADMAP_REPORTING),
+                },
+            )
+        )
+    )
+
+    now = datetime(2026, 4, 2, tzinfo=timezone.utc)
+    asyncio.run(
+        orchestrator.tick_runtime(
+            orchestrator.RuntimeTickRequest(
+                limit=10,
+                execute=False,
+                now_iso=now.isoformat().replace("+00:00", "Z"),
+            )
+        )
+    )
+
+    detail = mission_control.mission_control_objective_detail(maintenance["objective"]["objective_key"])
+    session_plane = detail["objective"]["session_plane"]
+    process_id = detail["objective"]["process_id"]
+    asyncio.run(
+        orchestrator.record_runtime_session_event(
+            orchestrator.RuntimeSessionEventRequest(
+                process_id=process_id,
+                event="session.blocked",
+                session_id=session_plane["session_id"],
+                session_name=session_plane["session_name"],
+                tool="codex",
+                summary="need mission control decision",
+            )
+        )
+    )
+
+    board = mission_control.mission_control_objectives()
+    detail = mission_control.mission_control_objective_detail(maintenance["objective"]["objective_key"])
+    activity = mission_control.mission_control_objective_activity(maintenance["objective"]["objective_key"], limit=20)
+
+    assert detail["objective"]["status"] == "blocked"
+    assert detail["objective"]["session_plane"]["status"] == "blocked"
+    assert "need mission control decision" in detail["objective"]["session_plane"]["open_questions"]
+    assert any(blocker["source"] == "session_plane" for blocker in detail["objective"]["blockers"])
+    assert board["summary"]["by_session_status"]["blocked"] >= 1
+    assert board["summary"]["session_open_question_count"] >= 1
+    assert activity["objective"]["session_plane"]["status"] == "blocked"

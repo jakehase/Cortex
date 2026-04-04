@@ -17,6 +17,7 @@ def test_process_snapshot_store_round_trip(tmp_path: Path):
         lifecycle_state="running",
         active_steps=["step1"],
         runtime_policy={"verification_mode": "strict"},
+        session_state={"status": "running", "retry_count": 0},
         world_state={"status": "degraded"},
         belief_refs=["claim-1"],
         artifact_refs=["artifact-1"],
@@ -29,6 +30,7 @@ def test_process_snapshot_store_round_trip(tmp_path: Path):
     assert loaded.process_id == "proc_123"
     assert loaded.last_event_id == "evt_aaa"
     assert loaded.runtime_policy["verification_mode"] == "strict"
+    assert loaded.session_state["status"] == "running"
     assert loaded.world_state["status"] == "degraded"
 
 
@@ -37,10 +39,12 @@ def test_replay_events_reconstructs_process_state():
     events = [
         ProcessEvent(process_id="proc_123", kind="process_created", payload={"goal": "test"}),
         ProcessEvent(process_id="proc_123", kind="process_started"),
+        ProcessEvent(process_id="proc_123", kind="session.started", payload={"session_id": "sess_1", "tool": "codex"}),
         ProcessEvent(process_id="proc_123", kind="step_started", payload={"node_id": "step1"}),
         ProcessEvent(process_id="proc_123", kind="agent_assigned", payload={"node_id": "step1", "agent_id": "planner"}),
         ProcessEvent(process_id="proc_123", kind="world_state_updated", payload={"world_state": {"service": "degraded"}}),
         ProcessEvent(process_id="proc_123", kind="belief_written", payload={"claim_id": "claim-1"}),
+        ProcessEvent(process_id="proc_123", kind="session.blocked", payload={"summary": "Need approval"}),
         ProcessEvent(process_id="proc_123", kind="step_completed", payload={"node_id": "step1"}),
         ProcessEvent(process_id="proc_123", kind="process_completed"),
     ]
@@ -51,6 +55,8 @@ def test_replay_events_reconstructs_process_state():
     assert state["completed_steps"] == ["step1"]
     assert state["active_steps"] == []
     assert state["assigned_agents"]["step1"] == "planner"
+    assert state["session_state"]["status"] == "blocked"
+    assert state["session_state"]["open_questions"] == ["Need approval"]
     assert state["world_state"]["service"] == "degraded"
     assert state["belief_refs"] == ["claim-1"]
 
