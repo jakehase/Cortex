@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T02:08:44.314Z",
+      "updatedAt": "2026-04-04T02:13:38.516Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 40,
+        "runs": 41,
         "failures": [],
-        "lastRunAt": "2026-04-04T02:08:44.319Z",
+        "lastRunAt": "2026-04-04T02:13:38.523Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11766,6 +11766,88 @@
       },
       "failedAt": "2026-04-04T01:47:24.652Z",
       "failureReason": "System: [2026-04-03 20:25:21 CDT] Exec completed (dawn-orb, code 1) :: ----------------------------- Captured stdout call ----------------------------- [DIPLOMAT] BRIEFING: [Cortex] Runtime update ═══════════════════ ⏰ 20:25 roadmap objective active … System: [2026-04-03 20:25:55 CDT] Exec completed (kind-riv, code 0) :: ..... [100%] 5 passed in 0.89s System: [2026-04-03 20:26:40 CDT] Exec complet",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1775269004964:c26a1ee79bb6f589",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-04-04T02:16:44.964Z",
+      "updatedAt": "2026-04-04T02:16:45.030Z",
+      "prompt": "System: [2026-04-03 21:09:04 CDT] Exec completed (nova-dun, code 0) :: ────────────────────────────────┴────────┴─────────┴──────────────┴─────────────────────────────────┘ FAQ: https://docs.openclaw.ai/faq Troubleshooting: https://docs.ope",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-04T02:16:44.964Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-04T02:16:44.971Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-04T02:16:45.030Z",
+          "failedAt": "2026-04-04T02:16:45.030Z",
+          "failureReason": "System: [2026-04-03 21:09:04 CDT] Exec completed (nova-dun, code 0) :: ────────────────────────────────┴────────┴─────────┴──────────────┴─────────────────────────────────┘ FAQ: https://docs.openclaw.ai/faq Troubleshooting: https://docs.openclaw.ai/t… System: [2026-04-03 21:09:06 CDT] Exec completed (good-cov, code 0) :: ts/cortex_roadmap/r9_adaptive_routing_brain/step4/replay_probe_latest.json:36",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-03 21:09:04 CDT] Exec completed (nova-dun, code 0) :: ────────────────────────────────┴────────┴─────────┴──────────────┴─────────────────────────────────┘ FAQ: https://docs.openclaw.ai/faq Troubleshooti",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-04T02:16:45.030Z",
+      "failureReason": "System: [2026-04-03 21:09:04 CDT] Exec completed (nova-dun, code 0) :: ────────────────────────────────┴────────┴─────────┴──────────────┴─────────────────────────────────┘ FAQ: https://docs.openclaw.ai/faq Troubleshooting: https://docs.openclaw.ai/t… System: [2026-04-03 21:09:06 CDT] Exec completed (good-cov, code 0) :: ts/cortex_roadmap/r9_adaptive_routing_brain/step4/replay_probe_latest.json:36",
       "failureSource": "runtime_message"
     }
   ]
