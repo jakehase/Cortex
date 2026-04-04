@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T01:18:31.520Z",
+      "updatedAt": "2026-04-04T01:23:23.423Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 30,
+        "runs": 31,
         "failures": [],
-        "lastRunAt": "2026-04-04T01:18:31.529Z",
+        "lastRunAt": "2026-04-04T01:23:23.431Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11593,11 +11593,11 @@
       "id": "agent:main:whatsapp:direct:+17855410986:1775256185446:efd92c5017ab9988",
       "sessionKey": "agent:main:whatsapp:direct:+17855410986",
       "createdAt": "2026-04-03T22:43:05.446Z",
-      "updatedAt": "2026-04-04T01:22:37.660Z",
+      "updatedAt": "2026-04-04T01:25:25.621Z",
       "prompt": "System: [2026-04-03 17:13:06 CDT] Exec completed (brisk-co, code 0) :: ........ [100%] 8 passed in 3.34s System: [2026-04-03 17:13:39 CDT] Exec completed (quiet-co, code 0) :: ................................................................",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "System: 2026-04-03 18:45:55 CDT Exec completed (fast-fjo, code 0) :: ............. 100% 13 passed in 3.45s System: 2026-04-03 18:46:30 CDT Exec completed (sharp-sh, code 0) :: ........................................................................ 80% ................. 100% 89 p",
       "history": [
         {
@@ -11617,6 +11617,14 @@
           "completedAt": "2026-04-03T22:43:05.511Z",
           "completionSummary": "System: 2026-04-03 17:13:06 CDT Exec completed (brisk-co, code 0) :: ........ 100% 8 passed in 3.34s System: 2026-04-03 17:13:39 CDT Exec completed (quiet-co, code 0) :: ................................................................. 100% 65 passed in 25.09s Conversation info (",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-04T01:25:25.621Z",
+          "failedAt": "2026-04-04T01:25:25.621Z",
+          "failureReason": "id=\"chat:maintenance:blocker\", session_key=\"session:maintenance:blocker\", message_id=\"wamid.queue.blocker.1\", ), ) ) )[\"item\"] now = datetime(2026, 3, 3, tzinfo=timezone.utc) asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=False, now_iso=now.isoformat().replace(\"+00:00\", \"Z\")))) queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item[\"i",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -11673,7 +11681,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-03T22:43:05.511Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-04T01:25:25.621Z",
+      "failureReason": "id=\"chat:maintenance:blocker\", session_key=\"session:maintenance:blocker\", message_id=\"wamid.queue.blocker.1\", ), ) ) )[\"item\"] now = datetime(2026, 3, 3, tzinfo=timezone.utc) asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=False, now_iso=now.isoformat().replace(\"+00:00\", \"Z\")))) queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item[\"i",
+      "failureSource": "runtime_message"
     }
   ]
 }
