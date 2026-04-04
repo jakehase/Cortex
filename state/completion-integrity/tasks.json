@@ -4084,7 +4084,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T13:50:51.256Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T04:33:30.112Z",
+      "updatedAt": "2026-04-04T04:38:51.833Z",
       "history": [
         {
           "from": null,
@@ -4102,9 +4102,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 69,
+        "runs": 70,
         "failures": [],
-        "lastRunAt": "2026-04-04T04:33:30.120Z",
+        "lastRunAt": "2026-04-04T04:38:51.842Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -11971,6 +11971,92 @@
       "failedAt": "2026-04-04T04:04:58.216Z",
       "failureReason": "System: [2026-04-03 22:32:55 CDT] Exec completed (grand-fa, code 0) :: .............. [100%] 14 passed in 5.98s System: [2026-04-03 22:33:41 CDT] Exec completed (grand-la, code 0) :: ........................................................................ [ 65%] ...................................... [100%] 110 passed in 36.93s System: [2026-04-03 22:34:20 CDT] Exec failed (calm-kel, code 0) :: 90",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:whatsapp:direct:+17855410986:1775277688046:9cc306c1b4952d85",
+      "sessionKey": "agent:main:whatsapp:direct:+17855410986",
+      "createdAt": "2026-04-04T04:41:28.046Z",
+      "updatedAt": "2026-04-04T04:43:05.254Z",
+      "prompt": "System: [2026-04-03 23:06:00 CDT] Exec completed (delta-me, code 0) :: admin shell, API auth --- duration_ms: 139.456429 type: 'test' ... # Subtest: Program 6 reports, analytics, API/admin surfaces, export and history state ok 7 - Program 6",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your ",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-04T04:41:28.046Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-04T04:41:28.053Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-04T04:41:28.114Z",
+          "completedAt": "2026-04-04T04:41:28.114Z",
+          "completionSummary": "System: 2026-04-03 23:06:00 CDT Exec completed (delta-me, code 0) :: admin shell, API auth --- duration_ms: 139.456429 type: 'test' ... # Subtest: Program 6 reports, analytics, API/admin surfaces, export and history state ok 7 - Program 6 reports, … Sender (",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 2,
+        "failures": [],
+        "lastRunAt": "2026-04-04T04:43:05.260Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": true,
+        "proofPresent": true,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
+      },
+      "contract": {
+        "required": false,
+        "proofPresent": true,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-03 23:06:00 CDT] Exec completed (delta-me, code 0) :: admin shell, API auth --- duration_ms: 139.456429 type: 'test' ... # Subtest: Program 6 reports, analytics, API/admin surfaces, export and history st",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": true,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-04T04:41:28.114Z",
+      "completionSource": "agent_end"
     }
   ]
 }
