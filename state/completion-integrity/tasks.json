@@ -3925,7 +3925,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:05:51.257Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-04T21:26:34.169Z",
+      "updatedAt": "2026-04-04T21:31:15.442Z",
       "history": [
         {
           "from": null,
@@ -3943,9 +3943,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 76,
+        "runs": 77,
         "failures": [],
-        "lastRunAt": "2026-04-04T21:26:34.176Z",
+        "lastRunAt": "2026-04-04T21:31:15.452Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -12597,6 +12597,77 @@
       },
       "completedAt": "2026-04-04T14:41:39.439Z",
       "completionSource": "agent_end"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775338493156:215ad44aff4bf872",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-04T21:34:53.156Z",
+      "updatedAt": "2026-04-04T21:34:53.164Z",
+      "prompt": "Do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-04T21:34:53.156Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-04T21:34:53.164Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do it",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
