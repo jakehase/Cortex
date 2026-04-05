@@ -3925,7 +3925,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:05:51.257Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T00:10:41.554Z",
+      "updatedAt": "2026-04-05T00:15:36.972Z",
       "history": [
         {
           "from": null,
@@ -3943,9 +3943,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 106,
+        "runs": 107,
         "failures": [],
-        "lastRunAt": "2026-04-05T00:10:41.559Z",
+        "lastRunAt": "2026-04-05T00:15:36.979Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -12699,11 +12699,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775347687676:af06199cad574712",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-05T00:08:07.676Z",
-      "updatedAt": "2026-04-05T00:12:58.373Z",
+      "updatedAt": "2026-04-05T00:16:12.878Z",
       "prompt": "System: [2026-04-04 18:53:12 CDT] Exec completed (rapid-bi, code 0) :: ents.rs:1581: \"projectPath\": \"/repo/clawhip-worktrees/issue-65\", ./tmp_clawhip/src/events.rs:1582: \"projectName\": \"clawhip\" ./tmp_clawhip/src/events.rs:1589: \"omc issue-",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Sat 2026-04-04 16:01 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Context This subagent session is persistent and remains available for thread follow-up messages. Subagent Task: You are a live WhatsApp thread-bound session attached to the current conversation. Do not send any message right now. Stay active and wait for the next user message in this bound chat, then respond normally and helpfully. # SOUL.md - Who You Are _You're not a chatbot. You're becoming",
       "history": [
         {
@@ -12723,6 +12723,14 @@
           "completedAt": "2026-04-05T00:08:08.954Z",
           "completionSummary": "System: 2026-04-04 18:53:12 CDT Exec completed (rapid-bi, code 0) :: ents.rs:1581: projectPath: /repo/clawhip-worktrees/issue-65, ./tmp_clawhip/src/events.rs:1582: projectName: clawhip ./tmp_clawhip/src/events.rs:1589: omc issue-65 pr-crea… System: 2026-04-04 19:00:05 CDT Exec completed (delta-sa, code 0) :: LL.md and attach the skill surface clawhip recommended quick start: clawhip",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-05T00:16:12.878Z",
+          "failedAt": "2026-04-05T00:16:12.878Z",
+          "failureReason": "System: [2026-04-04 19:08:43 CDT] Exec completed (tidal-oc, code 0) :: clawhip_live/surface_matrix.json:49: \"/root/clawd/large-project-capability-stack/artifacts/benchmarks/cortex_vs_clawhip_live/fixtures/task_shapes.json\" /root/clawd/large-project-c… System: [2026-04-04 19:09:32 CDT] Exec failed (tide-pin, signal SIGTERM) System: [2026-04-04 19:10:15 CDT] Exec failed (marine-c, signal SIGTERM) Sy",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -12792,7 +12800,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-05T00:08:08.954Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-05T00:16:12.878Z",
+      "failureReason": "System: [2026-04-04 19:08:43 CDT] Exec completed (tidal-oc, code 0) :: clawhip_live/surface_matrix.json:49: \"/root/clawd/large-project-capability-stack/artifacts/benchmarks/cortex_vs_clawhip_live/fixtures/task_shapes.json\" /root/clawd/large-project-c… System: [2026-04-04 19:09:32 CDT] Exec failed (tide-pin, signal SIGTERM) System: [2026-04-04 19:10:15 CDT] Exec failed (marine-c, signal SIGTERM) Sy",
+      "failureSource": "runtime_message"
     }
   ]
 }
