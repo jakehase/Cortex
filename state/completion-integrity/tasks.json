@@ -3925,7 +3925,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:05:51.257Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T01:55:44.272Z",
+      "updatedAt": "2026-04-05T02:00:38.479Z",
       "history": [
         {
           "from": null,
@@ -3943,9 +3943,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 127,
+        "runs": 128,
         "failures": [],
-        "lastRunAt": "2026-04-05T01:55:44.280Z",
+        "lastRunAt": "2026-04-05T02:00:38.484Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13106,12 +13106,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775354321054:0c0174667408999f",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-05T01:58:41.054Z",
-      "updatedAt": "2026-04-05T01:58:41.062Z",
+      "updatedAt": "2026-04-05T02:04:39.248Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Sat 2026-04-04 16:01 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Context This subagent session is persistent and remains available for thread follow-up messages. Subagent Task: You ",
       "history": [
         {
           "from": null,
@@ -13122,6 +13122,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-05T01:58:41.062Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-05T02:04:39.248Z",
+          "completedAt": "2026-04-05T02:04:39.248Z",
+          "completionSummary": "Sat 2026-04-04 16:01 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Context This subagent session is persistent and remains available for thread follow-up messages. Subagent Task: You ",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -13133,17 +13141,22 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-04-05T02:04:39.259Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "grounding": {
         "required": false,
         "ambiguousReference": true,
-        "proofPresent": false,
+        "proofPresent": true,
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -13151,27 +13164,29 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "requestedFidelity": "production_slice",
         "requestedScope": "Do it",
         "stopCondition": "completed_and_delivered"
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
-      }
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-05T02:04:39.248Z",
+      "completionSource": "agent_end"
     }
   ]
 }
