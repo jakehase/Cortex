@@ -3819,7 +3819,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:15:51.263Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T21:54:09.628Z",
+      "updatedAt": "2026-04-05T21:59:02.416Z",
       "history": [
         {
           "from": null,
@@ -3837,9 +3837,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 13,
+        "runs": 14,
         "failures": [],
-        "lastRunAt": "2026-04-05T21:54:09.636Z",
+        "lastRunAt": "2026-04-05T21:59:02.425Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13838,6 +13838,108 @@
       },
       "failedAt": "2026-04-05T21:20:43.074Z",
       "failureReason": "System: [2026-04-05 15:59:06 CDT] Exec completed (mild-mis, code 1) :: cture slice --- duration_ms: 1.111949 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog package e… System: [2026-04-05 16:00:39 CDT] Exec completed (marine-e, code 0) :: cture slice --- duration_ms: 1.037382 type: 'test' ... # Subtest: workspace-c",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775426471244:d514022f656c2f2f",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-05T22:01:11.244Z",
+      "updatedAt": "2026-04-05T22:01:31.492Z",
+      "prompt": "System: [2026-04-05 16:23:32 CDT] Exec completed (quick-tr, code 0) :: cture slice --- duration_ms: 1.056056 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "System: 2026-04-05 16:23:32 CDT Exec completed (quick-tr, code 0) :: cture slice --- duration_ms: 1.056056 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog package e… Conversation info (untrusted metadata): ```json message_id: 3A888186DDC9B276F67C, reply_to_id: 3EB0164954BDCFFBCBD379, sender_id: +1785",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-05T22:01:11.244Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-05T22:01:11.251Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-05T22:01:13.851Z",
+          "completedAt": "2026-04-05T22:01:13.851Z",
+          "completionSummary": "System: 2026-04-05 16:23:32 CDT Exec completed (quick-tr, code 0) :: cture slice --- duration_ms: 1.056056 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog package e… Conversation info (untrusted metadata): ```json message_id: 3A888186DDC9B276F67C, reply_to_id: 3EB0164954BDCFFBCBD379, sender_id: +1785",
+          "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-05T22:01:31.492Z",
+          "failedAt": "2026-04-05T22:01:31.492Z",
+          "failureReason": "import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; async function loadDeliverOutboundPayloads() { const mod = await import('/usr/lib/node_modules/openclaw/dist/plugin-sdk/deliver-runtime-20_kW0lQ.js'); return mod.deliverOutboundPayloads; } async function defaultDeliver(payload) { const deliverOutboundPayloads = await loadDeliverOutboundPayloads(); return deli",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-05T22:01:13.857Z",
+            "reason": "reply_thread_anchor_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-05T22:01:13.857Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": true,
+          "required": true,
+          "proofPresent": false,
+          "replyToId": "3EB0164954BDCFFBCBD379",
+          "senderLabel": "136704681865420@lid",
+          "summary": "[Cortex] I implemented a real guardrail for this in the Mailchimp clone repo. *What I built* - a new `surface-honesty.json` manifest in `/root/clawd/mailchimp-clone` - an extension to the architecture enforcer in `large-"
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "[Cortex] I implemented a real guardrail for this in the Mailchimp clone repo. *What I built* - a new `surface-honesty.json` manifest in `/root/clawd/mailchimp-clone` - an extension to the architecture enforcer in `large-",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-05T22:01:13.851Z",
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-05T22:01:31.492Z",
+      "failureReason": "import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; async function loadDeliverOutboundPayloads() { const mod = await import('/usr/lib/node_modules/openclaw/dist/plugin-sdk/deliver-runtime-20_kW0lQ.js'); return mod.deliverOutboundPayloads; } async function defaultDeliver(payload) { const deliverOutboundPayloads = await loadDeliverOutboundPayloads(); return deli",
       "failureSource": "runtime_message"
     }
   ]
