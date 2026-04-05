@@ -3925,7 +3925,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:05:51.257Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T01:51:22.383Z",
+      "updatedAt": "2026-04-05T01:55:44.272Z",
       "history": [
         {
           "from": null,
@@ -3943,9 +3943,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 126,
+        "runs": 127,
         "failures": [],
-        "lastRunAt": "2026-04-05T01:51:22.392Z",
+        "lastRunAt": "2026-04-05T01:55:44.280Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13101,6 +13101,77 @@
       "failedAt": "2026-04-05T01:52:18.481Z",
       "failureReason": "System: [2026-04-04 19:56:23 CDT] Exec failed (tidy-clo, signal SIGTERM) System: [2026-04-04 20:01:48 CDT] Exec completed (quiet-cr, code 1) :: ure slice --- duration_ms: 1.073108 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 689 - workspace-catalog package exp… System: [2026-04-04 20:03:44 CDT] Exec completed (kind-atl, code 1) :: ctur",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775354321054:0c0174667408999f",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-05T01:58:41.054Z",
+      "updatedAt": "2026-04-05T01:58:41.062Z",
+      "prompt": "Do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-05T01:58:41.055Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-05T01:58:41.062Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do it",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
