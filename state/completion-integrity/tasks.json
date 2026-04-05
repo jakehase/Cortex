@@ -3819,7 +3819,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:15:51.263Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T22:13:54.616Z",
+      "updatedAt": "2026-04-05T22:19:03.203Z",
       "history": [
         {
           "from": null,
@@ -3837,9 +3837,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 17,
+        "runs": 18,
         "failures": [],
-        "lastRunAt": "2026-04-05T22:13:54.622Z",
+        "lastRunAt": "2026-04-05T22:19:03.211Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13940,6 +13940,88 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-05T22:01:31.492Z",
       "failureReason": "import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; async function loadDeliverOutboundPayloads() { const mod = await import('/usr/lib/node_modules/openclaw/dist/plugin-sdk/deliver-runtime-20_kW0lQ.js'); return mod.deliverOutboundPayloads; } async function defaultDeliver(payload) { const deliverOutboundPayloads = await loadDeliverOutboundPayloads(); return deli",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775427529872:e420e6fefeccf0d0",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-05T22:18:49.872Z",
+      "updatedAt": "2026-04-05T22:21:09.532Z",
+      "prompt": "Do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-05T22:18:49.872Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-05T22:18:49.879Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-05T22:21:09.532Z",
+          "failedAt": "2026-04-05T22:21:09.532Z",
+          "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 718.161615 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 489.734684 type",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do it",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-05T22:21:09.532Z",
+      "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 718.161615 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 489.734684 type",
       "failureSource": "runtime_message"
     }
   ]
