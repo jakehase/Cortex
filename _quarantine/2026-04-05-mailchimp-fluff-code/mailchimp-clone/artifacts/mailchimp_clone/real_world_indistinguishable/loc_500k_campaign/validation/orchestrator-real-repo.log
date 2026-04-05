@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo",
+  "highestPassingTier": 100,
+  "qualificationMode": "real_mailchimp_repo_live_worker_farm",
+  "blocker": null,
+  "supervisorLog": "/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/validation/supervisor.log"
+}

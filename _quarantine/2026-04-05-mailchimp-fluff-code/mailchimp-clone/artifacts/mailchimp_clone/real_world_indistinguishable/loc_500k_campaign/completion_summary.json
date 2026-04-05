@@ -1,0 +1,72 @@
+{
+  "generatedAt": "2026-04-03T05:23:49.711Z",
+  "replyAnchor": "user wants another massive expansion wave for the Mailchimp clone and explicitly wants the campaign to keep going until there is at least 500k LOC",
+  "anchor": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6/,current conversation where the repo advanced to full_clone_credible but is still far below real_world_indistinguishable because of code/test/evidence mass,/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "fidelity": "full_clone",
+  "scope": "LOC >= 500k Mailchimp expansion campaign",
+  "stopCondition": "loc_gte_500k_or_blocker_report",
+  "campaignMode": "persistent",
+  "supervisorStatus": "green",
+  "surfaceMatrix": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/surface_matrix.json",
+  "surfaceMatrixStatus": "all_complete",
+  "locSnapshot": {
+    "label": "post-validation",
+    "generatedAt": "2026-04-03T05:22:49.758Z",
+    "targetTotal": 500000,
+    "total": 609700,
+    "productSource": 589147,
+    "testsOnly": 14062,
+    "scriptsOnly": 6491,
+    "fileCount": 9685,
+    "byTopLevel": {
+      "apps": {
+        "lines": 439,
+        "files": 13
+      },
+      "packages": {
+        "lines": 588705,
+        "files": 8938
+      },
+      "src": {
+        "lines": 3,
+        "files": 1
+      },
+      "scripts": {
+        "lines": 6491,
+        "files": 33
+      },
+      "tests": {
+        "lines": 14062,
+        "files": 700
+      }
+    },
+    "locTargetMet": true,
+    "repoTestsOk": true,
+    "smokeOk": true,
+    "browserOk": true,
+    "orchestratorOk": true,
+    "truthRefreshOk": true
+  },
+  "validationState": {
+    "generatedAt": "2026-04-03T05:07:39.011Z",
+    "generatorOk": true,
+    "repoTestsOk": true,
+    "smokeOk": true,
+    "browserOk": true,
+    "orchestratorOk": true,
+    "truthRefreshOk": true,
+    "logs": {
+      "npmTest": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/npm_test.log",
+      "smoke": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/smoke.log",
+      "browser": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/browser-proof.log",
+      "orchestrator": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/orchestrator-real-repo.log",
+      "truthRefresh": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/truth-refresh.log"
+    }
+  },
+  "truthGateCurrentClaim": "full_clone_credible",
+  "truthGateRequestedClaimAllowed": false,
+  "topTierEligible": false,
+  "blockerReport": null,
+  "campaignRequestedClaimAllowed": true
+}

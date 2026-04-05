@@ -1,5 +1,9 @@
 import crypto from 'node:crypto';
 
+const PASSWORD_SCHEME = 'pbkdf2_sha256';
+const PASSWORD_ITERATIONS = 20000;
+const PASSWORD_KEY_LENGTH = 32;
+
 export function nowIso() {
   return new Date().toISOString();
 }
@@ -8,8 +12,33 @@ export function createId(prefix) {
   return `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
 }
 
+export function sha256(value) {
+  return crypto.createHash('sha256').update(String(value || '')).digest('hex');
+}
+
 export function hashPassword(password) {
-  return crypto.createHash('sha256').update(String(password || '')).digest('hex');
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.pbkdf2Sync(String(password || ''), salt, PASSWORD_ITERATIONS, PASSWORD_KEY_LENGTH, 'sha256').toString('hex');
+  return `${PASSWORD_SCHEME}$${PASSWORD_ITERATIONS}$${salt}$${derived}`;
+}
+
+function legacyHashPassword(password) {
+  return sha256(password);
+}
+
+export function verifyPassword(password, storedHash = '') {
+  const value = String(storedHash || '');
+  if (!value) return false;
+  if (!value.startsWith(`${PASSWORD_SCHEME}$`)) return legacyHashPassword(password) === value;
+  const [, iterationsText, salt, expected] = value.split('$');
+  const iterations = Number(iterationsText);
+  if (!iterations || !salt || !expected) return false;
+  const actual = crypto.pbkdf2Sync(String(password || ''), salt, iterations, Buffer.from(expected, 'hex').length, 'sha256').toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(actual, 'hex'), Buffer.from(expected, 'hex'));
+}
+
+export function passwordHashNeedsUpgrade(storedHash = '') {
+  return !String(storedHash || '').startsWith(`${PASSWORD_SCHEME}$`);
 }
 
 export function escapeHtml(value = '') {

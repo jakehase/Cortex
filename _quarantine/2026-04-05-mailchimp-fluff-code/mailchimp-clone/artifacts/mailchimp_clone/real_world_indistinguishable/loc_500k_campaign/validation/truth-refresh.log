@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "highestAllowedClaim": "full_clone_credible",
+  "requestedClaimAllowed": false,
+  "productSourceLines": 589147,
+  "testFiles": 700,
+  "browserChecks": 62,
+  "topTierEligible": false
+}

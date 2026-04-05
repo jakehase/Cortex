@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-04-03T05:07:39.011Z",
+  "generatorOk": true,
+  "repoTestsOk": true,
+  "smokeOk": true,
+  "browserOk": true,
+  "orchestratorOk": true,
+  "truthRefreshOk": true,
+  "logs": {
+    "npmTest": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/npm_test.log",
+    "smoke": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/smoke.log",
+    "browser": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/browser-proof.log",
+    "orchestrator": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/orchestrator-real-repo.log",
+    "truthRefresh": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/truth-refresh.log"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-04-03T04:41:12.166Z",
+  "highestAllowedClaim": "full_clone_credible",
+  "requestedClaimAllowed": false,
+  "blocker": "Top-tier claim remains mechanically denied after the first real 100-agent repo expansion wave; remaining blocker is scale mass and top-tier threshold depth, not a missing route-family wiring bug.",
+  "nextAction": "Launch another materially larger repo-expansion wave if the goal remains real_world_indistinguishable; this run already exhausted the credible path to full_clone_credible and the 150-test-file threshold but still sits far below large_product_replica/real_world_indistinguishable product-line requirements.",
+  "remainingGaps": [
+    "productLines_below_minimum",
+    "testLines_below_minimum",
+    "parityChecks_below_minimum",
+    "liveHttpChecks_below_minimum",
+    "artifactClasses_below_minimum",
+    "codeVolume_below_score_target"
+  ],
+  "currentClaim": "full_clone_credible",
+  "requestedClaim": "real_world_indistinguishable",
+  "weightedCoverage": 1.201
+}

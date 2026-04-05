@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-04-03T04:41:12.167Z",
+  "supervisorStatus": "red",
+  "matrixStatus": "blocked",
+  "campaignMode": "persistent",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "repoTestsOk": true,
+  "smokeOk": true,
+  "browserOk": true,
+  "orchestratorOk": true,
+  "qualificationOk": true,
+  "pathRefreshOk": true,
+  "browserChecks": 61,
+  "realBrowserChecks": 61,
+  "highestAllowedClaim": "full_clone_credible",
+  "requestedClaimAllowed": false,
+  "targetEligible": false,
+  "blockerReport": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6/reports/blocker_report.json",
+  "delta": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6/reports/delta_summary.json"
+}

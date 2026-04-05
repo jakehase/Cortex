@@ -1,0 +1,63 @@
+{
+  "generatedAt": "2026-04-03T04:41:12.165Z",
+  "repoSummary": {
+    "generatedAt": "2026-04-03T04:41:12.164Z",
+    "packageCount": 97,
+    "appCount": 8,
+    "productFiles": 820,
+    "productSourceLines": 17134,
+    "testFiles": 151,
+    "testSourceLines": 3617,
+    "moduleRoots": 104,
+    "codeVolumeScore": 3,
+    "repoShapeScore": 5,
+    "claimEligibility": {
+      "production_slice": {
+        "eligible": true,
+        "reasons": []
+      },
+      "scoped_parity": {
+        "eligible": true,
+        "reasons": []
+      },
+      "full_clone_credible": {
+        "eligible": true,
+        "reasons": []
+      },
+      "large_product_replica": {
+        "eligible": false,
+        "reasons": [
+          "product_source_lines_below_750000"
+        ]
+      },
+      "real_world_indistinguishable": {
+        "eligible": false,
+        "reasons": [
+          "product_source_lines_below_1500000"
+        ]
+      }
+    }
+  },
+  "browserChecks": 61,
+  "realBrowserChecks": 61,
+  "browserJourneyFamilies": 8,
+  "orchestratorTier": null,
+  "orchestratorPlanSize": null,
+  "highestAllowedClaim": "full_clone_credible",
+  "requestedClaimAllowed": false,
+  "remainingDowngradeReasons": [
+    "large_product_replica_not_established",
+    "code_volume_too_small_for_real_world_indistinguishable",
+    "product_source_lines_below_1500000"
+  ],
+  "topTierEligible": false,
+  "weightedCoverage": 1.201,
+  "blockerReasons": [
+    "productLines_below_minimum",
+    "testLines_below_minimum",
+    "parityChecks_below_minimum",
+    "liveHttpChecks_below_minimum",
+    "artifactClasses_below_minimum",
+    "codeVolume_below_score_target"
+  ]
+}

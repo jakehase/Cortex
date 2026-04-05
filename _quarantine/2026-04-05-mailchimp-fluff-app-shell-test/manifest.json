@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-04-05T01:04:13.953Z",
+  "workspace": "/root/clawd",
+  "bucket": "2026-04-05-mailchimp-fluff-app-shell-test",
+  "reason": "App-shell test still depends on quarantined generated shell packages and should not remain in the truthful active test surface.",
+  "moved": [
+    {
+      "relativePath": "mailchimp-clone/tests/app-shells.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-app-shell-test/mailchimp-clone/tests/app-shells.test.mjs"
+    }
+  ]
+}

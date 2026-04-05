@@ -2,6 +2,7 @@ import { saveDb, PLAN_CATALOG } from '../storage.mjs';
 import { dashboardBody, page, requireActor, requireAdmin, workspaceSwitcher } from '../view.mjs';
 import { addDomain, applyBillingPlan, createWorkspaceForUser, getCurrentActor, hasFeature, recordAudit, storeAsset, updateSettings } from '../domain-core.mjs';
 import { nowIso, readBody, redirect, text } from '../utils.mjs';
+import { createInvitationExpiry } from '../security.mjs';
 
 export function registerPlatformRoutes(router, deps) {
   const { requireAuth } = deps;
@@ -60,7 +61,7 @@ export function registerPlatformRoutes(router, deps) {
     const actor = requireAuth(state, req, res);
     if (!actor || !requireAdmin(actor, res, text)) return;
     const body = await readBody(req);
-    state.db.invitations.unshift({ id: deps.createId('invite'), workspaceId: actor.workspace.id, email: body.email, role: body.role || 'member', token: deps.createId('invite_token'), status: 'pending', invitedBy: actor.user.id, createdAt: nowIso() });
+    state.db.invitations.unshift({ id: deps.createId('invite'), workspaceId: actor.workspace.id, email: body.email, role: body.role || 'member', token: deps.createId('invite_token'), status: 'pending', invitedBy: actor.user.id, createdAt: nowIso(), expiresAt: createInvitationExpiry() });
     saveDb(state.db);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'invite-create', detail: `Invited ${body.email} as ${body.role}` });
     redirect(res, '/team');
@@ -73,6 +74,7 @@ export function registerPlatformRoutes(router, deps) {
     if (!invite) return text(res, 404, page('Team roles & invitations', actor, '<div class="warn">Pending invitation not found.</div>'));
     invite.token = deps.createId('invite_token');
     invite.updatedAt = nowIso();
+    invite.expiresAt = createInvitationExpiry();
     saveDb(state.db);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'invite-resend', detail: `Resent invite for ${invite.email}` });
     redirect(res, '/team');

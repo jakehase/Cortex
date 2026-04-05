@@ -75,7 +75,8 @@ export function initDb() {
     users: [], memberships: [], workspaces: [], invitations: [], sessions: [], auditEvents: [], events: [], notifications: [], jobs: [], assets: [], audiences: [], contacts: [], segments: [], campaigns: [], templates: DEFAULT_TEMPLATES,
     passwordResets: [], importPreviews: [], automations: [], automationRuns: [], journeyTemplates: DEFAULT_JOURNEY_TEMPLATES, forms: [], landingPages: [], apiKeys: [], webhooks: [], webhookDeliveries: [], exports: [],
     integrationInstallations: [], integrationSyncRuns: [], commerceStores: [], commerceProducts: [], commerceOrders: [], revenueAttributions: [], approvalRequests: [], approvalComments: [], brandKits: [], contentTemplates: [], templateCollections: [], suppressionEntries: [], complianceAlerts: [],
-    conversations: [], conversationMessages: [], preferenceCenters: [], preferenceProfiles: [], transactionalJourneys: [], transactionalDeliveries: [], surveyPrograms: [], surveyResponses: []
+    conversations: [], conversationMessages: [], preferenceCenters: [], preferenceProfiles: [], transactionalJourneys: [], transactionalDeliveries: [], surveyPrograms: [], surveyResponses: [],
+    rateLimits: [], jobDeadLetters: []
   };
 }
 
@@ -91,13 +92,17 @@ export function loadDb() {
   }
   const db = JSON.parse(fs.readFileSync(paths.dbPath, 'utf8'));
   db.automationRuns ||= [];
+  db.rateLimits ||= [];
+  db.jobDeadLetters ||= [];
   return db;
 }
 
 export function saveDb(db) {
   const paths = dataPaths();
   ensureDir(paths.dataDir);
-  fs.writeFileSync(paths.dbPath, JSON.stringify(db, null, 2));
+  const tempPath = `${paths.dbPath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(db, null, 2));
+  fs.renameSync(tempPath, paths.dbPath);
 }
 
 export function createAppState() {

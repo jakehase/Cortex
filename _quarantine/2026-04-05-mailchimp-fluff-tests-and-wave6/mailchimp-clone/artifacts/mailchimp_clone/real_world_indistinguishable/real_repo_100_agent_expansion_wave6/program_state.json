@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-04-03T04:41:12.167Z",
+  "status": "red",
+  "matrixStatus": "blocked",
+  "highestAllowedClaim": "full_clone_credible",
+  "requestedClaimAllowed": false,
+  "weightedCoverage": 1.201,
+  "blockerReasons": [
+    "productLines_below_minimum",
+    "testLines_below_minimum",
+    "parityChecks_below_minimum",
+    "liveHttpChecks_below_minimum",
+    "artifactClasses_below_minimum",
+    "codeVolume_below_score_target"
+  ],
+  "delta": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6/reports/delta_summary.json"
+}

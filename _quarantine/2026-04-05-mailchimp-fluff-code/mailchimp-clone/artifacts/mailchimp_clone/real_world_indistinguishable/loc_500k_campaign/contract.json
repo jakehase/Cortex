@@ -1,0 +1,30 @@
+{
+  "anchor": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6/,current conversation where the repo advanced to full_clone_credible but is still far below real_world_indistinguishable because of code/test/evidence mass,/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/",
+  "replyAnchor": "user wants another massive expansion wave for the Mailchimp clone and explicitly wants the campaign to keep going until there is at least 500k LOC",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "requestedFidelity": "full_clone",
+  "requestedScope": [
+    "LOC >= 500k Mailchimp expansion campaign",
+    "massive continued package/domain growth",
+    "main app route growth and auxiliary app shells",
+    "test/regression expansion",
+    "browser/live/evidence refresh",
+    "orchestrator-driven shard qualification rerun",
+    "top-tier truth refresh kept honest while pursuing the user-directed LOC threshold",
+    "campaign contract/graph/matrix/program/supervisor/notifier artifacts"
+  ],
+  "stopCondition": "loc_gte_500k_or_blocker_report",
+  "blockerPolicy": "stop only when code/test/script LOC >= 500000 with supervisor proof, or when a real blocker report exists",
+  "evidenceRequirements": [
+    "loc_progress.json with machine-readable snapshots",
+    "npm test green",
+    "smoke proof green",
+    "browser proof refreshed",
+    "real repo orchestrator rerun refreshed",
+    "truth refresh rerun refreshed",
+    "supervisor-owned campaign artifacts"
+  ],
+  "implementationSurface": "actual Mailchimp clone code + tests + browser/live/evidence depth + orchestrator-driven shard execution + updated contract/graph/matrix/supervisor/notifier artifacts",
+  "campaignMode": "persistent",
+  "createdAt": "2026-04-03T05:07:38.915Z"
+}

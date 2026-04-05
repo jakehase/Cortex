@@ -1,0 +1,12 @@
+
+> mailchimp-clone@0.1.0 wave1:browser-proof
+> node scripts/run-wave1-browser-proof.mjs
+
+{
+  "ok": true,
+  "realBrowser": true,
+  "browserChecks": 62,
+  "realBrowserChecks": 62,
+  "browserJourneyFamilies": 8,
+  "proofPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/wave_1_browser_foundation/validation/browser_proof.json"
+}

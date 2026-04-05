@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "createdAt": "2026-04-05T00:47:41.437Z",
+  "contractPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6/contract.json",
+  "graphPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6/issue_graph.json",
+  "matrixPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6/surface_matrix.json",
+  "events": [
+    {
+      "at": "2026-04-05T00:47:41.437Z",
+      "type": "contract-compiled",
+      "scope": [
+        "100-agent real-repo expansion wave 6 package/domain growth",
+        "main app integration route for wave 6 surfaces",
+        "additional app shells for lifecycle, compliance, and integrations",
+        "test-file expansion to 150-node-test census",
+        "real browser proof deepening to 60+ checks",
+        "smoke/live evidence refresh",
+        "real repo orchestrator qualification rerun",
+        "truth refresh and top-tier path refresh",
+        "campaign contract/graph/matrix/state/supervisor/notifier artifacts"
+      ]
+    }
+  ],
+  "checkpoints": [
+    {
+      "at": "2026-04-05T00:47:41.437Z",
+      "label": "bootstrapped",
+      "payload": {
+        "issueCount": 8
+      }
+    }
+  ]
+}

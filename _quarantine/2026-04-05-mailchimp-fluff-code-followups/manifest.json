@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-04-05T01:01:22.049Z",
+  "workspace": "/root/clawd",
+  "bucket": "2026-04-05-mailchimp-fluff-code-followups",
+  "reason": "Remaining planner/supervisor surfaces tied only to the quarantined LOC-500k campaign.",
+  "moved": [
+    {
+      "relativePath": "mailchimp-clone/scripts/loc-500k-supervisor.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-code-followups/mailchimp-clone/scripts/loc-500k-supervisor.mjs"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { createId, redirect, text } from '../../packages/app/utils.mjs';
 import { apiActor, getCurrentActor } from '../../packages/app/domain-core.mjs';
 import { page, requireActor } from '../../packages/app/view.mjs';
 import { runJobs } from '../../packages/app/jobs.mjs';
+import { pruneSecurityState, securityHeaders } from '../../packages/app/security.mjs';
 import { registerPublicRoutes } from '../../packages/app/routes/public.mjs';
 import { registerPlatformRoutes } from '../../packages/app/routes/platform.mjs';
 import { registerApiAdminRoutes } from '../../packages/app/routes/api-admin.mjs';
@@ -19,9 +20,6 @@ import { registerIntegrationsMarketplaceRoutes } from '../../packages/app/routes
 import { registerCommerceRevenueRoutes } from '../../packages/app/routes/commerce-revenue.mjs';
 import { registerCollaborationApprovalRoutes } from '../../packages/app/routes/collaboration-approval.mjs';
 import { registerDeliverabilityComplianceRoutes } from '../../packages/app/routes/deliverability-compliance.mjs';
-import { registerExpansionShowcaseRoutes } from '../../packages/app/routes/expansion-showcase.mjs';
-import { registerScaleWaveSixRoutes } from '../../packages/app/routes/scale-wave-six.mjs';
-import { registerScaleWaveSevenRoutes } from '../../packages/app/routes/scale-wave-seven.mjs';
 import { registerCurrentProductParityRoutes } from '../../packages/app/routes/current-product-parity.mjs';
 import { registerConversationInboxRoutes } from '../../packages/conversation-inbox/index.mjs';
 import { registerPreferencesCenterRoutes } from '../../packages/preferences-center/index.mjs';
@@ -45,9 +43,6 @@ export function createServer() {
   registerCommerceRevenueRoutes(router, deps);
   registerCollaborationApprovalRoutes(router, deps);
   registerDeliverabilityComplianceRoutes(router, deps);
-  registerExpansionShowcaseRoutes(router, deps);
-  registerScaleWaveSixRoutes(router, deps);
-  registerScaleWaveSevenRoutes(router, deps);
   registerCurrentProductParityRoutes(router, deps);
   registerConversationInboxRoutes(router, deps);
   registerPreferencesCenterRoutes(router, deps);
@@ -55,6 +50,8 @@ export function createServer() {
   registerSurveyFeedbackRoutes(router, deps);
 
   const server = http.createServer(async (req, res) => {
+    for (const [key, value] of Object.entries(securityHeaders())) res.setHeader(key, value);
+    pruneSecurityState(state);
     runJobs(state);
     const url = new URL(req.url, 'http://local');
     const handled = await router.handle({ state, req, res, url });

@@ -1,0 +1,2240 @@
+{
+  "generatedAt": "2026-04-05T01:03:16.547Z",
+  "workspace": "/root/clawd",
+  "bucket": "2026-04-05-mailchimp-fluff-tests-and-wave6",
+  "reason": "Tests and wave6/expansion surfaces that only validate or generate the quarantined LOC-inflation code.",
+  "moved": [
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/acquisition-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/acquisition-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/activation-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/activation-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/admin-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/admin-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/advocacy-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/advocacy-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/analytics-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/analytics-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/attribution-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/attribution-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/audience-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/audience-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/automation-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/automation-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-studio-routes.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-studio-routes.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/benchmark-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/benchmark-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/billing-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/billing-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/campaign-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/campaign-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/channel-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/channel-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/collaboration-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/collaboration-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/commerce-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/commerce-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/compliance-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/compliance-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-ledger-routes.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-ledger-routes.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/consent-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/consent-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/content-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/content-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/coupon-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/coupon-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/creative-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/creative-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/customer-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/customer-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/data-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/data-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/deliverability-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/deliverability-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/developer-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/developer-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/ecommerce-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/ecommerce-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/experimentation-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/experimentation-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/forecast-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/forecast-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/insights-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/insights-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/integrations-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/integrations-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/lifecycle-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/lifecycle-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/localization-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/localization-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-console.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-console.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-dossier.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-dossier.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-foundry.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-foundry.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-grid.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-grid.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-hub.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-hub.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-index.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-index.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-ledger.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-ledger.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-navigator.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-navigator.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-notebook.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-notebook.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-planner.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-planner.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-scorecard.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-scorecard.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-sentinel.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-sentinel.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-studio.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-studio.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-vault.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-vault.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-watchtower.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-watchtower.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/loyalty-workbench.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/loyalty-workbench.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/partner-advisor.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/partner-advisor.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/partner-atlas.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/partner-atlas.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/partner-cockpit.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/partner-cockpit.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/partner-exchange.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/partner-exchange.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/wave6-cluster-compliance.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/wave6-cluster-compliance.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/wave6-cluster-growth.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/wave6-cluster-growth.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/packages/app/routes/scale-wave-six.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/packages/app/routes/scale-wave-six.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/tests/scale-wave-six.test.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/tests/scale-wave-six.test.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/scripts/generate-wave6-expansion.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/scripts/generate-wave6-expansion.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/scripts/real-repo-100-agent-expansion-campaign.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/scripts/real-repo-100-agent-expansion-campaign.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/scripts/lib/real-repo-100-agent-expansion-plan.mjs",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/scripts/lib/real-repo-100-agent-expansion-plan.mjs"
+    },
+    {
+      "relativePath": "mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6",
+      "destination": "_quarantine/2026-04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/real_repo_100_agent_expansion_wave6"
+    }
+  ]
+}

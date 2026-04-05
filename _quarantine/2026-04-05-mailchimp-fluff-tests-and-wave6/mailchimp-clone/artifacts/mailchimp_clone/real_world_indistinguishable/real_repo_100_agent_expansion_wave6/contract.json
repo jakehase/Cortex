@@ -1,0 +1,31 @@
+{
+  "anchor": "/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/,/root/clawd/large-project-capability-stack/artifacts/qualification/mailchimp_real_world_indistinguishable_path/current_gap_analysis.json,current conversation explicitly approving the next step",
+  "replyAnchor": "user approved using the newly proven 100-agent real-repo orchestrator path to push the Mailchimp clone itself toward the top-tier claim",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "requestedFidelity": "full_clone",
+  "requestedScope": [
+    "100-agent real-repo expansion wave 6 package/domain growth",
+    "main app integration route for wave 6 surfaces",
+    "additional app shells for lifecycle, compliance, and integrations",
+    "test-file expansion to 150-node-test census",
+    "real browser proof deepening to 60+ checks",
+    "smoke/live evidence refresh",
+    "real repo orchestrator qualification rerun",
+    "truth refresh and top-tier path refresh",
+    "campaign contract/graph/matrix/state/supervisor/notifier artifacts"
+  ],
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "blockerPolicy": "if supervisor red without real blocker continue; stop only on structured blocker report",
+  "evidenceRequirements": [
+    "npm test green",
+    "smoke artifact green",
+    "wave1 browser proof artifact refreshed",
+    "orchestrator real repo completion summary",
+    "stack qualification claim certification refreshed",
+    "real-world path gap analysis refreshed",
+    "campaign matrix/program/supervisor/blocker artifacts"
+  ],
+  "implementationSurface": "actual Mailchimp repo product code + tests + browser/live evidence + architecture/app/package growth + campaign artifacts",
+  "campaignMode": "persistent",
+  "createdAt": "2026-04-05T00:47:41.435Z"
+}

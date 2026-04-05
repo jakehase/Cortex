@@ -1,0 +1,99 @@
+
+> mailchimp-clone@0.1.0 smoke
+> node scripts/smoke-full-clone.mjs
+
+{
+  "ok": true,
+  "checklist": [
+    {
+      "id": "platform.signup",
+      "ok": true,
+      "detail": "account creation and session bootstrap"
+    },
+    {
+      "id": "platform.expansion-showcase",
+      "ok": true,
+      "detail": "authenticated expansion showcase route"
+    },
+    {
+      "id": "platform.scale-wave-six",
+      "ok": true,
+      "detail": "authenticated scale wave six route"
+    },
+    {
+      "id": "platform.scale-wave-seven",
+      "ok": true,
+      "detail": "authenticated scale wave seven route"
+    },
+    {
+      "id": "audience.contact-create",
+      "ok": true,
+      "detail": "manual contact create"
+    },
+    {
+      "id": "program4.automation-publish",
+      "ok": true,
+      "detail": "journey publish"
+    },
+    {
+      "id": "program5.form-submission",
+      "ok": true,
+      "detail": "hosted signup flow"
+    },
+    {
+      "id": "program6.reported-send",
+      "ok": true,
+      "detail": "campaign send drives report metrics"
+    },
+    {
+      "id": "program6.reports-overview",
+      "ok": true,
+      "detail": "reports overview surface"
+    },
+    {
+      "id": "current-product.campaign-ai-experimentation",
+      "ok": true,
+      "detail": "AI assist + predictive optimization + experimentation routes"
+    },
+    {
+      "id": "current-product.website-builder",
+      "ok": true,
+      "detail": "website builder distinct from landing pages"
+    },
+    {
+      "id": "current-product.omnichannel",
+      "ok": true,
+      "detail": "omnichannel SMS/social/ads shell"
+    },
+    {
+      "id": "current-product.content-depth",
+      "ok": true,
+      "detail": "content lineage/snippet/version depth"
+    },
+    {
+      "id": "current-product.integration-depth",
+      "ok": true,
+      "detail": "connector auth/config/mapping detail surface"
+    },
+    {
+      "id": "continuation.conversations-inbox",
+      "ok": true,
+      "detail": "conversation inbox thread and reply"
+    },
+    {
+      "id": "continuation.preferences-center",
+      "ok": true,
+      "detail": "hosted preference profile updates"
+    },
+    {
+      "id": "continuation.transactional-messaging",
+      "ok": true,
+      "detail": "transactional journey dispatch"
+    },
+    {
+      "id": "continuation.surveys-feedback",
+      "ok": true,
+      "detail": "survey feedback capture"
+    }
+  ]
+}

@@ -1,0 +1,116 @@
+{
+  "version": 2,
+  "createdAt": "2026-04-03T05:07:38.917Z",
+  "mode": "persistent",
+  "stopCondition": "loc_gte_500k_or_blocker_report",
+  "contractPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/contract.json",
+  "graphPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/issue_graph.json",
+  "matrixPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/surface_matrix.json",
+  "ledgerPath": null,
+  "worker": {
+    "steps": [
+      {
+        "at": "2026-04-03T05:07:38.917Z",
+        "iterationId": 1,
+        "id": "loc500k.start",
+        "ok": true,
+        "note": "starting persistent loc >= 500k campaign"
+      },
+      {
+        "at": "2026-04-03T05:07:39.011Z",
+        "iterationId": 1,
+        "id": "loc500k.initial-snapshot",
+        "ok": true,
+        "total": 609700
+      },
+      {
+        "at": "2026-04-03T05:08:08.206Z",
+        "iterationId": 1,
+        "id": "loc500k.repo-tests",
+        "ok": true,
+        "logPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/npm_test.log",
+        "durationMs": 29195
+      },
+      {
+        "at": "2026-04-03T05:08:08.430Z",
+        "iterationId": 1,
+        "id": "loc500k.smoke",
+        "ok": true,
+        "logPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/smoke.log",
+        "durationMs": 224
+      },
+      {
+        "at": "2026-04-03T05:08:12.782Z",
+        "iterationId": 1,
+        "id": "loc500k.browser-proof",
+        "ok": true,
+        "logPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/browser-proof.log",
+        "durationMs": 4352
+      },
+      {
+        "at": "2026-04-03T05:22:48.836Z",
+        "iterationId": 1,
+        "id": "loc500k.orchestrator",
+        "ok": true,
+        "logPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/orchestrator-real-repo.log",
+        "durationMs": 876047
+      },
+      {
+        "at": "2026-04-03T05:22:49.757Z",
+        "iterationId": 1,
+        "id": "loc500k.truth-refresh",
+        "ok": true,
+        "logPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/truth-refresh.log",
+        "durationMs": 920
+      },
+      {
+        "at": "2026-04-03T05:22:49.906Z",
+        "iterationId": 1,
+        "id": "loc500k.supervisor",
+        "ok": false,
+        "logPath": "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/supervisor_status.log",
+        "total": 609700,
+        "matrixStatus": "partial"
+      }
+    ],
+    "lastHeartbeatAt": "2026-04-03T05:22:49.906Z",
+    "activeIteration": null,
+    "iterations": [
+      {
+        "id": 1,
+        "requestedAt": "2026-04-03T05:07:38.917Z",
+        "reason": "campaign_initialized",
+        "note": "loc 500k campaign ended with blocker report",
+        "payload": {},
+        "startedAt": "2026-04-03T05:07:38.917Z",
+        "claimedBy": "scripts/loc-500k-campaign.mjs",
+        "completedAt": "2026-04-03T05:22:49.906Z",
+        "ok": false,
+        "outcome": {
+          "supervisorStatus": "red",
+          "total": 609700,
+          "blocker": null
+        }
+      }
+    ],
+    "nextIterationId": 2,
+    "queuedIterations": [],
+    "shouldRequeue": false,
+    "requeueCount": 0,
+    "lastRequeueReason": "campaign_initialized"
+  },
+  "supervisor": {
+    "status": "red",
+    "blocker": null,
+    "matrixStatus": null,
+    "updatedAt": null
+  },
+  "notifier": {
+    "delivered": false,
+    "deliveredAt": null,
+    "note": null
+  },
+  "stopAllowed": false,
+  "done": false,
+  "stopReason": "continue"
+}

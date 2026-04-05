@@ -1,0 +1,4208 @@
+
+> mailchimp-clone@0.1.0 test
+> node --test --test-concurrency=1 tests/*.test.mjs
+
+TAP version 13
+# Subtest: acquisition-advisor generated scale surface stays executable and policy-complete
+ok 1 - acquisition-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.737582
+  type: 'test'
+  ...
+# Subtest: acquisition-atlas generated scale surface stays executable and policy-complete
+ok 2 - acquisition-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.574911
+  type: 'test'
+  ...
+# Subtest: acquisition-cockpit generated scale surface stays executable and policy-complete
+ok 3 - acquisition-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.735088
+  type: 'test'
+  ...
+# Subtest: acquisition-console generated scale surface stays executable and policy-complete
+ok 4 - acquisition-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.567678
+  type: 'test'
+  ...
+# Subtest: acquisition-dossier generated scale surface stays executable and policy-complete
+ok 5 - acquisition-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.588485
+  type: 'test'
+  ...
+# Subtest: acquisition-exchange generated scale surface stays executable and policy-complete
+ok 6 - acquisition-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.573158
+  type: 'test'
+  ...
+# Subtest: acquisition-foundry generated scale surface stays executable and policy-complete
+ok 7 - acquisition-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.536249
+  type: 'test'
+  ...
+# Subtest: acquisition-grid generated scale surface stays executable and policy-complete
+ok 8 - acquisition-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.589768
+  type: 'test'
+  ...
+# Subtest: acquisition-hub generated scale surface stays executable and policy-complete
+ok 9 - acquisition-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.483061
+  type: 'test'
+  ...
+# Subtest: acquisition-index generated scale surface stays executable and policy-complete
+ok 10 - acquisition-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.97419
+  type: 'test'
+  ...
+# Subtest: acquisition-ledger generated scale surface stays executable and policy-complete
+ok 11 - acquisition-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.584669
+  type: 'test'
+  ...
+# Subtest: acquisition-navigator generated scale surface stays executable and policy-complete
+ok 12 - acquisition-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.542872
+  type: 'test'
+  ...
+# Subtest: acquisition-notebook generated scale surface stays executable and policy-complete
+ok 13 - acquisition-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.541539
+  type: 'test'
+  ...
+# Subtest: acquisition-planner generated scale surface stays executable and policy-complete
+ok 14 - acquisition-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.578928
+  type: 'test'
+  ...
+# Subtest: acquisition-scorecard generated scale surface stays executable and policy-complete
+ok 15 - acquisition-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.575702
+  type: 'test'
+  ...
+# Subtest: acquisition-sentinel generated scale surface stays executable and policy-complete
+ok 16 - acquisition-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.514328
+  type: 'test'
+  ...
+# Subtest: acquisition-studio generated scale surface stays executable and policy-complete
+ok 17 - acquisition-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.582926
+  type: 'test'
+  ...
+# Subtest: acquisition-vault generated scale surface stays executable and policy-complete
+ok 18 - acquisition-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.523586
+  type: 'test'
+  ...
+# Subtest: acquisition-watchtower generated scale surface stays executable and policy-complete
+ok 19 - acquisition-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.615036
+  type: 'test'
+  ...
+# Subtest: acquisition-workbench generated scale surface stays executable and policy-complete
+ok 20 - acquisition-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 3.804018
+  type: 'test'
+  ...
+# Subtest: activation-advisor generated scale surface stays executable and policy-complete
+ok 21 - activation-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.618562
+  type: 'test'
+  ...
+# Subtest: activation-atlas generated scale surface stays executable and policy-complete
+ok 22 - activation-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.608984
+  type: 'test'
+  ...
+# Subtest: activation-cockpit generated scale surface stays executable and policy-complete
+ok 23 - activation-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.497457
+  type: 'test'
+  ...
+# Subtest: activation-console generated scale surface stays executable and policy-complete
+ok 24 - activation-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.59093
+  type: 'test'
+  ...
+# Subtest: activation-dossier generated scale surface stays executable and policy-complete
+ok 25 - activation-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.723325
+  type: 'test'
+  ...
+# Subtest: activation-exchange generated scale surface stays executable and policy-complete
+ok 26 - activation-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.567828
+  type: 'test'
+  ...
+# Subtest: activation-foundry generated scale surface stays executable and policy-complete
+ok 27 - activation-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.657575
+  type: 'test'
+  ...
+# Subtest: activation-grid generated scale surface stays executable and policy-complete
+ok 28 - activation-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.591372
+  type: 'test'
+  ...
+# Subtest: activation-hub generated scale surface stays executable and policy-complete
+ok 29 - activation-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.839572
+  type: 'test'
+  ...
+# Subtest: activation-index generated scale surface stays executable and policy-complete
+ok 30 - activation-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.562128
+  type: 'test'
+  ...
+# Subtest: activation-ledger generated scale surface stays executable and policy-complete
+ok 31 - activation-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.61734
+  type: 'test'
+  ...
+# Subtest: activation-navigator generated scale surface stays executable and policy-complete
+ok 32 - activation-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.685106
+  type: 'test'
+  ...
+# Subtest: activation-notebook generated scale surface stays executable and policy-complete
+ok 33 - activation-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.680126
+  type: 'test'
+  ...
+# Subtest: activation-planner generated scale surface stays executable and policy-complete
+ok 34 - activation-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.6607
+  type: 'test'
+  ...
+# Subtest: activation-scorecard generated scale surface stays executable and policy-complete
+ok 35 - activation-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.733895
+  type: 'test'
+  ...
+# Subtest: activation-sentinel generated scale surface stays executable and policy-complete
+ok 36 - activation-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.589387
+  type: 'test'
+  ...
+# Subtest: activation-studio generated scale surface stays executable and policy-complete
+ok 37 - activation-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.811118
+  type: 'test'
+  ...
+# Subtest: activation-vault generated scale surface stays executable and policy-complete
+ok 38 - activation-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.751859
+  type: 'test'
+  ...
+# Subtest: activation-watchtower generated scale surface stays executable and policy-complete
+ok 39 - activation-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.709109
+  type: 'test'
+  ...
+# Subtest: activation-workbench generated scale surface stays executable and policy-complete
+ok 40 - activation-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.648638
+  type: 'test'
+  ...
+# Subtest: admin-studio exposes a real package surface with route manifests and validation
+ok 41 - admin-studio exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.781328
+  type: 'test'
+  ...
+# Subtest: advocacy-advisor generated scale surface stays executable and policy-complete
+ok 42 - advocacy-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.621717
+  type: 'test'
+  ...
+# Subtest: advocacy-atlas generated scale surface stays executable and policy-complete
+ok 43 - advocacy-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.60697
+  type: 'test'
+  ...
+# Subtest: advocacy-cockpit generated scale surface stays executable and policy-complete
+ok 44 - advocacy-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.613211
+  type: 'test'
+  ...
+# Subtest: advocacy-console generated scale surface stays executable and policy-complete
+ok 45 - advocacy-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.592624
+  type: 'test'
+  ...
+# Subtest: advocacy-dossier generated scale surface stays executable and policy-complete
+ok 46 - advocacy-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.503559
+  type: 'test'
+  ...
+# Subtest: advocacy-exchange generated scale surface stays executable and policy-complete
+ok 47 - advocacy-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.496856
+  type: 'test'
+  ...
+# Subtest: advocacy-foundry generated scale surface stays executable and policy-complete
+ok 48 - advocacy-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.59622
+  type: 'test'
+  ...
+# Subtest: advocacy-grid generated scale surface stays executable and policy-complete
+ok 49 - advocacy-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.517314
+  type: 'test'
+  ...
+# Subtest: advocacy-hub generated scale surface stays executable and policy-complete
+ok 50 - advocacy-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.554553
+  type: 'test'
+  ...
+# Subtest: advocacy-index generated scale surface stays executable and policy-complete
+ok 51 - advocacy-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.510542
+  type: 'test'
+  ...
+# Subtest: advocacy-ledger generated scale surface stays executable and policy-complete
+ok 52 - advocacy-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.604685
+  type: 'test'
+  ...
+# Subtest: advocacy-navigator generated scale surface stays executable and policy-complete
+ok 53 - advocacy-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.625013
+  type: 'test'
+  ...
+# Subtest: advocacy-notebook generated scale surface stays executable and policy-complete
+ok 54 - advocacy-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.544505
+  type: 'test'
+  ...
+# Subtest: advocacy-planner generated scale surface stays executable and policy-complete
+ok 55 - advocacy-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.91956
+  type: 'test'
+  ...
+# Subtest: advocacy-scorecard generated scale surface stays executable and policy-complete
+ok 56 - advocacy-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.570863
+  type: 'test'
+  ...
+# Subtest: advocacy-sentinel generated scale surface stays executable and policy-complete
+ok 57 - advocacy-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.516984
+  type: 'test'
+  ...
+# Subtest: advocacy-studio generated scale surface stays executable and policy-complete
+ok 58 - advocacy-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.586773
+  type: 'test'
+  ...
+# Subtest: advocacy-vault generated scale surface stays executable and policy-complete
+ok 59 - advocacy-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.632086
+  type: 'test'
+  ...
+# Subtest: advocacy-watchtower generated scale surface stays executable and policy-complete
+ok 60 - advocacy-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.659557
+  type: 'test'
+  ...
+# Subtest: advocacy-workbench generated scale surface stays executable and policy-complete
+ok 61 - advocacy-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.60141
+  type: 'test'
+  ...
+# Subtest: agency-workspace package exposes snapshot, policy, route, and fixture depth
+ok 62 - agency-workspace package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.091963
+  type: 'test'
+  ...
+# Subtest: analytics-advisor generated scale surface stays executable and policy-complete
+ok 63 - analytics-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.602111
+  type: 'test'
+  ...
+# Subtest: analytics-atlas generated scale surface stays executable and policy-complete
+ok 64 - analytics-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.620896
+  type: 'test'
+  ...
+# Subtest: analytics-cockpit generated scale surface stays executable and policy-complete
+ok 65 - analytics-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.595889
+  type: 'test'
+  ...
+# Subtest: analytics-console generated scale surface stays executable and policy-complete
+ok 66 - analytics-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.513677
+  type: 'test'
+  ...
+# Subtest: analytics-dossier generated scale surface stays executable and policy-complete
+ok 67 - analytics-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.618401
+  type: 'test'
+  ...
+# Subtest: analytics-exchange generated scale surface stays executable and policy-complete
+ok 68 - analytics-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.554643
+  type: 'test'
+  ...
+# Subtest: analytics-foundry generated scale surface stays executable and policy-complete
+ok 69 - analytics-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.629111
+  type: 'test'
+  ...
+# Subtest: analytics-grid generated scale surface stays executable and policy-complete
+ok 70 - analytics-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.497247
+  type: 'test'
+  ...
+# Subtest: analytics-hub generated scale surface stays executable and policy-complete
+ok 71 - analytics-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.516593
+  type: 'test'
+  ...
+# Subtest: analytics-index generated scale surface stays executable and policy-complete
+ok 72 - analytics-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.563179
+  type: 'test'
+  ...
+# Subtest: analytics-ledger generated scale surface stays executable and policy-complete
+ok 73 - analytics-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.589728
+  type: 'test'
+  ...
+# Subtest: analytics-navigator generated scale surface stays executable and policy-complete
+ok 74 - analytics-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.676659
+  type: 'test'
+  ...
+# Subtest: analytics-notebook generated scale surface stays executable and policy-complete
+ok 75 - analytics-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.60663
+  type: 'test'
+  ...
+# Subtest: analytics-planner generated scale surface stays executable and policy-complete
+ok 76 - analytics-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.547099
+  type: 'test'
+  ...
+# Subtest: analytics-scorecard generated scale surface stays executable and policy-complete
+ok 77 - analytics-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.614114
+  type: 'test'
+  ...
+# Subtest: analytics-sentinel generated scale surface stays executable and policy-complete
+ok 78 - analytics-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.518376
+  type: 'test'
+  ...
+# Subtest: analytics-studio generated scale surface stays executable and policy-complete
+ok 79 - analytics-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.568279
+  type: 'test'
+  ...
+# Subtest: analytics-vault generated scale surface stays executable and policy-complete
+ok 80 - analytics-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.948533
+  type: 'test'
+  ...
+# Subtest: analytics-watchtower generated scale surface stays executable and policy-complete
+ok 81 - analytics-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.596942
+  type: 'test'
+  ...
+# Subtest: analytics-workbench generated scale surface stays executable and policy-complete
+ok 82 - analytics-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.691928
+  type: 'test'
+  ...
+# Subtest: auxiliary app shells expose live catalog endpoints
+ok 83 - auxiliary app shells expose live catalog endpoints
+  ---
+  duration_ms: 23.244998
+  type: 'test'
+  ...
+# Subtest: approval-batches package adds the last laddering architecture slice
+ok 84 - approval-batches package adds the last laddering architecture slice
+  ---
+  duration_ms: 1.065143
+  type: 'test'
+  ...
+# Subtest: Program 7 architecture hardening: app/package split satisfies capability-stack enforcer
+ok 85 - Program 7 architecture hardening: app/package split satisfies capability-stack enforcer
+  ---
+  duration_ms: 274.336393
+  type: 'test'
+  ...
+# Subtest: attribution-advisor generated scale surface stays executable and policy-complete
+ok 86 - attribution-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.52646
+  type: 'test'
+  ...
+# Subtest: attribution-atlas generated scale surface stays executable and policy-complete
+ok 87 - attribution-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.557789
+  type: 'test'
+  ...
+# Subtest: attribution-cockpit generated scale surface stays executable and policy-complete
+ok 88 - attribution-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.560083
+  type: 'test'
+  ...
+# Subtest: attribution-console generated scale surface stays executable and policy-complete
+ok 89 - attribution-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.547449
+  type: 'test'
+  ...
+# Subtest: attribution-dossier generated scale surface stays executable and policy-complete
+ok 90 - attribution-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.554392
+  type: 'test'
+  ...
+# Subtest: attribution-exchange generated scale surface stays executable and policy-complete
+ok 91 - attribution-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.570652
+  type: 'test'
+  ...
+# Subtest: attribution-foundry generated scale surface stays executable and policy-complete
+ok 92 - attribution-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.566965
+  type: 'test'
+  ...
+# Subtest: attribution-grid generated scale surface stays executable and policy-complete
+ok 93 - attribution-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.585731
+  type: 'test'
+  ...
+# Subtest: attribution-hub generated scale surface stays executable and policy-complete
+ok 94 - attribution-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.588556
+  type: 'test'
+  ...
+# Subtest: attribution-index generated scale surface stays executable and policy-complete
+ok 95 - attribution-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.729216
+  type: 'test'
+  ...
+# Subtest: attribution-ledger generated scale surface stays executable and policy-complete
+ok 96 - attribution-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.584759
+  type: 'test'
+  ...
+# Subtest: attribution-modeling routes honor custom base paths and stable ids
+ok 97 - attribution-modeling routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.080612
+  type: 'test'
+  ...
+# Subtest: attribution-modeling package expands the real-repo wave with route catalogs
+ok 98 - attribution-modeling package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.116308
+  type: 'test'
+  ...
+# Subtest: attribution-navigator generated scale surface stays executable and policy-complete
+ok 99 - attribution-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.518546
+  type: 'test'
+  ...
+# Subtest: attribution-notebook generated scale surface stays executable and policy-complete
+ok 100 - attribution-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.609455
+  type: 'test'
+  ...
+# Subtest: attribution-planner generated scale surface stays executable and policy-complete
+ok 101 - attribution-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.647525
+  type: 'test'
+  ...
+# Subtest: attribution-scorecard generated scale surface stays executable and policy-complete
+ok 102 - attribution-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.583907
+  type: 'test'
+  ...
+# Subtest: attribution-sentinel generated scale surface stays executable and policy-complete
+ok 103 - attribution-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.525068
+  type: 'test'
+  ...
+# Subtest: attribution-studio generated scale surface stays executable and policy-complete
+ok 104 - attribution-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.598364
+  type: 'test'
+  ...
+# Subtest: attribution-vault generated scale surface stays executable and policy-complete
+ok 105 - attribution-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.507075
+  type: 'test'
+  ...
+# Subtest: attribution-watchtower generated scale surface stays executable and policy-complete
+ok 106 - attribution-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.586803
+  type: 'test'
+  ...
+# Subtest: attribution-workbench generated scale surface stays executable and policy-complete
+ok 107 - attribution-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.543172
+  type: 'test'
+  ...
+# Subtest: audience-advisor generated scale surface stays executable and policy-complete
+ok 108 - audience-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.681558
+  type: 'test'
+  ...
+# Subtest: audience-atlas generated scale surface stays executable and policy-complete
+ok 109 - audience-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.602141
+  type: 'test'
+  ...
+# Subtest: audience-cockpit generated scale surface stays executable and policy-complete
+ok 110 - audience-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.538443
+  type: 'test'
+  ...
+# Subtest: audience-console generated scale surface stays executable and policy-complete
+ok 111 - audience-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.698881
+  type: 'test'
+  ...
+# Subtest: Program 2 audience core: audience metrics, taxonomy management, contacts filtering/bulk update, segment preview, import preview/commit, API update
+ok 112 - Program 2 audience core: audience metrics, taxonomy management, contacts filtering/bulk update, segment preview, import preview/commit, API update
+  ---
+  duration_ms: 52.347859
+  type: 'test'
+  ...
+# Subtest: audience-dossier generated scale surface stays executable and policy-complete
+ok 113 - audience-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.556436
+  type: 'test'
+  ...
+# Subtest: audience-exchange generated scale surface stays executable and policy-complete
+ok 114 - audience-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.593234
+  type: 'test'
+  ...
+# Subtest: audience-foundry generated scale surface stays executable and policy-complete
+ok 115 - audience-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.549494
+  type: 'test'
+  ...
+# Subtest: audience-funnels package pushes the continuation over another architecture tier
+ok 116 - audience-funnels package pushes the continuation over another architecture tier
+  ---
+  duration_ms: 1.062249
+  type: 'test'
+  ...
+# Subtest: audience-grid generated scale surface stays executable and policy-complete
+ok 117 - audience-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.516783
+  type: 'test'
+  ...
+# Subtest: audience-hub generated scale surface stays executable and policy-complete
+ok 118 - audience-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.605728
+  type: 'test'
+  ...
+# Subtest: audience-index generated scale surface stays executable and policy-complete
+ok 119 - audience-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.590028
+  type: 'test'
+  ...
+# Subtest: audience-intelligence exposes a real package surface with route manifests and validation
+ok 120 - audience-intelligence exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.765378
+  type: 'test'
+  ...
+# Subtest: audience-lab-notebooks package adds another closeout architecture slice
+ok 121 - audience-lab-notebooks package adds another closeout architecture slice
+  ---
+  duration_ms: 1.051238
+  type: 'test'
+  ...
+# Subtest: audience-ledger generated scale surface stays executable and policy-complete
+ok 122 - audience-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.685215
+  type: 'test'
+  ...
+# Subtest: audience-navigator generated scale surface stays executable and policy-complete
+ok 123 - audience-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.548872
+  type: 'test'
+  ...
+# Subtest: audience-notebook generated scale surface stays executable and policy-complete
+ok 124 - audience-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.669286
+  type: 'test'
+  ...
+# Subtest: audience-planner generated scale surface stays executable and policy-complete
+ok 125 - audience-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.567477
+  type: 'test'
+  ...
+# Subtest: audience-scorecard generated scale surface stays executable and policy-complete
+ok 126 - audience-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.593716
+  type: 'test'
+  ...
+# Subtest: audience-sentinel generated scale surface stays executable and policy-complete
+ok 127 - audience-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.632107
+  type: 'test'
+  ...
+# Subtest: audience-studio generated scale surface stays executable and policy-complete
+ok 128 - audience-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.604085
+  type: 'test'
+  ...
+# Subtest: audience-sync package exposes snapshot, policy, route, and fixture depth
+ok 129 - audience-sync package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.06849
+  type: 'test'
+  ...
+# Subtest: audience-vault generated scale surface stays executable and policy-complete
+ok 130 - audience-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.571014
+  type: 'test'
+  ...
+# Subtest: audience-warehouse package deepens continuation breadth and route catalogs
+ok 131 - audience-warehouse package deepens continuation breadth and route catalogs
+  ---
+  duration_ms: 1.077877
+  type: 'test'
+  ...
+# Subtest: audience-watchtower generated scale surface stays executable and policy-complete
+ok 132 - audience-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.593184
+  type: 'test'
+  ...
+# Subtest: audience-workbench generated scale surface stays executable and policy-complete
+ok 133 - audience-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.543292
+  type: 'test'
+  ...
+# Subtest: automation-advisor generated scale surface stays executable and policy-complete
+ok 134 - automation-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.507024
+  type: 'test'
+  ...
+# Subtest: automation-atlas generated scale surface stays executable and policy-complete
+ok 135 - automation-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.751648
+  type: 'test'
+  ...
+# Subtest: automation-cockpit generated scale surface stays executable and policy-complete
+ok 136 - automation-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.604545
+  type: 'test'
+  ...
+# Subtest: automation-console generated scale surface stays executable and policy-complete
+ok 137 - automation-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.594687
+  type: 'test'
+  ...
+# Subtest: automation-dossier generated scale surface stays executable and policy-complete
+ok 138 - automation-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.556597
+  type: 'test'
+  ...
+# Subtest: automation-exchange generated scale surface stays executable and policy-complete
+ok 139 - automation-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.557128
+  type: 'test'
+  ...
+# Subtest: automation-foundry generated scale surface stays executable and policy-complete
+ok 140 - automation-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.4722
+  type: 'test'
+  ...
+# Subtest: automation-grid generated scale surface stays executable and policy-complete
+ok 141 - automation-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.684584
+  type: 'test'
+  ...
+# Subtest: automation-hub generated scale surface stays executable and policy-complete
+ok 142 - automation-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.579238
+  type: 'test'
+  ...
+# Subtest: automation-index generated scale surface stays executable and policy-complete
+ok 143 - automation-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.602121
+  type: 'test'
+  ...
+# Subtest: Program 4 automation journeys: overview, builder nodes, publish/pause/resume, validation and broken-journey handling
+ok 144 - Program 4 automation journeys: overview, builder nodes, publish/pause/resume, validation and broken-journey handling
+  ---
+  duration_ms: 39.921716
+  type: 'test'
+  ...
+# Subtest: automation-ledger generated scale surface stays executable and policy-complete
+ok 145 - automation-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.582805
+  type: 'test'
+  ...
+# Subtest: automation-navigator generated scale surface stays executable and policy-complete
+ok 146 - automation-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.502486
+  type: 'test'
+  ...
+# Subtest: automation-notebook generated scale surface stays executable and policy-complete
+ok 147 - automation-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.54225
+  type: 'test'
+  ...
+# Subtest: automation-planner generated scale surface stays executable and policy-complete
+ok 148 - automation-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.56901
+  type: 'test'
+  ...
+# Subtest: automation-scorecard generated scale surface stays executable and policy-complete
+ok 149 - automation-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.502317
+  type: 'test'
+  ...
+# Subtest: automation-sentinel generated scale surface stays executable and policy-complete
+ok 150 - automation-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.573909
+  type: 'test'
+  ...
+# Subtest: automation-studio generated scale surface stays executable and policy-complete
+ok 151 - automation-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.550856
+  type: 'test'
+  ...
+# Subtest: automation-vault generated scale surface stays executable and policy-complete
+ok 152 - automation-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.60173
+  type: 'test'
+  ...
+# Subtest: automation-watchtower generated scale surface stays executable and policy-complete
+ok 153 - automation-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.72599
+  type: 'test'
+  ...
+# Subtest: automation-workbench generated scale surface stays executable and policy-complete
+ok 154 - automation-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.758791
+  type: 'test'
+  ...
+# Subtest: benchmark-advisor generated scale surface stays executable and policy-complete
+ok 155 - benchmark-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.576845
+  type: 'test'
+  ...
+# Subtest: benchmark-atlas generated scale surface stays executable and policy-complete
+ok 156 - benchmark-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.53666
+  type: 'test'
+  ...
+# Subtest: benchmark-cockpit generated scale surface stays executable and policy-complete
+ok 157 - benchmark-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.981073
+  type: 'test'
+  ...
+# Subtest: benchmark-console generated scale surface stays executable and policy-complete
+ok 158 - benchmark-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.529125
+  type: 'test'
+  ...
+# Subtest: benchmark-dossier generated scale surface stays executable and policy-complete
+ok 159 - benchmark-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.598494
+  type: 'test'
+  ...
+# Subtest: benchmark-exchange generated scale surface stays executable and policy-complete
+ok 160 - benchmark-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.580441
+  type: 'test'
+  ...
+# Subtest: benchmark-foundry generated scale surface stays executable and policy-complete
+ok 161 - benchmark-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.63416
+  type: 'test'
+  ...
+# Subtest: benchmark-grid generated scale surface stays executable and policy-complete
+ok 162 - benchmark-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.510341
+  type: 'test'
+  ...
+# Subtest: benchmark-hub generated scale surface stays executable and policy-complete
+ok 163 - benchmark-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.569451
+  type: 'test'
+  ...
+# Subtest: benchmark-index generated scale surface stays executable and policy-complete
+ok 164 - benchmark-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.637296
+  type: 'test'
+  ...
+# Subtest: benchmark-ledger generated scale surface stays executable and policy-complete
+ok 165 - benchmark-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.518045
+  type: 'test'
+  ...
+# Subtest: benchmark-navigator generated scale surface stays executable and policy-complete
+ok 166 - benchmark-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.60192
+  type: 'test'
+  ...
+# Subtest: benchmark-notebook generated scale surface stays executable and policy-complete
+ok 167 - benchmark-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.544505
+  type: 'test'
+  ...
+# Subtest: benchmark-planner generated scale surface stays executable and policy-complete
+ok 168 - benchmark-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.573438
+  type: 'test'
+  ...
+# Subtest: benchmark-scorecard generated scale surface stays executable and policy-complete
+ok 169 - benchmark-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.612931
+  type: 'test'
+  ...
+# Subtest: benchmark-sentinel generated scale surface stays executable and policy-complete
+ok 170 - benchmark-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.637116
+  type: 'test'
+  ...
+# Subtest: benchmark-studio routes honor custom base paths and stable ids
+ok 171 - benchmark-studio routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.062318
+  type: 'test'
+  ...
+# Subtest: benchmark-studio package expands the real-repo wave with route catalogs
+ok 172 - benchmark-studio package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.058721
+  type: 'test'
+  ...
+# Subtest: benchmark-vault generated scale surface stays executable and policy-complete
+ok 173 - benchmark-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.540978
+  type: 'test'
+  ...
+# Subtest: benchmark-watchtower generated scale surface stays executable and policy-complete
+ok 174 - benchmark-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.603744
+  type: 'test'
+  ...
+# Subtest: benchmark-workbench generated scale surface stays executable and policy-complete
+ok 175 - benchmark-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.59055
+  type: 'test'
+  ...
+# Subtest: billing-advisor generated scale surface stays executable and policy-complete
+ok 176 - billing-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.673674
+  type: 'test'
+  ...
+# Subtest: billing-analytics package exposes snapshot, policy, route, and fixture depth
+ok 177 - billing-analytics package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.105809
+  type: 'test'
+  ...
+# Subtest: billing-atlas generated scale surface stays executable and policy-complete
+ok 178 - billing-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.594076
+  type: 'test'
+  ...
+# Subtest: billing-cockpit generated scale surface stays executable and policy-complete
+ok 179 - billing-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.540838
+  type: 'test'
+  ...
+# Subtest: billing-console generated scale surface stays executable and policy-complete
+ok 180 - billing-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.524848
+  type: 'test'
+  ...
+# Subtest: billing-dossier generated scale surface stays executable and policy-complete
+ok 181 - billing-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.584258
+  type: 'test'
+  ...
+# Subtest: billing-exchange generated scale surface stays executable and policy-complete
+ok 182 - billing-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.616107
+  type: 'test'
+  ...
+# Subtest: billing-foundry generated scale surface stays executable and policy-complete
+ok 183 - billing-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.568329
+  type: 'test'
+  ...
+# Subtest: billing-grid generated scale surface stays executable and policy-complete
+ok 184 - billing-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.626306
+  type: 'test'
+  ...
+# Subtest: billing-hub generated scale surface stays executable and policy-complete
+ok 185 - billing-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.573608
+  type: 'test'
+  ...
+# Subtest: billing-index generated scale surface stays executable and policy-complete
+ok 186 - billing-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.684052
+  type: 'test'
+  ...
+# Subtest: billing-ledger generated scale surface stays executable and policy-complete
+ok 187 - billing-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.588907
+  type: 'test'
+  ...
+# Subtest: billing-navigator generated scale surface stays executable and policy-complete
+ok 188 - billing-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.48274
+  type: 'test'
+  ...
+# Subtest: billing-notebook generated scale surface stays executable and policy-complete
+ok 189 - billing-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.62303
+  type: 'test'
+  ...
+# Subtest: billing-planner generated scale surface stays executable and policy-complete
+ok 190 - billing-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.54224
+  type: 'test'
+  ...
+# Subtest: billing-recovery package deepens continuation breadth and route catalogs
+ok 191 - billing-recovery package deepens continuation breadth and route catalogs
+  ---
+  duration_ms: 1.081223
+  type: 'test'
+  ...
+# Subtest: billing-scorecard generated scale surface stays executable and policy-complete
+ok 192 - billing-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.733955
+  type: 'test'
+  ...
+# Subtest: billing-sentinel generated scale surface stays executable and policy-complete
+ok 193 - billing-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.510301
+  type: 'test'
+  ...
+# Subtest: billing-studio generated scale surface stays executable and policy-complete
+ok 194 - billing-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.588316
+  type: 'test'
+  ...
+# Subtest: billing-vault generated scale surface stays executable and policy-complete
+ok 195 - billing-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.6341
+  type: 'test'
+  ...
+# Subtest: billing-watchtower generated scale surface stays executable and policy-complete
+ok 196 - billing-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.504189
+  type: 'test'
+  ...
+# Subtest: billing-workbench generated scale surface stays executable and policy-complete
+ok 197 - billing-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.576354
+  type: 'test'
+  ...
+# Subtest: brand-governance package exposes snapshot, policy, route, and fixture depth
+ok 198 - brand-governance package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.060445
+  type: 'test'
+  ...
+# Subtest: Wave 1 browser realism foundation: real browser proof spans major journey families
+ok 199 - Wave 1 browser realism foundation: real browser proof spans major journey families
+  ---
+  duration_ms: 3822.849723
+  type: 'test'
+  ...
+# Subtest: calendar-approvals routes honor custom base paths and stable ids
+ok 200 - calendar-approvals routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.088137
+  type: 'test'
+  ...
+# Subtest: calendar-approvals package expands the real-repo wave with route catalogs
+ok 201 - calendar-approvals package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.05265
+  type: 'test'
+  ...
+# Subtest: campaign-advisor generated scale surface stays executable and policy-complete
+ok 202 - campaign-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.688201
+  type: 'test'
+  ...
+# Subtest: campaign-atlas generated scale surface stays executable and policy-complete
+ok 203 - campaign-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.543803
+  type: 'test'
+  ...
+# Subtest: campaign-briefs exposes a real package surface with route manifests and validation
+ok 204 - campaign-briefs exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.773213
+  type: 'test'
+  ...
+# Subtest: campaign-budgeting package deepens continuation breadth and route catalogs
+ok 205 - campaign-budgeting package deepens continuation breadth and route catalogs
+  ---
+  duration_ms: 1.056768
+  type: 'test'
+  ...
+# Subtest: campaign-calendar package exposes snapshot, policy, route, and fixture depth
+ok 206 - campaign-calendar package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.0959
+  type: 'test'
+  ...
+# Subtest: campaign-cockpit generated scale surface stays executable and policy-complete
+ok 207 - campaign-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.551878
+  type: 'test'
+  ...
+# Subtest: campaign-console generated scale surface stays executable and policy-complete
+ok 208 - campaign-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.643809
+  type: 'test'
+  ...
+# Subtest: campaign-dossier generated scale surface stays executable and policy-complete
+ok 209 - campaign-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.571024
+  type: 'test'
+  ...
+# Subtest: campaign-exchange generated scale surface stays executable and policy-complete
+ok 210 - campaign-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.51472
+  type: 'test'
+  ...
+# Subtest: campaign-foundry generated scale surface stays executable and policy-complete
+ok 211 - campaign-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.506774
+  type: 'test'
+  ...
+# Subtest: campaign-grid generated scale surface stays executable and policy-complete
+ok 212 - campaign-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.521371
+  type: 'test'
+  ...
+# Subtest: campaign-hub generated scale surface stays executable and policy-complete
+ok 213 - campaign-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.562698
+  type: 'test'
+  ...
+# Subtest: campaign-index generated scale surface stays executable and policy-complete
+ok 214 - campaign-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.827769
+  type: 'test'
+  ...
+# Subtest: campaign-ledger generated scale surface stays executable and policy-complete
+ok 215 - campaign-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.565082
+  type: 'test'
+  ...
+# Subtest: campaign-navigator generated scale surface stays executable and policy-complete
+ok 216 - campaign-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.601239
+  type: 'test'
+  ...
+# Subtest: campaign-notebook generated scale surface stays executable and policy-complete
+ok 217 - campaign-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.592383
+  type: 'test'
+  ...
+# Subtest: campaign-ops package pushes the continuation over another architecture tier
+ok 218 - campaign-ops package pushes the continuation over another architecture tier
+  ---
+  duration_ms: 1.038424
+  type: 'test'
+  ...
+# Subtest: Program 3 campaign pipeline: step fidelity, resume semantics, block editor, blockers, test send, scheduled send, immediate send
+ok 219 - Program 3 campaign pipeline: step fidelity, resume semantics, block editor, blockers, test send, scheduled send, immediate send
+  ---
+  duration_ms: 671.170617
+  type: 'test'
+  ...
+# Subtest: campaign-planner generated scale surface stays executable and policy-complete
+ok 220 - campaign-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.618291
+  type: 'test'
+  ...
+# Subtest: campaign-sandboxes routes honor custom base paths and stable ids
+ok 221 - campaign-sandboxes routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.152556
+  type: 'test'
+  ...
+# Subtest: campaign-sandboxes package expands the real-repo wave with route catalogs
+ok 222 - campaign-sandboxes package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.066536
+  type: 'test'
+  ...
+# Subtest: campaign-scorecard generated scale surface stays executable and policy-complete
+ok 223 - campaign-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.756017
+  type: 'test'
+  ...
+# Subtest: campaign-sentinel generated scale surface stays executable and policy-complete
+ok 224 - campaign-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.572636
+  type: 'test'
+  ...
+# Subtest: campaign-studio generated scale surface stays executable and policy-complete
+ok 225 - campaign-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.636845
+  type: 'test'
+  ...
+# Subtest: campaign-vault generated scale surface stays executable and policy-complete
+ok 226 - campaign-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.511914
+  type: 'test'
+  ...
+# Subtest: campaign-watchtower generated scale surface stays executable and policy-complete
+ok 227 - campaign-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.576643
+  type: 'test'
+  ...
+# Subtest: campaign-workbench generated scale surface stays executable and policy-complete
+ok 228 - campaign-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.598304
+  type: 'test'
+  ...
+# Subtest: channel-advisor generated scale surface stays executable and policy-complete
+ok 229 - channel-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.570953
+  type: 'test'
+  ...
+# Subtest: channel-atlas generated scale surface stays executable and policy-complete
+ok 230 - channel-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.638248
+  type: 'test'
+  ...
+# Subtest: channel-cockpit generated scale surface stays executable and policy-complete
+ok 231 - channel-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.593305
+  type: 'test'
+  ...
+# Subtest: channel-console generated scale surface stays executable and policy-complete
+ok 232 - channel-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.62863
+  type: 'test'
+  ...
+# Subtest: channel-dossier generated scale surface stays executable and policy-complete
+ok 233 - channel-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.566034
+  type: 'test'
+  ...
+# Subtest: channel-exchange generated scale surface stays executable and policy-complete
+ok 234 - channel-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.595328
+  type: 'test'
+  ...
+# Subtest: channel-foundry generated scale surface stays executable and policy-complete
+ok 235 - channel-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.608693
+  type: 'test'
+  ...
+# Subtest: channel-grid generated scale surface stays executable and policy-complete
+ok 236 - channel-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.507316
+  type: 'test'
+  ...
+# Subtest: channel-health package pushes the continuation over another architecture tier
+ok 237 - channel-health package pushes the continuation over another architecture tier
+  ---
+  duration_ms: 1.023236
+  type: 'test'
+  ...
+# Subtest: channel-hub generated scale surface stays executable and policy-complete
+ok 238 - channel-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.624313
+  type: 'test'
+  ...
+# Subtest: channel-index generated scale surface stays executable and policy-complete
+ok 239 - channel-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.492558
+  type: 'test'
+  ...
+# Subtest: channel-ledger generated scale surface stays executable and policy-complete
+ok 240 - channel-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.541549
+  type: 'test'
+  ...
+# Subtest: channel-navigator generated scale surface stays executable and policy-complete
+ok 241 - channel-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.589428
+  type: 'test'
+  ...
+# Subtest: channel-notebook generated scale surface stays executable and policy-complete
+ok 242 - channel-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.577806
+  type: 'test'
+  ...
+# Subtest: channel-planner generated scale surface stays executable and policy-complete
+ok 243 - channel-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.567346
+  type: 'test'
+  ...
+# Subtest: channel-playbooks routes honor custom base paths and stable ids
+ok 244 - channel-playbooks routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.109065
+  type: 'test'
+  ...
+# Subtest: channel-playbooks package expands the real-repo wave with route catalogs
+ok 245 - channel-playbooks package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.066737
+  type: 'test'
+  ...
+# Subtest: channel-scorecard generated scale surface stays executable and policy-complete
+ok 246 - channel-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.591632
+  type: 'test'
+  ...
+# Subtest: channel-sentinel generated scale surface stays executable and policy-complete
+ok 247 - channel-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.598414
+  type: 'test'
+  ...
+# Subtest: channel-studio generated scale surface stays executable and policy-complete
+ok 248 - channel-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.52041
+  type: 'test'
+  ...
+# Subtest: channel-vault generated scale surface stays executable and policy-complete
+ok 249 - channel-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.617309
+  type: 'test'
+  ...
+# Subtest: channel-watchtower generated scale surface stays executable and policy-complete
+ok 250 - channel-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.605347
+  type: 'test'
+  ...
+# Subtest: channel-workbench generated scale surface stays executable and policy-complete
+ok 251 - channel-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.538794
+  type: 'test'
+  ...
+# Subtest: collaboration-advisor generated scale surface stays executable and policy-complete
+ok 252 - collaboration-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.557047
+  type: 'test'
+  ...
+# Subtest: Wave 2 collaboration approval: request review, comment, approve, and expose governance state
+ok 253 - Wave 2 collaboration approval: request review, comment, approve, and expose governance state
+  ---
+  duration_ms: 29.774786
+  type: 'test'
+  ...
+# Subtest: collaboration-atlas generated scale surface stays executable and policy-complete
+ok 254 - collaboration-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.623942
+  type: 'test'
+  ...
+# Subtest: collaboration-cockpit generated scale surface stays executable and policy-complete
+ok 255 - collaboration-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.630434
+  type: 'test'
+  ...
+# Subtest: collaboration-console generated scale surface stays executable and policy-complete
+ok 256 - collaboration-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.502597
+  type: 'test'
+  ...
+# Subtest: collaboration-dossier generated scale surface stays executable and policy-complete
+ok 257 - collaboration-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.555746
+  type: 'test'
+  ...
+# Subtest: collaboration-exchange generated scale surface stays executable and policy-complete
+ok 258 - collaboration-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.577115
+  type: 'test'
+  ...
+# Subtest: collaboration-foundry generated scale surface stays executable and policy-complete
+ok 259 - collaboration-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.529197
+  type: 'test'
+  ...
+# Subtest: collaboration-grid generated scale surface stays executable and policy-complete
+ok 260 - collaboration-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.70413
+  type: 'test'
+  ...
+# Subtest: collaboration-hub generated scale surface stays executable and policy-complete
+ok 261 - collaboration-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.559612
+  type: 'test'
+  ...
+# Subtest: collaboration-index generated scale surface stays executable and policy-complete
+ok 262 - collaboration-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.607852
+  type: 'test'
+  ...
+# Subtest: collaboration-ledger generated scale surface stays executable and policy-complete
+ok 263 - collaboration-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.591952
+  type: 'test'
+  ...
+# Subtest: collaboration-navigator generated scale surface stays executable and policy-complete
+ok 264 - collaboration-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.6125
+  type: 'test'
+  ...
+# Subtest: collaboration-notebook generated scale surface stays executable and policy-complete
+ok 265 - collaboration-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.815005
+  type: 'test'
+  ...
+# Subtest: collaboration-planner generated scale surface stays executable and policy-complete
+ok 266 - collaboration-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.561455
+  type: 'test'
+  ...
+# Subtest: collaboration-scorecard generated scale surface stays executable and policy-complete
+ok 267 - collaboration-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.505452
+  type: 'test'
+  ...
+# Subtest: collaboration-sentinel generated scale surface stays executable and policy-complete
+ok 268 - collaboration-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.480235
+  type: 'test'
+  ...
+# Subtest: collaboration-studio generated scale surface stays executable and policy-complete
+ok 269 - collaboration-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.627308
+  type: 'test'
+  ...
+# Subtest: collaboration-vault generated scale surface stays executable and policy-complete
+ok 270 - collaboration-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.633339
+  type: 'test'
+  ...
+# Subtest: collaboration-watchtower generated scale surface stays executable and policy-complete
+ok 271 - collaboration-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.615676
+  type: 'test'
+  ...
+# Subtest: collaboration-workbench generated scale surface stays executable and policy-complete
+ok 272 - collaboration-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.59103
+  type: 'test'
+  ...
+# Subtest: commerce-advisor generated scale surface stays executable and policy-complete
+ok 273 - commerce-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.586212
+  type: 'test'
+  ...
+# Subtest: commerce-atlas generated scale surface stays executable and policy-complete
+ok 274 - commerce-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.492798
+  type: 'test'
+  ...
+# Subtest: commerce-cockpit generated scale surface stays executable and policy-complete
+ok 275 - commerce-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.625654
+  type: 'test'
+  ...
+# Subtest: commerce-console generated scale surface stays executable and policy-complete
+ok 276 - commerce-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.519969
+  type: 'test'
+  ...
+# Subtest: commerce-coupons package deepens continuation breadth and route catalogs
+ok 277 - commerce-coupons package deepens continuation breadth and route catalogs
+  ---
+  duration_ms: 1.096932
+  type: 'test'
+  ...
+# Subtest: commerce-dossier generated scale surface stays executable and policy-complete
+ok 278 - commerce-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.581743
+  type: 'test'
+  ...
+# Subtest: commerce-exchange generated scale surface stays executable and policy-complete
+ok 279 - commerce-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.52577
+  type: 'test'
+  ...
+# Subtest: commerce-foundry generated scale surface stays executable and policy-complete
+ok 280 - commerce-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.626296
+  type: 'test'
+  ...
+# Subtest: commerce-grid generated scale surface stays executable and policy-complete
+ok 281 - commerce-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.629482
+  type: 'test'
+  ...
+# Subtest: commerce-hub generated scale surface stays executable and policy-complete
+ok 282 - commerce-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.557137
+  type: 'test'
+  ...
+# Subtest: commerce-index generated scale surface stays executable and policy-complete
+ok 283 - commerce-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.553932
+  type: 'test'
+  ...
+# Subtest: commerce-ledger generated scale surface stays executable and policy-complete
+ok 284 - commerce-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.58576
+  type: 'test'
+  ...
+# Subtest: commerce-navigator generated scale surface stays executable and policy-complete
+ok 285 - commerce-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.582174
+  type: 'test'
+  ...
+# Subtest: commerce-notebook generated scale surface stays executable and policy-complete
+ok 286 - commerce-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.546568
+  type: 'test'
+  ...
+# Subtest: commerce-planner generated scale surface stays executable and policy-complete
+ok 287 - commerce-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.583747
+  type: 'test'
+  ...
+# Subtest: Wave 2 commerce revenue: connect stores, sync catalog and orders, and expose revenue attribution
+ok 288 - Wave 2 commerce revenue: connect stores, sync catalog and orders, and expose revenue attribution
+  ---
+  duration_ms: 28.093642
+  type: 'test'
+  ...
+# Subtest: commerce-scorecard generated scale surface stays executable and policy-complete
+ok 289 - commerce-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.630243
+  type: 'test'
+  ...
+# Subtest: commerce-sentinel generated scale surface stays executable and policy-complete
+ok 290 - commerce-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.540086
+  type: 'test'
+  ...
+# Subtest: commerce-studio generated scale surface stays executable and policy-complete
+ok 291 - commerce-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.825245
+  type: 'test'
+  ...
+# Subtest: commerce-vault generated scale surface stays executable and policy-complete
+ok 292 - commerce-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.542671
+  type: 'test'
+  ...
+# Subtest: commerce-watchtower generated scale surface stays executable and policy-complete
+ok 293 - commerce-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.526531
+  type: 'test'
+  ...
+# Subtest: commerce-workbench generated scale surface stays executable and policy-complete
+ok 294 - commerce-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.592303
+  type: 'test'
+  ...
+# Subtest: compliance-advisor generated scale surface stays executable and policy-complete
+ok 295 - compliance-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.600347
+  type: 'test'
+  ...
+# Subtest: compliance-atlas generated scale surface stays executable and policy-complete
+ok 296 - compliance-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.526702
+  type: 'test'
+  ...
+# Subtest: compliance-cockpit generated scale surface stays executable and policy-complete
+ok 297 - compliance-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.571444
+  type: 'test'
+  ...
+# Subtest: compliance-console generated scale surface stays executable and policy-complete
+ok 298 - compliance-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.500724
+  type: 'test'
+  ...
+# Subtest: compliance-dossier generated scale surface stays executable and policy-complete
+ok 299 - compliance-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.568048
+  type: 'test'
+  ...
+# Subtest: compliance-exchange generated scale surface stays executable and policy-complete
+ok 300 - compliance-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.512885
+  type: 'test'
+  ...
+# Subtest: compliance-exports package exposes snapshot, policy, route, and fixture depth
+ok 301 - compliance-exports package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.085842
+  type: 'test'
+  ...
+# Subtest: compliance-foundry generated scale surface stays executable and policy-complete
+ok 302 - compliance-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.516102
+  type: 'test'
+  ...
+# Subtest: compliance-grid generated scale surface stays executable and policy-complete
+ok 303 - compliance-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.611098
+  type: 'test'
+  ...
+# Subtest: compliance-hub generated scale surface stays executable and policy-complete
+ok 304 - compliance-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.68274
+  type: 'test'
+  ...
+# Subtest: compliance-incidents routes honor custom base paths and stable ids
+ok 305 - compliance-incidents routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.065804
+  type: 'test'
+  ...
+# Subtest: compliance-incidents package expands the real-repo wave with route catalogs
+ok 306 - compliance-incidents package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.075192
+  type: 'test'
+  ...
+# Subtest: compliance-index generated scale surface stays executable and policy-complete
+ok 307 - compliance-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.687088
+  type: 'test'
+  ...
+# Subtest: compliance-ledger generated scale surface stays executable and policy-complete
+ok 308 - compliance-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.605707
+  type: 'test'
+  ...
+# Subtest: compliance-navigator generated scale surface stays executable and policy-complete
+ok 309 - compliance-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.629772
+  type: 'test'
+  ...
+# Subtest: compliance-notebook generated scale surface stays executable and policy-complete
+ok 310 - compliance-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.688821
+  type: 'test'
+  ...
+# Subtest: compliance-planner generated scale surface stays executable and policy-complete
+ok 311 - compliance-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.516532
+  type: 'test'
+  ...
+# Subtest: compliance-playbooks package pushes the continuation over another architecture tier
+ok 312 - compliance-playbooks package pushes the continuation over another architecture tier
+  ---
+  duration_ms: 1.048132
+  type: 'test'
+  ...
+# Subtest: compliance-scorecard generated scale surface stays executable and policy-complete
+ok 313 - compliance-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.590359
+  type: 'test'
+  ...
+# Subtest: compliance-sentinel generated scale surface stays executable and policy-complete
+ok 314 - compliance-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.576394
+  type: 'test'
+  ...
+# Subtest: compliance-simulator package adds another closeout architecture slice
+ok 315 - compliance-simulator package adds another closeout architecture slice
+  ---
+  duration_ms: 1.077647
+  type: 'test'
+  ...
+# Subtest: compliance-studio generated scale surface stays executable and policy-complete
+ok 316 - compliance-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.475136
+  type: 'test'
+  ...
+# Subtest: compliance-vault generated scale surface stays executable and policy-complete
+ok 317 - compliance-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.62307
+  type: 'test'
+  ...
+# Subtest: compliance-watchtower generated scale surface stays executable and policy-complete
+ok 318 - compliance-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.541298
+  type: 'test'
+  ...
+# Subtest: compliance-workbench generated scale surface stays executable and policy-complete
+ok 319 - compliance-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.567216
+  type: 'test'
+  ...
+# Subtest: consent-advisor generated scale surface stays executable and policy-complete
+ok 320 - consent-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.637337
+  type: 'test'
+  ...
+# Subtest: consent-atlas generated scale surface stays executable and policy-complete
+ok 321 - consent-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.539696
+  type: 'test'
+  ...
+# Subtest: consent-cockpit generated scale surface stays executable and policy-complete
+ok 322 - consent-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.613643
+  type: 'test'
+  ...
+# Subtest: consent-console generated scale surface stays executable and policy-complete
+ok 323 - consent-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.636525
+  type: 'test'
+  ...
+# Subtest: consent-dossier generated scale surface stays executable and policy-complete
+ok 324 - consent-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.570522
+  type: 'test'
+  ...
+# Subtest: consent-exchange generated scale surface stays executable and policy-complete
+ok 325 - consent-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.601059
+  type: 'test'
+  ...
+# Subtest: consent-foundry generated scale surface stays executable and policy-complete
+ok 326 - consent-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.547921
+  type: 'test'
+  ...
+# Subtest: consent-grid generated scale surface stays executable and policy-complete
+ok 327 - consent-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.49898
+  type: 'test'
+  ...
+# Subtest: consent-hub generated scale surface stays executable and policy-complete
+ok 328 - consent-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.624853
+  type: 'test'
+  ...
+# Subtest: consent-index generated scale surface stays executable and policy-complete
+ok 329 - consent-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.658896
+  type: 'test'
+  ...
+# Subtest: consent-ledger routes honor custom base paths and stable ids
+ok 330 - consent-ledger routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.127559
+  type: 'test'
+  ...
+# Subtest: consent-ledger package expands the real-repo wave with route catalogs
+ok 331 - consent-ledger package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.063981
+  type: 'test'
+  ...
+# Subtest: consent-navigator generated scale surface stays executable and policy-complete
+ok 332 - consent-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.615066
+  type: 'test'
+  ...
+# Subtest: consent-notebook generated scale surface stays executable and policy-complete
+ok 333 - consent-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.616278
+  type: 'test'
+  ...
+# Subtest: consent-planner generated scale surface stays executable and policy-complete
+ok 334 - consent-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.913909
+  type: 'test'
+  ...
+# Subtest: consent-scorecard generated scale surface stays executable and policy-complete
+ok 335 - consent-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.590339
+  type: 'test'
+  ...
+# Subtest: consent-sentinel generated scale surface stays executable and policy-complete
+ok 336 - consent-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.626166
+  type: 'test'
+  ...
+# Subtest: consent-studio generated scale surface stays executable and policy-complete
+ok 337 - consent-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.532442
+  type: 'test'
+  ...
+# Subtest: consent-vault generated scale surface stays executable and policy-complete
+ok 338 - consent-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.560154
+  type: 'test'
+  ...
+# Subtest: consent-watchtower generated scale surface stays executable and policy-complete
+ok 339 - consent-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.592804
+  type: 'test'
+  ...
+# Subtest: consent-workbench generated scale surface stays executable and policy-complete
+ok 340 - consent-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.603644
+  type: 'test'
+  ...
+# Subtest: content-advisor generated scale surface stays executable and policy-complete
+ok 341 - content-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.566475
+  type: 'test'
+  ...
+# Subtest: Wave 2 content asset templates: brand kit, reusable templates, collections, and API visibility
+ok 342 - Wave 2 content asset templates: brand kit, reusable templates, collections, and API visibility
+  ---
+  duration_ms: 30.789435
+  type: 'test'
+  ...
+# Subtest: content-atlas generated scale surface stays executable and policy-complete
+ok 343 - content-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.620896
+  type: 'test'
+  ...
+# Subtest: content-checklists package adds one more late-closeout architecture slice
+ok 344 - content-checklists package adds one more late-closeout architecture slice
+  ---
+  duration_ms: 1.488758
+  type: 'test'
+  ...
+# Subtest: content-cockpit generated scale surface stays executable and policy-complete
+ok 345 - content-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.646834
+  type: 'test'
+  ...
+# Subtest: content-console generated scale surface stays executable and policy-complete
+ok 346 - content-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.525078
+  type: 'test'
+  ...
+# Subtest: content-dossier generated scale surface stays executable and policy-complete
+ok 347 - content-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.495704
+  type: 'test'
+  ...
+# Subtest: content-exchange generated scale surface stays executable and policy-complete
+ok 348 - content-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.506994
+  type: 'test'
+  ...
+# Subtest: content-foundry generated scale surface stays executable and policy-complete
+ok 349 - content-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.651592
+  type: 'test'
+  ...
+# Subtest: content-grid generated scale surface stays executable and policy-complete
+ok 350 - content-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.639741
+  type: 'test'
+  ...
+# Subtest: content-hub generated scale surface stays executable and policy-complete
+ok 351 - content-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.575812
+  type: 'test'
+  ...
+# Subtest: content-index generated scale surface stays executable and policy-complete
+ok 352 - content-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.745687
+  type: 'test'
+  ...
+# Subtest: content-ledger generated scale surface stays executable and policy-complete
+ok 353 - content-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 3.198977
+  type: 'test'
+  ...
+# Subtest: content-library exposes a real package surface with route manifests and validation
+ok 354 - content-library exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.753786
+  type: 'test'
+  ...
+# Subtest: content-navigator generated scale surface stays executable and policy-complete
+ok 355 - content-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.541439
+  type: 'test'
+  ...
+# Subtest: content-notebook generated scale surface stays executable and policy-complete
+ok 356 - content-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.547811
+  type: 'test'
+  ...
+# Subtest: content-planner generated scale surface stays executable and policy-complete
+ok 357 - content-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.581874
+  type: 'test'
+  ...
+# Subtest: content-scorecard generated scale surface stays executable and policy-complete
+ok 358 - content-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.560664
+  type: 'test'
+  ...
+# Subtest: content-sentinel generated scale surface stays executable and policy-complete
+ok 359 - content-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.538674
+  type: 'test'
+  ...
+# Subtest: content-studio generated scale surface stays executable and policy-complete
+ok 360 - content-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.616668
+  type: 'test'
+  ...
+# Subtest: content-vault generated scale surface stays executable and policy-complete
+ok 361 - content-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.588446
+  type: 'test'
+  ...
+# Subtest: content-watchtower generated scale surface stays executable and policy-complete
+ok 362 - content-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.574209
+  type: 'test'
+  ...
+# Subtest: content-workbench generated scale surface stays executable and policy-complete
+ok 363 - content-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.615787
+  type: 'test'
+  ...
+# Subtest: conversation inbox supports creating, replying to, and closing a thread
+ok 364 - conversation inbox supports creating, replying to, and closing a thread
+  ---
+  duration_ms: 30.870406
+  type: 'test'
+  ...
+# Subtest: coupon-studio package exposes snapshot, policy, route, and fixture depth
+ok 365 - coupon-studio package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.049384
+  type: 'test'
+  ...
+# Subtest: creative-advisor generated scale surface stays executable and policy-complete
+ok 366 - creative-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.567447
+  type: 'test'
+  ...
+# Subtest: creative-atlas generated scale surface stays executable and policy-complete
+ok 367 - creative-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.537411
+  type: 'test'
+  ...
+# Subtest: creative-brief-builder routes honor custom base paths and stable ids
+ok 368 - creative-brief-builder routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.071095
+  type: 'test'
+  ...
+# Subtest: creative-brief-builder package expands the real-repo wave with route catalogs
+ok 369 - creative-brief-builder package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.064422
+  type: 'test'
+  ...
+# Subtest: creative-cockpit generated scale surface stays executable and policy-complete
+ok 370 - creative-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.845832
+  type: 'test'
+  ...
+# Subtest: creative-console generated scale surface stays executable and policy-complete
+ok 371 - creative-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.624563
+  type: 'test'
+  ...
+# Subtest: creative-dossier generated scale surface stays executable and policy-complete
+ok 372 - creative-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.609164
+  type: 'test'
+  ...
+# Subtest: creative-exchange generated scale surface stays executable and policy-complete
+ok 373 - creative-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.496836
+  type: 'test'
+  ...
+# Subtest: creative-foundry generated scale surface stays executable and policy-complete
+ok 374 - creative-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.548391
+  type: 'test'
+  ...
+# Subtest: creative-grid generated scale surface stays executable and policy-complete
+ok 375 - creative-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.532452
+  type: 'test'
+  ...
+# Subtest: creative-hub generated scale surface stays executable and policy-complete
+ok 376 - creative-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.68799
+  type: 'test'
+  ...
+# Subtest: creative-index generated scale surface stays executable and policy-complete
+ok 377 - creative-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.55289
+  type: 'test'
+  ...
+# Subtest: creative-ledger generated scale surface stays executable and policy-complete
+ok 378 - creative-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.584679
+  type: 'test'
+  ...
+# Subtest: creative-navigator generated scale surface stays executable and policy-complete
+ok 379 - creative-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.547339
+  type: 'test'
+  ...
+# Subtest: creative-notebook generated scale surface stays executable and policy-complete
+ok 380 - creative-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.546678
+  type: 'test'
+  ...
+# Subtest: creative-planner generated scale surface stays executable and policy-complete
+ok 381 - creative-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.56342
+  type: 'test'
+  ...
+# Subtest: creative-qa routes honor custom base paths and stable ids
+ok 382 - creative-qa routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.078849
+  type: 'test'
+  ...
+# Subtest: creative-qa package expands the real-repo wave with route catalogs
+ok 383 - creative-qa package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.060405
+  type: 'test'
+  ...
+# Subtest: creative-scorecard generated scale surface stays executable and policy-complete
+ok 384 - creative-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.599337
+  type: 'test'
+  ...
+# Subtest: creative-sentinel generated scale surface stays executable and policy-complete
+ok 385 - creative-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.555926
+  type: 'test'
+  ...
+# Subtest: creative-studio generated scale surface stays executable and policy-complete
+ok 386 - creative-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.61169
+  type: 'test'
+  ...
+# Subtest: creative-vault generated scale surface stays executable and policy-complete
+ok 387 - creative-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.604596
+  type: 'test'
+  ...
+# Subtest: creative-watchtower generated scale surface stays executable and policy-complete
+ok 388 - creative-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.637217
+  type: 'test'
+  ...
+# Subtest: creative-workbench generated scale surface stays executable and policy-complete
+ok 389 - creative-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.59024
+  type: 'test'
+  ...
+# Subtest: customer-advisor generated scale surface stays executable and policy-complete
+ok 390 - customer-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.981945
+  type: 'test'
+  ...
+# Subtest: customer-atlas generated scale surface stays executable and policy-complete
+ok 391 - customer-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.607341
+  type: 'test'
+  ...
+# Subtest: customer-cockpit generated scale surface stays executable and policy-complete
+ok 392 - customer-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.544264
+  type: 'test'
+  ...
+# Subtest: customer-console generated scale surface stays executable and policy-complete
+ok 393 - customer-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.521513
+  type: 'test'
+  ...
+# Subtest: customer-dossier generated scale surface stays executable and policy-complete
+ok 394 - customer-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.572487
+  type: 'test'
+  ...
+# Subtest: customer-exchange generated scale surface stays executable and policy-complete
+ok 395 - customer-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.527664
+  type: 'test'
+  ...
+# Subtest: customer-foundry generated scale surface stays executable and policy-complete
+ok 396 - customer-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.565303
+  type: 'test'
+  ...
+# Subtest: customer-grid generated scale surface stays executable and policy-complete
+ok 397 - customer-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.561226
+  type: 'test'
+  ...
+# Subtest: customer-health routes honor custom base paths and stable ids
+ok 398 - customer-health routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.090981
+  type: 'test'
+  ...
+# Subtest: customer-health package expands the real-repo wave with route catalogs
+ok 399 - customer-health package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.074291
+  type: 'test'
+  ...
+# Subtest: customer-hub generated scale surface stays executable and policy-complete
+ok 400 - customer-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.895504
+  type: 'test'
+  ...
+# Subtest: customer-index generated scale surface stays executable and policy-complete
+ok 401 - customer-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.950006
+  type: 'test'
+  ...
+# Subtest: customer-ledger generated scale surface stays executable and policy-complete
+ok 402 - customer-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.572827
+  type: 'test'
+  ...
+# Subtest: customer-lifecycle package exposes snapshot, policy, route, and fixture depth
+ok 403 - customer-lifecycle package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.072988
+  type: 'test'
+  ...
+# Subtest: customer-navigator generated scale surface stays executable and policy-complete
+ok 404 - customer-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.527273
+  type: 'test'
+  ...
+# Subtest: customer-notebook generated scale surface stays executable and policy-complete
+ok 405 - customer-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.505232
+  type: 'test'
+  ...
+# Subtest: customer-planner generated scale surface stays executable and policy-complete
+ok 406 - customer-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.593986
+  type: 'test'
+  ...
+# Subtest: customer-scorecard generated scale surface stays executable and policy-complete
+ok 407 - customer-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.598955
+  type: 'test'
+  ...
+# Subtest: customer-sentinel generated scale surface stays executable and policy-complete
+ok 408 - customer-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.594086
+  type: 'test'
+  ...
+# Subtest: customer-studio generated scale surface stays executable and policy-complete
+ok 409 - customer-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.578367
+  type: 'test'
+  ...
+# Subtest: customer-vault generated scale surface stays executable and policy-complete
+ok 410 - customer-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.563139
+  type: 'test'
+  ...
+# Subtest: customer-watchtower generated scale surface stays executable and policy-complete
+ok 411 - customer-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.549744
+  type: 'test'
+  ...
+# Subtest: customer-workbench generated scale surface stays executable and policy-complete
+ok 412 - customer-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.590079
+  type: 'test'
+  ...
+# Subtest: data-activation routes honor custom base paths and stable ids
+ok 413 - data-activation routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.137167
+  type: 'test'
+  ...
+# Subtest: data-activation package expands the real-repo wave with route catalogs
+ok 414 - data-activation package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.096912
+  type: 'test'
+  ...
+# Subtest: data-advisor generated scale surface stays executable and policy-complete
+ok 415 - data-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.58518
+  type: 'test'
+  ...
+# Subtest: data-atlas generated scale surface stays executable and policy-complete
+ok 416 - data-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.557208
+  type: 'test'
+  ...
+# Subtest: data-cockpit generated scale surface stays executable and policy-complete
+ok 417 - data-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.583025
+  type: 'test'
+  ...
+# Subtest: data-console generated scale surface stays executable and policy-complete
+ok 418 - data-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.60132
+  type: 'test'
+  ...
+# Subtest: data-dossier generated scale surface stays executable and policy-complete
+ok 419 - data-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.697869
+  type: 'test'
+  ...
+# Subtest: data-exchange generated scale surface stays executable and policy-complete
+ok 420 - data-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.480526
+  type: 'test'
+  ...
+# Subtest: data-foundry generated scale surface stays executable and policy-complete
+ok 421 - data-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.597142
+  type: 'test'
+  ...
+# Subtest: data-grid generated scale surface stays executable and policy-complete
+ok 422 - data-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.602311
+  type: 'test'
+  ...
+# Subtest: data-hub generated scale surface stays executable and policy-complete
+ok 423 - data-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.534986
+  type: 'test'
+  ...
+# Subtest: data-index generated scale surface stays executable and policy-complete
+ok 424 - data-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.688972
+  type: 'test'
+  ...
+# Subtest: data-ledger generated scale surface stays executable and policy-complete
+ok 425 - data-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.570352
+  type: 'test'
+  ...
+# Subtest: data-navigator generated scale surface stays executable and policy-complete
+ok 426 - data-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.856352
+  type: 'test'
+  ...
+# Subtest: data-notebook generated scale surface stays executable and policy-complete
+ok 427 - data-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.584158
+  type: 'test'
+  ...
+# Subtest: data-pipeline exposes a real package surface with route manifests and validation
+ok 428 - data-pipeline exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.756902
+  type: 'test'
+  ...
+# Subtest: data-planner generated scale surface stays executable and policy-complete
+ok 429 - data-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.554383
+  type: 'test'
+  ...
+# Subtest: data-residency package exposes snapshot, policy, route, and fixture depth
+ok 430 - data-residency package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.061557
+  type: 'test'
+  ...
+# Subtest: data-scorecard generated scale surface stays executable and policy-complete
+ok 431 - data-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.559923
+  type: 'test'
+  ...
+# Subtest: data-sentinel generated scale surface stays executable and policy-complete
+ok 432 - data-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.502236
+  type: 'test'
+  ...
+# Subtest: data-studio generated scale surface stays executable and policy-complete
+ok 433 - data-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.568269
+  type: 'test'
+  ...
+# Subtest: data-vault generated scale surface stays executable and policy-complete
+ok 434 - data-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.608924
+  type: 'test'
+  ...
+# Subtest: data-watchtower generated scale surface stays executable and policy-complete
+ok 435 - data-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.584028
+  type: 'test'
+  ...
+# Subtest: data-workbench generated scale surface stays executable and policy-complete
+ok 436 - data-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.511563
+  type: 'test'
+  ...
+# Subtest: deliverability-advisor generated scale surface stays executable and policy-complete
+ok 437 - deliverability-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.621457
+  type: 'test'
+  ...
+# Subtest: deliverability-atlas generated scale surface stays executable and policy-complete
+ok 438 - deliverability-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.579138
+  type: 'test'
+  ...
+# Subtest: deliverability-cockpit generated scale surface stays executable and policy-complete
+ok 439 - deliverability-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.54217
+  type: 'test'
+  ...
+# Subtest: Wave 2 deliverability compliance: surface alerts, suppression hygiene, and API health state
+ok 440 - Wave 2 deliverability compliance: surface alerts, suppression hygiene, and API health state
+  ---
+  duration_ms: 35.937253
+  type: 'test'
+  ...
+# Subtest: deliverability-console generated scale surface stays executable and policy-complete
+ok 441 - deliverability-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.769552
+  type: 'test'
+  ...
+# Subtest: deliverability-dossier generated scale surface stays executable and policy-complete
+ok 442 - deliverability-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.605628
+  type: 'test'
+  ...
+# Subtest: deliverability-exchange generated scale surface stays executable and policy-complete
+ok 443 - deliverability-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.88203
+  type: 'test'
+  ...
+# Subtest: deliverability-foundry generated scale surface stays executable and policy-complete
+ok 444 - deliverability-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.581113
+  type: 'test'
+  ...
+# Subtest: deliverability-grid generated scale surface stays executable and policy-complete
+ok 445 - deliverability-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.613302
+  type: 'test'
+  ...
+# Subtest: deliverability-hub generated scale surface stays executable and policy-complete
+ok 446 - deliverability-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.732964
+  type: 'test'
+  ...
+# Subtest: deliverability-index generated scale surface stays executable and policy-complete
+ok 447 - deliverability-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.937182
+  type: 'test'
+  ...
+# Subtest: deliverability-labs package deepens continuation breadth and route catalogs
+ok 448 - deliverability-labs package deepens continuation breadth and route catalogs
+  ---
+  duration_ms: 1.086513
+  type: 'test'
+  ...
+# Subtest: deliverability-ledger generated scale surface stays executable and policy-complete
+ok 449 - deliverability-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.593415
+  type: 'test'
+  ...
+# Subtest: deliverability-navigator generated scale surface stays executable and policy-complete
+ok 450 - deliverability-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.61227
+  type: 'test'
+  ...
+# Subtest: deliverability-notebook generated scale surface stays executable and policy-complete
+ok 451 - deliverability-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.54206
+  type: 'test'
+  ...
+# Subtest: deliverability-planner generated scale surface stays executable and policy-complete
+ok 452 - deliverability-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.614033
+  type: 'test'
+  ...
+# Subtest: deliverability-scorecard generated scale surface stays executable and policy-complete
+ok 453 - deliverability-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.540597
+  type: 'test'
+  ...
+# Subtest: deliverability-sentinel generated scale surface stays executable and policy-complete
+ok 454 - deliverability-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.614403
+  type: 'test'
+  ...
+# Subtest: deliverability-studio generated scale surface stays executable and policy-complete
+ok 455 - deliverability-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.567638
+  type: 'test'
+  ...
+# Subtest: deliverability-vault generated scale surface stays executable and policy-complete
+ok 456 - deliverability-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.626276
+  type: 'test'
+  ...
+# Subtest: deliverability-war-room routes honor custom base paths and stable ids
+ok 457 - deliverability-war-room routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.071685
+  type: 'test'
+  ...
+# Subtest: deliverability-war-room package expands the real-repo wave with route catalogs
+ok 458 - deliverability-war-room package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.065133
+  type: 'test'
+  ...
+# Subtest: deliverability-watchtower generated scale surface stays executable and policy-complete
+ok 459 - deliverability-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.642476
+  type: 'test'
+  ...
+# Subtest: deliverability-workbench generated scale surface stays executable and policy-complete
+ok 460 - deliverability-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.626346
+  type: 'test'
+  ...
+# Subtest: developer-hub exposes a real package surface with route manifests and validation
+ok 461 - developer-hub exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.781889
+  type: 'test'
+  ...
+# Subtest: ecommerce-advisor generated scale surface stays executable and policy-complete
+ok 462 - ecommerce-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.556977
+  type: 'test'
+  ...
+# Subtest: ecommerce-atlas generated scale surface stays executable and policy-complete
+ok 463 - ecommerce-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.658245
+  type: 'test'
+  ...
+# Subtest: ecommerce-cockpit generated scale surface stays executable and policy-complete
+ok 464 - ecommerce-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.559151
+  type: 'test'
+  ...
+# Subtest: ecommerce-console generated scale surface stays executable and policy-complete
+ok 465 - ecommerce-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.662012
+  type: 'test'
+  ...
+# Subtest: ecommerce-dossier generated scale surface stays executable and policy-complete
+ok 466 - ecommerce-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.57956
+  type: 'test'
+  ...
+# Subtest: ecommerce-exchange generated scale surface stays executable and policy-complete
+ok 467 - ecommerce-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.579068
+  type: 'test'
+  ...
+# Subtest: ecommerce-foundry generated scale surface stays executable and policy-complete
+ok 468 - ecommerce-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.58012
+  type: 'test'
+  ...
+# Subtest: ecommerce-grid generated scale surface stays executable and policy-complete
+ok 469 - ecommerce-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.566955
+  type: 'test'
+  ...
+# Subtest: ecommerce-hub generated scale surface stays executable and policy-complete
+ok 470 - ecommerce-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.541469
+  type: 'test'
+  ...
+# Subtest: ecommerce-index generated scale surface stays executable and policy-complete
+ok 471 - ecommerce-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.629372
+  type: 'test'
+  ...
+# Subtest: ecommerce-insights routes honor custom base paths and stable ids
+ok 472 - ecommerce-insights routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.093987
+  type: 'test'
+  ...
+# Subtest: ecommerce-insights package expands the real-repo wave with route catalogs
+ok 473 - ecommerce-insights package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.042902
+  type: 'test'
+  ...
+# Subtest: ecommerce-ledger generated scale surface stays executable and policy-complete
+ok 474 - ecommerce-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.592073
+  type: 'test'
+  ...
+# Subtest: ecommerce-navigator generated scale surface stays executable and policy-complete
+ok 475 - ecommerce-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.52594
+  type: 'test'
+  ...
+# Subtest: ecommerce-notebook generated scale surface stays executable and policy-complete
+ok 476 - ecommerce-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.57461
+  type: 'test'
+  ...
+# Subtest: ecommerce-planner generated scale surface stays executable and policy-complete
+ok 477 - ecommerce-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.625504
+  type: 'test'
+  ...
+# Subtest: ecommerce-scorecard generated scale surface stays executable and policy-complete
+ok 478 - ecommerce-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.600618
+  type: 'test'
+  ...
+# Subtest: ecommerce-sentinel generated scale surface stays executable and policy-complete
+ok 479 - ecommerce-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.934638
+  type: 'test'
+  ...
+# Subtest: ecommerce-studio generated scale surface stays executable and policy-complete
+ok 480 - ecommerce-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.673123
+  type: 'test'
+  ...
+# Subtest: ecommerce-vault generated scale surface stays executable and policy-complete
+ok 481 - ecommerce-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.637807
+  type: 'test'
+  ...
+# Subtest: ecommerce-watchtower generated scale surface stays executable and policy-complete
+ok 482 - ecommerce-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.615265
+  type: 'test'
+  ...
+# Subtest: ecommerce-workbench generated scale surface stays executable and policy-complete
+ok 483 - ecommerce-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.592444
+  type: 'test'
+  ...
+# Subtest: engagement-forecasting routes honor custom base paths and stable ids
+ok 484 - engagement-forecasting routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.115667
+  type: 'test'
+  ...
+# Subtest: engagement-forecasting package expands the real-repo wave with route catalogs
+ok 485 - engagement-forecasting package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.071966
+  type: 'test'
+  ...
+# Subtest: expansion showcase exposes the long-horizon continuation inside the product shell
+ok 486 - expansion showcase exposes the long-horizon continuation inside the product shell
+  ---
+  duration_ms: 21.341942
+  type: 'test'
+  ...
+# Subtest: experiment-lab exposes a real package surface with route manifests and validation
+ok 487 - experiment-lab exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.762313
+  type: 'test'
+  ...
+# Subtest: experimentation-advisor generated scale surface stays executable and policy-complete
+ok 488 - experimentation-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.644901
+  type: 'test'
+  ...
+# Subtest: experimentation-atlas generated scale surface stays executable and policy-complete
+ok 489 - experimentation-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.595278
+  type: 'test'
+  ...
+# Subtest: experimentation-cockpit generated scale surface stays executable and policy-complete
+ok 490 - experimentation-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.544775
+  type: 'test'
+  ...
+# Subtest: experimentation-console generated scale surface stays executable and policy-complete
+ok 491 - experimentation-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.593335
+  type: 'test'
+  ...
+# Subtest: experimentation-dossier generated scale surface stays executable and policy-complete
+ok 492 - experimentation-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.610376
+  type: 'test'
+  ...
+# Subtest: experimentation-exchange generated scale surface stays executable and policy-complete
+ok 493 - experimentation-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.533434
+  type: 'test'
+  ...
+# Subtest: experimentation-foundry generated scale surface stays executable and policy-complete
+ok 494 - experimentation-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.606329
+  type: 'test'
+  ...
+# Subtest: experimentation-grid generated scale surface stays executable and policy-complete
+ok 495 - experimentation-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.596311
+  type: 'test'
+  ...
+# Subtest: experimentation-hub generated scale surface stays executable and policy-complete
+ok 496 - experimentation-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.572607
+  type: 'test'
+  ...
+# Subtest: experimentation-index generated scale surface stays executable and policy-complete
+ok 497 - experimentation-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.534205
+  type: 'test'
+  ...
+# Subtest: experimentation-ledger generated scale surface stays executable and policy-complete
+ok 498 - experimentation-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.54211
+  type: 'test'
+  ...
+# Subtest: experimentation-navigator generated scale surface stays executable and policy-complete
+ok 499 - experimentation-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.53131
+  type: 'test'
+  ...
+# Subtest: experimentation-notebook generated scale surface stays executable and policy-complete
+ok 500 - experimentation-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.561556
+  type: 'test'
+  ...
+# Subtest: experimentation-planner generated scale surface stays executable and policy-complete
+ok 501 - experimentation-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.649358
+  type: 'test'
+  ...
+# Subtest: experimentation-scorecard generated scale surface stays executable and policy-complete
+ok 502 - experimentation-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.632177
+  type: 'test'
+  ...
+# Subtest: experimentation-sentinel generated scale surface stays executable and policy-complete
+ok 503 - experimentation-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.589358
+  type: 'test'
+  ...
+# Subtest: experimentation-studio generated scale surface stays executable and policy-complete
+ok 504 - experimentation-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.561536
+  type: 'test'
+  ...
+# Subtest: experimentation-vault generated scale surface stays executable and policy-complete
+ok 505 - experimentation-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.551097
+  type: 'test'
+  ...
+# Subtest: experimentation-watchtower generated scale surface stays executable and policy-complete
+ok 506 - experimentation-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.744224
+  type: 'test'
+  ...
+# Subtest: experimentation-workbench generated scale surface stays executable and policy-complete
+ok 507 - experimentation-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.756958
+  type: 'test'
+  ...
+# Subtest: forecast-planner package exposes snapshot, policy, route, and fixture depth
+ok 508 - forecast-planner package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.165269
+  type: 'test'
+  ...
+# Subtest: Program 5 forms and landing pages: builder, hosted signup/embed flow, publish states, validation, audience and campaign linkage
+ok 509 - Program 5 forms and landing pages: builder, hosted signup/embed flow, publish states, validation, audience and campaign linkage
+  ---
+  duration_ms: 43.033612
+  type: 'test'
+  ...
+# Subtest: growth-grid shell exposes a live catalog for the scale-wave-seven domains
+ok 510 - growth-grid shell exposes a live catalog for the scale-wave-seven domains
+  ---
+  duration_ms: 16.673101
+  type: 'test'
+  ...
+# Subtest: inbox-macros package exposes snapshot, policy, route, and fixture depth
+ok 511 - inbox-macros package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.234577
+  type: 'test'
+  ...
+# Subtest: insights-advisor generated scale surface stays executable and policy-complete
+ok 512 - insights-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.640111
+  type: 'test'
+  ...
+# Subtest: insights-atlas generated scale surface stays executable and policy-complete
+ok 513 - insights-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.665388
+  type: 'test'
+  ...
+# Subtest: insights-cockpit generated scale surface stays executable and policy-complete
+ok 514 - insights-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.649108
+  type: 'test'
+  ...
+# Subtest: insights-console generated scale surface stays executable and policy-complete
+ok 515 - insights-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.571665
+  type: 'test'
+  ...
+# Subtest: insights-dossier generated scale surface stays executable and policy-complete
+ok 516 - insights-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.609786
+  type: 'test'
+  ...
+# Subtest: insights-exchange generated scale surface stays executable and policy-complete
+ok 517 - insights-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.571024
+  type: 'test'
+  ...
+# Subtest: insights-foundry generated scale surface stays executable and policy-complete
+ok 518 - insights-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.555706
+  type: 'test'
+  ...
+# Subtest: insights-grid generated scale surface stays executable and policy-complete
+ok 519 - insights-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.565334
+  type: 'test'
+  ...
+# Subtest: insights-hub generated scale surface stays executable and policy-complete
+ok 520 - insights-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.584769
+  type: 'test'
+  ...
+# Subtest: insights-index generated scale surface stays executable and policy-complete
+ok 521 - insights-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.559602
+  type: 'test'
+  ...
+# Subtest: insights-ledger generated scale surface stays executable and policy-complete
+ok 522 - insights-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.575122
+  type: 'test'
+  ...
+# Subtest: insights-navigator generated scale surface stays executable and policy-complete
+ok 523 - insights-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.612169
+  type: 'test'
+  ...
+# Subtest: insights-notebook generated scale surface stays executable and policy-complete
+ok 524 - insights-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.639941
+  type: 'test'
+  ...
+# Subtest: insights-planner generated scale surface stays executable and policy-complete
+ok 525 - insights-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.535979
+  type: 'test'
+  ...
+# Subtest: insights-scorecard generated scale surface stays executable and policy-complete
+ok 526 - insights-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.655039
+  type: 'test'
+  ...
+# Subtest: insights-sentinel generated scale surface stays executable and policy-complete
+ok 527 - insights-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.557758
+  type: 'test'
+  ...
+# Subtest: insights-studio generated scale surface stays executable and policy-complete
+ok 528 - insights-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.671229
+  type: 'test'
+  ...
+# Subtest: insights-vault generated scale surface stays executable and policy-complete
+ok 529 - insights-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.534927
+  type: 'test'
+  ...
+# Subtest: insights-watchtower generated scale surface stays executable and policy-complete
+ok 530 - insights-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.549453
+  type: 'test'
+  ...
+# Subtest: insights-workbench generated scale surface stays executable and policy-complete
+ok 531 - insights-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 3.663167
+  type: 'test'
+  ...
+# Subtest: integrations-advisor generated scale surface stays executable and policy-complete
+ok 532 - integrations-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.70373
+  type: 'test'
+  ...
+# Subtest: integrations-atlas generated scale surface stays executable and policy-complete
+ok 533 - integrations-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.948303
+  type: 'test'
+  ...
+# Subtest: integrations-cockpit generated scale surface stays executable and policy-complete
+ok 534 - integrations-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.703599
+  type: 'test'
+  ...
+# Subtest: integrations-console generated scale surface stays executable and policy-complete
+ok 535 - integrations-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.797283
+  type: 'test'
+  ...
+# Subtest: integrations-dossier generated scale surface stays executable and policy-complete
+ok 536 - integrations-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.57498
+  type: 'test'
+  ...
+# Subtest: integrations-exchange generated scale surface stays executable and policy-complete
+ok 537 - integrations-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.577596
+  type: 'test'
+  ...
+# Subtest: integrations-foundry generated scale surface stays executable and policy-complete
+ok 538 - integrations-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.562769
+  type: 'test'
+  ...
+# Subtest: integrations-grid generated scale surface stays executable and policy-complete
+ok 539 - integrations-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.58533
+  type: 'test'
+  ...
+# Subtest: integrations-hub generated scale surface stays executable and policy-complete
+ok 540 - integrations-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.656061
+  type: 'test'
+  ...
+# Subtest: integrations-index generated scale surface stays executable and policy-complete
+ok 541 - integrations-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.697598
+  type: 'test'
+  ...
+# Subtest: integrations-ledger generated scale surface stays executable and policy-complete
+ok 542 - integrations-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.58004
+  type: 'test'
+  ...
+# Subtest: Wave 2 integrations marketplace: install connectors, run syncs, and expose API realism
+ok 543 - Wave 2 integrations marketplace: install connectors, run syncs, and expose API realism
+  ---
+  duration_ms: 31.145035
+  type: 'test'
+  ...
+# Subtest: integrations-navigator generated scale surface stays executable and policy-complete
+ok 544 - integrations-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.566294
+  type: 'test'
+  ...
+# Subtest: integrations-notebook generated scale surface stays executable and policy-complete
+ok 545 - integrations-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.555765
+  type: 'test'
+  ...
+# Subtest: integrations-planner generated scale surface stays executable and policy-complete
+ok 546 - integrations-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.568509
+  type: 'test'
+  ...
+# Subtest: integrations-scorecard generated scale surface stays executable and policy-complete
+ok 547 - integrations-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.640823
+  type: 'test'
+  ...
+# Subtest: integrations-sentinel generated scale surface stays executable and policy-complete
+ok 548 - integrations-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.534125
+  type: 'test'
+  ...
+# Subtest: integrations-studio generated scale surface stays executable and policy-complete
+ok 549 - integrations-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.602
+  type: 'test'
+  ...
+# Subtest: integrations-vault generated scale surface stays executable and policy-complete
+ok 550 - integrations-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.54763
+  type: 'test'
+  ...
+# Subtest: integrations-watchtower generated scale surface stays executable and policy-complete
+ok 551 - integrations-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.520861
+  type: 'test'
+  ...
+# Subtest: integrations-workbench generated scale surface stays executable and policy-complete
+ok 552 - integrations-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.658596
+  type: 'test'
+  ...
+# Subtest: intelligence-works shell exposes a live catalog for the scale-wave-seven domains
+ok 553 - intelligence-works shell exposes a live catalog for the scale-wave-seven domains
+  ---
+  duration_ms: 14.59924
+  type: 'test'
+  ...
+# Subtest: journey-annotations package adds one more late-closeout architecture slice
+ok 554 - journey-annotations package adds one more late-closeout architecture slice
+  ---
+  duration_ms: 1.052129
+  type: 'test'
+  ...
+# Subtest: journey-metrics package exposes snapshot, policy, route, and fixture depth
+ok 555 - journey-metrics package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.105939
+  type: 'test'
+  ...
+# Subtest: lead-scoring package exposes snapshot, policy, route, and fixture depth
+ok 556 - lead-scoring package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.067869
+  type: 'test'
+  ...
+# Subtest: lifecycle-advisor generated scale surface stays executable and policy-complete
+ok 557 - lifecycle-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.656712
+  type: 'test'
+  ...
+# Subtest: lifecycle-atlas generated scale surface stays executable and policy-complete
+ok 558 - lifecycle-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.637076
+  type: 'test'
+  ...
+# Subtest: lifecycle-cockpit generated scale surface stays executable and policy-complete
+ok 559 - lifecycle-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.638759
+  type: 'test'
+  ...
+# Subtest: lifecycle-console generated scale surface stays executable and policy-complete
+ok 560 - lifecycle-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.585591
+  type: 'test'
+  ...
+# Subtest: lifecycle-dossier generated scale surface stays executable and policy-complete
+ok 561 - lifecycle-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.558521
+  type: 'test'
+  ...
+# Subtest: lifecycle-exchange generated scale surface stays executable and policy-complete
+ok 562 - lifecycle-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.606048
+  type: 'test'
+  ...
+# Subtest: lifecycle-foundry generated scale surface stays executable and policy-complete
+ok 563 - lifecycle-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.851373
+  type: 'test'
+  ...
+# Subtest: lifecycle-grid generated scale surface stays executable and policy-complete
+ok 564 - lifecycle-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.641774
+  type: 'test'
+  ...
+# Subtest: lifecycle-hub generated scale surface stays executable and policy-complete
+ok 565 - lifecycle-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.540036
+  type: 'test'
+  ...
+# Subtest: lifecycle-index generated scale surface stays executable and policy-complete
+ok 566 - lifecycle-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.508788
+  type: 'test'
+  ...
+# Subtest: lifecycle-ledger generated scale surface stays executable and policy-complete
+ok 567 - lifecycle-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.54235
+  type: 'test'
+  ...
+# Subtest: lifecycle-navigator generated scale surface stays executable and policy-complete
+ok 568 - lifecycle-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.823972
+  type: 'test'
+  ...
+# Subtest: lifecycle-network shell exposes a live catalog for the scale-wave-seven domains
+ok 569 - lifecycle-network shell exposes a live catalog for the scale-wave-seven domains
+  ---
+  duration_ms: 15.086732
+  type: 'test'
+  ...
+# Subtest: lifecycle-notebook generated scale surface stays executable and policy-complete
+ok 570 - lifecycle-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.603333
+  type: 'test'
+  ...
+# Subtest: lifecycle-planner generated scale surface stays executable and policy-complete
+ok 571 - lifecycle-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.79081
+  type: 'test'
+  ...
+# Subtest: lifecycle-scorecard generated scale surface stays executable and policy-complete
+ok 572 - lifecycle-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.751127
+  type: 'test'
+  ...
+# Subtest: lifecycle-sentinel generated scale surface stays executable and policy-complete
+ok 573 - lifecycle-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.630734
+  type: 'test'
+  ...
+# Subtest: lifecycle-studio generated scale surface stays executable and policy-complete
+ok 574 - lifecycle-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.651152
+  type: 'test'
+  ...
+# Subtest: lifecycle-vault generated scale surface stays executable and policy-complete
+ok 575 - lifecycle-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.605808
+  type: 'test'
+  ...
+# Subtest: lifecycle-watchtower generated scale surface stays executable and policy-complete
+ok 576 - lifecycle-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.632207
+  type: 'test'
+  ...
+# Subtest: lifecycle-workbench generated scale surface stays executable and policy-complete
+ok 577 - lifecycle-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.59086
+  type: 'test'
+  ...
+# Subtest: localization-advisor generated scale surface stays executable and policy-complete
+ok 578 - localization-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.510612
+  type: 'test'
+  ...
+# Subtest: localization-atlas generated scale surface stays executable and policy-complete
+ok 579 - localization-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.618952
+  type: 'test'
+  ...
+# Subtest: localization-cockpit generated scale surface stays executable and policy-complete
+ok 580 - localization-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.569009
+  type: 'test'
+  ...
+# Subtest: localization-console generated scale surface stays executable and policy-complete
+ok 581 - localization-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.538072
+  type: 'test'
+  ...
+# Subtest: localization-dossier generated scale surface stays executable and policy-complete
+ok 582 - localization-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.614323
+  type: 'test'
+  ...
+# Subtest: localization-exchange generated scale surface stays executable and policy-complete
+ok 583 - localization-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.538172
+  type: 'test'
+  ...
+# Subtest: localization-foundry generated scale surface stays executable and policy-complete
+ok 584 - localization-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.602412
+  type: 'test'
+  ...
+# Subtest: localization-grid generated scale surface stays executable and policy-complete
+ok 585 - localization-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.571515
+  type: 'test'
+  ...
+# Subtest: localization-hub generated scale surface stays executable and policy-complete
+ok 586 - localization-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.580321
+  type: 'test'
+  ...
+# Subtest: localization-index generated scale surface stays executable and policy-complete
+ok 587 - localization-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.589287
+  type: 'test'
+  ...
+# Subtest: localization-ledger generated scale surface stays executable and policy-complete
+ok 588 - localization-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.598004
+  type: 'test'
+  ...
+# Subtest: localization-navigator generated scale surface stays executable and policy-complete
+ok 589 - localization-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.618542
+  type: 'test'
+  ...
+# Subtest: localization-notebook generated scale surface stays executable and policy-complete
+ok 590 - localization-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.63371
+  type: 'test'
+  ...
+# Subtest: localization-planner generated scale surface stays executable and policy-complete
+ok 591 - localization-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.961057
+  type: 'test'
+  ...
+# Subtest: localization-qa routes honor custom base paths and stable ids
+ok 592 - localization-qa routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.09618
+  type: 'test'
+  ...
+# Subtest: localization-qa package expands the real-repo wave with route catalogs
+ok 593 - localization-qa package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.07957
+  type: 'test'
+  ...
+# Subtest: localization-scorecard generated scale surface stays executable and policy-complete
+ok 594 - localization-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.538093
+  type: 'test'
+  ...
+# Subtest: localization-sentinel generated scale surface stays executable and policy-complete
+ok 595 - localization-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.555595
+  type: 'test'
+  ...
+# Subtest: localization-studio package exposes snapshot, policy, route, and fixture depth
+ok 596 - localization-studio package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.062428
+  type: 'test'
+  ...
+# Subtest: localization-vault generated scale surface stays executable and policy-complete
+ok 597 - localization-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.570412
+  type: 'test'
+  ...
+# Subtest: localization-watchtower generated scale surface stays executable and policy-complete
+ok 598 - localization-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.678362
+  type: 'test'
+  ...
+# Subtest: localization-workbench generated scale surface stays executable and policy-complete
+ok 599 - localization-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.597313
+  type: 'test'
+  ...
+# Subtest: loyalty-advisor generated scale surface stays executable and policy-complete
+ok 600 - loyalty-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.594086
+  type: 'test'
+  ...
+# Subtest: loyalty-atlas generated scale surface stays executable and policy-complete
+ok 601 - loyalty-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.575692
+  type: 'test'
+  ...
+# Subtest: loyalty-cockpit generated scale surface stays executable and policy-complete
+ok 602 - loyalty-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.611729
+  type: 'test'
+  ...
+# Subtest: loyalty-console generated scale surface stays executable and policy-complete
+ok 603 - loyalty-console generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.626556
+  type: 'test'
+  ...
+# Subtest: loyalty-dossier generated scale surface stays executable and policy-complete
+ok 604 - loyalty-dossier generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.589237
+  type: 'test'
+  ...
+# Subtest: loyalty-exchange generated scale surface stays executable and policy-complete
+ok 605 - loyalty-exchange generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.625594
+  type: 'test'
+  ...
+# Subtest: loyalty-foundry generated scale surface stays executable and policy-complete
+ok 606 - loyalty-foundry generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.484253
+  type: 'test'
+  ...
+# Subtest: loyalty-grid generated scale surface stays executable and policy-complete
+ok 607 - loyalty-grid generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.594386
+  type: 'test'
+  ...
+# Subtest: loyalty-hub generated scale surface stays executable and policy-complete
+ok 608 - loyalty-hub generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.632798
+  type: 'test'
+  ...
+# Subtest: loyalty-index generated scale surface stays executable and policy-complete
+ok 609 - loyalty-index generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.56339
+  type: 'test'
+  ...
+# Subtest: loyalty-ledger generated scale surface stays executable and policy-complete
+ok 610 - loyalty-ledger generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.508808
+  type: 'test'
+  ...
+# Subtest: loyalty-navigator generated scale surface stays executable and policy-complete
+ok 611 - loyalty-navigator generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.818372
+  type: 'test'
+  ...
+# Subtest: loyalty-notebook generated scale surface stays executable and policy-complete
+ok 612 - loyalty-notebook generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.68806
+  type: 'test'
+  ...
+# Subtest: loyalty-planner generated scale surface stays executable and policy-complete
+ok 613 - loyalty-planner generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.545837
+  type: 'test'
+  ...
+# Subtest: loyalty-scorecard generated scale surface stays executable and policy-complete
+ok 614 - loyalty-scorecard generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.544434
+  type: 'test'
+  ...
+# Subtest: loyalty-sentinel generated scale surface stays executable and policy-complete
+ok 615 - loyalty-sentinel generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.581793
+  type: 'test'
+  ...
+# Subtest: loyalty-studio generated scale surface stays executable and policy-complete
+ok 616 - loyalty-studio generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.559222
+  type: 'test'
+  ...
+# Subtest: loyalty-vault generated scale surface stays executable and policy-complete
+ok 617 - loyalty-vault generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.607681
+  type: 'test'
+  ...
+# Subtest: loyalty-watchtower generated scale surface stays executable and policy-complete
+ok 618 - loyalty-watchtower generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.61204
+  type: 'test'
+  ...
+# Subtest: loyalty-workbench generated scale surface stays executable and policy-complete
+ok 619 - loyalty-workbench generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.681879
+  type: 'test'
+  ...
+# Subtest: multi-account-control routes honor custom base paths and stable ids
+ok 620 - multi-account-control routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.092985
+  type: 'test'
+  ...
+# Subtest: multi-account-control package expands the real-repo wave with route catalogs
+ok 621 - multi-account-control package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.087665
+  type: 'test'
+  ...
+# Subtest: multi-brand-hq package exposes snapshot, policy, route, and fixture depth
+ok 622 - multi-brand-hq package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.055215
+  type: 'test'
+  ...
+# Subtest: onboarding-center package exposes snapshot, policy, route, and fixture depth
+ok 623 - onboarding-center package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.085882
+  type: 'test'
+  ...
+# Subtest: ops-observability package exposes snapshot, policy, route, and fixture depth
+ok 624 - ops-observability package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.076524
+  type: 'test'
+  ...
+# Subtest: ops observer shell exposes snapshot catalog
+ok 625 - ops observer shell exposes snapshot catalog
+  ---
+  duration_ms: 14.910346
+  type: 'test'
+  ...
+# Subtest: partner-advisor generated scale surface stays executable and policy-complete
+ok 626 - partner-advisor generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.677992
+  type: 'test'
+  ...
+# Subtest: partner-atlas generated scale surface stays executable and policy-complete
+ok 627 - partner-atlas generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.618331
+  type: 'test'
+  ...
+# Subtest: partner-certification routes honor custom base paths and stable ids
+ok 628 - partner-certification routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.073369
+  type: 'test'
+  ...
+# Subtest: partner-certification package expands the real-repo wave with route catalogs
+ok 629 - partner-certification package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.081604
+  type: 'test'
+  ...
+# Subtest: partner-cockpit generated scale surface stays executable and policy-complete
+ok 630 - partner-cockpit generated scale surface stays executable and policy-complete
+  ---
+  duration_ms: 2.614654
+  type: 'test'
+  ...
+# Subtest: partner-exchange exposes a real package surface with route manifests and validation
+ok 631 - partner-exchange exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.752605
+  type: 'test'
+  ...
+# Subtest: partner-onboarding package deepens continuation breadth and route catalogs
+ok 632 - partner-onboarding package deepens continuation breadth and route catalogs
+  ---
+  duration_ms: 1.04724
+  type: 'test'
+  ...
+# Subtest: partner-success package exposes snapshot, policy, route, and fixture depth
+ok 633 - partner-success package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.070373
+  type: 'test'
+  ...
+# Subtest: Program 1 platform spine: auth lifecycle, workspace switching, team invite acceptance, gating, audit export, assets, admin shell, API auth
+ok 634 - Program 1 platform spine: auth lifecycle, workspace switching, team invite acceptance, gating, audit export, assets, admin shell, API auth
+  ---
+  duration_ms: 70.591761
+  type: 'test'
+  ...
+# Subtest: predictive-segments routes honor custom base paths and stable ids
+ok 635 - predictive-segments routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.111309
+  type: 'test'
+  ...
+# Subtest: predictive-segments package expands the real-repo wave with route catalogs
+ok 636 - predictive-segments package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.061136
+  type: 'test'
+  ...
+# Subtest: preference-exports package adds one more late-closeout architecture slice
+ok 637 - preference-exports package adds one more late-closeout architecture slice
+  ---
+  duration_ms: 1.076124
+  type: 'test'
+  ...
+# Subtest: preferences center supports hosted centers and public preference updates
+ok 638 - preferences center supports hosted centers and public preference updates
+  ---
+  duration_ms: 27.02474
+  type: 'test'
+  ...
+# Subtest: profile-enrichment routes honor custom base paths and stable ids
+ok 639 - profile-enrichment routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.070453
+  type: 'test'
+  ...
+# Subtest: profile-enrichment package expands the real-repo wave with route catalogs
+ok 640 - profile-enrichment package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.077616
+  type: 'test'
+  ...
+# Subtest: referral-engine package exposes snapshot, policy, route, and fixture depth
+ok 641 - referral-engine package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.0958
+  type: 'test'
+  ...
+# Subtest: release-audits package adds another closeout architecture slice
+ok 642 - release-audits package adds another closeout architecture slice
+  ---
+  duration_ms: 1.122851
+  type: 'test'
+  ...
+# Subtest: release-command-center routes honor custom base paths and stable ids
+ok 643 - release-command-center routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.072988
+  type: 'test'
+  ...
+# Subtest: release-command-center package expands the real-repo wave with route catalogs
+ok 644 - release-command-center package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.053642
+  type: 'test'
+  ...
+# Subtest: release-train package deepens continuation breadth and route catalogs
+ok 645 - release-train package deepens continuation breadth and route catalogs
+  ---
+  duration_ms: 1.073348
+  type: 'test'
+  ...
+# Subtest: Program 6 reports, analytics, API/admin surfaces, export and history state
+ok 646 - Program 6 reports, analytics, API/admin surfaces, export and history state
+  ---
+  duration_ms: 63.133762
+  type: 'test'
+  ...
+# Subtest: retention-lab package exposes snapshot, policy, route, and fixture depth
+ok 647 - retention-lab package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.313444
+  type: 'test'
+  ...
+# Subtest: retention-offers routes honor custom base paths and stable ids
+ok 648 - retention-offers routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.173394
+  type: 'test'
+  ...
+# Subtest: retention-offers package expands the real-repo wave with route catalogs
+ok 649 - retention-offers package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.154549
+  type: 'test'
+  ...
+# Subtest: retention-scorecards package adds the last laddering architecture slice
+ok 650 - retention-scorecards package adds the last laddering architecture slice
+  ---
+  duration_ms: 1.148277
+  type: 'test'
+  ...
+# Subtest: revenue-attribution routes honor custom base paths and stable ids
+ok 651 - revenue-attribution routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.137527
+  type: 'test'
+  ...
+# Subtest: revenue-attribution package expands the real-repo wave with route catalogs
+ok 652 - revenue-attribution package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.188883
+  type: 'test'
+  ...
+# Subtest: revenue-command shell exposes a live catalog for the scale-wave-seven domains
+ok 653 - revenue-command shell exposes a live catalog for the scale-wave-seven domains
+  ---
+  duration_ms: 17.803245
+  type: 'test'
+  ...
+# Subtest: revenue-ops exposes a real package surface with route manifests and validation
+ok 654 - revenue-ops exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.838533
+  type: 'test'
+  ...
+# Subtest: scale wave seven catalog tracks the large expansion wave and its app shells
+ok 655 - scale wave seven catalog tracks the large expansion wave and its app shells
+  ---
+  duration_ms: 0.61
+  type: 'test'
+  ...
+# Subtest: scale wave seven growth slice remains executable across sample modules
+ok 656 - scale wave seven growth slice remains executable across sample modules
+  ---
+  duration_ms: 4.975399
+  type: 'test'
+  ...
+# Subtest: scale wave seven intelligence slice remains executable across sample modules
+ok 657 - scale wave seven intelligence slice remains executable across sample modules
+  ---
+  duration_ms: 4.909015
+  type: 'test'
+  ...
+# Subtest: scale wave seven lifecycle slice remains executable across sample modules
+ok 658 - scale wave seven lifecycle slice remains executable across sample modules
+  ---
+  duration_ms: 4.839517
+  type: 'test'
+  ...
+# Subtest: scale wave seven revenue slice remains executable across sample modules
+ok 659 - scale wave seven revenue slice remains executable across sample modules
+  ---
+  duration_ms: 5.191178
+  type: 'test'
+  ...
+# Subtest: scale wave seven trust slice remains executable across sample modules
+ok 660 - scale wave seven trust slice remains executable across sample modules
+  ---
+  duration_ms: 5.090392
+  type: 'test'
+  ...
+# Subtest: scale wave seven route exposes the 500k campaign expansion inside the product shell
+ok 661 - scale wave seven route exposes the 500k campaign expansion inside the product shell
+  ---
+  duration_ms: 23.614672
+  type: 'test'
+  ...
+# Subtest: scale wave six route exposes the generated expansion families inside the product shell
+ok 662 - scale wave six route exposes the generated expansion families inside the product shell
+  ---
+  duration_ms: 21.948796
+  type: 'test'
+  ...
+# Subtest: segmentation-lab package exposes snapshot, policy, route, and fixture depth
+ok 663 - segmentation-lab package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.0899
+  type: 'test'
+  ...
+# Subtest: segmentation-quality routes honor custom base paths and stable ids
+ok 664 - segmentation-quality routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.085762
+  type: 'test'
+  ...
+# Subtest: segmentation-quality package expands the real-repo wave with route catalogs
+ok 665 - segmentation-quality package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.086413
+  type: 'test'
+  ...
+# Subtest: send-time-optimizer package exposes snapshot, policy, route, and fixture depth
+ok 666 - send-time-optimizer package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.093827
+  type: 'test'
+  ...
+# Subtest: sender-reputation package adds the last laddering architecture slice
+ok 667 - sender-reputation package adds the last laddering architecture slice
+  ---
+  duration_ms: 1.076164
+  type: 'test'
+  ...
+# Subtest: sender-rotation routes honor custom base paths and stable ids
+ok 668 - sender-rotation routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.08476
+  type: 'test'
+  ...
+# Subtest: sender-rotation package expands the real-repo wave with route catalogs
+ok 669 - sender-rotation package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.056167
+  type: 'test'
+  ...
+# Subtest: service-recovery routes honor custom base paths and stable ids
+ok 670 - service-recovery routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.078107
+  type: 'test'
+  ...
+# Subtest: service-recovery package expands the real-repo wave with route catalogs
+ok 671 - service-recovery package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.113633
+  type: 'test'
+  ...
+# Subtest: sms-orchestration package exposes snapshot, policy, route, and fixture depth
+ok 672 - sms-orchestration package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.125505
+  type: 'test'
+  ...
+# Subtest: social-publisher package deepens continuation breadth and route catalogs
+ok 673 - social-publisher package deepens continuation breadth and route catalogs
+  ---
+  duration_ms: 1.06341
+  type: 'test'
+  ...
+# Subtest: subscription-intelligence routes honor custom base paths and stable ids
+ok 674 - subscription-intelligence routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.137778
+  type: 'test'
+  ...
+# Subtest: subscription-intelligence package expands the real-repo wave with route catalogs
+ok 675 - subscription-intelligence package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.05248
+  type: 'test'
+  ...
+# Subtest: subscription-ops package exposes snapshot, policy, route, and fixture depth
+ok 676 - subscription-ops package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.08493
+  type: 'test'
+  ...
+# Subtest: support-playbooks package exposes snapshot, policy, route, and fixture depth
+ok 677 - support-playbooks package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.077566
+  type: 'test'
+  ...
+# Subtest: survey feedback tracks scores, averages, and qualitative comments
+ok 678 - survey feedback tracks scores, averages, and qualitative comments
+  ---
+  duration_ms: 26.148939
+  type: 'test'
+  ...
+# Subtest: template-approvals routes honor custom base paths and stable ids
+ok 679 - template-approvals routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.088998
+  type: 'test'
+  ...
+# Subtest: template-approvals package expands the real-repo wave with route catalogs
+ok 680 - template-approvals package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.058231
+  type: 'test'
+  ...
+# Subtest: template-marketplace package exposes snapshot, policy, route, and fixture depth
+ok 681 - template-marketplace package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.071415
+  type: 'test'
+  ...
+# Subtest: template-variants routes honor custom base paths and stable ids
+ok 682 - template-variants routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.160711
+  type: 'test'
+  ...
+# Subtest: template-variants package expands the real-repo wave with route catalogs
+ok 683 - template-variants package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.12802
+  type: 'test'
+  ...
+# Subtest: tenant-provisioning package exposes snapshot, policy, route, and fixture depth
+ok 684 - tenant-provisioning package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.084449
+  type: 'test'
+  ...
+# Subtest: transactional journeys support creation, activation, and sample dispatches
+ok 685 - transactional journeys support creation, activation, and sample dispatches
+  ---
+  duration_ms: 25.798639
+  type: 'test'
+  ...
+# Subtest: trust-automation routes honor custom base paths and stable ids
+ok 686 - trust-automation routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.089569
+  type: 'test'
+  ...
+# Subtest: trust-automation package expands the real-repo wave with route catalogs
+ok 687 - trust-automation package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.062519
+  type: 'test'
+  ...
+# Subtest: trust-center exposes a real package surface with route manifests and validation
+ok 688 - trust-center exposes a real package surface with route manifests and validation
+  ---
+  duration_ms: 0.761641
+  type: 'test'
+  ...
+# Subtest: trust-vault shell exposes a live catalog for the scale-wave-seven domains
+ok 689 - trust-vault shell exposes a live catalog for the scale-wave-seven domains
+  ---
+  duration_ms: 14.360146
+  type: 'test'
+  ...
+# Subtest: wave6-cluster-compliance keeps the generated wave 6 modules executable and policy-complete
+ok 690 - wave6-cluster-compliance keeps the generated wave 6 modules executable and policy-complete
+  ---
+  duration_ms: 1.637554
+  type: 'test'
+  ...
+# Subtest: wave6-cluster-data keeps the generated wave 6 modules executable and policy-complete
+ok 691 - wave6-cluster-data keeps the generated wave 6 modules executable and policy-complete
+  ---
+  duration_ms: 1.585487
+  type: 'test'
+  ...
+# Subtest: wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete
+ok 692 - wave6-cluster-ecosystem keeps the generated wave 6 modules executable and policy-complete
+  ---
+  duration_ms: 1.612367
+  type: 'test'
+  ...
+# Subtest: wave6-cluster-growth keeps the generated wave 6 modules executable and policy-complete
+ok 693 - wave6-cluster-growth keeps the generated wave 6 modules executable and policy-complete
+  ---
+  duration_ms: 1.57037
+  type: 'test'
+  ...
+# Subtest: wave6-cluster-lifecycle keeps the generated wave 6 modules executable and policy-complete
+ok 694 - wave6-cluster-lifecycle keeps the generated wave 6 modules executable and policy-complete
+  ---
+  duration_ms: 1.574817
+  type: 'test'
+  ...
+# Subtest: webhook-inspector routes honor custom base paths and stable ids
+ok 695 - webhook-inspector routes honor custom base paths and stable ids
+  ---
+  duration_ms: 1.075022
+  type: 'test'
+  ...
+# Subtest: webhook-inspector package expands the real-repo wave with route catalogs
+ok 696 - webhook-inspector package expands the real-repo wave with route catalogs
+  ---
+  duration_ms: 1.06333
+  type: 'test'
+  ...
+# Subtest: workspace-budgets package adds one more late-closeout architecture slice
+ok 697 - workspace-budgets package adds one more late-closeout architecture slice
+  ---
+  duration_ms: 1.048753
+  type: 'test'
+  ...
+# Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth
+ok 698 - workspace-catalog package exposes snapshot, policy, route, and fixture depth
+  ---
+  duration_ms: 1.065874
+  type: 'test'
+  ...
+# Subtest: workspace-expansion-ledger package clears the final code-volume ladder rung
+ok 699 - workspace-expansion-ledger package clears the final code-volume ladder rung
+  ---
+  duration_ms: 1.056157
+  type: 'test'
+  ...
+1..699
+# tests 699
+# suites 0
+# pass 699
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 29110.24025

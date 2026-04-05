@@ -20,14 +20,6 @@ try {
   await followRedirect(baseUrl, jar, signup);
   mark('platform.signup', signup.status === 302, 'account creation and session bootstrap');
 
-  const expansionShowcase = await request(baseUrl, jar, '/expansion-showcase');
-  mark('platform.expansion-showcase', /Expansion showcase/.test(await expansionShowcase.text()), 'authenticated expansion showcase route');
-
-  const scaleWaveSix = await request(baseUrl, jar, '/scale-wave-six');
-  mark('platform.scale-wave-six', /Scale Wave Six/.test(await scaleWaveSix.text()), 'authenticated scale wave six route');
-
-  const scaleWaveSeven = await request(baseUrl, jar, '/scale-wave-seven');
-  mark('platform.scale-wave-seven', /Scale Wave Seven/.test(await scaleWaveSeven.text()), 'authenticated scale wave seven route');
 
   const audienceId = server.state.db.audiences[0].id;
   await postForm(baseUrl, jar, '/contacts', { audienceId, firstName: 'Casey', lastName: 'Smoke', email: 'casey@smoke.test', tags: 'smoke' });

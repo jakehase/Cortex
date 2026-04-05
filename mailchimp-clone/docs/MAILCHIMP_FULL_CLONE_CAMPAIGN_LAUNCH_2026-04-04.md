@@ -45,3 +45,6 @@ This campaign covers the full audited gap set:
 
 ## Launch truth
 At launch, the campaign is expected to be **red** until the audited gaps are actually closed. A green state is only valid when the supervisor confirms the matrix is fully complete or a structured blocker report exists.
+
+## Important update after truthful cleanup
+The earlier wave6 / LOC-inflation delegate path was intentionally stopped and quarantined after the repo was cleaned back to a truthful baseline. Future 100-agent work should follow `docs/MAILCHIMP_FULL_CLONE_REPLAN_CLEAN_BASELINE_2026-04-04.md` instead of resuming the old wave6 delegate.

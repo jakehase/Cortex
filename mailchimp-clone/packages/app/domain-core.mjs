@@ -1,5 +1,6 @@
 import { createAudience, createWorkspace, PLAN_CATALOG, saveDb, writeExport, writeUpload } from './storage.mjs';
 import { createId, csvSplit, formArray, hashPassword, normalizeDomainName, nowIso, parseCookies } from './utils.mjs';
+import { createSession, getSessionFromRequest } from './security.mjs';
 
 export function planFor(workspace) {
   return PLAN_CATALOG.find((plan) => plan.id === workspace.planId) || PLAN_CATALOG[0];
@@ -28,8 +29,7 @@ export function actorFromUser(state, user) {
 }
 
 export function getCurrentActor(state, req) {
-  const sessionId = parseCookies(req).mailclone_session;
-  const session = sessionId ? state.db.sessions.find((entry) => entry.id === sessionId) : null;
+  const session = getSessionFromRequest(state, req);
   if (!session) return null;
   return actorFromUser(state, state.db.users.find((entry) => entry.id === session.userId));
 }
@@ -76,7 +76,7 @@ export function enqueueJob(state, { type, workspaceId, userId, payload, runAt })
   return job;
 }
 
-export function createAccount(state, { name, email, password, workspaceName }) {
+export function createAccount(state, { name, email, password, workspaceName }, req) {
   const workspace = createWorkspace(workspaceName, name);
   const user = { id: createId('user'), name, email, passwordHash: hashPassword(password), activeWorkspaceId: workspace.id, createdAt: nowIso() };
   state.db.workspaces.push(workspace);
@@ -84,8 +84,7 @@ export function createAccount(state, { name, email, password, workspaceName }) {
   state.db.memberships.push({ id: createId('mship'), userId: user.id, workspaceId: workspace.id, role: 'owner', status: 'active', createdAt: nowIso() });
   state.db.audiences.push(createAudience(workspace.id, 'Main audience'));
   state.db.apiKeys.unshift({ id: createId('apikey'), workspaceId: workspace.id, label: 'Default workspace key', token: workspace.apiKey, createdBy: user.id, createdAt: nowIso(), revokedAt: null });
-  const session = { id: createId('sess'), userId: user.id, createdAt: nowIso() };
-  state.db.sessions.push(session);
+  const session = createSession(state, user, req, { reason: 'signup' });
   createNotification(state, { workspaceId: workspace.id, type: 'account-created', payload: { email: user.email, workspaceName: workspace.name } });
   recordAudit(state, { workspaceId: workspace.id, userId: user.id, action: 'signup', detail: `Created workspace ${workspace.name}` });
   return { user, workspace, session };

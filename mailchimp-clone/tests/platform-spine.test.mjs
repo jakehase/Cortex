@@ -33,9 +33,10 @@ test('Program 1 platform spine: auth lifecycle, workspace switching, team invite
 
     const reset = await postForm(baseUrl, new CookieJar(), '/reset', { email: 'owner@example.com' });
     const resetHtml = await reset.text();
-    assert.match(resetHtml, /Generated token:/);
-    const resetToken = resetHtml.match(/reset_[a-f0-9]+/)[0];
-    const resetPage = await request(baseUrl, null, `/reset/${resetToken}`);
+    assert.doesNotMatch(resetHtml, /Generated token:/);
+    const resetPath = server.state.db.notifications[0].payload.resetPath;
+    const resetToken = resetPath.match(/reset_[a-f0-9]+/)[0];
+    const resetPage = await request(baseUrl, null, resetPath);
     assert.match(await resetPage.text(), /Update password/);
     const resetComplete = await postForm(baseUrl, new CookieJar(), `/reset/${resetToken}`, { password: 'secret789', confirmPassword: 'secret789' });
     assert.equal(resetComplete.status, 302);

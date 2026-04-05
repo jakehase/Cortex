@@ -224,12 +224,7 @@ export function runtimeQualificationTargets() {
         'apps/admin-console/server.mjs',
         'apps/customer-success/server.mjs',
         'apps/developer-portal/server.mjs',
-        'apps/growth-grid/server.mjs',
-        'apps/intelligence-works/server.mjs',
-        'apps/lifecycle-network/server.mjs',
         'apps/ops-observer/server.mjs',
-        'apps/revenue-command/server.mjs',
-        'apps/trust-vault/server.mjs',
         'apps/web/server.mjs',
         'src/server.js'
       ],
@@ -237,13 +232,7 @@ export function runtimeQualificationTargets() {
       metadata: {
         importFile: 'apps/web/server.mjs',
         testFile: 'tests/app-shells.test.mjs',
-        extraTestFiles: [
-          'tests/growth-grid.test.mjs',
-          'tests/intelligence-works.test.mjs',
-          'tests/lifecycle-network.test.mjs',
-          'tests/revenue-command.test.mjs',
-          'tests/trust-vault.test.mjs'
-        ]
+        extraTestFiles: []
       }
     },
     {
@@ -280,7 +269,7 @@ export function runtimeQualificationTargets() {
       metadata: {
         importFile: 'packages/app/index.mjs',
         testFile: 'tests/platform-spine.test.mjs',
-        extraTestFiles: ['tests/forms-landing.test.mjs', 'tests/reports-admin.test.mjs', 'tests/scale-wave-seven.test.mjs', 'tests/scale-wave-seven-catalog.test.mjs']
+        extraTestFiles: ['tests/forms-landing.test.mjs', 'tests/reports-admin.test.mjs']
       }
     }
   ];

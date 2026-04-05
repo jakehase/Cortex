@@ -205,12 +205,6 @@ export async function runWave1BrowserProof(options = {}) {
       addCheck(scenario, 'settings_profile_persisted', 'Persisted sender profile, reply-to, timezone, and brand settings through the UI.');
       addCheck(scenario, 'domain_authentication', 'Verified and promoted the authenticated sending domain through the browser.');
 
-      await navigate(ownerPage, baseUrl, '/scale-wave-six', /Scale Wave Six/);
-      addCheck(scenario, 'scale_wave_overview', 'Visited the scale-wave route that exposes the new expansion families inside the product shell.');
-
-      await navigate(ownerPage, baseUrl, '/scale-wave-seven', /Scale Wave Seven/);
-      addCheck(scenario, 'scale_wave_seven_overview', 'Visited the scale-wave-seven route that exposes the loc-500k expansion campaign inside the product shell.');
-
       scenario.screenshot = await captureScreenshot(ownerPage, screenshotDir, scenario.id);
       scenario.endedAt = isoNow();
       result.scenarios.push(scenario);

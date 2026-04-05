@@ -1,0 +1,7 @@
+{
+  "delivered": false,
+  "deliveredAt": null,
+  "supervisorStatus": "green",
+  "locTargetMet": true,
+  "campaignMode": "persistent"
+}

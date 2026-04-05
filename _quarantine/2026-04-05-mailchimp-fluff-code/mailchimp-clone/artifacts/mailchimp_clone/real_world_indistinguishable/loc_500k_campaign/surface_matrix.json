@@ -1,0 +1,397 @@
+{
+  "generatedAt": "2026-04-03T05:23:49.705Z",
+  "contractSummary": {
+    "targetPath": "/root/clawd/mailchimp-clone",
+    "requestedFidelity": "full_clone",
+    "requestedScope": [
+      "LOC >= 500k Mailchimp expansion campaign",
+      "massive continued package/domain growth",
+      "main app route growth and auxiliary app shells",
+      "test/regression expansion",
+      "browser/live/evidence refresh",
+      "orchestrator-driven shard qualification rerun",
+      "top-tier truth refresh kept honest while pursuing the user-directed LOC threshold",
+      "campaign contract/graph/matrix/program/supervisor/notifier artifacts"
+    ]
+  },
+  "status": "all_complete",
+  "surfaces": [
+    {
+      "id": "campaign_bootstrap",
+      "label": "Campaign bootstrap and loc tracking",
+      "issueIds": [
+        "loc500k.bootstrap"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/contract.json",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/issue_graph.json",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/surface_matrix.json",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/loc_progress.json"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.bootstrap",
+          "title": "500k campaign contract, graph, matrix, and loc tracking bootstrapped",
+          "lane": "planning",
+          "owner": "campaign",
+          "deps": [],
+          "parentId": null,
+          "children": [
+            "loc500k.massive_package_growth"
+          ],
+          "acceptanceCriteria": [
+            "contract exists",
+            "surface matrix exists",
+            "initial loc snapshot exists"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/contract.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/issue_graph.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/surface_matrix.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/loc_progress.json"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "massive_product_growth",
+      "label": "Massive package growth and generated catalog",
+      "issueIds": [
+        "loc500k.massive_package_growth"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/mailchimp-clone/scripts/generate-loc-500k-expansion.mjs",
+        "/root/clawd/mailchimp-clone/packages/scale-wave-seven/index.mjs",
+        "/root/clawd/mailchimp-clone/packages/acquisition-advisor/index.mjs",
+        "/root/clawd/mailchimp-clone/packages/partner-cockpit/index.mjs"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.massive_package_growth",
+          "title": "Massive package and product-surface growth lands in the repo",
+          "lane": "product",
+          "owner": "campaign",
+          "deps": [
+            "loc500k.bootstrap"
+          ],
+          "parentId": null,
+          "children": [
+            "loc500k.main_app_surface",
+            "loc500k.auxiliary_apps",
+            "loc500k.loc_threshold"
+          ],
+          "acceptanceCriteria": [
+            "hundreds of new package roots exist",
+            "scale wave seven catalog exists",
+            "repo loc materially expands"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "scripts/generate-loc-500k-expansion.mjs",
+            "packages/scale-wave-seven/index.mjs",
+            "packages/acquisition-advisor/index.mjs",
+            "packages/trust-watchtower/index.mjs"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "main_app_route",
+      "label": "Main app scale-wave-seven route",
+      "issueIds": [
+        "loc500k.main_app_surface"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/mailchimp-clone/packages/app/routes/scale-wave-seven.mjs",
+        "/root/clawd/mailchimp-clone/tests/scale-wave-seven.test.mjs",
+        "/root/clawd/mailchimp-clone/apps/web/server.mjs"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.main_app_surface",
+          "title": "Main authenticated app exposes the large new expansion route",
+          "lane": "product",
+          "owner": "campaign",
+          "deps": [
+            "loc500k.massive_package_growth"
+          ],
+          "parentId": null,
+          "children": [
+            "loc500k.repo_validation"
+          ],
+          "acceptanceCriteria": [
+            "/scale-wave-seven route exists",
+            "web server registers the route",
+            "route regression passes"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "packages/app/routes/scale-wave-seven.mjs",
+            "apps/web/server.mjs",
+            "tests/scale-wave-seven.test.mjs"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "auxiliary_apps",
+      "label": "Auxiliary app shells",
+      "issueIds": [
+        "loc500k.auxiliary_apps"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/mailchimp-clone/apps/growth-grid/server.mjs",
+        "/root/clawd/mailchimp-clone/apps/revenue-command/server.mjs",
+        "/root/clawd/mailchimp-clone/apps/trust-vault/server.mjs",
+        "/root/clawd/mailchimp-clone/apps/intelligence-works/server.mjs",
+        "/root/clawd/mailchimp-clone/apps/lifecycle-network/server.mjs"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.auxiliary_apps",
+          "title": "Auxiliary app shells expose the large new catalog families",
+          "lane": "architecture",
+          "owner": "campaign",
+          "deps": [
+            "loc500k.massive_package_growth"
+          ],
+          "parentId": null,
+          "children": [
+            "loc500k.repo_validation"
+          ],
+          "acceptanceCriteria": [
+            "new app shells exist",
+            "app shell tests pass"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "apps/growth-grid/server.mjs",
+            "apps/revenue-command/server.mjs",
+            "apps/trust-vault/server.mjs",
+            "apps/intelligence-works/server.mjs",
+            "apps/lifecycle-network/server.mjs"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "loc_threshold",
+      "label": "LOC threshold proof",
+      "issueIds": [
+        "loc500k.loc_threshold"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/loc_progress.json"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.loc_threshold",
+          "title": "Machine-readable LOC snapshots prove code/test/script total >= 500k",
+          "lane": "validation",
+          "owner": "campaign",
+          "deps": [
+            "loc500k.massive_package_growth"
+          ],
+          "parentId": null,
+          "children": [
+            "loc500k.supervision"
+          ],
+          "acceptanceCriteria": [
+            "loc_progress.json exists",
+            "latest snapshot total >= 500000"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/loc_progress.json"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "repo_validation",
+      "label": "Repo validation logs",
+      "issueIds": [
+        "loc500k.repo_validation"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/npm_test.log",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/smoke.log",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/browser-proof.log",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/validation_state.json"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.repo_validation",
+          "title": "Repo-wide tests plus live smoke and browser proof stay green",
+          "lane": "validation",
+          "owner": "campaign",
+          "deps": [
+            "loc500k.main_app_surface",
+            "loc500k.auxiliary_apps"
+          ],
+          "parentId": null,
+          "children": [
+            "loc500k.orchestrator"
+          ],
+          "acceptanceCriteria": [
+            "npm test passes",
+            "smoke passes",
+            "browser proof refreshes"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/npm_test.log",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/smoke.log",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/browser-proof.log",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/validation_state.json"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "orchestrator_refresh",
+      "label": "Real repo orchestrator refresh",
+      "issueIds": [
+        "loc500k.orchestrator"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/completion_summary.json",
+        "/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/supervisor_status.json",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/orchestrator-real-repo.log"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.orchestrator",
+          "title": "Real 100-agent orchestrator reruns against the enlarged repo",
+          "lane": "orchestrator",
+          "owner": "campaign",
+          "deps": [
+            "loc500k.repo_validation"
+          ],
+          "parentId": null,
+          "children": [
+            "loc500k.truth_refresh"
+          ],
+          "acceptanceCriteria": [
+            "orchestrator completion summary refreshed",
+            "orchestrator supervisor remains green"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/completion_summary.json",
+            "/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/supervisor_status.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/orchestrator-real-repo.log"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "truth_refresh",
+      "label": "Truth refresh artifacts",
+      "issueIds": [
+        "loc500k.truth_refresh"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/large-project-capability-stack/artifacts/qualification/mailchimp_full_clone_truth/claim_certification.json",
+        "/root/clawd/large-project-capability-stack/artifacts/qualification/mailchimp_real_world_indistinguishable_path/current_gap_analysis.json",
+        "/root/clawd/large-project-capability-stack/artifacts/qualification/mailchimp_real_world_indistinguishable_path/reports/qualification_summary.json",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/truth-refresh.log"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.truth_refresh",
+          "title": "Truth gate refreshes honestly after the loc campaign",
+          "lane": "qualification",
+          "owner": "campaign",
+          "deps": [
+            "loc500k.orchestrator"
+          ],
+          "parentId": null,
+          "children": [
+            "loc500k.supervision"
+          ],
+          "acceptanceCriteria": [
+            "claim certification refreshed",
+            "path gap analysis refreshed even if top-tier claim remains blocked"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/root/clawd/large-project-capability-stack/artifacts/qualification/mailchimp_full_clone_truth/claim_certification.json",
+            "/root/clawd/large-project-capability-stack/artifacts/qualification/mailchimp_real_world_indistinguishable_path/current_gap_analysis.json",
+            "/root/clawd/large-project-capability-stack/artifacts/qualification/mailchimp_real_world_indistinguishable_path/reports/qualification_summary.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/validation/truth-refresh.log"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "supervision",
+      "label": "Supervisor-owned completion state",
+      "issueIds": [
+        "loc500k.supervision"
+      ],
+      "requiredArtifacts": [
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/program_state.json",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/completion_summary.json",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/notification_state.json",
+        "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/supervisor_status.json"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "loc500k.supervision",
+          "title": "Supervisor-owned completion, notification, and blocker artifacts exist",
+          "lane": "supervision",
+          "owner": "campaign",
+          "deps": [
+            "loc500k.loc_threshold",
+            "loc500k.truth_refresh"
+          ],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "program_state.json exists",
+            "completion_summary.json exists",
+            "notification_state.json exists",
+            "supervisor_status.json reflects the stop condition truth"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/program_state.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/completion_summary.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/notification_state.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/supervisor_status.json",
+            "/root/clawd/mailchimp-clone/artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign/reports/blocker_report.json"
+          ],
+          "notes": ""
+        }
+      ]
+    }
+  ]
+}

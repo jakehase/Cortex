@@ -26,7 +26,7 @@
     "N_ops_deployment_scale_parity",
     "O_final_parity_proof_gate"
   ],
-  "implementationSurface": "actual product code + tests + parity evidence + supervisor artifacts + campaign launch state + delegated 100-agent real-repo orchestrator worker path",
+  "implementationSurface": "actual product code + tests + parity evidence + supervisor artifacts + campaign launch state; previous wave6-based delegated 100-agent path is now stopped/quarantined and future 100-agent work must be replanned against the cleaned baseline",
   "campaignMode": "persistent",
   "transportMode": {
     "cortexTransport": "active_file_backed",

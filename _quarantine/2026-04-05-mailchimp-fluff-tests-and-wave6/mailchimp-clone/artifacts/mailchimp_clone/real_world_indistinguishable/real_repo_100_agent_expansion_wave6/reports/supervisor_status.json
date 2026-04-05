@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-04-03T04:41:12.166Z",
+  "status": "red",
+  "matrixStatus": "blocked",
+  "currentClaim": "full_clone_credible",
+  "requestedClaimAllowed": false,
+  "topTierEligible": false,
+  "browserChecks": 61,
+  "realBrowserChecks": 61,
+  "testFiles": 151,
+  "productSourceLines": 17134
+}
