@@ -3872,7 +3872,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:10:51.265Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T13:46:55.305Z",
+      "updatedAt": "2026-04-05T13:51:51.511Z",
       "history": [
         {
           "from": null,
@@ -3890,9 +3890,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 97,
+        "runs": 98,
         "failures": [],
-        "lastRunAt": "2026-04-05T13:46:55.313Z",
+        "lastRunAt": "2026-04-05T13:51:51.518Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13490,6 +13490,109 @@
       "failedAt": "2026-04-05T13:41:08.658Z",
       "failureReason": "System: [2026-04-05 08:38:36 CDT] Exec failed (nova-fjo, signal SIGKILL) :: cture slice --- duration_ms: 1.13876 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog package ex… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AF9D050D6768E922C37\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sen",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775397174114:1d01f52dccc1bcd4",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-05T13:52:54.114Z",
+      "updatedAt": "2026-04-05T13:56:34.888Z",
+      "prompt": "System: [2026-04-05 08:49:54 CDT] Exec completed (good-fal, code 0) :: cture slice --- duration_ms: 1.266206 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "internal_complete",
+      "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 sentences and ask what they want to do. If the runtime model differs from default_model in the system prompt, mention the default model. Do not mention internal steps, files, tools, or reasoning. Current time: Sunday, April 5th,",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-05T13:52:54.115Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-05T13:52:54.124Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-05T13:52:55.858Z",
+          "completedAt": "2026-04-05T13:52:55.858Z",
+          "completionSummary": "System: 2026-04-05 08:49:54 CDT Exec completed (good-fal, code 0) :: cture slice --- duration_ms: 1.266206 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog package e… Sender (",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 4,
+        "failures": [
+          {
+            "at": "2026-04-05T13:52:55.864Z",
+            "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-05T13:53:25.688Z",
+            "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-05T13:54:02.571Z",
+            "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-05T13:56:34.894Z",
+            "reason": "task_contract_proof_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-05T13:56:34.894Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-05 08:49:54 CDT] Exec completed (good-fal, code 0) :: cture slice --- duration_ms: 1.266206 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": true,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-05T13:52:55.858Z",
+      "completionSource": "agent_end"
     }
   ]
 }
