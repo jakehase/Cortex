@@ -3872,7 +3872,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:10:51.265Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T18:38:13.774Z",
+      "updatedAt": "2026-04-05T18:42:52.309Z",
       "history": [
         {
           "from": null,
@@ -3890,9 +3890,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 151,
+        "runs": 152,
         "failures": [],
-        "lastRunAt": "2026-04-05T18:38:13.780Z",
+        "lastRunAt": "2026-04-05T18:42:52.318Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13495,7 +13495,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775397174114:1d01f52dccc1bcd4",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-05T13:52:54.114Z",
-      "updatedAt": "2026-04-05T18:23:07.567Z",
+      "updatedAt": "2026-04-05T18:45:23.657Z",
       "prompt": "System: [2026-04-05 08:49:54 CDT] Exec completed (good-fal, code 0) :: cture slice --- duration_ms: 1.266206 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog",
       "kind": "user_visible",
       "trustTier": "important",
@@ -13530,7 +13530,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 9,
+        "runs": 10,
         "failures": [
           {
             "at": "2026-04-05T13:52:55.864Z",
@@ -13567,9 +13567,13 @@
           {
             "at": "2026-04-05T18:23:07.576Z",
             "reason": "task_contract_proof_missing"
+          },
+          {
+            "at": "2026-04-05T18:45:23.669Z",
+            "reason": "task_contract_proof_missing"
           }
         ],
-        "lastRunAt": "2026-04-05T18:23:07.575Z",
+        "lastRunAt": "2026-04-05T18:45:23.669Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
