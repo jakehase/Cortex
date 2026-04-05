@@ -47,6 +47,40 @@ export async function followRedirect(baseUrl, jar, response) {
   return request(baseUrl, jar, location);
 }
 
+export async function loginAsSeededOwner(baseUrl) {
+  const jar = new CookieJar();
+  const unique = `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const signup = await postForm(baseUrl, jar, '/signup', {
+    name: 'Campaign Admin',
+    email: `campaign-owner-${unique}@example.com`,
+    password: 'secret123',
+    workspaceName: 'Campaign Lab'
+  });
+  await followRedirect(baseUrl, jar, signup);
+
+  const createCampaign = await postForm(baseUrl, jar, '/campaigns', { name: 'Editor Sandbox' });
+  const campaignId = createCampaign.headers.get('location')?.match(/camp_[a-f0-9]+/)?.[0];
+  if (!campaignId) throw new Error('Missing campaign id after campaign creation');
+
+  await postForm(baseUrl, jar, `/campaigns/${campaignId}/setup`, {
+    name: 'Editor Sandbox',
+    subject: 'Sandbox subject',
+    preheader: 'Sandbox preheader',
+    fromName: 'Campaign Admin',
+    replyTo: 'reply@example.com'
+  });
+
+  const recipientsPage = await request(baseUrl, jar, `/campaigns/${campaignId}/recipients`);
+  const recipientsHtml = await recipientsPage.text();
+  const audienceId = recipientsHtml.match(/name="audienceId">(?:.|\n)*?<option value="([^"]+)"/)?.[1];
+  if (!audienceId) throw new Error('Missing audience id on recipients page');
+
+  await postForm(baseUrl, jar, `/campaigns/${campaignId}/recipients`, { audienceId, segmentId: '' });
+  await postForm(baseUrl, jar, `/campaigns/${campaignId}/template`, { templateId: 'tmpl-announce' });
+
+  return { jar, campaignId };
+}
+
 export async function waitFor(assertFn, { timeoutMs = 2500, intervalMs = 100 } = {}) {
   const start = Date.now();
   for (;;) {
