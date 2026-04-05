@@ -3872,7 +3872,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:10:51.265Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T19:44:17.153Z",
+      "updatedAt": "2026-04-05T19:49:07.666Z",
       "history": [
         {
           "from": null,
@@ -3890,9 +3890,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 160,
+        "runs": 161,
         "failures": [],
-        "lastRunAt": "2026-04-05T19:44:17.160Z",
+        "lastRunAt": "2026-04-05T19:49:07.674Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13495,11 +13495,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775397174114:1d01f52dccc1bcd4",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-05T13:52:54.114Z",
-      "updatedAt": "2026-04-05T19:46:50.904Z",
+      "updatedAt": "2026-04-05T19:51:35.576Z",
       "prompt": "System: [2026-04-05 08:49:54 CDT] Exec completed (good-fal, code 0) :: cture slice --- duration_ms: 1.266206 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "✅ New session started · model: openai-codex/gpt-5.4 A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 sentences and ask what they want to do. If the runtime model differs from default_model in the system prompt, mention the default model. Do not mention internal steps, files, tools, or reasoning. Current time: Sunday, April 5th,",
       "history": [
         {
@@ -13519,6 +13519,14 @@
           "completedAt": "2026-04-05T13:52:55.858Z",
           "completionSummary": "System: 2026-04-05 08:49:54 CDT Exec completed (good-fal, code 0) :: cture slice --- duration_ms: 1.266206 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog package e… Sender (",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-05T19:51:35.576Z",
+          "failedAt": "2026-04-05T19:51:35.576Z",
+          "failureReason": "System: [2026-04-05 14:48:29 CDT] Exec failed (lucky-cl, code 0) :: [1mDocker LXC Container[m 🌐 [m[33m Provided by: [1;92mcommunity-scripts ORG [33m| GitHub: [1;92mhttps://github.com/community-scripts/ProxmoxVE[m 🖥️ [m[33m OS: [1;92mDebian GNU/L… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AD8E221146B46EDD590\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (unt",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -13632,7 +13640,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-05T13:52:55.858Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-05T19:51:35.576Z",
+      "failureReason": "System: [2026-04-05 14:48:29 CDT] Exec failed (lucky-cl, code 0) :: [1mDocker LXC Container[m 🌐 [m[33m Provided by: [1;92mcommunity-scripts ORG [33m| GitHub: [1;92mhttps://github.com/community-scripts/ProxmoxVE[m 🖥️ [m[33m OS: [1;92mDebian GNU/L… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AD8E221146B46EDD590\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (unt",
+      "failureSource": "runtime_message"
     }
   ]
 }
