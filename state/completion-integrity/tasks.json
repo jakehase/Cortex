@@ -3925,7 +3925,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:05:51.257Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T04:41:56.754Z",
+      "updatedAt": "2026-04-05T04:46:50.775Z",
       "history": [
         {
           "from": null,
@@ -3943,9 +3943,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 160,
+        "runs": 161,
         "failures": [],
-        "lastRunAt": "2026-04-05T04:41:56.762Z",
+        "lastRunAt": "2026-04-05T04:46:50.785Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13106,11 +13106,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775354321054:0c0174667408999f",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-05T01:58:41.054Z",
-      "updatedAt": "2026-04-05T03:39:33.699Z",
+      "updatedAt": "2026-04-05T04:48:12.051Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Sat 2026-04-04 16:01 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Context This subagent session is persistent and remains available for thread follow-up messages. Subagent Task: You ",
       "history": [
         {
@@ -13130,6 +13130,14 @@
           "completedAt": "2026-04-05T02:04:39.248Z",
           "completionSummary": "Sat 2026-04-04 16:01 CDT Subagent Context You are running as a subagent (depth 1/1). Results auto-announce to your requester; do not busy-poll for status. Subagent Context This subagent session is persistent and remains available for thread follow-up messages. Subagent Task: You ",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-05T04:48:12.051Z",
+          "failedAt": "2026-04-05T04:48:12.051Z",
+          "failureReason": "{ \"ok\": false, \"artifactRoot\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline\", \"highestPassingTier\": 100, \"qualificationMode\": \"real_mailchimp_repo_live_worker_farm\", \"blocker\": null, \"supervisorLog\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline/validation/supervisor.log\" } Process exited with code 1.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -13186,7 +13194,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-05T02:04:39.248Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-05T04:48:12.051Z",
+      "failureReason": "{ \"ok\": false, \"artifactRoot\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline\", \"highestPassingTier\": 100, \"qualificationMode\": \"real_mailchimp_repo_live_worker_farm\", \"blocker\": null, \"supervisorLog\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline/validation/supervisor.log\" } Process exited with code 1.",
+      "failureSource": "runtime_message"
     }
   ]
 }
