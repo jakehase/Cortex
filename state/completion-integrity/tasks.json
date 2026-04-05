@@ -3819,7 +3819,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:15:51.263Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-05T20:54:07.153Z",
+      "updatedAt": "2026-04-05T20:59:14.583Z",
       "history": [
         {
           "from": null,
@@ -3837,9 +3837,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 1,
+        "runs": 2,
         "failures": [],
-        "lastRunAt": "2026-04-05T20:54:07.159Z",
+        "lastRunAt": "2026-04-05T20:59:14.589Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -13680,11 +13680,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775422608821:4592ab0849ca9d52",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-05T20:56:48.821Z",
-      "updatedAt": "2026-04-05T20:56:48.830Z",
+      "updatedAt": "2026-04-05T20:59:06.563Z",
       "prompt": "Continue with the Mailchimp clone then",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -13696,6 +13696,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-05T20:56:48.830Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-05T20:59:06.563Z",
+          "failedAt": "2026-04-05T20:59:06.563Z",
+          "failureReason": "route manifests and validation --- duration_ms: 0.827734 type: 'test' ... # Subtest: audience-lab-notebooks package adds another closeout architecture slice ok 9 - audience-lab-notebooks package adds another closeout architecture slice --- duration_ms: 1.137417 type: 'test' ... # Subtest: audience-sync package exposes snapshot, policy, route, and fixture depth ok 10 - audience-sync package exposes",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -13745,7 +13753,10 @@
         "required": true,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-05T20:59:06.563Z",
+      "failureReason": "route manifests and validation --- duration_ms: 0.827734 type: 'test' ... # Subtest: audience-lab-notebooks package adds another closeout architecture slice ok 9 - audience-lab-notebooks package adds another closeout architecture slice --- duration_ms: 1.137417 type: 'test' ... # Subtest: audience-sync package exposes snapshot, policy, route, and fixture depth ok 10 - audience-sync package exposes",
+      "failureSource": "runtime_message"
     }
   ]
 }
