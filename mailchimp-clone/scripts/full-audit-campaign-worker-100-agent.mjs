@@ -9,11 +9,11 @@ const ROOT = path.resolve(__dirname, '..');
 const ARTIFACT_DIR = path.join(ROOT, 'artifacts', 'full_audit_campaign');
 const REPORTS_DIR = path.join(ARTIFACT_DIR, 'reports');
 const WORKER_STATE_PATH = path.join(ARTIFACT_DIR, 'worker_state.json');
-const DELEGATE_SCRIPT = path.join(ROOT, 'scripts', 'real-repo-100-agent-expansion-campaign.mjs');
-const DELEGATE_ARTIFACT_ROOT = path.join(ROOT, 'artifacts', 'mailchimp_clone', 'real_world_indistinguishable', 'real_repo_100_agent_expansion_wave6');
+const DELEGATE_SCRIPT = path.join(ROOT, 'scripts', 'orchestrator-real-repo-clean-run.mjs');
+const DELEGATE_ARTIFACT_ROOT = path.join(ROOT, 'artifacts', 'qualification', 'orchestrator_real_repo_clean_baseline');
 const DELEGATE_COMPLETION_SUMMARY = path.join(DELEGATE_ARTIFACT_ROOT, 'completion_summary.json');
 const DELEGATE_PROGRAM_STATE = path.join(DELEGATE_ARTIFACT_ROOT, 'program_state.json');
-const DELEGATE_BLOCKER = path.join(DELEGATE_ARTIFACT_ROOT, 'reports', 'blocker_report.json');
+const DELEGATE_BLOCKER = path.join(DELEGATE_ARTIFACT_ROOT, 'blocker_report.json');
 const LOG_PATH = path.join(REPORTS_DIR, '100_agent_worker.log');
 const STATUS_MIRROR_PATH = path.join(REPORTS_DIR, '100_agent_worker_status.json');
 const THREAD_CONTEXT = DEFAULT_THREAD_CONTEXT;
@@ -62,13 +62,13 @@ updateWorkerState({
   threadBindingReady: transportStatus?.threadBinding?.active || false,
   externalClawhipRuntimeActive: transportStatus?.active?.externalClawhipRuntimeActive || false,
   transportStatusPath: path.relative(ROOT, path.join(ARTIFACT_DIR, 'cortex_transport', 'transport_status.json')),
-  note: 'Full-audit campaign worker delegated to the proven 100-agent real-repo orchestrator path with Cortex-owned transport/memory scaffolding and thread-binding readiness checks.'
+  note: 'Full-audit campaign worker delegated to the cleaned-baseline 100-agent real-repo orchestrator path with Cortex-owned transport/memory scaffolding and thread-binding readiness checks.'
 });
 
 emitSessionEvent({
   artifactRoot: ARTIFACT_DIR,
   event: 'session.started',
-  summary: 'Started the 100-agent full-clone delegate worker.',
+  summary: 'Started the cleaned-baseline 100-agent full-clone delegate worker.',
   threadContext: THREAD_CONTEXT,
   sessionId: 'mailchimp-full-clone-100-agent',
   project: 'mailchimp-clone',
@@ -135,14 +135,14 @@ try {
     delegateBlockerPath: path.relative(ROOT, DELEGATE_BLOCKER),
     delegateStatusMirrorPath: path.relative(ROOT, STATUS_MIRROR_PATH),
     note: ok
-      ? '100-agent delegate script finished; full-audit supervisor should reconcile repo state and artifacts.'
-      : '100-agent delegate script failed; inspect the mirrored status, event stream, and delegate log.'
+      ? 'Cleaned-baseline 100-agent delegate script finished; full-audit supervisor should reconcile repo state and artifacts.'
+      : 'Cleaned-baseline 100-agent delegate script failed; inspect the mirrored status, event stream, and delegate log.'
   });
 
   emitSessionEvent({
     artifactRoot: ARTIFACT_DIR,
     event: ok ? 'session.finished' : 'session.failed',
-    summary: ok ? '100-agent delegate finished.' : '100-agent delegate failed.',
+    summary: ok ? 'Cleaned-baseline 100-agent delegate finished.' : 'Cleaned-baseline 100-agent delegate failed.',
     threadContext: THREAD_CONTEXT,
     sessionId: 'mailchimp-full-clone-100-agent',
     project: 'mailchimp-clone',
@@ -184,7 +184,7 @@ try {
   emitSessionEvent({
     artifactRoot: ARTIFACT_DIR,
     event: 'session.failed',
-    summary: '100-agent delegate wrapper failed before clean completion.',
+    summary: 'Cleaned-baseline 100-agent delegate wrapper failed before clean completion.',
     threadContext: THREAD_CONTEXT,
     sessionId: 'mailchimp-full-clone-100-agent',
     project: 'mailchimp-clone',

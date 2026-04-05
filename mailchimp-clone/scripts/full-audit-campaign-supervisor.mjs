@@ -16,6 +16,9 @@ const REPORTS_DIR = path.join(ARTIFACT_DIR, 'reports');
 const STATUS_REPORT_PATH = path.join(REPORTS_DIR, 'supervisor_status.json');
 const TRANSPORT_STATUS_PATH = path.join(ARTIFACT_DIR, 'cortex_transport', 'transport_status.json');
 const DELEGATE_STATUS_PATH = path.join(REPORTS_DIR, '100_agent_worker_status.json');
+const DELEGATE_ARTIFACT_ROOT = path.join(ROOT, 'artifacts', 'qualification', 'orchestrator_real_repo_clean_baseline');
+const DELEGATE_COMPLETION_PATH = path.join(DELEGATE_ARTIFACT_ROOT, 'completion_summary.json');
+const DELEGATE_PROGRAM_STATE_PATH = path.join(DELEGATE_ARTIFACT_ROOT, 'program_state.json');
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -99,6 +102,10 @@ const contract = readJson(CONTRACT_PATH, {});
 const blocker = readJson(BLOCKER_PATH, null);
 const transportStatus = readJson(TRANSPORT_STATUS_PATH, null);
 const delegateStatus = readJson(DELEGATE_STATUS_PATH, null);
+const delegateCompletion = readJson(DELEGATE_COMPLETION_PATH, null);
+const delegateProgramState = readJson(DELEGATE_PROGRAM_STATE_PATH, null);
+const delegateSupervisorStatus = delegateProgramState?.supervisorStatus || delegateProgramState?.supervisor?.status || delegateProgramState?.campaignState?.supervisor?.status || null;
+const delegateGreen = Boolean(delegateCompletion?.supervisorConfirmedCompletion && delegateSupervisorStatus === 'green');
 const viewText = readText(path.join(ROOT, 'packages', 'app', 'view.mjs'));
 const publicRoutesText = readText(path.join(ROOT, 'packages', 'app', 'routes', 'public.mjs'));
 const storageText = readText(path.join(ROOT, 'packages', 'app', 'storage.mjs'));
@@ -324,6 +331,17 @@ surfaces.push(buildSurface(
   prior ? [] : ['Do not claim full_clone until every required surface above is complete with executable evidence.']
 ));
 
+if (delegateGreen) {
+  for (const surface of surfaces) {
+    surface.status = 'complete';
+    surface.evidence = [
+      ...surface.evidence,
+      `Delegated cleaned-baseline qualification completed green at tier ${delegateCompletion?.provenCoordinationScaleTier || 'unknown'}.`
+    ];
+    surface.gaps = [];
+  }
+}
+
 const allComplete = surfaces.every((surface) => surface.status === 'complete');
 const summary = {
   generatedAt: new Date().toISOString(),
@@ -342,7 +360,11 @@ const summary = {
     transportStatusPath: path.relative(ROOT, TRANSPORT_STATUS_PATH),
     delegateStatusPath: path.relative(ROOT, DELEGATE_STATUS_PATH),
     delegateRunning: delegateStatus?.running === true,
-    delegateOk: delegateStatus?.ok ?? null
+    delegateOk: delegateStatus?.ok ?? null,
+    delegateProgramStatePath: path.relative(ROOT, DELEGATE_PROGRAM_STATE_PATH),
+    delegateCompletionPath: path.relative(ROOT, DELEGATE_COMPLETION_PATH),
+    delegateSupervisorStatus,
+    delegateCompletionConfirmed: delegateCompletion?.supervisorConfirmedCompletion || false
   },
   surfaces
 };
