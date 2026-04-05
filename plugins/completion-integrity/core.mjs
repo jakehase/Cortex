@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { enforceArchitecture } from '../../large-project-capability-stack/packages/architecture-enforcer/index.mjs';
+import { bootstrapSurfaceHonestyManifest, enforceArchitecture } from '../../large-project-capability-stack/packages/architecture-enforcer/index.mjs';
 
 async function loadDeliverOutboundPayloads() {
   const mod = await import('/usr/lib/node_modules/openclaw/dist/plugin-sdk/deliver-runtime-20_kW0lQ.js');
@@ -236,9 +236,11 @@ function evaluateHonestyGate(summary, honesty = {}) {
   if (!targetPath) return { required: true, pass: false, targetPath: null, repoRoot: null, report: null, reason: 'honesty_target_path_missing' };
   const repoRoot = resolveRepoRoot(targetPath);
   if (!repoRoot) return { required: true, pass: false, targetPath, repoRoot: null, report: null, reason: 'honesty_target_path_unresolvable' };
+  const manifestPath = path.join(repoRoot, 'surface-honesty.json');
+  const bootstrap = !fs.existsSync(manifestPath) ? bootstrapSurfaceHonestyManifest(repoRoot) : null;
   const report = enforceArchitecture(repoRoot);
   const pass = report?.honesty?.ok === true;
-  return { required: true, pass, targetPath, repoRoot, report, reason: pass ? null : 'honesty_gate_failed' };
+  return { required: true, pass, targetPath, repoRoot, report, bootstrap, reason: pass ? null : 'honesty_gate_failed' };
 }
 function cleanSummary(text, max = 280) { return summarize(sanitizePrompt(String(text || '').replace(/[{}\[\]"]+/g, '')), max); }
 function buildCompletionMessage(task) {
@@ -251,7 +253,7 @@ function buildCompletionMessage(task) {
       ? 'validator follow-up required'
       : 'none unless you want deeper verification.';
   const honesty = task.honesty?.required
-    ? `\nHonesty gate: ${task.honesty?.status || 'unknown'}${task.honesty?.manifestPath ? ` (${task.honesty.manifestPath})` : ''}${task.honesty?.changedProductFiles?.length ? `; changed product surfaces=${task.honesty.changedProductFiles.join(', ')}` : ''}`
+    ? `\nHonesty gate: ${task.honesty?.status || 'unknown'}${task.honesty?.manifestPath ? ` (${task.honesty.manifestPath})` : ''}${task.honesty?.bootstrapCreated ? '; manifest bootstrapped automatically' : ''}${task.honesty?.changedProductFiles?.length ? `; changed product surfaces=${task.honesty.changedProductFiles.join(', ')}` : ''}`
     : '';
   return `${lead}: ${done}\nEvidence: completion-integrity recorded internal completion and confirmed outbound delivery progression for this task.${honesty}\nWhat remains: ${remains}`;
 }
@@ -299,7 +301,7 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
     next.delivery = next.delivery || { attempts: 0, dedupeKeys: [], lastError: null };
     next.validation = next.validation || { required: false, mode: 'light', passed: true, runs: 0, failures: [] };
     next.trustTier = next.trustTier || 'normal';
-    next.honesty = next.honesty || { required: false, proofPresent: false, targetPath: null, repoRoot: null, manifestPath: null, changedProductFiles: [], violations: [], status: null };
+    next.honesty = next.honesty || { required: false, proofPresent: false, targetPath: null, repoRoot: null, manifestPath: null, changedProductFiles: [], violations: [], status: null, bootstrapCreated: false };
     next.contract = next.contract || { required: false, proofPresent: false, requestedFidelity: null, requestedScope: null, stopCondition: null };
     next.campaign = next.campaign || { required: false, proofPresent: false, modeRequired: null, supervisorStatus: null, blockerPresent: false };
     next.surfaceMatrix = next.surfaceMatrix || { required: false, proofPresent: false, status: null };
@@ -420,6 +422,7 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
         changedProductFiles: [],
         violations: [],
         status: null,
+        bootstrapCreated: false,
       },
       grounding: {
         required: groundingRequired,
@@ -505,7 +508,7 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
       task.validation.passed = pass;
       task.validation.lastRunAt = isoNow();
       task.validation.lastDetails = details;
-      task.honesty = task.honesty || { required: false, proofPresent: false, targetPath: null, repoRoot: null, manifestPath: null, changedProductFiles: [], violations: [], status: null };
+      task.honesty = task.honesty || { required: false, proofPresent: false, targetPath: null, repoRoot: null, manifestPath: null, changedProductFiles: [], violations: [], status: null, bootstrapCreated: false };
       task.honesty.proofPresent = honestyPass;
       task.honesty.targetPath = honestyCheck.targetPath || null;
       task.honesty.repoRoot = honestyCheck.repoRoot || null;
@@ -513,6 +516,7 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
       task.honesty.changedProductFiles = honestyCheck.report?.honesty?.changedProductFiles || [];
       task.honesty.violations = honestyCheck.report?.honesty?.violations || (honestyCheck.reason ? [{ rule: honestyCheck.reason, path: honestyCheck.targetPath || task.prompt, message: honestyCheck.reason }] : []);
       task.honesty.status = honestyPass ? 'green' : task.honesty.required ? 'red' : 'not_required';
+      task.honesty.bootstrapCreated = Boolean(honestyCheck.bootstrap?.created || honestyCheck.bootstrap?.updated);
       task.contract = task.contract || { required: false, proofPresent: false, requestedFidelity: null, requestedScope: null, stopCondition: null };
       task.contract.proofPresent = contractPass;
       task.grounding = task.grounding || { required: false, ambiguousReference: false, proofPresent: false, replyThread: { present: false, required: false, proofPresent: false } };
@@ -762,6 +766,7 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
         lines.push(
           'HONESTY_GATE',
           'This task is under the global surface-honesty policy for Cortex/OpenClaw work.',
+          '- If the target repo has no honesty manifest yet, the validator will bootstrap a starter one automatically on first enforcement.',
           '- If you change real product files, update the target repo’s `surface-honesty.json` (or equivalent configured honesty manifest).',
           '- Changed product files must be declared, marked `real`, and carry concrete evidence.tests entries.',
           '- Do not claim completion unless the honesty gate is green for the target repo/path.',

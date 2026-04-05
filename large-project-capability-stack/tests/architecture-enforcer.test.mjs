@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
-import { enforceArchitecture, evaluateArchitectureBudget } from '../packages/architecture-enforcer/index.mjs';
+import { bootstrapSurfaceHonestyManifest, enforceArchitecture, evaluateArchitectureBudget } from '../packages/architecture-enforcer/index.mjs';
 
 test('flags single-file collapse and missing monorepo structure', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-enforcer-'));
@@ -67,4 +67,25 @@ test('surface-honesty gate flags changed product files that are undeclared', () 
 
   const green = enforceArchitecture(dir);
   assert.equal(green.honesty.ok, true);
+});
+
+test('bootstrapSurfaceHonestyManifest creates a starter manifest for changed product files', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'arch-honesty-bootstrap-'));
+  execSync('git init', { cwd: dir, stdio: 'ignore' });
+  for (const folder of ['apps/web', 'packages/app/routes', 'tests', 'docs', 'artifacts']) {
+    fs.mkdirSync(path.join(dir, folder), { recursive: true });
+  }
+  fs.writeFileSync(path.join(dir, 'apps/web/server.mjs'), 'export const server = true;\n');
+  fs.writeFileSync(path.join(dir, 'packages/app/routes/dashboard.mjs'), 'export const dashboard = true;\n');
+
+  const bootstrap = bootstrapSurfaceHonestyManifest(dir);
+  assert.equal(bootstrap.created, true);
+  assert.ok(fs.existsSync(path.join(dir, 'surface-honesty.json')));
+  assert.ok(bootstrap.manifest.surfaces['apps/web/server.mjs']);
+  assert.equal(bootstrap.manifest.surfaces['apps/web/server.mjs'].status, 'declare_me');
+  assert.ok(bootstrap.manifest.surfaces['packages/app/routes/dashboard.mjs']);
+
+  const report = enforceArchitecture(dir);
+  assert.equal(report.honesty.ok, false);
+  assert.ok(report.honesty.violations.some((entry) => entry.rule === 'surface-honesty-status'));
 });

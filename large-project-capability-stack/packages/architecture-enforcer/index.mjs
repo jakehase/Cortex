@@ -27,6 +27,14 @@ const DEFAULTS = {
   }
 };
 
+const DEFAULT_SURFACE_HONESTY_POLICY = {
+  changedProductFilesMustBeDeclared: true,
+  allowedChangedStatuses: ['real'],
+  requireEvidenceTests: true,
+  bannedPlaceholderLanguage: ['coming soon', 'placeholder', 'stub', 'mock', 'fake', 'simulated', 'TODO'],
+  bootstrapStatus: 'declare_me'
+};
+
 function walk(dir, files = []) {
   if (!fs.existsSync(dir)) return files;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -103,6 +111,54 @@ function stripAllowedPlaceholderAttributes(text) {
     .replace(/placeholder\s*=\s*"[^"]*"/gi, '')
     .replace(/placeholder\s*=\s*'[^']*'/gi, '')
     .replace(/placeholder\s*=\s*\{[^}]*\}/gi, '');
+}
+
+function humanizeSurfaceLabel(rel) {
+  return rel
+    .replace(/\.[^.]+$/, '')
+    .split(/[\/._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function bootstrapSurfaceEntry(rel, config) {
+  return {
+    label: humanizeSurfaceLabel(rel),
+    status: DEFAULT_SURFACE_HONESTY_POLICY.bootstrapStatus,
+    evidence: { tests: [] },
+    notes: `Bootstrapped automatically by architecture-enforcer. Replace ${DEFAULT_SURFACE_HONESTY_POLICY.bootstrapStatus} with a truthful status and add evidence before claiming completion.`
+  };
+}
+
+export function bootstrapSurfaceHonestyManifest(repoRoot, overrides = {}) {
+  const config = {
+    ...DEFAULTS,
+    ...overrides,
+    sourceExtensions: overrides.sourceExtensions || DEFAULTS.sourceExtensions,
+    claimThresholds: { ...DEFAULTS.claimThresholds, ...(overrides.claimThresholds || {}) }
+  };
+  const manifestPath = path.join(repoRoot, config.surfaceHonestyManifest);
+  const changedProductFiles = listChangedProductFiles(repoRoot, config);
+  const existing = readJsonIfExists(manifestPath, null);
+  const manifest = existing || {
+    version: 1,
+    policy: { ...DEFAULT_SURFACE_HONESTY_POLICY },
+    surfaces: {}
+  };
+  manifest.policy = { ...DEFAULT_SURFACE_HONESTY_POLICY, ...(manifest.policy || {}) };
+  manifest.surfaces = manifest.surfaces || {};
+  let changed = !existing;
+  for (const rel of changedProductFiles) {
+    if (!manifest.surfaces[rel]) {
+      manifest.surfaces[rel] = bootstrapSurfaceEntry(rel, config);
+      changed = true;
+    }
+  }
+  if (changed) {
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  }
+  return { created: !existing, updated: changed, manifestPath, changedProductFiles, manifest };
 }
 
 function evaluateSurfaceHonesty(repoRoot, config) {

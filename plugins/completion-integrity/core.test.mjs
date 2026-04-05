@@ -124,8 +124,10 @@ test('global honesty gate blocks completion until target repo declares changed r
 
   h.engine.onAgentEnd({ success: true, result: `Anchor: honesty policy. Target path: ${repo}. Fidelity: production_slice. Scope: product surface fix. Stop condition: completed_and_delivered. Diff scope: product files: packages/app/index.mjs.` }, ctx('sess-honesty'));
   assert.equal(h.task().validation.passed, false);
-  assert.equal(h.task().validation.failures.at(-1).reason, 'surface-honesty-missing');
+  assert.equal(fs.existsSync(path.join(repo, 'surface-honesty.json')), true);
+  assert.equal(h.task().validation.failures.at(-1).reason, 'surface-honesty-status');
   assert.equal(h.task().honesty.status, 'red');
+  assert.equal(h.task().honesty.bootstrapCreated, true);
 
   fs.writeFileSync(path.join(repo, 'surface-honesty.json'), JSON.stringify({
     version: 1,
