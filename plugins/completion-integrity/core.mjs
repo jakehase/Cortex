@@ -39,6 +39,9 @@ function hash(value) { return crypto.createHash('sha256').update(String(value)).
 function cleanPathCandidate(value) {
   return String(value || '').replace(/^['"`]+|['"`]+$/g, '').replace(/[),.;]+$/g, '').trim();
 }
+function readJsonIfExists(file, fallback = null) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
+}
 function extractStructuredField(text, label) {
   const pattern = new RegExp(`${label}:\\s*([\\s\\S]*?)(?=\\b(?:Reply anchor|Anchor|Target path|Implementation surface|Diff scope|Fidelity|Scope|Stop condition|Surface matrix|Campaign mode|Supervisor status|Parity status|Honesty manifest|Honesty gate|Evidence|What remains|Blocker|Next action):|$)`, 'i');
   const match = String(text || '').match(pattern);
@@ -230,6 +233,23 @@ function resolveRepoRoot(targetPath) {
   }
   return resolveExistingPath(targetPath);
 }
+function readHonestyOverride(repoRoot) {
+  if (!repoRoot) return { valid: false, path: null, data: null, reason: 'repo_root_missing' };
+  const candidates = [
+    path.join(repoRoot, 'artifacts', 'honesty-override.json'),
+    path.join(repoRoot, 'surface-honesty.override.json')
+  ];
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    const data = readJsonIfExists(candidate, null);
+    if (!data || data.allowCompletionClaim !== true) return { valid: false, path: candidate, data, reason: 'override_missing_allow_flag' };
+    if (!normalize(data.approvedBy || '')) return { valid: false, path: candidate, data, reason: 'override_missing_approved_by' };
+    if (!normalize(data.reason || '')) return { valid: false, path: candidate, data, reason: 'override_missing_reason' };
+    if (data.expiresAt && Date.parse(data.expiresAt) && Date.parse(data.expiresAt) < Date.now()) return { valid: false, path: candidate, data, reason: 'override_expired' };
+    return { valid: true, path: candidate, data, reason: null };
+  }
+  return { valid: false, path: null, data: null, reason: 'override_missing' };
+}
 function evaluateHonestyGate(summary, honesty = {}) {
   if (!honesty?.required) return { required: false, pass: true, targetPath: null, repoRoot: null, report: null, reason: null };
   const targetPath = extractStructuredField(summary, 'Target path');
@@ -239,8 +259,10 @@ function evaluateHonestyGate(summary, honesty = {}) {
   const manifestPath = path.join(repoRoot, 'surface-honesty.json');
   const bootstrap = !fs.existsSync(manifestPath) ? bootstrapSurfaceHonestyManifest(repoRoot) : null;
   const report = enforceArchitecture(repoRoot);
-  const pass = report?.honesty?.ok === true;
-  return { required: true, pass, targetPath, repoRoot, report, bootstrap, reason: pass ? null : 'honesty_gate_failed' };
+  const override = readHonestyOverride(repoRoot);
+  const pass = report?.honesty?.ok === true || override.valid === true;
+  const status = report?.honesty?.ok === true ? 'green' : override.valid === true ? 'override' : 'red';
+  return { required: true, pass, status, targetPath, repoRoot, report, bootstrap, override, reason: pass ? null : 'honesty_gate_failed' };
 }
 function cleanSummary(text, max = 280) { return summarize(sanitizePrompt(String(text || '').replace(/[{}\[\]"]+/g, '')), max); }
 function buildCompletionMessage(task) {
@@ -252,10 +274,30 @@ function buildCompletionMessage(task) {
     : task.validation?.required && !task.validation?.passed
       ? 'validator follow-up required'
       : 'none unless you want deeper verification.';
+  const override = task.honesty?.status === 'override'
+    ? `; override=${task.honesty.overridePath}${task.honesty.overrideApprovedBy ? ` approvedBy=${task.honesty.overrideApprovedBy}` : ''}`
+    : '';
   const honesty = task.honesty?.required
-    ? `\nHonesty gate: ${task.honesty?.status || 'unknown'}${task.honesty?.manifestPath ? ` (${task.honesty.manifestPath})` : ''}${task.honesty?.bootstrapCreated ? '; manifest bootstrapped automatically' : ''}${task.honesty?.changedProductFiles?.length ? `; changed product surfaces=${task.honesty.changedProductFiles.join(', ')}` : ''}`
+    ? `\nHonesty gate: ${task.honesty?.status || 'unknown'}${task.honesty?.manifestPath ? ` (${task.honesty.manifestPath})` : ''}${task.honesty?.bootstrapCreated ? '; manifest bootstrapped automatically' : ''}${task.honesty?.changedProductFiles?.length ? `; changed product surfaces=${task.honesty.changedProductFiles.join(', ')}` : ''}${override}`
     : '';
   return `${lead}: ${done}\nEvidence: completion-integrity recorded internal completion and confirmed outbound delivery progression for this task.${honesty}\nWhat remains: ${remains}`;
+}
+
+function looksLikeCompletionClaim(text, task) {
+  const t = normalizeSoft(text);
+  if (!t) return false;
+  if (/^(done|completed|finished|shipped)\b/.test(t)) return true;
+  if (/\bit'?s done\b/.test(t)) return true;
+  if (t.includes('what remains:') || t.includes('evidence:')) return true;
+  if (task?.completionSummary && t.includes(normalizeSoft(cleanSummary(task.completionSummary)).slice(0, 24))) return true;
+  return false;
+}
+
+function honestyBlockText(task) {
+  const manifest = task?.honesty?.manifestPath || 'surface-honesty.json';
+  const changed = task?.honesty?.changedProductFiles?.length ? task.honesty.changedProductFiles.join(', ') : 'unknown changed product surfaces';
+  const reason = task?.honesty?.violations?.[0]?.message || 'honesty gate is not green';
+  return `Completion claim withheld: honesty gate is ${task?.honesty?.status || 'red'}, so I can't send a “done” claim for this implementation yet. Evidence: ${reason}. Manifest: ${manifest}. Changed product surfaces: ${changed}. What remains: truthfully declare the touched surfaces as real with evidence, or create an explicit override artifact at artifacts/honesty-override.json.`;
 }
 function parseRuntimeMessageSignal(message) {
   const raw = normalize(extractText(message));
@@ -301,7 +343,7 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
     next.delivery = next.delivery || { attempts: 0, dedupeKeys: [], lastError: null };
     next.validation = next.validation || { required: false, mode: 'light', passed: true, runs: 0, failures: [] };
     next.trustTier = next.trustTier || 'normal';
-    next.honesty = next.honesty || { required: false, proofPresent: false, targetPath: null, repoRoot: null, manifestPath: null, changedProductFiles: [], violations: [], status: null, bootstrapCreated: false };
+    next.honesty = next.honesty || { required: false, proofPresent: false, targetPath: null, repoRoot: null, manifestPath: null, changedProductFiles: [], violations: [], status: null, bootstrapCreated: false, overridePath: null, overrideApprovedBy: null };
     next.contract = next.contract || { required: false, proofPresent: false, requestedFidelity: null, requestedScope: null, stopCondition: null };
     next.campaign = next.campaign || { required: false, proofPresent: false, modeRequired: null, supervisorStatus: null, blockerPresent: false };
     next.surfaceMatrix = next.surfaceMatrix || { required: false, proofPresent: false, status: null };
@@ -423,6 +465,8 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
         violations: [],
         status: null,
         bootstrapCreated: false,
+        overridePath: null,
+        overrideApprovedBy: null,
       },
       grounding: {
         required: groundingRequired,
@@ -508,15 +552,17 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
       task.validation.passed = pass;
       task.validation.lastRunAt = isoNow();
       task.validation.lastDetails = details;
-      task.honesty = task.honesty || { required: false, proofPresent: false, targetPath: null, repoRoot: null, manifestPath: null, changedProductFiles: [], violations: [], status: null, bootstrapCreated: false };
+      task.honesty = task.honesty || { required: false, proofPresent: false, targetPath: null, repoRoot: null, manifestPath: null, changedProductFiles: [], violations: [], status: null, bootstrapCreated: false, overridePath: null, overrideApprovedBy: null };
       task.honesty.proofPresent = honestyPass;
       task.honesty.targetPath = honestyCheck.targetPath || null;
       task.honesty.repoRoot = honestyCheck.repoRoot || null;
       task.honesty.manifestPath = honestyCheck.report?.honesty?.manifestPath || null;
       task.honesty.changedProductFiles = honestyCheck.report?.honesty?.changedProductFiles || [];
       task.honesty.violations = honestyCheck.report?.honesty?.violations || (honestyCheck.reason ? [{ rule: honestyCheck.reason, path: honestyCheck.targetPath || task.prompt, message: honestyCheck.reason }] : []);
-      task.honesty.status = honestyPass ? 'green' : task.honesty.required ? 'red' : 'not_required';
+      task.honesty.status = honestyCheck.status || (honestyPass ? 'green' : task.honesty.required ? 'red' : 'not_required');
       task.honesty.bootstrapCreated = Boolean(honestyCheck.bootstrap?.created || honestyCheck.bootstrap?.updated);
+      task.honesty.overridePath = honestyCheck.override?.path || null;
+      task.honesty.overrideApprovedBy = honestyCheck.override?.data?.approvedBy || null;
       task.contract = task.contract || { required: false, proofPresent: false, requestedFidelity: null, requestedScope: null, stopCondition: null };
       task.contract.proofPresent = contractPass;
       task.grounding = task.grounding || { required: false, ambiguousReference: false, proofPresent: false, replyThread: { present: false, required: false, proofPresent: false } };
@@ -670,6 +716,19 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
 
   function getPendingAnnouncements(sessionKey) {
     return loadStore().tasks.filter((t) => t.sessionKey === sessionKey && ['internal_complete', 'notification_sent'].includes(t.status));
+  }
+
+  function findLatestCompletionSensitiveTask(sessionKey) {
+    return [...loadStore().tasks].reverse().find((t) => t.sessionKey === sessionKey && ['pending', 'running', 'internal_complete', 'notification_sent', 'delivery_confirmed'].includes(t.status));
+  }
+
+  function enforceOutboundHonesty(sessionKey, content) {
+    if (!sessionKey) return null;
+    const task = findLatestCompletionSensitiveTask(sessionKey);
+    if (!task?.honesty?.required) return null;
+    if (task.honesty.status === 'green' || task.honesty.status === 'override') return null;
+    if (!looksLikeCompletionClaim(content, task)) return null;
+    return { task, content: honestyBlockText(task) };
   }
 
   return {
@@ -862,6 +921,12 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
         }
       }
     },
+    onMessageSending(event, ctx) {
+      const sessionKey = String(ctx?.sessionKey || ctx?.sessionId || '');
+      const blocked = enforceOutboundHonesty(sessionKey, event?.content || '');
+      if (!blocked) return;
+      return { content: blocked.content };
+    },
     onBeforeMessageWrite(event, ctx) {
       const sessionKey = String(ctx?.sessionKey || event?.sessionKey || '');
       if (!sessionKey) return;
@@ -876,6 +941,15 @@ export function createCompletionIntegrityEngine(config = {}, deps = {}) {
       completeInternally(task.id, signal.summary, 'runtime_message');
       runValidator(task.id, { source: 'runtime_message', signal: signal.kind });
     },
+    onBeforeMessageWriteGuard(event, ctx) {
+      const sessionKey = String(ctx?.sessionKey || event?.sessionKey || '');
+      const role = event?.message?.role;
+      const content = extractText(event?.message?.content || event?.message?.text || event?.message);
+      if (!sessionKey || role !== 'assistant') return;
+      const blocked = enforceOutboundHonesty(sessionKey, content);
+      if (!blocked) return;
+      return { message: { ...event.message, content: blocked.content } };
+    },
   };
 }
 
@@ -885,11 +959,12 @@ export default function register(api) {
   let timer = null;
 
   api.on('message_received', async (event, ctx) => engine.onMessageReceived(event, ctx));
+  api.on('message_sending', async (event, ctx) => engine.onMessageSending(event, ctx));
   api.on('before_prompt_build', async (event, ctx) => engine.onBeforePromptBuild(event, ctx));
   api.on('subagent_ended', async (event, ctx) => engine.onSubagentEnded(event, ctx));
   api.on('agent_end', async (event, ctx) => engine.onAgentEnd(event, ctx));
   api.on('message_sent', async (event, ctx) => engine.onMessageSent(event, ctx));
-  api.on('before_message_write', (event, ctx) => engine.onBeforeMessageWrite(event, ctx));
+  api.on('before_message_write', (event, ctx) => engine.onBeforeMessageWriteGuard(event, ctx) || engine.onBeforeMessageWrite(event, ctx));
   api.on('after_tool_call', async (event, ctx) => {
     const output = event?.result;
     const errorText = typeof output?.error === 'string' ? output.error : (output?.ok === false ? JSON.stringify(output) : '');

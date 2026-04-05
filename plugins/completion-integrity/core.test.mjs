@@ -129,6 +129,12 @@ test('global honesty gate blocks completion until target repo declares changed r
   assert.equal(h.task().honesty.status, 'red');
   assert.equal(h.task().honesty.bootstrapCreated, true);
 
+  const blockedSend = h.engine.onMessageSending({ to: '+1', content: 'Done: shipped the implementation' }, ctx('sess-honesty'));
+  assert.match(blockedSend.content, /Completion claim withheld:/);
+
+  const blockedPersist = h.engine.onBeforeMessageWriteGuard({ message: { role: 'assistant', content: 'Done: shipped the implementation' }, sessionKey: 'sess-honesty' }, ctx('sess-honesty'));
+  assert.match(blockedPersist.message.content, /Completion claim withheld:/);
+
   fs.writeFileSync(path.join(repo, 'surface-honesty.json'), JSON.stringify({
     version: 1,
     surfaces: {
@@ -145,6 +151,28 @@ test('global honesty gate blocks completion until target repo declares changed r
   assert.equal(h.task().validation.passed, true);
   assert.equal(h.task().honesty.status, 'green');
   assert.equal(h.task().honesty.changedProductFiles.includes('packages/app/index.mjs'), true);
+});
+
+test('explicit honesty override artifact allows completion claims to pass and leave the system', () => {
+  const repo = makeHonestyRepo();
+  const h = makeHarness({ config: { validationMode: 'important_only' } });
+  h.engine.onMessageReceived({ from: '+1', metadata: { messageId: 'm1' } }, ctx('sess-override'));
+  h.engine.onBeforePromptBuild({ prompt: 'Implement the real product fix in the shared repo' }, ctx('sess-override'));
+
+  fs.mkdirSync(path.join(repo, 'artifacts'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'artifacts', 'honesty-override.json'), JSON.stringify({
+    allowCompletionClaim: true,
+    approvedBy: 'Jake',
+    reason: 'Temporary emergency override for a hotfix while honesty manifest is being finalized.'
+  }, null, 2));
+
+  h.engine.onAgentEnd({ success: true, result: `Anchor: override policy. Target path: ${repo}. Fidelity: production_slice. Scope: emergency product fix. Stop condition: completed_and_delivered. Diff scope: product files: packages/app/index.mjs. Honesty override: ${path.join(repo, 'artifacts', 'honesty-override.json')}.` }, ctx('sess-override'));
+  assert.equal(h.task().validation.passed, true);
+  assert.equal(h.task().honesty.status, 'override');
+  assert.equal(h.task().honesty.overrideApprovedBy, 'Jake');
+
+  const allowedSend = h.engine.onMessageSending({ to: '+1', content: 'Done: emergency product fix shipped' }, ctx('sess-override'));
+  assert.equal(allowedSend, undefined);
 });
 
 test('reply-thread grounding treats replied message as primary anchor and requires explicit reply-anchor proof', () => {
