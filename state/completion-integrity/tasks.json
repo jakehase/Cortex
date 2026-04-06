@@ -4637,7 +4637,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:20:51.297Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-06T04:06:50.403Z",
+      "updatedAt": "2026-04-06T04:11:46.990Z",
       "history": [
         {
           "from": null,
@@ -4655,9 +4655,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 65,
+        "runs": 66,
         "failures": [],
-        "lastRunAt": "2026-04-06T04:06:50.448Z",
+        "lastRunAt": "2026-04-06T04:11:46.998Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -16853,6 +16853,90 @@
       "failedAt": "2026-04-06T04:02:14.745Z",
       "failureReason": "System: [2026-04-05 22:19:56 CDT] Exec completed (crisp-co, code 1) :: ctive_optimization_parity\", \"G_integrations_api_oauth_parity\" ], \"blocker\": null, \"matrixPath\": \"artifacts/full_audit_campaign/surface_matrix.json\", \"programStatePath\": \"artifacts… Conversation info (untrusted metadata): ```json { \"message_id\": \"3A55F4023029C8D989B5\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775448692973:7580a88c22f70522",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-06T04:11:32.976Z",
+      "updatedAt": "2026-04-06T04:11:32.987Z",
+      "prompt": "Do a full audit on why this is failing, be very thorough. Then fix any problems you come across and harden this where next time there is no doubt it will work",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-06T04:11:32.976Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-06T04:11:32.987Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do a full audit on why this is failing, be very thorough. Then fix any problems you come across and harden this where next time there is no doubt it will work",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
