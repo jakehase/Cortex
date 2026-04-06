@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
 import { compileTaskContract, saveContract } from '../../large-project-capability-stack/packages/task-contract/index.mjs';
 import { createIssueGraph, upsertIssue, linkDependency, saveGraph, setIssueStatus } from '../../large-project-capability-stack/packages/issue-dag/index.mjs';
 import { compileSurfaceMatrix, saveMatrix } from '../../large-project-capability-stack/packages/surface-matrix/index.mjs';
