@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "policy": {
+    "changedProductFilesMustBeDeclared": true,
+    "allowedChangedStatuses": [
+      "real"
+    ],
+    "requireEvidenceTests": true,
+    "bannedPlaceholderLanguage": [
+      "coming soon",
+      "placeholder",
+      "stub",
+      "mock",
+      "fake",
+      "simulated",
+      "TODO"
+    ],
+    "bootstrapStatus": "declare_me"
+  },
+  "surfaces": {
+    "large-project-capability-stack/packages/campaign-runtime/index.mjs": {
+      "label": "Shared campaign runtime orchestration helpers",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "large-project-capability-stack/tests/campaign-runtime.test.mjs"
+        ]
+      },
+      "notes": "Shared worker/delegate/watch/archive runtime used to generalize long-run orchestration beyond Mailchimp-specific wrappers."
+    }
+  }
+}
