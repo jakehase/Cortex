@@ -24,9 +24,27 @@ export function renderBlocksHtml(blocks = [], state, workspaceId) {
   return blocks.map((block) => {
     if (block.type === 'divider') return '<hr>';
     const assetName = state.db.assets.find((entry) => entry.id === block.assetId && entry.workspaceId === workspaceId)?.name || 'No asset selected';
-    if (block.type === 'button') return `<section><h3>${block.title || ''}</h3><a href="${block.buttonUrl || '#'}">${block.buttonLabel || 'CTA'}</a></section>`;
-    if (block.type === 'image') return `<section><h3>${block.title || ''}</h3><p>${assetName}</p><p>${block.body || ''}</p></section>`;
-    return `<section><h3>${block.title || ''}</h3><p>${block.body || ''}</p></section>`;
+    const preset = block.stylePreset || 'default';
+    const align = block.alignment || 'left';
+    const background = block.backgroundColor || (preset === 'hero' ? '#fff4cc' : preset === 'promo' ? '#eef4ff' : preset === 'footer' ? '#10254d' : '#ffffff');
+    const textColor = block.textColor || (preset === 'footer' ? '#ffffff' : '#18212f');
+    const padding = block.padding || (preset === 'hero' ? '28px' : '20px');
+    const eyebrow = block.eyebrow ? `<div style="font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;opacity:.75;margin-bottom:8px;">${block.eyebrow}</div>` : '';
+    const title = block.title ? `<h3 style="margin:0 0 10px;">${block.title}</h3>` : '';
+    const sectionLabel = block.sectionName ? `<div style="margin-bottom:8px;font-size:12px;font-weight:700;opacity:.7;">${block.sectionName}</div>` : '';
+    const body = block.body ? `<p style="margin:0 0 12px;white-space:pre-wrap;">${block.body}</p>` : '';
+    const wrapperStyle = `background:${background};color:${textColor};padding:${padding};border-radius:${preset === 'hero' ? '20px' : '16px'};text-align:${align};margin-bottom:12px;`;
+    if (block.type === 'button') {
+      const buttonStyle = block.buttonStyle || 'primary';
+      const buttonCss = buttonStyle === 'secondary'
+        ? 'background:#ffffff;color:#0b3b8c;border:1px solid #b8c7df;'
+        : buttonStyle === 'ghost'
+          ? 'background:transparent;color:inherit;border:1px solid currentColor;'
+          : 'background:#0b3b8c;color:#ffffff;border:none;';
+      return `<section style="${wrapperStyle}">${sectionLabel}${eyebrow}${title}${body}<a href="${block.buttonUrl || '#'}" style="display:inline-flex;padding:12px 16px;border-radius:12px;text-decoration:none;font-weight:800;${buttonCss}">${block.buttonLabel || 'CTA'}</a></section>`;
+    }
+    if (block.type === 'image') return `<section style="${wrapperStyle}">${sectionLabel}${eyebrow}${title}<p style="font-size:13px;opacity:.8;margin:0 0 8px;">${assetName}</p>${block.imageAlt ? `<p style="font-size:12px;opacity:.72;margin:0 0 8px;">Alt: ${block.imageAlt}</p>` : ''}${body}</section>`;
+    return `<section style="${wrapperStyle}">${sectionLabel}${eyebrow}${title}${body}</section>`;
   }).join('');
 }
 

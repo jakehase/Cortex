@@ -1,4 +1,5 @@
 import { page } from '../view.mjs';
+import { faqCard, featureCard, marketingShell, marketingStats, planCard, resourceCard, storyCard, templateCard } from '../public-marketing.mjs';
 import { createAccount, actorFromUser, createNotification, findUserByEmail, getCurrentActor, recordAudit } from '../domain-core.mjs';
 import { hashPassword, json, nowIso, readBody, redirect, text, verifyPassword, passwordHashNeedsUpgrade } from '../utils.mjs';
 import { saveDb } from '../storage.mjs';
@@ -31,8 +32,207 @@ function inviteExpired(invite) {
 }
 
 export function registerPublicRoutes(router) {
-  router.register('GET', '/', async ({ res }) => {
-    text(res, 200, page('Anchor Mailer', null, `<div class="grid"><div class="card"><h3>Program 1–3</h3><p>Platform spine, audience core, and campaign pipeline are implemented.</p></div><div class="card"><h3>Program 4</h3><p>Automation overview and journey builder with publish/pause/resume semantics.</p></div><div class="card"><h3>Program 5</h3><p>Forms, hosted signup flow, embed state, and landing pages.</p></div><div class="card"><h3>Program 6–7</h3><p>Reports, API/admin, exports/history/state, architecture hardening, and regression coverage.</p></div></div>`));
+  router.register('GET', '/', async ({ state, res }) => {
+    text(res, 200, marketingShell({
+      title: 'Email marketing, automations, and CRM journeys',
+      eyebrow: 'EMAIL · AUTOMATIONS · WEBSITES · CRM',
+      headline: 'Turn audience insight into campaigns, journeys, forms, and websites from one marketing workspace.',
+      intro: 'Build email campaigns, automate customer journeys, collect leads with forms and landing pages, publish websites, and track performance across your growth programs.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/pricing', label: 'See pricing' },
+      sections: [
+        marketingStats(state),
+        `<h2 class="section-title">Grow with the full marketing stack</h2><div class="marketing-grid">${[
+          featureCard('/features/email-marketing', 'Email marketing', 'Create polished campaigns with templates, content blocks, approval flows, and send reporting.', ['Audience targeting and segmentation', 'Template + content studio workflows', 'Approval, scheduling, and send controls']),
+          featureCard('/features/marketing-automation', 'Marketing automation', 'Launch journeys that welcome, nurture, recover, and re-engage contacts automatically.', ['Journey builder and branch logic', 'Transactional + lifecycle touchpoints', 'Automation reporting and run history']),
+          featureCard('/features/website-builder', 'Website builder', 'Publish branded websites and landing experiences connected to campaigns and lead capture.', ['Themes, pages, SEO, and publish history', 'Lead capture forms and signup surfaces', 'Website analytics and optimization hooks']),
+          featureCard('/features/forms-and-landing-pages', 'Forms and landing pages', 'Capture leads with hosted forms, embeds, and landing pages tied to your audience.', ['Hosted and embedded signup flows', 'Audience tagging and automation entry', 'Landing page publishing and reporting'])
+        ].join('')}</div>`,
+        `<h2 class="section-title">Pricing built around growth stages</h2><div class="plan-grid">${[
+          planCard('Free', '$0', 'For getting started', ['Audience growth and signup capture', 'Basic email campaigns', 'Website and landing page starter tools']),
+          planCard('Essentials', '$13/mo', 'For focused sending teams', ['Template and branding controls', 'Email scheduling and testing', 'Audience segments and content reuse']),
+          planCard('Standard', '$20/mo', 'For automation-led growth', ['Customer journeys and behavioral automations', 'Predictive optimization surfaces', 'Deeper reporting and conversions']),
+          planCard('Premium', '$350/mo', 'For advanced operations', ['Advanced segmentation and experimentation', 'Team governance and approvals', 'High-volume orchestration readiness'])
+        ].join('')}</div>`,
+        `<h2 class="section-title">Frequently asked questions</h2><div class="faq-grid">${[
+          faqCard('What can I launch from one workspace?', 'Campaigns, automations, forms, landing pages, websites, audience segments, and reporting all live in the same workspace shell.'),
+          faqCard('How do leads become customers?', 'Forms and landing pages feed your audience, tags and segments drive targeting, and automations handle nurture and conversion journeys.'),
+          faqCard('What happens after sign up?', 'You land in the app dashboard with access to campaigns, audiences, journeys, websites, reports, and the wider product surface.')
+        ].join('')}</div>`,
+        `<section class="cta-band"><h2>Ready to launch your next campaign?</h2><p>Start with signup, explore pricing, or go straight into the app if you already have an account.</p><div class="cta-actions"><a class="button-link" href="/signup">Create account</a><a class="button-link secondary" href="/login">Log in</a></div></section>`
+      ]
+    }));
+  });
+
+  router.register('GET', '/pricing', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Pricing',
+      eyebrow: 'PLANS',
+      headline: 'Choose a plan that matches your audience, automation, and reporting needs.',
+      intro: 'Start with email and audience growth, then scale into journeys, experimentation, optimization, and operations controls as your team matures.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/features/email-marketing', label: 'Explore features' },
+      sections: [`<div class="plan-grid">${[
+        planCard('Free', '$0', 'Starters', ['Contacts, signup forms, landing pages', 'Basic email sends', 'Starter website presence']),
+        planCard('Essentials', '$13/mo', 'Operators', ['Brand customization', 'Multistep send prep', 'Template and content reuse']),
+        planCard('Standard', '$20/mo', 'Growth teams', ['Journeys and advanced segments', 'Optimization surfaces', 'Broader reporting depth']),
+        planCard('Premium', '$350/mo', 'Large programs', ['Governance and approvals', 'Advanced testing and segmentation', 'High-scale coordination'])
+      ].join('')}</div>`]
+    }));
+  });
+
+  router.register('GET', '/features/email-marketing', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Email marketing',
+      eyebrow: 'FEATURES',
+      headline: 'Build, schedule, approve, and report on email campaigns from one workflow.',
+      intro: 'Use templates, content blocks, audience filters, approvals, and reporting to move from idea to send without jumping between tools.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/login', label: 'Open app' },
+      sections: [`<div class="marketing-grid">${[
+        featureCard('/campaigns', 'Campaign workflow', 'Draft, review, schedule, send, and report on campaigns end to end.', ['Rich campaign records', 'Approval and send controls', 'Report views and send history']),
+        featureCard('/content', 'Content studio', 'Reuse templates and brand assets across campaigns and pages.', ['Asset organization', 'Template + body block reuse', 'Brand-ready publishing flow']),
+        featureCard('/reports', 'Campaign reporting', 'Track sends, opens, clicks, and activity summaries.', ['Campaign-level reporting', 'Audience-linked reporting', 'Admin and export visibility'])
+      ].join('')}</div>`]
+    }));
+  });
+
+  router.register('GET', '/features/marketing-automation', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Marketing automation',
+      eyebrow: 'AUTOMATION',
+      headline: 'Design customer journeys that react to signup, campaign, commerce, and lifecycle events.',
+      intro: 'Welcome new subscribers, recover churn risk, route leads, and connect campaigns to automated follow-up sequences.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/features/forms-and-landing-pages', label: 'See lead capture' },
+      sections: [`<div class="marketing-grid">${[
+        featureCard('/automations', 'Journey builder', 'Model trigger-based flows with branches, waits, and actions.', ['Publish/pause/resume lifecycle', 'Trigger and branch semantics', 'Run history and performance views']),
+        featureCard('/journeys/transactional', 'Transactional journeys', 'Blend operational touchpoints into broader lifecycle automation.', ['Transactional send surface', 'Journey-linked notifications', 'Operational delivery hooks']),
+        featureCard('/optimization', 'Optimization', 'Use predictive and experimentation surfaces to improve sends over time.', ['Subject and preheader variants', 'Journey recommendations', 'Performance experiments'])
+      ].join('')}</div>`]
+    }));
+  });
+
+  router.register('GET', '/features/website-builder', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Website builder',
+      eyebrow: 'WEBSITE BUILDER',
+      headline: 'Publish branded pages and websites connected to your campaigns and audience growth.',
+      intro: 'Create site pages, manage themes, update SEO, publish changes, and connect forms and landing experiences back to your CRM.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/features/forms-and-landing-pages', label: 'See forms' },
+      sections: [`<div class="marketing-grid">${[
+        featureCard('/websites', 'Website management', 'Create pages, themes, and publish revisions from one workspace.', ['Theme and page controls', 'SEO and publishing metadata', 'Site analytics hooks']),
+        featureCard('/landing-pages', 'Landing experiences', 'Link landing pages to campaigns, offers, and signup capture.', ['Lead-focused page experiences', 'Audience and automation linkage', 'Publish and reporting flow']),
+        featureCard('/forms', 'Embedded signup', 'Connect websites to embedded or hosted forms that feed your audience.', ['Embedded snippets', 'Hosted lead capture', 'Tags and entry automation'])
+      ].join('')}</div>`]
+    }));
+  });
+
+  router.register('GET', '/features/forms-and-landing-pages', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Forms and landing pages',
+      eyebrow: 'LEAD CAPTURE',
+      headline: 'Collect leads with forms, embeds, and landing pages that feed your audience automatically.',
+      intro: 'Use hosted forms, embed snippets, and landing experiences to capture contact data, apply tags, and trigger journeys instantly.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/features/marketing-automation', label: 'See automations' },
+      sections: [`<div class="marketing-grid">${[
+        featureCard('/forms', 'Hosted forms', 'Create forms that capture contacts directly into your audience.', ['Field configuration', 'Audience targeting', 'Publish/unpublish state']),
+        featureCard('/landing-pages', 'Landing pages', 'Build focused conversion pages tied to campaigns and tags.', ['Publishing workflow', 'Audience-linked conversion', 'Reporting tie-ins']),
+        featureCard('/audiences', 'Audience enrichment', 'Every submission can update profiles, tags, and automation entry logic.', ['Tag and segment routing', 'CRM profile updates', 'Journey enrollment'])
+      ].join('')}</div>`]
+    }));
+  });
+
+  router.register('GET', '/help', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Help center',
+      eyebrow: 'HELP',
+      headline: 'Get oriented on signup, campaigns, automations, forms, websites, and reporting.',
+      intro: 'Use the public entry points below to start an account, reset access, review pricing, and understand how the product surface fits together.',
+      ctaPrimary: { href: '/signup', label: 'Create account' },
+      ctaSecondary: { href: '/reset', label: 'Reset password' },
+      sections: [`<div class="faq-grid">${[
+        faqCard('How do I create an account?', 'Use the signup flow to create your workspace, then land directly in the app shell.'),
+        faqCard('Where do I build campaigns?', 'Once authenticated, open Campaigns for creation, scheduling, approvals, and reports.'),
+        faqCard('How do forms and landing pages connect to automations?', 'Submissions can create contacts, apply tags, and trigger journeys automatically.'),
+        faqCard('Where do I manage websites and pages?', 'Authenticated users can open Websites to manage pages, themes, publishing, and site analytics.'),
+        faqCard('How do I check overall platform health?', 'The public status route exposes live counts for users, contacts, campaigns, jobs, automations, forms, and events.')
+      ].join('')}</div>`]
+    }));
+  });
+
+  router.register('GET', '/templates', async ({ state, res }) => {
+    const templateCount = state.db.templates.length;
+    text(res, 200, marketingShell({
+      title: 'Marketing templates',
+      eyebrow: 'TEMPLATES',
+      headline: 'Start from campaign, automation, website, and landing page templates built for common growth plays.',
+      intro: `Browse starter layouts for announcements, product launches, onboarding journeys, lead capture, and lifecycle follow-up. ${templateCount} starter templates are currently loaded in this workspace seed.`,
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/features/email-marketing', label: 'See email features' },
+      sections: [
+        `<h2 class="section-title">Email campaign templates</h2><div class="plan-grid">${[
+          templateCard('Product launch', 'Email', ['Hero-driven announcement structure', 'Feature highlight blocks', 'Call-to-action and conversion footer']),
+          templateCard('Newsletter digest', 'Email', ['Editorial summary layout', 'Content section modules', 'Reading-focused hierarchy']),
+          templateCard('Promotion drop', 'Email', ['Offer-first headline and urgency hooks', 'Promo CTA treatment', 'Follow-up conversion sequence ready'])
+        ].join('')}</div>`,
+        `<h2 class="section-title">Growth journey templates</h2><div class="marketing-grid">${[
+          featureCard('/automations', 'Welcome series', 'Guide new subscribers from signup to first conversion.', ['Signup trigger and tag routing', 'Timed nurture sequence', 'Campaign and site follow-up']),
+          featureCard('/automations', 'Cart recovery', 'Reconnect abandoned shoppers with reminders and offers.', ['Behavioral entry conditions', 'Offer and urgency messaging', 'Recovery reporting loop']),
+          featureCard('/automations', 'Re-engagement', 'Win back dormant audiences with lifecycle reactivation flows.', ['Inactivity segmentation', 'Variant messaging', 'Preference update handoff'])
+        ].join('')}</div>`,
+        `<h2 class="section-title">Site and lead capture templates</h2><div class="marketing-grid">${[
+          featureCard('/websites', 'Website starter', 'Launch a branded site shell with hero, sections, navigation, and signup blocks.', ['Theme and page starter structure', 'SEO-ready sections', 'Signup capture placement']),
+          featureCard('/landing-pages', 'Lead magnet page', 'Promote an offer with focused conversion sections and signup capture.', ['Offer-first landing structure', 'Embedded or hosted form hooks', 'Audience tagging on submission']),
+          featureCard('/forms', 'Popup and form starter', 'Collect email and preference data with faster setup defaults.', ['Hosted and embedded form variants', 'Tag routing and entry automation', 'Follow-up sequence ready'])
+        ].join('')}</div>`
+      ]
+    }));
+  });
+
+  router.register('GET', '/resources', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Resources',
+      eyebrow: 'RESOURCES',
+      headline: 'Learn the workflows behind campaigns, automations, websites, forms, and reporting.',
+      intro: 'Use these public learning surfaces to move from first send to full-funnel orchestration with clearer guidance on setup, optimization, and measurement.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/help', label: 'Open help center' },
+      sections: [
+        `<div class="marketing-grid">${[
+          resourceCard('/resources/email-playbook', 'Guide', 'Email campaign launch playbook', 'Plan audience targeting, template selection, approvals, send timing, and post-send reporting in one repeatable workflow.'),
+          resourceCard('/resources/automation-blueprint', 'Blueprint', 'Automation blueprint', 'Map triggers, waits, branch logic, and handoffs from lead capture through lifecycle journeys.'),
+          resourceCard('/resources/website-growth-guide', 'Guide', 'Website growth guide', 'Publish pages, connect forms, capture leads, and route conversions back into your campaigns and CRM.'),
+          resourceCard('/resources/reporting-checklist', 'Checklist', 'Reporting checklist', 'Review sends, conversions, automation health, and website performance with a more operational cadence.')
+        ].join('')}</div>`,
+        `<section class="cta-band"><h2>What teams usually learn first</h2><p>Start with campaigns and signup capture, then add journeys, landing pages, websites, optimization, and broader reporting depth.</p><div class="cta-actions"><a class="button-link" href="/templates">Browse templates</a><a class="button-link secondary" href="/customers">Read customer stories</a></div></section>`
+      ]
+    }));
+  });
+
+  router.register('GET', '/customers', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Customer stories',
+      eyebrow: 'CUSTOMER STORIES',
+      headline: 'See how marketing teams combine email, journeys, websites, and forms to grow faster.',
+      intro: 'These public stories show the kind of outcomes the platform is shaped around: faster launches, stronger lifecycle automation, and tighter reporting across acquisition and retention.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/pricing', label: 'Compare plans' },
+      sections: [
+        `<div class="plan-grid">${[
+          storyCard('Northwind Studio', '+31% more launch clicks', 'Used campaign templates, content reuse, and approval workflows to ship launches faster without breaking brand consistency.'),
+          storyCard('Cedar Lane Market', '2.4x more recovery revenue', 'Connected signup capture, commerce automations, and offer sequences to recover more carts and repeat buyers.'),
+          storyCard('Atlas Workshops', '46% faster campaign setup', 'Moved from scattered tools into one workspace for forms, landing pages, email sends, and reporting review.')
+        ].join('')}</div>`,
+        `<h2 class="section-title">Why these stories matter</h2><div class="marketing-grid">${[
+          featureCard('/features/email-marketing', 'Campaign ops', 'Templates and workflows shorten the path from brief to send.', ['Reusable layouts', 'Approvals and scheduling', 'Reporting after launch']),
+          featureCard('/features/marketing-automation', 'Lifecycle automation', 'Journeys turn captured leads into nurtured, retained customers.', ['Welcome, nurture, and win-back logic', 'Journey reporting', 'Transactional and operational hooks']),
+          featureCard('/features/website-builder', 'Connected growth surface', 'Sites, forms, and landing pages feed the same audience and reporting layer.', ['Lead capture connected to CRM', 'Website and landing page publishing', 'Audience enrichment and conversion routing'])
+        ].join('')}</div>`
+      ]
+    }));
   });
 
   router.register('GET', '/status', async ({ state, res }) => {

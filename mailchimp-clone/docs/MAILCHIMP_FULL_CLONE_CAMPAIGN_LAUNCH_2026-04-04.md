@@ -27,7 +27,7 @@ This campaign covers the full audited gap set:
 - O. Final parity proof gate
 
 ## Runtime roles
-- **Worker:** `scripts/full-audit-campaign-worker-100-agent.mjs` delegating to the proven real-repo orchestrator path in `scripts/real-repo-100-agent-expansion-campaign.mjs`
+- **Worker:** `scripts/full-audit-campaign-worker-100-agent.mjs` delegating to the cleaned-baseline real-repo orchestrator path in `scripts/orchestrator-real-repo-clean-run.mjs`
 - **Supervisor:** `scripts/full-audit-campaign-supervisor.mjs`
 - **Watcher:** `scripts/full-audit-campaign-watch.mjs`
 
@@ -47,4 +47,4 @@ This campaign covers the full audited gap set:
 At launch, the campaign is expected to be **red** until the audited gaps are actually closed. A green state is only valid when the supervisor confirms the matrix is fully complete or a structured blocker report exists.
 
 ## Important update after truthful cleanup
-The earlier wave6 / LOC-inflation delegate path was intentionally stopped and quarantined after the repo was cleaned back to a truthful baseline. Future 100-agent work should follow `docs/MAILCHIMP_FULL_CLONE_REPLAN_CLEAN_BASELINE_2026-04-04.md` instead of resuming the old wave6 delegate.
+The earlier wave6 / LOC-inflation delegate path was intentionally stopped and quarantined after the repo was cleaned back to a truthful baseline. The active 100-agent worker path now follows `docs/MAILCHIMP_FULL_CLONE_REPLAN_CLEAN_BASELINE_2026-04-04.md` and delegates to `scripts/orchestrator-real-repo-clean-run.mjs` instead of resuming the old wave6 delegate.

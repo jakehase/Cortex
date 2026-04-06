@@ -1,7 +1,6 @@
-import { saveDb } from './storage.mjs';
-import { createNotification, recordEvent } from './domain-core.mjs';
-import { processCsvImport } from './domain-audience.mjs';
-import { campaignHtml, markCampaignDelivered } from './domain-campaigns.mjs';
+import { persistState } from './storage.mjs';
+import { recordEvent } from './domain-core.mjs';
+import { executeJobByType } from './job-handlers.mjs';
 
 const DEFAULT_JOB_ATTEMPTS = {
   import_contacts: 2,
@@ -23,27 +22,6 @@ function appendHistory(job, status, detail = '') {
   job.history.unshift({ at: now(), status, detail, attempt: job.attempts || 0 });
 }
 
-function executeJob(state, job) {
-  if (job.type === 'import_contacts') {
-    job.result = processCsvImport(state, job);
-    createNotification(state, { workspaceId: job.workspaceId, type: 'import-complete', payload: { audienceId: job.payload.audienceId, ...job.result } });
-    return;
-  }
-  if (job.type === 'send_test_campaign') {
-    const campaign = state.db.campaigns.find((entry) => entry.id === job.payload.campaignId);
-    if (!campaign) throw new Error(`Campaign ${job.payload.campaignId} not found for test send`);
-    job.result = createNotification(state, { workspaceId: job.workspaceId, type: 'test-send', payload: { campaignId: campaign.id, to: job.payload.testEmail, subject: campaign.subject, htmlPreview: campaignHtml(campaign, state) } });
-    return;
-  }
-  if (job.type === 'deliver_campaign') {
-    const campaign = state.db.campaigns.find((entry) => entry.id === job.payload.campaignId);
-    if (!campaign) throw new Error(`Campaign ${job.payload.campaignId} not found for delivery`);
-    job.result = markCampaignDelivered(state, campaign);
-    return;
-  }
-  throw new Error(`Unsupported job type: ${job.type}`);
-}
-
 export function runJobs(state) {
   state.db.jobDeadLetters ||= [];
   let changed = false;
@@ -61,7 +39,7 @@ export function runJobs(state) {
     job.updatedAt = job.lastAttemptAt;
     appendHistory(job, 'running', `${job.type} started`);
     try {
-      executeJob(state, job);
+      executeJobByType(state, job);
       job.status = 'completed';
       job.completedAt = now();
       job.updatedAt = job.completedAt;
@@ -86,5 +64,5 @@ export function runJobs(state) {
       }
     }
   }
-  if (changed) saveDb(state.db);
+  if (changed) persistState(state);
 }

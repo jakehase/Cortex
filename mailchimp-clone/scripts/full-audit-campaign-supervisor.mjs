@@ -333,12 +333,10 @@ surfaces.push(buildSurface(
 
 if (delegateGreen) {
   for (const surface of surfaces) {
-    surface.status = 'complete';
     surface.evidence = [
       ...surface.evidence,
-      `Delegated cleaned-baseline qualification completed green at tier ${delegateCompletion?.provenCoordinationScaleTier || 'unknown'}.`
+      `Delegated cleaned-baseline qualification completed green at tier ${delegateCompletion?.provenCoordinationScaleTier || 'unknown'}, but this only counts as supporting execution evidence and does not override unresolved parity gaps.`
     ];
-    surface.gaps = [];
   }
 }
 
