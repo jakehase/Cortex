@@ -57,6 +57,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -115,6 +128,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -173,6 +199,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -231,6 +270,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -289,6 +341,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -347,6 +412,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -405,6 +483,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -463,6 +554,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -521,6 +625,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -579,6 +696,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -637,6 +767,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -695,6 +838,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -753,6 +909,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -811,6 +980,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -869,6 +1051,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -927,6 +1122,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -985,6 +1193,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1043,6 +1264,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1101,6 +1335,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1159,6 +1406,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1217,6 +1477,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1275,6 +1548,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1333,6 +1619,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1391,6 +1690,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1449,6 +1761,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1507,6 +1832,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1565,6 +1903,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1623,6 +1974,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1681,6 +2045,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1739,6 +2116,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1797,6 +2187,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1855,6 +2258,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1913,6 +2329,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -1971,6 +2400,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2029,6 +2471,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2087,6 +2542,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2145,6 +2613,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2203,6 +2684,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2261,6 +2755,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2319,6 +2826,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2377,6 +2897,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2428,6 +2961,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2481,6 +3027,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2534,6 +3093,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2587,6 +3159,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2640,6 +3225,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2693,6 +3291,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2746,6 +3357,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2799,6 +3423,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2852,6 +3489,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2905,6 +3555,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -2958,6 +3621,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3011,6 +3687,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3064,6 +3753,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3117,6 +3819,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3170,6 +3885,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3223,6 +3951,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3276,6 +4017,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3329,6 +4083,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3382,6 +4149,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3435,6 +4215,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3488,6 +4281,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3541,6 +4347,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3594,6 +4413,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3647,6 +4479,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3700,6 +4545,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3753,6 +4611,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3766,7 +4637,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "announcementPromptInjectedAt": "2026-03-19T14:20:51.297Z",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-06T01:14:04.919Z",
+      "updatedAt": "2026-04-06T01:36:19.514Z",
       "history": [
         {
           "from": null,
@@ -3784,9 +4655,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 34,
+        "runs": 35,
         "failures": [],
-        "lastRunAt": "2026-04-06T01:14:04.927Z",
+        "lastRunAt": "2026-04-06T01:36:19.521Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3826,6 +4697,19 @@
       "cloneParity": {
         "required": false,
         "proofPresent": true
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": true,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": "green",
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -3910,7 +4794,20 @@
       },
       "failedAt": "2026-04-05T22:29:02.872Z",
       "failureReason": "{ \"version\": 3, \"tasks\": [ { \"id\": \"agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773891950900\", \"sessionKey\": \"agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69\", \"createdAt\": \"2026-03-19T03:45:50.900Z\", \"prompt\": \"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do noth",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912651101",
@@ -3994,7 +4891,20 @@
       },
       "failedAt": "2026-04-05T20:53:41.707Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 4d257e84..a740bd93 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773912951097",
@@ -4078,7 +4988,20 @@
       },
       "failedAt": "2026-04-05T05:46:55.602Z",
       "failureReason": "{ \"version\": 3, \"tasks\": [ { \"id\": \"agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773891950900\", \"sessionKey\": \"agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69\", \"createdAt\": \"2026-03-19T03:45:50.900Z\", \"prompt\": \"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do noth",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913251103",
@@ -4162,7 +5085,20 @@
       },
       "failedAt": "2026-04-04T15:04:47.183Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 9793d6de..97ec4a7d HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913551107",
@@ -4246,7 +5182,20 @@
       },
       "failedAt": "2026-04-04T14:38:12.697Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 41991414..6976331f HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773913851117",
@@ -4330,7 +5279,20 @@
       },
       "failedAt": "2026-04-04T14:29:15.501Z",
       "failureReason": "branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) To https://github.com/jakehase/Cortex.git ac8b5704..ba258b54 HEAD -> openclaw-sync ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914151109",
@@ -4414,7 +5376,20 @@
       },
       "failedAt": "2026-04-03T22:53:10.693Z",
       "failureReason": "To https://github.com/jakehase/Cortex.git 7d4d401b..4656b65f HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://github.com/jakehase/Cortex.git (openclaw-sync) ./scripts/autocommit-cortex.sh: line 74: unexpected EOF while looking for matching `\"' Process exited with code 2.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773914451110",
@@ -4484,6 +5459,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -4554,6 +5542,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -4624,6 +5625,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -4694,6 +5708,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -4764,6 +5791,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -4834,6 +5874,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -4904,6 +5957,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -4974,6 +6040,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5044,6 +6123,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5114,6 +6206,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5184,6 +6289,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5254,6 +6372,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5324,6 +6455,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5394,6 +6538,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5464,6 +6621,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5528,6 +6698,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5598,6 +6781,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5668,6 +6864,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5738,6 +6947,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5808,6 +7030,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5878,6 +7113,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -5948,6 +7196,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6018,6 +7279,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6088,6 +7362,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6158,6 +7445,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6209,6 +7509,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6278,6 +7591,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6347,6 +7673,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6416,6 +7755,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6501,6 +7853,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6581,6 +7946,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6650,6 +8028,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6730,6 +8121,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6795,6 +8199,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6875,6 +8292,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -6940,6 +8370,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7009,6 +8452,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7074,6 +8530,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7139,6 +8608,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7204,6 +8686,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7284,6 +8779,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7364,6 +8872,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7444,6 +8965,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7524,6 +9058,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7604,6 +9151,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7684,6 +9244,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7753,6 +9326,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7833,6 +9419,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7913,6 +9512,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -7993,6 +9605,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8073,6 +9698,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8153,6 +9791,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8233,6 +9884,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8313,6 +9977,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8393,6 +10070,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8458,6 +10148,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8538,6 +10241,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8603,6 +10319,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8683,6 +10412,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8752,6 +10494,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8832,6 +10587,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8912,6 +10680,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -8992,6 +10773,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9057,6 +10851,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9122,6 +10929,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9202,6 +11022,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9267,6 +11100,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9332,6 +11178,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9412,6 +11271,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9492,6 +11364,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9572,6 +11457,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9652,6 +11550,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9732,6 +11643,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9812,6 +11736,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9892,6 +11829,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -9972,6 +11922,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10066,7 +12029,20 @@
       },
       "failedAt": "2026-04-03T17:48:40.611Z",
       "failureReason": "info: downloading installer warn: It looks like you have an existing rustup settings file at: warn: /root/.rustup/settings.toml warn: Rustup will install the default toolchain as specified in the settings file, warn: instead of the one inferred from the default host triple. info: profile set to minimal info: default host triple is x86_64-unknown-linux-gnu info: syncing channel updates for stable-x",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:b5800b1f-1c37-4ed0-8eed-fbeff6165aad:1774972961529:5975d6e5a80d4f15",
@@ -10135,6 +12111,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10204,6 +12193,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10269,6 +12271,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10349,6 +12364,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10418,6 +12446,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10483,6 +12524,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10548,6 +12602,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10617,6 +12684,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10682,6 +12762,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10762,6 +12855,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10831,6 +12937,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10900,6 +13019,19 @@
         "required": false,
         "proofPresent": false,
         "status": null
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
       }
     },
     {
@@ -10991,7 +13123,20 @@
         "status": "missing"
       },
       "completedAt": "2026-04-03T03:13:27.625Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:470d8ab3-2263-49b6-a128-3661251173cd:1775186133651:1aa331bf9d001cb2",
@@ -11073,7 +13218,20 @@
       },
       "failedAt": "2026-04-03T03:27:30.359Z",
       "failureReason": "Expected values to be strictly equal: null !== 8 code: 'ERR_ASSERTION' name: 'AssertionError' expected: 8 actual: ~ operator: 'strictEqual' stack: |- TestContext.<anonymous> (file:///root/clawd/large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs:247:10) async Test.run (node:internal/test_runner/test:1054:7) async Test.processPendingSubtests (node:internal/test_runner/test:744:7)",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:3d8fbfce-7753-4f3a-8b08-34d3aa39e077:1775187532084:b67eed29103b5331",
@@ -11175,7 +13333,20 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-03T04:00:48.716Z",
       "failureReason": "{ \"ok\": false, \"artifactRoot\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo\", \"highestPassingTier\": 100, \"qualificationMode\": \"real_mailchimp_repo_live_worker_farm\", \"blocker\": null, \"supervisorLog\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo/validation/supervisor.log\" } Process exited with code 1.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:659f5bff-d197-4343-bbbb-39ebbe85f3a4:1775189640235:aec2639ddf12d605",
@@ -11277,7 +13448,20 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-03T04:37:21.506Z",
       "failureReason": "large-project-capability-stack/apps/qualification/run.mjs:115\\n' + 'if (!stackArchitecture.ok) throw new Error(`Stack architecture failed: ${JSON.stringify(stackArchitecture.violations)}`);\\n' + ' ^\\n' + '\\n' + 'Error: Stack architecture failed: [{\"rule\":\"anti-collapse-max-lines\",\"path\":\"apps/orchestrator-qualification/run.mjs\",\"message\":\"File exceeds 400 lines\"},{\"rule\":\"anti-collapse-max-lines\",",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:c2071574-8e93-4cde-985c-93f7b007a18a:1775191711008:0af736b2867ee631",
@@ -11383,7 +13567,20 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-03T05:22:50.116Z",
       "failureReason": "{ \"ok\": false, \"artifactRoot\": \"artifacts/mailchimp_clone/real_world_indistinguishable/loc_500k_campaign\", \"supervisorStatus\": \"red\", \"total\": 609700, \"matrixStatus\": \"partial\", \"blocker\": null } Process exited with code 1.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:3ea9fbdc-f635-4e33-bc9f-aca48f1c7400:1775222028822:02d57bfa267dc9a7",
@@ -11490,7 +13687,20 @@
         "status": "missing"
       },
       "completedAt": "2026-04-03T13:23:46.511Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:75914eb8-313a-47e8-ae6b-991168a59af7:1775235438315:d5826b9c4d2d7aaa",
@@ -11581,7 +13791,20 @@
         "status": "missing"
       },
       "completedAt": "2026-04-03T17:11:57.670Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1775239565085:23d498531d154d7e",
@@ -11663,7 +13886,20 @@
       },
       "failedAt": "2026-04-03T18:06:06.659Z",
       "failureReason": "System: [2026-04-03 12:48:13 CDT] Exec completed (amber-pi, code 0) :: ting up libpkgconf3:amd64 (1.8.1-1) ... Setting up libevent-core-2.1-7:amd64 (2.1.12-stable-8) ... Setting up pkgconf-bin (1.8.1-1) ... Setting up libutempter0:amd64 (1.2.1-3) ...… System: [2026-04-03 12:48:40 CDT] Exec completed (fresh-ro, code 1) :: download failed for rust-std-x86_64-unknown-linux-gnu: could not download fil",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1775246735391:0583f93fc6290a2e",
@@ -11773,7 +14009,20 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-03T20:45:09.980Z",
       "failureReason": "d[\"event\"][\"kind\"] == \"session.blocked\" assert blocked[\"session\"][\"status\"] == \"blocked\" assert Path(blocked[\"memory_path\"]).exists() assert blocked[\"shared_state\"][\"world_state\"][\"last_session_event\"] == \"session.blocked\" workspace_file = tmp_path / \"workspace.txt\" workspace_file.write_text(\"a\", encoding=\"utf-8\") asyncio.run( orchestrator.register_runtime_watcher( orchestrator.RuntimeWatcherRegis",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1775256185446:efd92c5017ab9988",
@@ -11870,7 +14119,20 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-04T01:25:25.621Z",
       "failureReason": "id=\"chat:maintenance:blocker\", session_key=\"session:maintenance:blocker\", message_id=\"wamid.queue.blocker.1\", ), ) ) )[\"item\"] now = datetime(2026, 3, 3, tzinfo=timezone.utc) asyncio.run(orchestrator.tick_runtime(orchestrator.RuntimeTickRequest(limit=10, execute=False, now_iso=now.isoformat().replace(\"+00:00\", \"Z\")))) queue_item = asyncio.run(orchestrator.get_runtime_maintenance_queue_item(item[\"i",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1775267244583:9affe57596a4b3ce",
@@ -11952,7 +14214,20 @@
       },
       "failedAt": "2026-04-04T01:47:24.652Z",
       "failureReason": "System: [2026-04-03 20:25:21 CDT] Exec completed (dawn-orb, code 1) :: ----------------------------- Captured stdout call ----------------------------- [DIPLOMAT] BRIEFING: [Cortex] Runtime update ═══════════════════ ⏰ 20:25 roadmap objective active … System: [2026-04-03 20:25:55 CDT] Exec completed (kind-riv, code 0) :: ..... [100%] 5 passed in 0.89s System: [2026-04-03 20:26:40 CDT] Exec complet",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1775269004964:c26a1ee79bb6f589",
@@ -12034,7 +14309,20 @@
       },
       "failedAt": "2026-04-04T02:16:45.030Z",
       "failureReason": "System: [2026-04-03 21:09:04 CDT] Exec completed (nova-dun, code 0) :: ────────────────────────────────┴────────┴─────────┴──────────────┴─────────────────────────────────┘ FAQ: https://docs.openclaw.ai/faq Troubleshooting: https://docs.openclaw.ai/t… System: [2026-04-03 21:09:06 CDT] Exec completed (good-cov, code 0) :: ts/cortex_roadmap/r9_adaptive_routing_brain/step4/replay_probe_latest.json:36",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1775270278266:6db6345c1539fd3b",
@@ -12156,7 +14444,20 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-04T04:04:58.216Z",
       "failureReason": "System: [2026-04-03 22:32:55 CDT] Exec completed (grand-fa, code 0) :: .............. [100%] 14 passed in 5.98s System: [2026-04-03 22:33:41 CDT] Exec completed (grand-la, code 0) :: ........................................................................ [ 65%] ...................................... [100%] 110 passed in 36.93s System: [2026-04-03 22:34:20 CDT] Exec failed (calm-kel, code 0) :: 90",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1775277688046:9cc306c1b4952d85",
@@ -12253,7 +14554,20 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-04T14:00:34.919Z",
       "failureReason": "TAP version 13 # Subtest: Current-product browser realism: websites, AI, omnichannel, content depth, and integration detail render as real browser journeys not ok 1 - Current-product browser realism: websites, AI, omnichannel, content depth, and integration detail render as real browser journeys --- duration_ms: 30396.195764 type: 'test' location: '/root/clawd/mailchimp-clone/tests/current-product",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:19194c57-9e03-4536-af2c-4cd11c9fed34:1775279389521:31067cd73599ea0e",
@@ -12335,7 +14649,20 @@
       },
       "failedAt": "2026-04-04T05:26:24.521Z",
       "failureReason": "livery</button></form></div><div class=\"card\"><h3>Send now</h3><form method=\"post\" action=\"/campaigns/camp_e6297f27a7ca/send\"><button >Queue immediate send</button></form></div><div class=\"card\"><h3>Experimentation</h3><p><a href=\"/campaigns/camp_e6297f27a7ca/experiments\">Open A/B and dynamic content lab</a></p><p>Winner promoted: not yet</p></div><div class=\"card\"><h3>Optimization</h3><p><a href=",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:whatsapp:direct:+17855410986:1775313420937:427ea1aec4bc4e0a",
@@ -12417,7 +14744,20 @@
       },
       "failedAt": "2026-04-04T14:37:01.005Z",
       "failureReason": "System: [2026-04-04 09:00:31 CDT] Exec completed (tidal-se, code 1) :: l/process/task_queues:103:5) async TestContext.<anonymous> (file:///root/clawd/mailchimp-clone/tests/current-product-browser-realism.test.mjs:6:18) async Test.run (node:internal/t… System: [2026-04-04 09:01:27 CDT] Exec completed (tidy-orb, code 1) :: wd/mailchimp-clone/packages/app/router.mjs:25:21) Server.<anonymous> (file://",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:c25cb94f-8255-4343-998a-f0e5fdc9e55d:1775313531079:f7dc9fdff80f36bf",
@@ -12512,7 +14852,20 @@
         "status": "missing"
       },
       "completedAt": "2026-04-04T14:54:15.710Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:6a02c779-01e5-48ea-bcc3-7fab993f1b3c:1775313590152:15253ac5d28a07e5",
@@ -12594,7 +14947,20 @@
       },
       "failedAt": "2026-04-04T14:49:21.795Z",
       "failureReason": "on-planner generated scale surface stays executable and policy-complete --- duration_ms: 2.804135 type: 'test' ... # Subtest: localization-qa routes honor custom base paths and stable ids ok 596 - localization-qa routes honor custom base paths and stable ids --- duration_ms: 1.092955 type: 'test' ... # Subtest: localization-qa package expands the real-repo wave with route catalogs ok 597 - localiz",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:ccf998b3-c91e-4ba0-9089-df2aa900b4e3:1775313590311:1d0aaad1bfb7965e",
@@ -12689,7 +15055,20 @@
         "status": "missing"
       },
       "completedAt": "2026-04-04T14:41:39.439Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775338493156:215ad44aff4bf872",
@@ -12786,7 +15165,20 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-05T00:00:40.267Z",
       "failureReason": "(no output recorded) Process exited with code 1.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775347687676:af06199cad574712",
@@ -12896,7 +15288,20 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-05T00:16:12.878Z",
       "failureReason": "System: [2026-04-04 19:08:43 CDT] Exec completed (tidal-oc, code 0) :: clawhip_live/surface_matrix.json:49: \"/root/clawd/large-project-capability-stack/artifacts/benchmarks/cortex_vs_clawhip_live/fixtures/task_shapes.json\" /root/clawd/large-project-c… System: [2026-04-04 19:09:32 CDT] Exec failed (tide-pin, signal SIGTERM) System: [2026-04-04 19:10:15 CDT] Exec failed (marine-c, signal SIGTERM) Sy",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775348903354:7b1886e78fe127f4",
@@ -12993,7 +15398,20 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-05T00:34:52.835Z",
       "failureReason": "public/cortex_server/artifacts top /root/clawd/public/cortex_server/artifacts /root/clawd/public/cortex_server/artifacts/benchmarks /root/clawd/public/cortex_server/artifacts/benchmarks/2026-04-01 /root/clawd/public/cortex_server/artifacts/benchmarks/2026-04-01/final_stabilization_runs /root/clawd/public/cortex_server/artifacts/benchmarks/2026-04-01/final.json /root/clawd/public/cortex_server/arti",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775349434167:5ab1a7e491bc7d24",
@@ -13111,7 +15529,20 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-05T01:01:48.330Z",
       "failureReason": "# at moduleResolve (node:internal/modules/esm/resolve:861:10) # at defaultResolve (node:internal/modules/esm/resolve:985:11) # at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20) # at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38) # at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38) # at ModuleJob._link (node:internal/modules/esm/module_",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775353937457:e7a2b1a92eee6454",
@@ -13193,7 +15624,20 @@
       },
       "failedAt": "2026-04-05T01:52:18.481Z",
       "failureReason": "System: [2026-04-04 19:56:23 CDT] Exec failed (tidy-clo, signal SIGTERM) System: [2026-04-04 20:01:48 CDT] Exec completed (quiet-cr, code 1) :: ure slice --- duration_ms: 1.073108 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 689 - workspace-catalog package exp… System: [2026-04-04 20:03:44 CDT] Exec completed (kind-atl, code 1) :: ctur",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775354321054:0c0174667408999f",
@@ -13290,7 +15734,20 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-05T04:48:12.051Z",
       "failureReason": "{ \"ok\": false, \"artifactRoot\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline\", \"highestPassingTier\": 100, \"qualificationMode\": \"real_mailchimp_repo_live_worker_farm\", \"blocker\": null, \"supervisorLog\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline/validation/supervisor.log\" } Process exited with code 1.",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775364764156:9ea6977bcd072f88",
@@ -13372,7 +15829,20 @@
       },
       "failedAt": "2026-04-05T04:52:45.595Z",
       "failureReason": "System: [2026-04-04 23:48:11 CDT] Exec completed (rapid-wh, code 1) :: { \"ok\": false, \"artifactRoot\": \"/root/clawd/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline\", \"highestPassingTier\": 100, \"qualificationMode\": \"real_m… Conversation info (untrusted metadata): ```json { \"message_id\": \"3A7460636897C397C2B7\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775365178563:70564e95f95296bc",
@@ -13469,7 +15939,20 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-05T05:23:57.300Z",
       "failureReason": "System: [2026-04-05 00:21:31 CDT] Exec failed (grand-re, signal SIGKILL) :: :///root/clawd/mailchimp-clone/packages/app/routes/campaigns.mjs:68:5) Object.handle (file:///root/clawd/mailchimp-clone/packages/app/router.mjs:25:21) Server.<anonymous> (file://… Conversation info (untrusted metadata): ```json { \"message_id\": \"3A505368AB7CD2E75A5F\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sen",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775396466997:ff47170996816c06",
@@ -13551,7 +16034,20 @@
       },
       "failedAt": "2026-04-05T13:41:08.658Z",
       "failureReason": "System: [2026-04-05 08:38:36 CDT] Exec failed (nova-fjo, signal SIGKILL) :: cture slice --- duration_ms: 1.13876 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog package ex… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AF9D050D6768E922C37\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sen",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775397174114:1d01f52dccc1bcd4",
@@ -13705,7 +16201,20 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-05T19:51:35.576Z",
       "failureReason": "System: [2026-04-05 14:48:29 CDT] Exec failed (lucky-cl, code 0) :: [1mDocker LXC Container[m 🌐 [m[33m Provided by: [1;92mcommunity-scripts ORG [33m| GitHub: [1;92mhttps://github.com/community-scripts/ProxmoxVE[m 🖥️ [m[33m OS: [1;92mDebian GNU/L… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AD8E221146B46EDD590\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\" } ``` Sender (unt",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775422608821:4592ab0849ca9d52",
@@ -13787,7 +16296,20 @@
       },
       "failedAt": "2026-04-05T20:59:06.563Z",
       "failureReason": "route manifests and validation --- duration_ms: 0.827734 type: 'test' ... # Subtest: audience-lab-notebooks package adds another closeout architecture slice ok 9 - audience-lab-notebooks package adds another closeout architecture slice --- duration_ms: 1.137417 type: 'test' ... # Subtest: audience-sync package exposes snapshot, policy, route, and fixture depth ok 10 - audience-sync package exposes",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775424040533:68ae2a56f8a07766",
@@ -13869,7 +16391,20 @@
       },
       "failedAt": "2026-04-05T21:20:43.074Z",
       "failureReason": "System: [2026-04-05 15:59:06 CDT] Exec completed (mild-mis, code 1) :: cture slice --- duration_ms: 1.111949 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 140 - workspace-catalog package e… System: [2026-04-05 16:00:39 CDT] Exec completed (marine-e, code 0) :: cture slice --- duration_ms: 1.037382 type: 'test' ... # Subtest: workspace-c",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775426471244:d514022f656c2f2f",
@@ -13971,7 +16506,20 @@
       "completionSource": "runtime_message",
       "failedAt": "2026-04-05T22:01:31.492Z",
       "failureReason": "import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; async function loadDeliverOutboundPayloads() { const mod = await import('/usr/lib/node_modules/openclaw/dist/plugin-sdk/deliver-runtime-20_kW0lQ.js'); return mod.deliverOutboundPayloads; } async function defaultDeliver(payload) { const deliverOutboundPayloads = await loadDeliverOutboundPayloads(); return deli",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775427529872:e420e6fefeccf0d0",
@@ -14053,7 +16601,20 @@
       },
       "failedAt": "2026-04-05T22:21:09.532Z",
       "failureReason": "TAP version 13 # Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 718.161615 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 489.734684 type",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775429326797:5f1f37b03da4156b",
@@ -14135,7 +16696,20 @@
       },
       "failedAt": "2026-04-05T22:49:08.757Z",
       "failureReason": "/root/clawd/plugins/completion-integrity/core.mjs:865: onBeforeMessageWrite(event, ctx) { /root/clawd/plugins/completion-integrity/core.mjs:892: api.on('before_message_write', (event, ctx) => engine.onBeforeMessageWrite(event, ctx)); /root/clawd/plugins/completion-integrity/core.test.mjs:276: h.engine.onBeforeMessageWrite({ message: { role: 'custom', content: 'System: [2026-03-19 22:50:15 CDT] Exe",
-      "failureSource": "runtime_message"
+      "failureSource": "runtime_message",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     },
     {
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775434077808:e982c8e95c4033d6",
@@ -14238,7 +16812,20 @@
         "status": "missing"
       },
       "completedAt": "2026-04-06T00:08:40.438Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      }
     }
   ]
 }
