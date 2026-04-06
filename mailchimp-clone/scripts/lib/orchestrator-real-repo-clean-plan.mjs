@@ -368,6 +368,167 @@ export function buildRealRepoWorkGraph() {
   };
 }
 
+export function buildMailchimpParityFocusWorkGraph() {
+  const packageAppFiles = walkMjs(path.join(ROOT, 'packages', 'app')).map(relative);
+  const publicClientFiles = [
+    'apps/web/server.mjs',
+    'packages/app/view.mjs',
+    'packages/app/routes/public.mjs',
+    'apps/web/public/app-shell.css',
+    'apps/web/public/app-shell.jsx'
+  ];
+  const persistenceFiles = packageAppFiles;
+  const jobFiles = [
+    'apps/web/server.mjs',
+    'packages/app/jobs.mjs',
+    'packages/app/job-runtime.mjs',
+    'packages/app/job-handlers.mjs',
+    'packages/app/domain-campaigns.mjs'
+  ];
+  const analyticsFiles = [
+    'packages/app/domain-campaigns.mjs',
+    'packages/app/domain-website-builder.mjs',
+    'packages/app/analytics-events.mjs'
+  ];
+  const aiFiles = [
+    'packages/app/domain-current-product-ops.mjs',
+    'packages/app/ai-provider.mjs',
+    'packages/app/predictive-model.mjs'
+  ];
+
+  const workUnits = [
+    {
+      id: 'focus.frontend-architecture',
+      title: 'Frontend architecture parity',
+      goal: 'Add a real client shell surface and static asset delivery to the Mailchimp clone',
+      lane: 'parity_focus',
+      domain: 'frontend',
+      fileAreas: ['apps/web', 'packages/app/view.mjs'],
+      allowedFiles: publicClientFiles,
+      inputRefs: ['implementationPolicy'],
+      inputs: { focusGroup: 'frontend_architecture' },
+      acceptanceChecks: ['serve real static client assets', 'wire page shell to client entry', 'keep frontend realism tests green'],
+      requiredVerifiers: ['lint', 'imports', 'tests'],
+      effortSteps: 6,
+      metadata: {
+        focusGroup: 'frontend_architecture',
+        importFile: 'apps/web/server.mjs',
+        testFile: 'tests/current-product-browser-realism.test.mjs',
+        extraTestFiles: ['tests/current-product-parity.test.mjs']
+      }
+    },
+    {
+      id: 'focus.persistence',
+      title: 'Data model and persistence parity',
+      goal: 'Move Mailchimp clone persistence behind a state persistence abstraction and retire app.json naming/call-site coupling',
+      lane: 'parity_focus',
+      domain: 'persistence',
+      fileAreas: ['packages/app'],
+      allowedFiles: persistenceFiles,
+      inputRefs: ['implementationPolicy'],
+      inputs: { focusGroup: 'persistence' },
+      acceptanceChecks: ['rename core state file away from app.json', 'replace direct saveDb(state.db) product call-sites', 'preserve platform tests'],
+      requiredVerifiers: ['lint', 'imports', 'tests'],
+      effortSteps: 12,
+      metadata: {
+        focusGroup: 'persistence',
+        importFile: 'packages/app/storage.mjs',
+        testFile: 'tests/platform-spine.test.mjs',
+        extraTestFiles: ['tests/security-ops-hardening.test.mjs', 'tests/current-product-parity.test.mjs']
+      }
+    },
+    {
+      id: 'focus.delivery-jobs',
+      title: 'Delivery and jobs workflow parity',
+      goal: 'Separate job loop orchestration from the web server and move delivery work onto explicit handlers',
+      lane: 'parity_focus',
+      domain: 'jobs',
+      fileAreas: ['apps/web/server.mjs', 'packages/app/jobs.mjs', 'packages/app/domain-campaigns.mjs'],
+      allowedFiles: jobFiles,
+      inputRefs: ['implementationPolicy'],
+      inputs: { focusGroup: 'delivery_jobs' },
+      acceptanceChecks: ['server uses explicit job loop runtime', 'job handlers map replaces ad-hoc type branching', 'campaign job tests stay green'],
+      requiredVerifiers: ['lint', 'imports', 'tests'],
+      effortSteps: 8,
+      metadata: {
+        focusGroup: 'delivery_jobs',
+        importFile: 'packages/app/jobs.mjs',
+        testFile: 'tests/campaign-pipeline.test.mjs',
+        extraTestFiles: ['tests/security-ops-hardening.test.mjs']
+      }
+    },
+    {
+      id: 'focus.reporting-analytics',
+      title: 'Reporting and analytics parity',
+      goal: 'Replace simplistic metric formulas with event-backed analytics aggregation for campaigns and websites',
+      lane: 'parity_focus',
+      domain: 'analytics',
+      fileAreas: ['packages/app/domain-campaigns.mjs', 'packages/app/domain-website-builder.mjs'],
+      allowedFiles: analyticsFiles,
+      inputRefs: ['implementationPolicy'],
+      inputs: { focusGroup: 'reporting_analytics' },
+      acceptanceChecks: ['campaign delivery records analytics events', 'website metrics derive from event aggregation', 'reporting tests stay green'],
+      requiredVerifiers: ['lint', 'imports', 'tests'],
+      effortSteps: 8,
+      metadata: {
+        focusGroup: 'reporting_analytics',
+        importFile: 'packages/app/domain-campaigns.mjs',
+        testFile: 'tests/reports-admin.test.mjs',
+        extraTestFiles: ['tests/current-product-parity.test.mjs']
+      }
+    },
+    {
+      id: 'focus.ai-predictive',
+      title: 'AI and predictive optimization parity',
+      goal: 'Move AI/predictive logic behind provider and predictive-engine abstractions instead of keeping heuristics inline in one domain file',
+      lane: 'parity_focus',
+      domain: 'ai',
+      fileAreas: ['packages/app/domain-current-product-ops.mjs'],
+      allowedFiles: aiFiles,
+      inputRefs: ['implementationPolicy'],
+      inputs: { focusGroup: 'ai_predictive' },
+      acceptanceChecks: ['extract AI suggestion builder into provider module', 'extract predictive scoring into predictive engine', 'current product parity tests stay green'],
+      requiredVerifiers: ['lint', 'imports', 'tests'],
+      effortSteps: 8,
+      metadata: {
+        focusGroup: 'ai_predictive',
+        importFile: 'packages/app/domain-current-product-ops.mjs',
+        testFile: 'tests/current-product-parity.test.mjs',
+        extraTestFiles: ['tests/platform-spine.test.mjs']
+      }
+    }
+  ];
+
+  return {
+    workGraph: {
+      version: 2,
+      targetPath: ROOT,
+      workUnits
+    },
+    surfaceMatrix: {
+      generatedAt: new Date().toISOString(),
+      status: 'planned',
+      surfaces: [
+        { id: 'B_frontend_architecture_parity', label: 'Frontend architecture parity', issueIds: ['focus.frontend-architecture'] },
+        { id: 'C_data_model_and_persistence_parity', label: 'Data model and persistence parity', issueIds: ['focus.persistence'] },
+        { id: 'D_delivery_jobs_operational_workflow_parity', label: 'Delivery and jobs operational workflow parity', issueIds: ['focus.delivery-jobs'] },
+        { id: 'E_reporting_analytics_parity', label: 'Reporting and analytics parity', issueIds: ['focus.reporting-analytics'] },
+        { id: 'F_ai_predictive_optimization_parity', label: 'AI and predictive optimization parity', issueIds: ['focus.ai-predictive'] }
+      ]
+    },
+    globalInputs: {
+      implementationPolicy: 'Make real product-surface changes for the five Mailchimp parity gaps. No placeholders, no fake green proofs, and keep tests executable.'
+    },
+    packageTargets: []
+  };
+}
+
+export function buildSelectedWorkGraphSeed() {
+  return process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE === 'mailchimp_parity_focus'
+    ? buildMailchimpParityFocusWorkGraph()
+    : buildRealRepoWorkGraph();
+}
+
 export function buildFailurePlan({ shardPlan, leaseTtlMs }) {
   const crashTargets = shardPlan.shards.filter((_, index) => index % 41 === 0).slice(0, 3);
   const stallTargets = shardPlan.shards.filter((_, index) => index % 29 === 0).slice(0, 5);

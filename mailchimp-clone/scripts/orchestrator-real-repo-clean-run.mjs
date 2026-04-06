@@ -18,7 +18,7 @@ import {
   contractInput,
   issueDefinitions,
   surfaceDefinitions,
-  buildRealRepoWorkGraph,
+  buildSelectedWorkGraphSeed,
   buildFailurePlan,
   buildVerifierCatalog,
   tierRunDir,
@@ -107,7 +107,7 @@ claimWorkerIteration(paths.campaignState, {
 updateWorker(paths.campaignState, { id: 'qualification.start', ok: true, note: 'starting staged live qualification on the real Mailchimp repo' });
 
 const fixtureBaseline = readJson(STACK_FIXTURE_SCALE_PATH, null);
-const seed = buildRealRepoWorkGraph();
+const seed = buildSelectedWorkGraphSeed();
 writeJson(paths.workGraph, seed.workGraph);
 writeJson(paths.workSurfaceMatrix, seed.surfaceMatrix);
 writeJson(paths.verifierCatalog, buildVerifierCatalog());

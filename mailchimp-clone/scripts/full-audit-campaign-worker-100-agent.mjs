@@ -18,6 +18,9 @@ const STATUS_MIRROR_PATH = path.join(REPORTS_DIR, '100_agent_worker_status.json'
 const TRANSPORT_STATUS_PATH = path.join(ARTIFACT_DIR, 'cortex_transport', 'transport_status.json');
 const THREAD_CONTEXT = DEFAULT_THREAD_CONTEXT;
 
+process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE ||= 'mailchimp_parity_focus';
+process.env.ORCHESTRATOR_IMPLEMENTATION_SCRIPT ||= path.join(ROOT, 'scripts', 'orchestrator-real-repo-clean-implement.mjs');
+
 const transportStatus = composeTransportStatus({ artifactRoot: ARTIFACT_DIR, threadContext: THREAD_CONTEXT });
 const result = runDelegatedCampaignWorker({
   repoRoot: ROOT,
