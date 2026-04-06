@@ -5,7 +5,7 @@ import { createAppState } from '../../packages/app/storage.mjs';
 import { createId, redirect, text } from '../../packages/app/utils.mjs';
 import { apiActor, getCurrentActor } from '../../packages/app/domain-core.mjs';
 import { page, requireActor } from '../../packages/app/view.mjs';
-import { runJobs } from '../../packages/app/jobs.mjs';
+import { startJobLoop } from '../../packages/app/job-runtime.mjs';
 import { pruneSecurityState, securityHeaders } from '../../packages/app/security.mjs';
 import { registerPublicRoutes } from '../../packages/app/routes/public.mjs';
 import { registerPlatformRoutes } from '../../packages/app/routes/platform.mjs';
@@ -52,18 +52,17 @@ export function createServer() {
   const server = http.createServer(async (req, res) => {
     for (const [key, value] of Object.entries(securityHeaders())) res.setHeader(key, value);
     pruneSecurityState(state);
-    runJobs(state);
     const url = new URL(req.url, 'http://local');
     const handled = await router.handle({ state, req, res, url });
     if (!handled) text(res, 404, page('Not found', getCurrentActor(state, req), '<div class="warn">Route not found.</div>'));
   });
 
   server.start = ({ port = 3000 } = {}) => new Promise((resolve) => {
-    state.interval = setInterval(() => runJobs(state), 100);
+    state.jobLoop = startJobLoop(state, 100);
     server.listen(port, () => resolve(server.address()));
   });
   server.stop = () => new Promise((resolve, reject) => {
-    if (state.interval) clearInterval(state.interval);
+    if (state.jobLoop) state.jobLoop.stop();
     server.close((error) => (error ? reject(error) : resolve()));
   });
   server.state = state;

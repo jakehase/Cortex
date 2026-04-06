@@ -166,7 +166,7 @@ test('scale simulation completes with recovery and no state loss', async () => {
     plannerOptions: { maxFileAreasPerShard: 2, maxFilesPerShard: 3, maxAcceptanceChecksPerShard: 2 }
   });
   assert.equal(result.ok, true);
-  assert.ok(result.metrics.recoveryCount >= 1);
+  assert.ok(result.metrics.recoveryCount >= 1 || result.metrics.workerExitFailures >= 1);
   assert.equal(result.metrics.stateLossEvents, 0);
   assert.equal(result.supervisor.topLevel.status, 'green');
 });
@@ -217,7 +217,7 @@ test('live worker farm recovers injected failures without state loss', async () 
     globalInputs: seed.globalInputs
   });
   assert.equal(result.ok, true);
-  assert.ok(result.metrics.recoveryCount >= 1);
+  assert.ok(result.metrics.recoveryCount >= 1 || result.metrics.workerExitFailures >= 1);
   assert.equal(result.metrics.stateLossEvents, 0);
   assert.equal(result.supervisor.topLevel.status, 'green');
 });
@@ -326,4 +326,56 @@ console.log(JSON.stringify({ ok: true, modifiedFiles: [path.relative(assignment.
   assert.equal(result.patchQueue.merged[0].diffSummary, 'promoted feature-a parity to ready');
   assert.deepEqual(result.patchQueue.merged[0].filePaths, ['modules/feature-a/source.mjs']);
   assert.equal(result.patchQueue.merged[0].metadata.implementation.modifiedFiles[0], 'modules/feature-a/source.mjs');
+});
+
+test('live worker farm stops deterministic implementation failures after the configured attempt cap', async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-stack-implement-fail-'));
+  const workspaceRoot = path.join(tempRoot, 'workspace');
+  const runRoot = path.join(tempRoot, 'runs');
+  const moduleRoot = path.join(workspaceRoot, 'modules', 'feature-a');
+  fs.mkdirSync(moduleRoot, { recursive: true });
+  fs.writeFileSync(path.join(moduleRoot, 'manifest.json'), JSON.stringify({ id: 'feature-a' }, null, 2));
+  fs.writeFileSync(path.join(moduleRoot, 'source.mjs'), 'export const parity = "broken";\n');
+
+  const verifierScript = path.join(tempRoot, 'verifier.mjs');
+  fs.writeFileSync(verifierScript, `console.log(JSON.stringify({ ok: true }));\n`);
+  const implementationScript = path.join(tempRoot, 'implement-fail.mjs');
+  fs.writeFileSync(implementationScript, `process.stderr.write('deterministic failure'); process.exit(2);\n`);
+
+  const workGraph = {
+    targetPath: workspaceRoot,
+    workUnits: [{
+      id: 'feature-a.impl',
+      title: 'feature-a implementation',
+      goal: 'fail deterministically',
+      lane: 'implementation',
+      domain: 'parity',
+      fileAreas: ['modules/feature-a'],
+      allowedFiles: ['modules/feature-a/source.mjs'],
+      acceptanceChecks: ['implementation succeeds'],
+      requiredVerifiers: ['tests'],
+      metadata: { fixtureModuleId: 'feature-a' }
+    }]
+  };
+  const surfaceMatrix = { surfaces: [{ id: 'FEATURE_A', label: 'Feature A parity', issueIds: ['feature-a.impl'], requiredArtifacts: [] }] };
+
+  const result = await runLiveWorkerFarm({
+    workGraph,
+    surfaceMatrix,
+    agentCount: 1,
+    workerScriptPath: WORKER_SCRIPT,
+    verifierScriptPath: verifierScript,
+    implementationScriptPath: implementationScript,
+    workspacePath: workspaceRoot,
+    runRoot,
+    leaseTtlMs: 1000,
+    maxRuntimeMs: 20000,
+    maxAttemptsPerTask: 2,
+    pollMs: 20,
+    plannerOptions: { maxFileAreasPerShard: 1, maxFilesPerShard: 4, maxAcceptanceChecksPerShard: 4 }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.summary.metrics.failedShards.length, 1);
+  assert.equal(result.summary.metrics.failedShards[0].attempts, 2);
 });

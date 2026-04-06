@@ -46,7 +46,13 @@ export const DEFAULT_JOURNEY_TEMPLATES = [
 
 export function dataPaths() {
   const dataDir = process.env.MAILCLONE_DATA_DIR || path.join(ROOT, 'data');
-  return { dataDir, dbPath: path.join(dataDir, 'app.json'), uploadDir: path.join(dataDir, 'uploads'), exportDir: path.join(dataDir, 'exports') };
+  return {
+    dataDir,
+    dbPath: path.join(dataDir, 'workspace-state.json'),
+    legacyDbPath: path.join(dataDir, 'app.json'),
+    uploadDir: path.join(dataDir, 'uploads'),
+    exportDir: path.join(dataDir, 'exports')
+  };
 }
 
 export function ensureDir(dir) {
@@ -85,12 +91,13 @@ export function loadDb() {
   ensureDir(paths.dataDir);
   ensureDir(paths.uploadDir);
   ensureDir(paths.exportDir);
-  if (!fs.existsSync(paths.dbPath)) {
+  const dbSourcePath = fs.existsSync(paths.dbPath) ? paths.dbPath : (fs.existsSync(paths.legacyDbPath) ? paths.legacyDbPath : null);
+  if (!dbSourcePath) {
     const db = initDb();
     fs.writeFileSync(paths.dbPath, JSON.stringify(db, null, 2));
     return db;
   }
-  const db = JSON.parse(fs.readFileSync(paths.dbPath, 'utf8'));
+  const db = JSON.parse(fs.readFileSync(dbSourcePath, 'utf8'));
   db.automationRuns ||= [];
   db.rateLimits ||= [];
   db.jobDeadLetters ||= [];
@@ -103,6 +110,11 @@ export function saveDb(db) {
   const tempPath = `${paths.dbPath}.tmp`;
   fs.writeFileSync(tempPath, JSON.stringify(db, null, 2));
   fs.renameSync(tempPath, paths.dbPath);
+}
+
+export function persistState(state) {
+  saveDb(state.db);
+  return state.db;
 }
 
 export function createAppState() {

@@ -346,6 +346,20 @@ export function recoverStaleLeases(state, { now = Date.now(), agentIds = [] } = 
   };
 }
 
+function detectFailedShards({ shardPlan, patchQueue, leaseState, maxAttemptsPerTask }) {
+  if (!Number.isFinite(maxAttemptsPerTask) || maxAttemptsPerTask <= 0) return [];
+  const merged = new Set((patchQueue?.merged || []).map((artifact) => artifact.shardId));
+  return shardPlan.shards
+    .filter((shard) => !merged.has(shard.id) && Number(leaseState?.taskAttempts?.[shard.id] || 0) >= maxAttemptsPerTask)
+    .map((shard) => ({
+      shardId: shard.id,
+      attempts: Number(leaseState?.taskAttempts?.[shard.id] || 0),
+      maxAttemptsPerTask,
+      dependencies: shard.dependencyShardIds || [],
+      fileAreas: shard.fileAreas || []
+    }));
+}
+
 export function createArtifactBus(input = {}) {
   return {
     version: 1,
@@ -990,6 +1004,7 @@ export async function runLiveWorkerFarm({
   maxRuntimeMs = 120000,
   pollMs = 25,
   leaseTtlMs = 2000,
+  maxAttemptsPerTask = Number(process.env.ORCHESTRATOR_MAX_ATTEMPTS_PER_TASK || 4),
   workerMemoryLimitMb = Number(process.env.ORCHESTRATOR_WORKER_MAX_OLD_SPACE_MB || 96),
   outputCaptureBytes = Number(process.env.ORCHESTRATOR_WORKER_OUTPUT_CAPTURE_BYTES || 16 * 1024),
   maxSpawnsPerTick = Number(process.env.ORCHESTRATOR_MAX_SPAWNS_PER_TICK || agentCount),
@@ -1055,6 +1070,7 @@ export async function runLiveWorkerFarm({
 
     if (!result || info.exitCode !== 0) {
       metrics.workerExitFailures += info.exitCode === 0 ? 0 : 1;
+      leaseState = releaseLease(leaseState, { leaseId: info.leaseId, agentId, reason: 'failed' }).state;
       recordWorkerEvent({ type: 'live_worker_exit', shardId: info.shardId, agentId, leaseId: info.leaseId, exitCode: info.exitCode, signalCode: info.signalCode, ok: false });
       clearWorker(agentId);
       return;
@@ -1179,7 +1195,7 @@ export async function runLiveWorkerFarm({
     const leasedShardIds = new Set(activeLeases(leaseState, now).map((lease) => lease.taskId));
     const queuedShardIds = new Set((patchQueue.queued || []).map((artifact) => artifact.shardId));
     const readyShards = shardPlan.shards
-      .filter((shard) => !merged.has(shard.id) && !queuedShardIds.has(shard.id) && !activeShardIds.has(shard.id) && !leasedShardIds.has(shard.id) && (shard.dependencyShardIds || []).every((dependencyShardId) => merged.has(dependencyShardId)))
+      .filter((shard) => !merged.has(shard.id) && !queuedShardIds.has(shard.id) && !activeShardIds.has(shard.id) && !leasedShardIds.has(shard.id) && Number(leaseState.taskAttempts?.[shard.id] || 0) < maxAttemptsPerTask && (shard.dependencyShardIds || []).every((dependencyShardId) => merged.has(dependencyShardId)))
       .sort((left, right) => left.id.localeCompare(right.id));
 
     let spawnedThisTick = 0;
@@ -1245,6 +1261,12 @@ export async function runLiveWorkerFarm({
       }
     }
 
+    const failedShards = detectFailedShards({ shardPlan, patchQueue, leaseState, maxAttemptsPerTask });
+    if (failedShards.length) {
+      recordWorkerEvent({ type: 'shard_attempts_exhausted', failedShards });
+      break;
+    }
+
     if (patchQueue.merged.length === shardPlan.shards.length) break;
     await sleep(pollMs);
   }
@@ -1258,6 +1280,7 @@ export async function runLiveWorkerFarm({
   }
 
   const supervisor = compileSupervisorSnapshot({ shardPlan, leaseState, patchQueue, artifactBus, now: Date.now() });
+  const failedShards = detectFailedShards({ shardPlan, patchQueue, leaseState, maxAttemptsPerTask });
   const continuityFailures = shardPlan.shards.filter((shard) => {
     const outputs = findArtifacts(artifactBus, { shardId: shard.id }).filter((artifact) => artifact.type === 'shard_output');
     const merges = findArtifacts(artifactBus, { shardId: shard.id }).filter((artifact) => artifact.type === 'patch_merged');
@@ -1274,6 +1297,8 @@ export async function runLiveWorkerFarm({
     elapsedMs: Date.now() - startedAt,
     metrics: {
       ...metrics,
+      maxAttemptsPerTask,
+      failedShards,
       stateLossEvents: continuityFailures.length,
       continuityFailures
     }
@@ -1286,7 +1311,7 @@ export async function runLiveWorkerFarm({
   saveJson(path.join(runRoot, 'supervisor.json'), supervisor);
 
   return {
-    ok: patchQueue.merged.length === shardPlan.shards.length && supervisor.topLevel.status === 'green' && continuityFailures.length === 0,
+    ok: patchQueue.merged.length === shardPlan.shards.length && supervisor.topLevel.status === 'green' && continuityFailures.length === 0 && failedShards.length === 0,
     executionMode,
     agentCount,
     shardPlan,

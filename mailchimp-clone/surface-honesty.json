@@ -2,7 +2,9 @@
   "version": 1,
   "policy": {
     "changedProductFilesMustBeDeclared": true,
-    "allowedChangedStatuses": ["real"],
+    "allowedChangedStatuses": [
+      "real"
+    ],
     "requireEvidenceTests": true,
     "bannedPlaceholderLanguage": [
       "coming soon",
@@ -15,13 +17,35 @@
     ]
   },
   "surfaces": {
+    "apps/web/server.mjs": {
+      "label": "Web server runtime and job loop bootstrap",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/browser-realism.test.mjs",
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      "notes": "Real HTTP server bootstrap, route mounting, and background job loop lifecycle."
+    },
+    "packages/app/ai-provider.mjs": {
+      "label": "AI suggestion provider abstraction",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      "notes": "Provider-backed subject, preheader, content, journey, and site-copy suggestion builders."
+    },
     "packages/app/domain-campaigns.mjs": {
       "label": "Campaign pipeline and delivery domain",
       "status": "real",
       "evidence": {
         "tests": [
           "tests/campaign-pipeline.test.mjs",
-          "tests/campaign-editor-depth.test.mjs"
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/browser-realism.test.mjs"
         ],
         "routes": [
           "/campaigns",
@@ -31,6 +55,95 @@
         ]
       },
       "notes": "Real workflow logic for setup, editor, review, queueing, and campaign send state."
+    },
+    "packages/app/domain-current-product-ops.mjs": {
+      "label": "Current-product AI and predictive ops domain",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      "notes": "Real parity routes and business logic for AI recommendations and predictive workspace surfaces."
+    },
+    "packages/app/job-handlers.mjs": {
+      "label": "Explicit job handler registry",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/campaign-pipeline.test.mjs",
+          "tests/browser-realism.test.mjs"
+        ]
+      },
+      "notes": "Maps queued jobs onto concrete import, test-send, and campaign-delivery handlers."
+    },
+    "packages/app/job-runtime.mjs": {
+      "label": "Background job loop runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/browser-realism.test.mjs",
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      "notes": "Owns the recurring background job loop used by the live server."
+    },
+    "packages/app/jobs.mjs": {
+      "label": "Queued job execution engine",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/campaign-pipeline.test.mjs",
+          "tests/browser-realism.test.mjs"
+        ]
+      },
+      "notes": "Runs pending jobs, retries failures, and records dead letters/events."
+    },
+    "packages/app/predictive-model.mjs": {
+      "label": "Predictive scoring engine",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      "notes": "Builds predictive scoring and workspace recommendations from contact activity and segments."
+    },
+    "packages/app/public-marketing.mjs": {
+      "label": "Public marketing composition helpers",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/public-marketing.test.mjs"
+        ],
+        "routes": [
+          "/",
+          "/pricing",
+          "/templates",
+          "/resources",
+          "/customers"
+        ]
+      },
+      "notes": "Shared composition layer for the public marketing funnel pages."
+    },
+    "packages/app/routes/campaigns.mjs": {
+      "label": "Campaign workflow routes",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/campaign-pipeline.test.mjs",
+          "tests/browser-realism.test.mjs"
+        ],
+        "routes": [
+          "/campaigns",
+          "/campaigns/:id/setup",
+          "/campaigns/:id/recipients",
+          "/campaigns/:id/editor",
+          "/campaigns/:id/review"
+        ]
+      },
+      "notes": "Owns the campaign wizard, editor, review, and immediate send path."
     },
     "packages/app/routes/public.mjs": {
       "label": "Public marketing and acquisition routes",
@@ -58,6 +171,17 @@
       },
       "notes": "Rendered public acquisition pages and auth entry points that ship as real product surfaces."
     },
+    "packages/app/storage.mjs": {
+      "label": "Persistent workspace state storage",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/platform-spine.test.mjs",
+          "tests/campaign-pipeline.test.mjs"
+        ]
+      },
+      "notes": "Loads and saves persistent workspace state with legacy compatibility and shared persistState abstraction."
+    },
     "packages/app/view.mjs": {
       "label": "Shared app shell and public navigation rendering",
       "status": "real",
@@ -73,23 +197,6 @@
         ]
       },
       "notes": "Shared rendering layer used by authenticated and public routes in the running app."
-    },
-    "packages/app/public-marketing.mjs": {
-      "label": "Public marketing composition helpers",
-      "status": "real",
-      "evidence": {
-        "tests": [
-          "tests/public-marketing.test.mjs"
-        ],
-        "routes": [
-          "/",
-          "/pricing",
-          "/templates",
-          "/resources",
-          "/customers"
-        ]
-      },
-      "notes": "Shared composition layer for the public marketing funnel pages."
     }
   }
 }
