@@ -112,6 +112,8 @@ writeJson(paths.workGraph, seed.workGraph);
 writeJson(paths.workSurfaceMatrix, seed.surfaceMatrix);
 writeJson(paths.verifierCatalog, buildVerifierCatalog());
 
+const IMPLEMENTATION_SCRIPT = process.env.ORCHESTRATOR_IMPLEMENTATION_SCRIPT || null;
+
 const shardPlan = buildShardPlan({
   workGraph: seed.workGraph,
   surfaceMatrix: seed.surfaceMatrix,
@@ -199,6 +201,7 @@ for (const tier of tiers) {
     agentCount: tier,
     workerScriptPath: WORKER_SCRIPT,
     verifierScriptPath: VERIFIER_SCRIPT,
+    implementationScriptPath: IMPLEMENTATION_SCRIPT,
     workspacePath: ROOT,
     runRoot: tierRunDir(tier),
     leaseTtlMs,

@@ -896,13 +896,14 @@ function createRunDirectories(rootPath) {
   };
 }
 
-function createLiveWorkerAssignment({ directories, shard, pack, workspacePath, workerScriptPath, verifierScriptPath, lease, agentId, failureInjection, executionMode }) {
+function createLiveWorkerAssignment({ directories, shard, pack, workspacePath, workerScriptPath, verifierScriptPath, implementationScriptPath, lease, agentId, failureInjection, executionMode }) {
   const assignment = {
     version: 1,
     generatedAt: new Date().toISOString(),
     executionMode,
     workerScriptPath,
     verifierScriptPath,
+    implementationScriptPath: implementationScriptPath || shard.metadata?.implementationScriptPath || null,
     workspacePath,
     shard,
     contextPack: pack,
@@ -983,6 +984,7 @@ export async function runLiveWorkerFarm({
   agentCount,
   workerScriptPath,
   verifierScriptPath,
+  implementationScriptPath = null,
   workspacePath,
   runRoot,
   maxRuntimeMs = 120000,
@@ -1074,6 +1076,7 @@ export async function runLiveWorkerFarm({
       metadata: {
         executionMode,
         resultPath: info.resultPath,
+        implementation: result.implementation || null,
         verifierResults: result.verifierResults || [],
         stdout: childStdout,
         stderr: childStderr
@@ -1082,17 +1085,19 @@ export async function runLiveWorkerFarm({
     artifactBus = publishResult.bus;
     metrics.shardOutputCount += 1;
     leaseState = releaseLease(leaseState, { leaseId: info.leaseId, agentId, reason: 'completed' }).state;
+    const changedFiles = stableList(result?.implementation?.modifiedFiles || shardById.get(info.shardId)?.allowedFiles || shardById.get(info.shardId)?.fileAreas || []);
     patchQueue = enqueuePatch(patchQueue, createPatchArtifact({
       shardId: info.shardId,
       taskId: info.shardId,
       agentId,
-      filePaths: shardById.get(info.shardId)?.allowedFiles || shardById.get(info.shardId)?.fileAreas || [],
-      diffSummary: `verified ${info.shardId}`,
+      filePaths: changedFiles,
+      diffSummary: result?.implementation?.diffSummary || `verified ${info.shardId}`,
       requiredVerifiers: shardById.get(info.shardId)?.requiredVerifiers || ['tests'],
       dependencyShardIds: shardById.get(info.shardId)?.dependencyShardIds || [],
       metadata: {
         executionMode,
         resultPath: info.resultPath,
+        implementation: result.implementation || null,
         verifierResults: result.verifierResults || []
       }
     }));
@@ -1142,6 +1147,7 @@ export async function runLiveWorkerFarm({
         workspacePath,
         workerScriptPath,
         verifierScriptPath,
+        implementationScriptPath,
         lease,
         agentId: lease.agentId,
         failureInjection: null,
@@ -1194,6 +1200,7 @@ export async function runLiveWorkerFarm({
         workspacePath,
         workerScriptPath,
         verifierScriptPath,
+        implementationScriptPath,
         lease: acquisition.lease,
         agentId,
         failureInjection,

@@ -27,6 +27,26 @@
         ]
       },
       "notes": "Shared worker/delegate/watch/archive runtime used to generalize long-run orchestration beyond Mailchimp-specific wrappers."
+    },
+    "large-project-capability-stack/packages/multi-agent-orchestrator/index.mjs": {
+      "label": "Shared multi-agent orchestrator live worker farm",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs"
+        ]
+      },
+      "notes": "Shared shard planner + live worker farm now support implement+verify execution instead of verifier-only merges."
+    },
+    "large-project-capability-stack/apps/orchestrator-qualification/live-worker.mjs": {
+      "label": "Shared live worker implementation/verifier runner",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs"
+        ]
+      },
+      "notes": "Shared worker can execute a scoped implementation script before running verifiers and returning patch metadata."
     }
   }
 }

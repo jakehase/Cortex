@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 function parseArgs(argv) {
@@ -15,8 +14,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function runVerifier(assignmentPath, assignment, verifier) {
-  const command = [process.execPath, assignment.verifierScriptPath, '--assignment', assignmentPath, '--verifier', verifier];
+function runVerifier(verifier, assignment) {
+  const command = [process.execPath, assignment.verifierScriptPath, verifier, assignment.workspacePath, assignment.shard.metadata.fixtureModuleId];
   const startedAt = Date.now();
   try {
     const stdout = execFileSync(command[0], command.slice(1), {
@@ -81,16 +80,14 @@ function runImplementation(assignmentPath, assignment) {
       metadata: parsed.metadata || {}
     };
   } catch (error) {
-    const stdout = `${error.stdout || ''}`.trim();
-    const stderr = `${error.stderr || ''}${error.message || ''}`.trim();
     return {
       ok: false,
       command: command.join(' '),
       durationMs: Date.now() - startedAt,
       modifiedFiles: [],
       diffSummary: 'implementation failed',
-      stdout,
-      stderr,
+      stdout: `${error.stdout || ''}`.trim(),
+      stderr: `${error.stderr || ''}${error.message || ''}`.trim(),
       metadata: {}
     };
   }
@@ -105,8 +102,6 @@ if (!args.assignment) {
 const assignment = JSON.parse(fs.readFileSync(args.assignment, 'utf8'));
 const failureInjection = assignment.failureInjection || null;
 const startedAt = Date.now();
-fs.mkdirSync(path.dirname(assignment.resultPath), { recursive: true });
-fs.mkdirSync(path.dirname(assignment.logPath), { recursive: true });
 
 if (failureInjection?.mode === 'crash') {
   fs.appendFileSync(assignment.logPath, `[crash-injection] ${failureInjection.note || 'deterministic crash'}\n`);
@@ -136,7 +131,7 @@ if (implementation.ok === false) {
 
 const verifierResults = [];
 for (const verifier of assignment.shard.requiredVerifiers || []) {
-  const result = runVerifier(args.assignment, assignment, verifier);
+  const result = runVerifier(verifier, assignment);
   verifierResults.push(result);
   fs.appendFileSync(assignment.logPath, `${JSON.stringify(result)}\n`);
   if (result.ok === false) {
