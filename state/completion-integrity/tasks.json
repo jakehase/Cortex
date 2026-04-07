@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-07T14:41:26.151Z",
+      "updatedAt": "2026-04-07T14:47:04.891Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 265,
+        "runs": 266,
         "failures": [],
-        "lastRunAt": "2026-04-07T14:41:26.160Z",
+        "lastRunAt": "2026-04-07T14:47:04.903Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -18727,6 +18727,90 @@
       "failedAt": "2026-04-07T14:13:10.111Z",
       "failureReason": "System: [2026-04-07 09:00:06 CDT] Exec failed (quiet-co, signal SIGTERM) :: /root/clawd/public/cortex_server/artifacts/memory_codec_quality/2026-04-01/durability/run2_rounds/round_7261.json:2226: \"title\": \"Long sequence avoids false project memory after f… System: [2026-04-07 09:00:06 CDT] Exec failed (vivid-co, signal SIGTERM) :: dings-20260404141059:130303: reply_to_message_id: replyToMessageId,",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775573421064:3fa4890b0e04879c",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-07T14:50:21.064Z",
+      "updatedAt": "2026-04-07T14:50:21.075Z",
+      "prompt": "Do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-07T14:50:21.064Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-07T14:50:21.075Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do it",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
