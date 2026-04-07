@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-07T00:56:28.316Z",
+      "updatedAt": "2026-04-07T01:01:31.453Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 98,
+        "runs": 99,
         "failures": [],
-        "lastRunAt": "2026-04-07T00:56:28.329Z",
+        "lastRunAt": "2026-04-07T01:01:31.462Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -17761,6 +17761,105 @@
       "failedAt": "2026-04-07T00:46:22.701Z",
       "failureReason": "(no output recorded) Process exited with code 2.",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775523761090:b9709f14307273d2",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-07T01:02:41.090Z",
+      "updatedAt": "2026-04-07T01:05:14.396Z",
+      "prompt": "Okay do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "internal_complete",
+      "completionSummary": "? - Cortex/OpenClaw upgrade work on 2026-03-18: deployed and iterated `cortex-route-gate` and `cortex-memory-bridge`; confirmed governor prompt injection and adaptive routing stats persistence under `/root/.openclaw/cortex-route-gate`. - Found and fixed a route-gate state-key bug",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-07T01:02:41.090Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-07T01:02:41.099Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-07T01:03:56.207Z",
+          "completedAt": "2026-04-07T01:03:56.207Z",
+          "completionSummary": "TAP version 13 # Subtest: Wave 1 browser realism foundation: real browser proof spans major journey families ok 1 - Wave 1 browser realism foundation: real browser proof spans major journey families --- duration_ms: 4302.914773 type: 'test' ... 1..1 # tests 1 # suites 0 # pass 1 ",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 3,
+        "failures": [],
+        "lastRunAt": "2026-04-07T01:05:14.404Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": true,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": "green",
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": true,
+        "proofPresent": true,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
+      },
+      "contract": {
+        "required": false,
+        "proofPresent": true,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Okay do it",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": true,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-07T01:03:56.207Z",
+      "completionSource": "agent_end"
     }
   ]
 }
