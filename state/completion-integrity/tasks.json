@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-07T15:21:30.675Z",
+      "updatedAt": "2026-04-07T15:26:19.713Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 275,
+        "runs": 276,
         "failures": [],
-        "lastRunAt": "2026-04-07T15:21:30.685Z",
+        "lastRunAt": "2026-04-07T15:26:19.728Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -18922,12 +18922,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775575522425:e17c481aad5c11b9",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-07T15:25:22.426Z",
-      "updatedAt": "2026-04-07T15:25:22.435Z",
+      "updatedAt": "2026-04-07T15:26:26.117Z",
       "prompt": "Let’s actually pivet to the openclaw update, can you recall what the plan was for that",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Status? - Cortex/OpenClaw upgrade work on 2026-03-18: deployed and iterated `cortex-route-gate` and `cortex-memory-bridge`; confirmed governor prompt injection and adaptive routing stats persistence under `/root/.openclaw/cortex-route-gate`. - Found and fixed a route-gate state-k",
       "history": [
         {
           "from": null,
@@ -18938,6 +18938,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-07T15:25:22.435Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-07T15:26:26.117Z",
+          "completedAt": "2026-04-07T15:26:26.117Z",
+          "completionSummary": "Status? - Cortex/OpenClaw upgrade work on 2026-03-18: deployed and iterated `cortex-route-gate` and `cortex-memory-bridge`; confirmed governor prompt injection and adaptive routing stats persistence under `/root/.openclaw/cortex-route-gate`. - Found and fixed a route-gate state-k",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -18949,18 +18957,23 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-04-07T15:26:26.131Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "honesty": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "targetPath": null,
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
         "violations": [],
-        "status": null,
+        "status": "green",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
@@ -18968,11 +18981,11 @@
       "grounding": {
         "required": false,
         "ambiguousReference": true,
-        "proofPresent": false,
+        "proofPresent": true,
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -18980,27 +18993,29 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "requestedFidelity": "production_slice",
         "requestedScope": "Let’s actually pivet to the openclaw update, can you recall what the plan was for that",
         "stopCondition": "completed_and_delivered"
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
-      }
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-07T15:26:26.117Z",
+      "completionSource": "agent_end"
     }
   ]
 }
