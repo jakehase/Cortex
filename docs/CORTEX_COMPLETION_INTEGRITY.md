@@ -61,8 +61,10 @@ Behavior
   - do not claim feature implementation unless the diff touches real product-surface files
 - when the inbound message is a **reply** and the replied message text is present, injects a **reply-thread grounding** anchor:
   - treat the replied message as the primary scope anchor before repo search or memory search
+  - do this even for conversational reply questions, not only implementation tasks
   - require completion summaries to include `Reply anchor: ...` for important grounded implementation tasks
   - prevent ambiguous prompts like “this”, “continue”, “previous roadmap”, or “phases 1-3” from drifting to unrelated phase-shaped docs
+- when the replied message is clearly high-signal (canonical status summary, remaining surfaces, durable decision, strong preference), auto-promote a distilled note into `memory/YYYY-MM-DD.md` with dedupe state under `state/completion-integrity/reply-anchor-memory.json`
 - when the prompt asks for a **1:1 / full / exact clone**, injects a **clone parity contract**:
   - interpret clone requests as parity-first, not MVP-first
   - reject completions that describe the result as a prototype, first-pass, vertical slice, scaffold-only build, or mini version
@@ -139,6 +141,7 @@ Tests cover:
 - important-task validator gating
 - objective-grounding injection + validator proof requirement for important implementation tasks
 - reply-thread grounding injection + explicit `Reply anchor:` validator requirement
+- conversational reply questions still get reply-thread grounding and high-signal reply anchors are auto-promoted into daily memory without duplicate entries
 - clone parity injection + rejection of prototype-style completions for `1:1 clone` tasks
 - task-contract injection + proof requirement (`Fidelity`, `Scope`, `Stop condition`)
 - campaign runtime injection + blocker-only stop rule when supervisor stays red
