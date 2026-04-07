@@ -459,6 +459,12 @@ function extractAssistantVisibleText(messages: unknown): string {
     .filter(Boolean)
     .join('\n');
 }
+function detectProjectSlug(text: string): string | null {
+  const t = normalizeQuery(text);
+  if (/\bmailchimp\b/.test(t)) return 'mailchimp';
+  if (/\bpmhnp\b|\bclaim guard\b/.test(t)) return 'pmhnp-claim-guard';
+  return null;
+}
 function containsSecretLike(text: string): boolean {
   return /\b(api[_-]?key|token|password|secret|bearer|ssh-rsa|BEGIN [A-Z ]+ PRIVATE KEY)\b/i.test(text);
 }
@@ -480,13 +486,42 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
   let score = 0;
   let kind = 'transient';
   if (!t || t.length < 20) return { score: 0, reasons: ['too_short'], kind };
+  if (/\b(supervisorstatus|matrixstatus|paritystatus)\b|\bcanonical status\b|\bremaining surfaces\b|\bremaining unsatisfied surfaces\b|\bwhat this run actually changed\b|\bblocker\s*:\s*|\btrustworthy partial result\b/i.test(t)) { score += 0.58; reasons.push('canonical_project_status'); kind = 'project_state'; }
   if (/\bremember this\b|\bplease remember\b|\bmy preference\b|\bi prefer\b|\bcall me\b|\btimezone\b|\bpronouns\b/i.test(t)) { score += 0.45; reasons.push('explicit_preference'); kind = 'preference'; }
   if (/\bdecision\b|\bwe decided\b|\bthe plan is\b|\bfrom now on\b|\bdefault to\b|\balways use\b/i.test(t)) { score += 0.35; reasons.push('decision'); kind = 'decision'; }
+  if (/\breply-anchor context .* primary\b|\breply anchor .* primary\b|\bpersistence first\b/i.test(t)) { score += 0.2; reasons.push('anti_drift_or_lesson'); if (kind === 'transient') kind = 'decision'; }
   if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b/i.test(t)) { score += 0.22; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
+  if (detectProjectSlug(t)) { score += 0.16; reasons.push('named_project'); if (kind === 'transient') kind = 'fact'; }
   if (/\b(today|right now|currently|just now|this morning|tonight|lol|haha|thanks|ok|okay|sure)\b/i.test(t)) { score -= 0.18; reasons.push('transient_chat'); }
   if (/https?:\/\/\S+/.test(t) && t.length < 140) { score -= 0.18; reasons.push('bare_link'); }
   if (containsSecretLike(t)) { score = 0; reasons.push('secret_like'); kind = 'blocked'; }
   return { score: Math.max(0, Math.min(1, score)), reasons, kind };
+}
+function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: any, text: string, dur: ReturnType<typeof durabilityScore>) {
+  const project = detectProjectSlug(text);
+  const tags = Array.from(new Set([...(cfg.writeTags || []), ...dur.reasons, ...(project ? [project] : [])]));
+  let source = 'openclaw-agent-end';
+  let topic: string | undefined;
+  if (dur.kind === 'project_state') {
+    source = 'curated-project-facts';
+    topic = project ? `${project}-canonical-status` : 'canonical-project-status';
+  } else if (dur.kind === 'preference') {
+    source = 'curated-preferences-priorities';
+    topic = 'preferences';
+  } else if (dur.kind === 'decision') {
+    source = 'curated-anti-drift';
+    topic = project ? `${project}-durable-decision` : 'durable-decision';
+  }
+  return {
+    channel: ctx?.channelId ?? 'unknown',
+    sessionKey: ctx?.sessionKey ?? undefined,
+    source,
+    quality: 'curated',
+    memory_kind: dur.kind,
+    tags,
+    project: project ?? undefined,
+    topic,
+  };
 }
 async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
   if (!cfg.enabledWriteThrough) return;
@@ -501,8 +536,11 @@ async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof 
   }
   const recent = text.slice(-2000);
   const dur = durabilityScore(recent);
-  if (dur.score < cfg.minDurabilityScore) return;
-  const senderScoped = { channel: ctx?.channelId ?? 'unknown', sessionKey: ctx?.sessionKey ?? undefined, source: 'openclaw-agent-end', quality: 'curated', memory_kind: dur.kind, tags: [...cfg.writeTags, ...dur.reasons] };
+  if (dur.score < cfg.minDurabilityScore) {
+    api.logger.info?.(`cortex-memory-bridge: write-through skipped (score=${dur.score.toFixed(2)} < min=${cfg.minDurabilityScore.toFixed(2)} reasons=${dur.reasons.join(',') || 'none'})`);
+    return;
+  }
+  const senderScoped = buildWriteThroughMetadata(cfg, ctx, recent, dur);
   try {
     await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
     api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
@@ -632,3 +670,4 @@ const plugin = {
 };
 
 export default plugin;
+export { durabilityScore, buildWriteThroughMetadata };
