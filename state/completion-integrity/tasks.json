@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-07T04:46:39.283Z",
+      "updatedAt": "2026-04-07T04:51:31.419Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 144,
+        "runs": 145,
         "failures": [],
-        "lastRunAt": "2026-04-07T04:46:39.293Z",
+        "lastRunAt": "2026-04-07T04:51:31.429Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -18381,11 +18381,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775531672033:e269710314018aec",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-07T03:14:32.033Z",
-      "updatedAt": "2026-04-07T04:49:52.629Z",
+      "updatedAt": "2026-04-07T04:52:47.899Z",
       "prompt": "Yes continue",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "That’s actually for this, how come you weren’t able to deduct that from memory? - Cortex/OpenClaw upgrade work on 2026-03-18: deployed and iterated `cortex-route-gate` and `cortex-memory-bridge`; confirmed governor prompt injection and adaptive routing stats persistence under `/root/.openclaw/cortex-route-gate`. - Found and fixed a route-gate state-key bug: hook state needed to be keyed by `sessionKey/sessionId` instead of `runId`, which restored `adaptive-routing-stats.json` writes. - Increased route-gate timeout from 8s to 20s to reduce `/nexus/orchest",
       "history": [
         {
@@ -18405,6 +18405,14 @@
           "completedAt": "2026-04-07T03:20:44.153Z",
           "completionSummary": "? - Cortex/OpenClaw upgrade work on 2026-03-18: deployed and iterated `cortex-route-gate` and `cortex-memory-bridge`; confirmed governor prompt injection and adaptive routing stats persistence under `/root/.openclaw/cortex-route-gate`. - Found and fixed a route-gate state-key bug: hook state needed to be keyed by `sessionKey/sessionId` instead of `runId`, which restored `adaptive-routing-stats.json` writes. - Increased route-gate timeout from 8s to 20s to reduce `/nexus/orchestrate` AbortErrors. - Fingerprint history compaction improved: prompt fingerpri",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-07T04:52:47.899Z",
+          "failedAt": "2026-04-07T04:52:47.899Z",
+          "failureReason": "import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; import { bootstrapSurfaceHonestyManifest, enforceArchitecture } from '../../large-project-capability-stack/packages/architecture-enforcer/index.mjs'; async function loadDeliverOutboundPayloads() { const mod = await import('/usr/lib/node_modules/openclaw/dist/plugin-sdk/deliver-runtime-20_kW0lQ.js'); return mo",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -18525,7 +18533,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-07T03:20:44.153Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-07T04:52:47.899Z",
+      "failureReason": "import fs from 'node:fs'; import path from 'node:path'; import crypto from 'node:crypto'; import { bootstrapSurfaceHonestyManifest, enforceArchitecture } from '../../large-project-capability-stack/packages/architecture-enforcer/index.mjs'; async function loadDeliverOutboundPayloads() { const mod = await import('/usr/lib/node_modules/openclaw/dist/plugin-sdk/deliver-runtime-20_kW0lQ.js'); return mo",
+      "failureSource": "runtime_message"
     }
   ]
 }
