@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-07T03:11:19.168Z",
+      "updatedAt": "2026-04-07T03:16:34.609Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 125,
+        "runs": 126,
         "failures": [],
-        "lastRunAt": "2026-04-07T03:11:19.178Z",
+        "lastRunAt": "2026-04-07T03:16:34.620Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -18381,12 +18381,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775531672033:e269710314018aec",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-07T03:14:32.033Z",
-      "updatedAt": "2026-04-07T03:14:32.045Z",
+      "updatedAt": "2026-04-07T03:20:44.153Z",
       "prompt": "Yes continue",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "? - Cortex/OpenClaw upgrade work on 2026-03-18: deployed and iterated `cortex-route-gate` and `cortex-memory-bridge`; confirmed governor prompt injection and adaptive routing stats persistence under `/root/.openclaw/cortex-route-gate`. - Found and fixed a route-gate state-key bug: hook state needed to be keyed by `sessionKey/sessionId` instead of `runId`, which restored `adaptive-routing-stats.json` writes. - Increased route-gate timeout from 8s to 20s to reduce `/nexus/orchestrate` AbortErrors. - Fingerprint history compaction improved: prompt fingerpri",
       "history": [
         {
           "from": null,
@@ -18397,6 +18397,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-07T03:14:32.045Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-07T03:20:44.153Z",
+          "completedAt": "2026-04-07T03:20:44.153Z",
+          "completionSummary": "? - Cortex/OpenClaw upgrade work on 2026-03-18: deployed and iterated `cortex-route-gate` and `cortex-memory-bridge`; confirmed governor prompt injection and adaptive routing stats persistence under `/root/.openclaw/cortex-route-gate`. - Found and fixed a route-gate state-key bug: hook state needed to be keyed by `sessionKey/sessionId` instead of `runId`, which restored `adaptive-routing-stats.json` writes. - Increased route-gate timeout from 8s to 20s to reduce `/nexus/orchestrate` AbortErrors. - Fingerprint history compaction improved: prompt fingerpri",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -18408,8 +18416,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-07T03:20:44.162Z",
+            "reason": "honesty_target_path_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-07T03:20:44.162Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "honesty": {
         "required": true,
@@ -18418,8 +18436,14 @@
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
-        "violations": [],
-        "status": null,
+        "violations": [
+          {
+            "rule": "honesty_target_path_missing",
+            "path": "Yes continue",
+            "message": "honesty_target_path_missing"
+          }
+        ],
+        "status": "red",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
@@ -18431,7 +18455,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -18439,7 +18463,7 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": true,
@@ -18450,16 +18474,18 @@
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
-      }
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-07T03:20:44.153Z",
+      "completionSource": "agent_end"
     }
   ]
 }
