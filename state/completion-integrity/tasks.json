@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T02:58:24.360Z",
+      "updatedAt": "2026-04-08T03:03:17.574Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 382,
+        "runs": 383,
         "failures": [],
-        "lastRunAt": "2026-04-08T02:58:24.370Z",
+        "lastRunAt": "2026-04-08T03:03:17.583Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -19816,6 +19816,101 @@
       },
       "failedAt": "2026-04-08T03:02:31.875Z",
       "failureReason": "## master...origin/master [ahead 1] M apps/web/server.mjs M packages/app/domain-campaigns.mjs M packages/app/domain-current-product-ops.mjs M packages/app/domain-integration-marketplace.mjs M packages/app/domain-website-builder.mjs M packages/app/security.mjs M packages/app/storage.mjs ?? packages/app/analytics-events.mjs ?? packages/app/experiment-engine.mjs ?? packages/app/http-runtime.mjs ?? pa",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775617576997:45798b2bcc1504de",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-08T03:06:16.997Z",
+      "updatedAt": "2026-04-08T03:06:18.523Z",
+      "prompt": "System: [2026-04-07 22:02:19 CDT] Exec completed (tide-for, code 1) :: blocker\": { \"generatedAt\": \"2026-04-08T03:02:19.581Z\", \"blocker\": \"Baseline repo tests failed before live qualification started.\", \"nextAction\": \"Inspect /home/jake/claw",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-08T03:06:16.997Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-08T03:06:17.007Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-08T03:06:18.523Z",
+          "failedAt": "2026-04-08T03:06:18.523Z",
+          "failureReason": "System: [2026-04-07 22:02:19 CDT] Exec completed (tide-for, code 1) :: blocker\": { \"generatedAt\": \"2026-04-08T03:02:19.581Z\", \"blocker\": \"Baseline repo tests failed before live qualification started.\", \"nextAction\": \"Inspect /home/jake/clawd-remote/m… System: [2026-04-07 22:03:19 CDT] Exec completed (nimble-g, code 1) :: ..DEFAULT_FLAGS }, billing: { currentPlan: 'starter', invoices: [{ id: create",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-07 22:02:19 CDT] Exec completed (tide-for, code 1) :: blocker\": { \"generatedAt\": \"2026-04-08T03:02:19.581Z\", \"blocker\": \"Baseline repo tests failed before live qualification started.\", \"nextAction\": \"Ins",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-08T03:06:18.523Z",
+      "failureReason": "System: [2026-04-07 22:02:19 CDT] Exec completed (tide-for, code 1) :: blocker\": { \"generatedAt\": \"2026-04-08T03:02:19.581Z\", \"blocker\": \"Baseline repo tests failed before live qualification started.\", \"nextAction\": \"Inspect /home/jake/clawd-remote/m… System: [2026-04-07 22:03:19 CDT] Exec completed (nimble-g, code 1) :: ..DEFAULT_FLAGS }, billing: { currentPlan: 'starter', invoices: [{ id: create",
       "failureSource": "runtime_message"
     }
   ]
