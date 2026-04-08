@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T22:28:40.330Z",
+      "updatedAt": "2026-04-08T22:33:02.779Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 671,
+        "runs": 672,
         "failures": [],
-        "lastRunAt": "2026-04-08T22:28:40.341Z",
+        "lastRunAt": "2026-04-08T22:33:02.789Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -20168,12 +20168,12 @@
       "id": "temp:slug-generator:1775624707008:0a4ee8904277b583",
       "sessionKey": "temp:slug-generator",
       "createdAt": "2026-04-08T05:05:07.008Z",
-      "updatedAt": "2026-04-08T05:05:11.843Z",
+      "updatedAt": "2026-04-08T22:34:32.288Z",
       "prompt": "Based on this conversation, generate a short 1-2 word filename slug (lowercase, hyphen-separated, no file extension). Conversation summary: assistant: [Cortex] Yeah, that older message is still basically the right frame, but I’d tighten it ",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Based on this conversation, generate a short 1-2 word filename slug (lowercase, hyphen-separated, no file extension). Conversation summary: assistant: Cortex Yeah, that older message is still basically the right frame, but I’d tighten it a bit. - **Still true:** no Mailchimp runner is active right now. - **Still true:** I do **not** see a newer trustworthy clean tier-008 completion that supersedes it. - **Newer on-disk evidence:** the later clean-baseline 100-agent run ended **blocked**, not completed: - `mailchimp-clone/artifacts/qualification/orchestra",
+      "completionSummary": "Based on this conversation, generate a short 1-2 word filename slug (lowercase, hyphen-separated, no file extension). Conversation summary: user: Queued messages while agent was busy --- Queued #1 Okay run a full audit on the agent orchestration and find all potential problems. Then do a full broad fix, no bandaids, and let’s get this thing running smoothly assistant: Cortex I’m digging into the orchestration stack now, starting from the shared runtime and the Mailchimp full-audit control path so I can fix the structural issues instead of papering over s",
       "history": [
         {
           "from": null,
@@ -20203,14 +20203,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 1,
+        "runs": 2,
         "failures": [
           {
             "at": "2026-04-08T05:05:11.852Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-08T22:34:32.298Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-08T05:05:11.852Z",
+        "lastRunAt": "2026-04-08T22:34:32.298Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
