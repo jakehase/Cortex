@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T23:23:02.815Z",
+      "updatedAt": "2026-04-08T23:28:17.656Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 682,
+        "runs": 683,
         "failures": [],
-        "lastRunAt": "2026-04-08T23:23:02.827Z",
+        "lastRunAt": "2026-04-08T23:28:17.665Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -21723,6 +21723,90 @@
       "failedAt": "2026-04-08T21:23:45.158Z",
       "failureReason": "[Queued messages while agent was busy] --- Queued #1 System: [2026-04-08 16:09:59 CDT] Exec failed (plaid-wi, signal SIGTERM) System: [2026-04-08 16:17:10 CDT] Exec completed (calm-nud, code 1) :: lowed\": false, \"parityFocusIssuesPresent\": false, \"parityFocusAssignmentsObserved\": false }, \"remoteNotifierEligibility\": { \"generatedAt\": \"2026-04-08T21:17:08.137Z\", \"runId\": \"sm… Conversation info (unt",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775691173853:388ed3c835395d50",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-08T23:32:53.853Z",
+      "updatedAt": "2026-04-08T23:32:53.869Z",
+      "prompt": "Do the full audit on the agent orchestration, every detail and find any possible problems. Fix them, not bandaid fixes, take your time with this and be thorough",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-08T23:32:53.853Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-08T23:32:53.869Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do the full audit on the agent orchestration, every detail and find any possible problems. Fix them, not bandaid fixes, take your time with this and be thorough",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
