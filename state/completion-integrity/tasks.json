@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T14:53:18.356Z",
+      "updatedAt": "2026-04-08T14:58:34.015Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 547,
+        "runs": 551,
         "failures": [],
-        "lastRunAt": "2026-04-08T14:53:18.368Z",
+        "lastRunAt": "2026-04-08T14:58:34.024Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -20878,12 +20878,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775658900564:a02b79b2a87b1e32",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T14:35:00.564Z",
-      "updatedAt": "2026-04-08T14:46:47.734Z",
+      "updatedAt": "2026-04-08T15:02:16.902Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Status? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're ",
+      "completionSummary": "TAP version 13 # Subtest: Current-product browser realism: websites, AI, omnichannel, content depth, and integration detail render as real browser journeys ok 1 - Current-product browser realism: websites, AI, omnichannel, content depth, and integration detail render as real brow",
       "history": [
         {
           "from": null,
@@ -20913,12 +20913,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 5,
+        "runs": 9,
         "failures": [],
-        "lastRunAt": "2026-04-08T14:46:47.746Z",
+        "lastRunAt": "2026-04-08T15:02:16.912Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -20971,7 +20971,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-08T14:40:34.852Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
