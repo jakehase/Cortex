@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T05:07:57.584Z",
+      "updatedAt": "2026-04-08T05:13:33.931Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 408,
+        "runs": 409,
         "failures": [],
-        "lastRunAt": "2026-04-08T05:07:57.593Z",
+        "lastRunAt": "2026-04-08T05:13:33.942Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -20027,11 +20027,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775622810204:890b782754e5c028",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T04:33:30.204Z",
-      "updatedAt": "2026-04-08T05:08:26.706Z",
+      "updatedAt": "2026-04-08T05:17:58.511Z",
       "prompt": "yes fix it",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 sentences and ask what they want to do. If the runtime model differs from default_model in the system prompt, mention the default model. Do not mention internal steps, files, tools, or reasoning. Current time: Wednesday, April 8th, 2026 - 12:05 AM (America/Chicago) / 2026-04-08 0",
       "history": [
         {
@@ -20051,6 +20051,14 @@
           "completedAt": "2026-04-08T04:38:09.510Z",
           "completionSummary": "System: 2026-04-07 22:34:53 CDT Exec failed (tidy-she, signal SIGKILL) :: master d195082 Deduplicate persistence helper import after tier-008 pass 1 file changed, 8 deletions(-) Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. When reading HEARTBEAT.md, use workspace file /root/clawd/HEARTBEAT.md (exact case). Do not read docs/heartbeat.md. Current time: Tuesday, April 7th, 2026 - 11:06 PM (America/Chicago) / 2026-04-08 04:06 UTC # HE",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-08T05:17:58.511Z",
+          "failedAt": "2026-04-08T05:17:58.511Z",
+          "failureReason": "{ \"ok\": false, \"artifactRoot\": \"/home/jake/clawd-remote/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline\", \"blocker\": { \"generatedAt\": \"2026-04-08T05:17:58.310Z\", \"blocker\": \"Baseline repo tests failed before live qualification started.\", \"nextAction\": \"Inspect /home/jake/clawd-remote/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline/validat",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -20151,7 +20159,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-08T04:38:09.510Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-08T05:17:58.511Z",
+      "failureReason": "{ \"ok\": false, \"artifactRoot\": \"/home/jake/clawd-remote/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline\", \"blocker\": { \"generatedAt\": \"2026-04-08T05:17:58.310Z\", \"blocker\": \"Baseline repo tests failed before live qualification started.\", \"nextAction\": \"Inspect /home/jake/clawd-remote/mailchimp-clone/artifacts/qualification/orchestrator_real_repo_clean_baseline/validat",
+      "failureSource": "runtime_message"
     },
     {
       "id": "temp:slug-generator:1775624707008:0a4ee8904277b583",
