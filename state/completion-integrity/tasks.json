@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T18:08:51.895Z",
+      "updatedAt": "2026-04-08T18:13:09.879Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 610,
+        "runs": 611,
         "failures": [],
-        "lastRunAt": "2026-04-08T18:08:51.903Z",
+        "lastRunAt": "2026-04-08T18:13:09.891Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -21288,12 +21288,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775671968046:9b69acb12de862d2",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T18:12:48.046Z",
-      "updatedAt": "2026-04-08T18:12:48.059Z",
+      "updatedAt": "2026-04-08T18:16:21.574Z",
       "prompt": "okay continue",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "failed",
+      "completionSummary": "STATUS=0 ... # Subtest: red supervisor without blocker explicitly requeues the worker ok 2 - red supervisor without blocker explicitly requeues the worker --- duration_ms: 7.063246 type: 'test' ... # Subtest: worker supervisor notifier demo scripts produce a green closeout ok 3 - worker supervisor notifier demo scripts produce a green closeout --- duration_ms: 67.766741 type: 'test' ... # Subtest:",
       "history": [
         {
           "from": null,
@@ -21304,6 +21304,22 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-08T18:12:48.059Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-08T18:15:21.677Z",
+          "completedAt": "2026-04-08T18:15:21.677Z",
+          "completionSummary": "STATUS=0 TAP version 13 # Subtest: persistent campaign does not stop while supervisor red without blocker ok 1 - persistent campaign does not stop while supervisor red without blocker --- duration_ms: 153.085051 type: 'test' ... # Subtest: red supervisor without blocker explicitly requeues the worker ok 2 - red supervisor without blocker explicitly requeues the worker --- duration_ms: 7.034682 typ",
+          "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-08T18:16:21.574Z",
+          "failedAt": "2026-04-08T18:16:21.574Z",
+          "failureReason": "(no output recorded) Process exited with code 255.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -21315,8 +21331,22 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 2,
+        "failures": [
+          {
+            "at": "2026-04-08T18:15:21.695Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-08T18:15:48.864Z",
+            "reason": "honesty_target_path_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-08T18:15:48.864Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
       },
       "honesty": {
         "required": true,
@@ -21325,8 +21355,14 @@
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
-        "violations": [],
-        "status": null,
+        "violations": [
+          {
+            "rule": "honesty_target_path_missing",
+            "path": "okay continue",
+            "message": "honesty_target_path_missing"
+          }
+        ],
+        "status": "red",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
@@ -21338,7 +21374,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -21346,7 +21382,7 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": true,
@@ -21357,16 +21393,21 @@
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
-      }
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-08T18:15:21.677Z",
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-08T18:16:21.574Z",
+      "failureReason": "(no output recorded) Process exited with code 255.",
+      "failureSource": "runtime_message"
     }
   ]
 }
