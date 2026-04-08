@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T14:04:17.515Z",
+      "updatedAt": "2026-04-08T14:08:24.010Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 528,
+        "runs": 529,
         "failures": [],
-        "lastRunAt": "2026-04-08T14:04:17.526Z",
+        "lastRunAt": "2026-04-08T14:08:24.019Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -20683,6 +20683,90 @@
       "failedAt": "2026-04-08T13:59:11.201Z",
       "failureReason": "System: [2026-04-08 08:55:00 CDT] Exec completed (vivid-da, code 0) :: --- duration_ms: 82.225114 type: 'test' ... # Subtest: Wave 2 integrations marketplace: install connectors, run syncs, and expose API realism ok 6 - Wave 2 integrations marketplac… System: [2026-04-08 08:56:58 CDT] Exec completed (quick-fa, code 1) :: e/live_runs/tier-008/summary.json and /home/jake/clawd-remote/mailchimp-clone",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775657451590:82e5b45b9a40e23d",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-08T14:10:51.590Z",
+      "updatedAt": "2026-04-08T14:10:51.602Z",
+      "prompt": "Do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-08T14:10:51.590Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-08T14:10:51.602Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do it",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
