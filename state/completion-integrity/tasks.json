@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T14:08:24.010Z",
+      "updatedAt": "2026-04-08T14:13:31.864Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 529,
+        "runs": 530,
         "failures": [],
-        "lastRunAt": "2026-04-08T14:08:24.019Z",
+        "lastRunAt": "2026-04-08T14:13:31.875Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -20688,11 +20688,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775657451590:82e5b45b9a40e23d",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T14:10:51.590Z",
-      "updatedAt": "2026-04-08T14:10:51.602Z",
+      "updatedAt": "2026-04-08T14:17:51.351Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -20704,6 +20704,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-08T14:10:51.602Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-08T14:17:51.351Z",
+          "failedAt": "2026-04-08T14:17:51.351Z",
+          "failureReason": "at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26) at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) { errno: -2, code: 'ENOENT', syscall: 'open', path: '/tmp/mailchimp-implement-regression-5xzKzq/packages/app/domain-growth.mjs' } Node.js v22.22.1 1 !== 0 code: 'ERR_ASSERTION' name: 'AssertionError' expected: 0 actual: 1 operator: 'stri",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -20766,7 +20774,10 @@
         "required": false,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-08T14:17:51.351Z",
+      "failureReason": "at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26) at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) { errno: -2, code: 'ENOENT', syscall: 'open', path: '/tmp/mailchimp-implement-regression-5xzKzq/packages/app/domain-growth.mjs' } Node.js v22.22.1 1 !== 0 code: 'ERR_ASSERTION' name: 'AssertionError' expected: 0 actual: 1 operator: 'stri",
+      "failureSource": "runtime_message"
     }
   ]
 }
