@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T02:53:22.931Z",
+      "updatedAt": "2026-04-08T02:58:24.360Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 381,
+        "runs": 382,
         "failures": [],
-        "lastRunAt": "2026-04-08T02:53:22.942Z",
+        "lastRunAt": "2026-04-08T02:58:24.370Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -19727,11 +19727,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775616694487:697c37591b37ccbb",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T02:51:34.487Z",
-      "updatedAt": "2026-04-08T02:51:34.498Z",
+      "updatedAt": "2026-04-08T03:02:31.875Z",
       "prompt": "Fix it",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -19743,6 +19743,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-08T02:51:34.498Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-08T03:02:31.875Z",
+          "failedAt": "2026-04-08T03:02:31.875Z",
+          "failureReason": "## master...origin/master [ahead 1] M apps/web/server.mjs M packages/app/domain-campaigns.mjs M packages/app/domain-current-product-ops.mjs M packages/app/domain-integration-marketplace.mjs M packages/app/domain-website-builder.mjs M packages/app/security.mjs M packages/app/storage.mjs ?? packages/app/analytics-events.mjs ?? packages/app/experiment-engine.mjs ?? packages/app/http-runtime.mjs ?? pa",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -19805,7 +19813,10 @@
         "required": false,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-08T03:02:31.875Z",
+      "failureReason": "## master...origin/master [ahead 1] M apps/web/server.mjs M packages/app/domain-campaigns.mjs M packages/app/domain-current-product-ops.mjs M packages/app/domain-integration-marketplace.mjs M packages/app/domain-website-builder.mjs M packages/app/security.mjs M packages/app/storage.mjs ?? packages/app/analytics-events.mjs ?? packages/app/experiment-engine.mjs ?? packages/app/http-runtime.mjs ?? pa",
+      "failureSource": "runtime_message"
     }
   ]
 }
