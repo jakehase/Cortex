@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T17:58:08.696Z",
+      "updatedAt": "2026-04-08T18:03:09.129Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 607,
+        "runs": 608,
         "failures": [],
-        "lastRunAt": "2026-04-08T17:58:08.707Z",
+        "lastRunAt": "2026-04-08T18:03:09.140Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -21178,12 +21178,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775669444716:68350d0aec9356e7",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T17:30:44.716Z",
-      "updatedAt": "2026-04-08T17:48:43.551Z",
+      "updatedAt": "2026-04-08T18:06:52.320Z",
       "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-04-08.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, DREAMS.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this f",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
-      "completionSummary": "Status? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're ",
+      "status": "failed",
+      "completionSummary": "STATUS=0 TAP version 13 # Subtest: persistent campaign does not stop while supervisor red without blocker ok 1 - persistent campaign does not stop while supervisor red without blocker --- duration_ms: 153.418138 type: 'test' ... # Subtest: red supervisor without blocker explicitl",
       "history": [
         {
           "from": null,
@@ -21202,6 +21202,14 @@
           "completedAt": "2026-04-08T17:31:35.006Z",
           "completionSummary": "Status? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're ",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-08T18:06:52.320Z",
+          "failedAt": "2026-04-08T18:06:52.320Z",
+          "failureReason": "(no output recorded) Process exited with code 255.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -21213,12 +21221,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 3,
+        "runs": 6,
         "failures": [],
-        "lastRunAt": "2026-04-08T17:48:43.562Z",
+        "lastRunAt": "2026-04-08T18:06:01.621Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -21271,7 +21279,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-08T17:31:35.006Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-08T18:06:52.320Z",
+      "failureReason": "(no output recorded) Process exited with code 255.",
+      "failureSource": "runtime_message"
     }
   ]
 }
