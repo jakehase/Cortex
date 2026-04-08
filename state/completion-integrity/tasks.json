@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T02:33:30.100Z",
+      "updatedAt": "2026-04-08T02:38:13.355Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 377,
+        "runs": 378,
         "failures": [],
-        "lastRunAt": "2026-04-08T02:33:30.111Z",
+        "lastRunAt": "2026-04-08T02:38:13.363Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -19537,11 +19537,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775615749919:b5cf6140e3bd5e02",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T02:35:49.919Z",
-      "updatedAt": "2026-04-08T02:35:49.929Z",
+      "updatedAt": "2026-04-08T02:38:42.518Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -19553,6 +19553,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-08T02:35:49.929Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-08T02:38:42.518Z",
+          "failedAt": "2026-04-08T02:38:42.518Z",
+          "failureReason": "## master...origin/master [ahead 1] ?? node_modules file:///home/jake/clawd-remote/mailchimp-clone-exec-20260407_203122/scripts/orchestrator-real-repo-clean-run.mjs:126 throw new Error(`Implementation mode requires a clean workspace before launch. Dirty files detected:\\n${porcelain}`); ^ Error: Implementation mode requires a clean workspace before launch. Dirty files detected: ?? node_modules at a",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -19615,7 +19623,105 @@
         "required": false,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-08T02:38:42.518Z",
+      "failureReason": "## master...origin/master [ahead 1] ?? node_modules file:///home/jake/clawd-remote/mailchimp-clone-exec-20260407_203122/scripts/orchestrator-real-repo-clean-run.mjs:126 throw new Error(`Implementation mode requires a clean workspace before launch. Dirty files detected:\\n${porcelain}`); ^ Error: Implementation mode requires a clean workspace before launch. Dirty files detected: ?? node_modules at a",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775616097098:3a6a81534fa47a2a",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-08T02:41:37.098Z",
+      "updatedAt": "2026-04-08T02:41:40.386Z",
+      "prompt": "System: [2026-04-07 21:38:29 CDT] Exec completed (mild-mea, code 1) :: an-run.mjs:126:9) at file:///home/jake/clawd-remote/mailchimp-clone-exec-20260407_203122/scripts/orchestrator-real-repo-clean-run.mjs:129:1 at ModuleJob.run (node:intern",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-08T02:41:37.098Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-08T02:41:37.110Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-08T02:41:40.386Z",
+          "failedAt": "2026-04-08T02:41:40.386Z",
+          "failureReason": "System: [2026-04-07 21:38:29 CDT] Exec completed (mild-mea, code 1) :: an-run.mjs:126:9) at file:///home/jake/clawd-remote/mailchimp-clone-exec-20260407_203122/scripts/orchestrator-real-repo-clean-run.mjs:129:1 at ModuleJob.run (node:internal/modules… System: [2026-04-07 21:39:43 CDT] Exec completed (good-wil, code 1) :: tier-008_repo_tests.log and /home/jake/clawd-remote/mailchimp-clone-exec-2026",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-07 21:38:29 CDT] Exec completed (mild-mea, code 1) :: an-run.mjs:126:9) at file:///home/jake/clawd-remote/mailchimp-clone-exec-20260407_203122/scripts/orchestrator-real-repo-clean-run.mjs:129:1 at Module",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-08T02:41:40.386Z",
+      "failureReason": "System: [2026-04-07 21:38:29 CDT] Exec completed (mild-mea, code 1) :: an-run.mjs:126:9) at file:///home/jake/clawd-remote/mailchimp-clone-exec-20260407_203122/scripts/orchestrator-real-repo-clean-run.mjs:129:1 at ModuleJob.run (node:internal/modules… System: [2026-04-07 21:39:43 CDT] Exec completed (good-wil, code 1) :: tier-008_repo_tests.log and /home/jake/clawd-remote/mailchimp-clone-exec-2026",
+      "failureSource": "runtime_message"
     }
   ]
 }
