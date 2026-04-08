@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T21:18:11.125Z",
+      "updatedAt": "2026-04-08T21:24:17.229Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 655,
+        "runs": 658,
         "failures": [],
-        "lastRunAt": "2026-04-08T21:18:11.135Z",
+        "lastRunAt": "2026-04-08T21:24:17.239Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -21603,12 +21603,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775682423362:5ad6ec63f6c309b4",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T21:07:03.362Z",
-      "updatedAt": "2026-04-08T21:07:03.374Z",
+      "updatedAt": "2026-04-08T21:23:45.158Z",
       "prompt": "[Queued messages while agent was busy] --- Queued #1 Okay run a full audit on the agent orchestration and find all potential problems. Then do a full broad fix, no bandaids, and let’s get this thing running smoothly",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "failed",
+      "completionSummary": "Queued messages while agent was busy --- Queued #1 Okay run a full audit on the agent orchestration and find all potential problems. Then do a full broad fix, no bandaids, and let’s get this thing running smoothly # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assis",
       "history": [
         {
           "from": null,
@@ -21619,6 +21619,22 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-08T21:07:03.374Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-08T21:23:40.702Z",
+          "completedAt": "2026-04-08T21:23:40.702Z",
+          "completionSummary": "Queued messages while agent was busy --- Queued #1 Okay run a full audit on the agent orchestration and find all potential problems. Then do a full broad fix, no bandaids, and let’s get this thing running smoothly # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assis",
+          "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-08T21:23:45.158Z",
+          "failedAt": "2026-04-08T21:23:45.158Z",
+          "failureReason": "[Queued messages while agent was busy] --- Queued #1 System: [2026-04-08 16:09:59 CDT] Exec failed (plaid-wi, signal SIGTERM) System: [2026-04-08 16:17:10 CDT] Exec completed (calm-nud, code 1) :: lowed\": false, \"parityFocusIssuesPresent\": false, \"parityFocusAssignmentsObserved\": false }, \"remoteNotifierEligibility\": { \"generatedAt\": \"2026-04-08T21:17:08.137Z\", \"runId\": \"sm… Conversation info (unt",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -21630,8 +21646,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-08T21:23:40.712Z",
+            "reason": "honesty_target_path_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-08T21:23:40.712Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "honesty": {
         "required": true,
@@ -21640,8 +21666,14 @@
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
-        "violations": [],
-        "status": null,
+        "violations": [
+          {
+            "rule": "honesty_target_path_missing",
+            "path": "[Queued messages while agent was busy] --- Queued #1 Okay run a full audit on the agent orchestration and find all potential problems. Then do a full broad fix, no bandaids, and let’s get this thing running smoothly",
+            "message": "honesty_target_path_missing"
+          }
+        ],
+        "status": "red",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
@@ -21653,7 +21685,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -21661,7 +21693,7 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": true,
@@ -21672,16 +21704,21 @@
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
-      }
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-08T21:23:40.702Z",
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-08T21:23:45.158Z",
+      "failureReason": "[Queued messages while agent was busy] --- Queued #1 System: [2026-04-08 16:09:59 CDT] Exec failed (plaid-wi, signal SIGTERM) System: [2026-04-08 16:17:10 CDT] Exec completed (calm-nud, code 1) :: lowed\": false, \"parityFocusIssuesPresent\": false, \"parityFocusAssignmentsObserved\": false }, \"remoteNotifierEligibility\": { \"generatedAt\": \"2026-04-08T21:17:08.137Z\", \"runId\": \"sm… Conversation info (unt",
+      "failureSource": "runtime_message"
     }
   ]
 }
