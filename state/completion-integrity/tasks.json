@@ -4568,10 +4568,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:21:25.511Z",
-      "completionSummary": "System: 2026-04-08 12:28:00 CDT Exec completed (sharp-ba, code 0) :: To https://github.com/jakehase/Cortex.git fd44f919..0ef14f36 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://gi… Read HEARTBEAT.md if it exists",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T17:28:16.783Z",
+      "updatedAt": "2026-04-08T17:33:10.209Z",
       "history": [
         {
           "from": null,
@@ -4589,12 +4589,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 601,
+        "runs": 602,
         "failures": [],
-        "lastRunAt": "2026-04-08T17:28:16.792Z",
+        "lastRunAt": "2026-04-08T17:33:10.218Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "trustTier": "normal",
@@ -4630,7 +4630,7 @@
         "overridePath": null,
         "overrideApprovedBy": null
       },
-      "completionSource": "runtime_message",
+      "completionSource": "agent_end",
       "grounding": {
         "required": false,
         "ambiguousReference": false,
