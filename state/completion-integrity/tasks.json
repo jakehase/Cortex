@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T05:38:13.459Z",
+      "updatedAt": "2026-04-08T05:43:11.060Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 414,
+        "runs": 415,
         "failures": [],
-        "lastRunAt": "2026-04-08T05:38:13.470Z",
+        "lastRunAt": "2026-04-08T05:43:11.070Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -20278,12 +20278,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775626247686:8c7ae23caf07f222",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T05:30:47.686Z",
-      "updatedAt": "2026-04-08T05:30:47.698Z",
+      "updatedAt": "2026-04-08T05:45:59.508Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 ",
       "history": [
         {
           "from": null,
@@ -20294,6 +20294,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-08T05:30:47.698Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-08T05:45:59.508Z",
+          "completedAt": "2026-04-08T05:45:59.508Z",
+          "completionSummary": "A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 ",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -20305,18 +20313,23 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-04-08T05:45:59.519Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "honesty": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "targetPath": null,
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
         "violations": [],
-        "status": null,
+        "status": "green",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
@@ -20324,11 +20337,11 @@
       "grounding": {
         "required": false,
         "ambiguousReference": true,
-        "proofPresent": false,
+        "proofPresent": true,
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -20336,27 +20349,29 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "requestedFidelity": "production_slice",
         "requestedScope": "Do it",
         "stopCondition": "completed_and_delivered"
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
-      }
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-08T05:45:59.508Z",
+      "completionSource": "agent_end"
     }
   ]
 }
