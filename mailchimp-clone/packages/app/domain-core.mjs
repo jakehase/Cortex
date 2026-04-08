@@ -1,4 +1,4 @@
-import { createAudience, createWorkspace, PLAN_CATALOG, saveDb, writeExport, writeUpload } from './storage.mjs';
+import { createAudience, createWorkspace, PLAN_CATALOG, persistState, writeExport, writeUpload } from './storage.mjs';
 import { createId, csvSplit, formArray, hashPassword, normalizeDomainName, nowIso, parseCookies } from './utils.mjs';
 import { createSession, getSessionFromRequest } from './security.mjs';
 
@@ -65,14 +65,14 @@ export function createNotification(state, { workspaceId, type, payload }) {
 export function recordAudit(state, { workspaceId, userId, action, detail }) {
   state.db.auditEvents.unshift({ id: createId('audit'), workspaceId, userId, action, detail, createdAt: nowIso() });
   recordEvent(state, { workspaceId, type: 'audit', message: `${action}: ${detail}`, meta: { userId } });
-  saveDb(state.db);
+  persistState(state);
 }
 
 export function enqueueJob(state, { type, workspaceId, userId, payload, runAt }) {
   const job = { id: createId('job'), type, workspaceId, userId, payload, status: 'pending', createdAt: nowIso(), updatedAt: nowIso(), runAt: runAt || nowIso(), result: null };
   state.db.jobs.unshift(job);
   recordEvent(state, { workspaceId, type: 'job-queued', message: `${type} queued`, meta: { jobId: job.id } });
-  saveDb(state.db);
+  persistState(state);
   return job;
 }
 
@@ -97,7 +97,7 @@ export function createWorkspaceForUser(state, actor, name) {
   state.db.audiences.push(createAudience(workspace.id, 'Main audience'));
   state.db.apiKeys.unshift({ id: createId('apikey'), workspaceId: workspace.id, label: 'Default workspace key', token: workspace.apiKey, createdBy: actor.user.id, createdAt: nowIso(), revokedAt: null });
   actor.user.activeWorkspaceId = workspace.id;
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: workspace.id, userId: actor.user.id, action: 'workspace-create', detail: `Created workspace ${workspace.name}` });
 }
 
@@ -105,13 +105,13 @@ export function applyBillingPlan(state, actor, planId) {
   actor.workspace.planId = planId;
   actor.workspace.billing.currentPlan = planId;
   actor.workspace.billing.invoices.unshift({ id: createId('inv'), amount: planId === 'starter' ? '$0' : planId === 'growth' ? '$49' : '$149', status: 'pending', createdAt: nowIso() });
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'billing-plan-change', detail: `Plan changed to ${planId}` });
 }
 
 export function updateSettings(state, actor, body) {
   actor.workspace.settings = { senderName: body.senderName, senderEmail: body.senderEmail, replyTo: body.replyTo, timezone: body.timezone, address: body.address, brandColor: body.brandColor, domains: actor.workspace.settings.domains || [] };
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'settings-update', detail: 'Updated workspace settings' });
 }
 
@@ -120,7 +120,7 @@ export function addDomain(state, actor, domainInput) {
   actor.workspace.settings.domains ||= [];
   if (!actor.workspace.settings.domains.some((entry) => entry.name === name)) {
     actor.workspace.settings.domains.unshift({ id: createId('domain'), name, verificationStatus: 'pending', authenticationStatus: 'pending', isDefault: actor.workspace.settings.domains.length === 0, createdAt: nowIso() });
-    saveDb(state.db);
+    persistState(state);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'domain-add', detail: `Added sending domain ${name}` });
   }
 }
@@ -129,7 +129,7 @@ export function storeAsset(state, actor, body) {
   const assetId = createId('asset');
   const storagePath = writeUpload(assetId, body.body || '');
   state.db.assets.unshift({ id: assetId, workspaceId: actor.workspace.id, name: body.name, folder: body.folder || 'Root', contentType: body.contentType || 'text/plain', altText: body.altText || '', storagePath, usageCount: 0, createdBy: actor.user.id, createdAt: nowIso() });
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'asset-upload', detail: `Stored asset ${body.name}` });
 }
 
@@ -138,7 +138,7 @@ export function createExport(state, actor, label, body) {
   const storagePath = writeExport(exportId, body);
   const entry = { id: exportId, workspaceId: actor.workspace.id, label, createdBy: actor.user.id, createdAt: nowIso(), storagePath };
   state.db.exports.unshift(entry);
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'state-export', detail: `Generated export ${label}` });
   return entry;
 }
