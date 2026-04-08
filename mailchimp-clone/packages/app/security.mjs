@@ -1,4 +1,4 @@
-import { saveDb } from './storage.mjs';
+import { persistState } from './storage.mjs';
 import { createId, nowIso, parseCookies, sha256 } from './utils.mjs';
 
 export const SESSION_COOKIE_NAME = 'mailclone_session';
@@ -56,6 +56,8 @@ function ensureSecurityCollections(state) {
   state.db.rateLimits ||= [];
   state.db.jobDeadLetters ||= [];
   state.db.invitations ||= [];
+  state.db.mfaChallenges ||= [];
+  state.db.ssoSessions ||= [];
 }
 
 export function pruneSecurityState(state) {
@@ -86,7 +88,7 @@ export function pruneSecurityState(state) {
     }
   }
 
-  if (changed) saveDb(state.db);
+  if (changed) persistState(state);
 }
 
 export function createSession(state, user, req, { reason = 'login' } = {}) {
@@ -102,7 +104,7 @@ export function createSession(state, user, req, { reason = 'login' } = {}) {
     reason
   };
   state.db.sessions.push(session);
-  saveDb(state.db);
+  persistState(state);
   return session;
 }
 
@@ -111,7 +113,7 @@ function maybeTouchSession(state, session) {
   if (Date.now() - lastSeenMs < SESSION_TOUCH_WINDOW_MS) return;
   session.lastSeenAt = nowIso();
   session.expiresAt = isoAfter(SESSION_TTL_MS);
-  saveDb(state.db);
+  persistState(state);
 }
 
 export function getSessionFromRequest(state, req) {
@@ -123,7 +125,7 @@ export function getSessionFromRequest(state, req) {
   if (isExpiredAt(session.expiresAt)) {
     session.revokedAt = nowIso();
     session.revokedReason = 'expired';
-    saveDb(state.db);
+    persistState(state);
     return null;
   }
   maybeTouchSession(state, session);
@@ -138,7 +140,7 @@ export function revokeSessionFromRequest(state, req, reason = 'logout') {
   if (!session) return sessionId;
   session.revokedAt = nowIso();
   session.revokedReason = reason;
-  saveDb(state.db);
+  persistState(state);
   return sessionId;
 }
 
@@ -151,7 +153,7 @@ export function revokeUserSessions(state, userId, { exceptSessionId = null, reas
     session.revokedReason = reason;
     changed = true;
   }
-  if (changed) saveDb(state.db);
+  if (changed) persistState(state);
 }
 
 export function consumeRateLimit(state, action, { key, limit, windowMs }) {
@@ -164,7 +166,7 @@ export function consumeRateLimit(state, action, { key, limit, windowMs }) {
     return { ok: false, retryAfterSeconds, remaining: 0 };
   }
   state.db.rateLimits.push({ id: createId('rl'), action, key, atMs: now, createdAt: nowIso(), windowMs });
-  saveDb(state.db);
+  persistState(state);
   return { ok: true, retryAfterSeconds: 0, remaining: Math.max(0, limit - entries.length - 1) };
 }
 
@@ -182,7 +184,7 @@ export function createPasswordReset(state, user, req) {
     requestedByUserAgent: String(req?.headers?.['user-agent'] || '')
   };
   state.db.passwordResets.unshift(reset);
-  saveDb(state.db);
+  persistState(state);
   return { reset, token, resetPath: `/reset/${token}` };
 }
 
@@ -194,10 +196,39 @@ export function findPasswordReset(state, rawToken) {
   if (isExpiredAt(reset.expiresAt)) {
     reset.revokedAt = nowIso();
     reset.revokeReason = 'expired';
-    saveDb(state.db);
+    persistState(state);
     return null;
   }
   return reset;
+}
+
+export function createMfaChallenge(state, userId, method = 'totp') {
+  ensureSecurityCollections(state);
+  const challenge = {
+    id: createId('mfa'),
+    userId,
+    method,
+    status: 'pending',
+    createdAt: nowIso(),
+    expiresAt: isoAfter(1000 * 60 * 10)
+  };
+  state.db.mfaChallenges.unshift(challenge);
+  persistState(state);
+  return challenge;
+}
+
+export function createSsoSession(state, userId, provider = 'saml') {
+  ensureSecurityCollections(state);
+  const session = {
+    id: createId('sso'),
+    userId,
+    provider,
+    createdAt: nowIso(),
+    saml: provider === 'saml'
+  };
+  state.db.ssoSessions.unshift(session);
+  persistState(state);
+  return session;
 }
 
 export function createInvitationExpiry() {

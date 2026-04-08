@@ -150,7 +150,8 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/public-marketing.test.mjs"
+          "tests/public-marketing.test.mjs",
+          "tests/browser-realism.test.mjs"
         ],
         "routes": [
           "/",
@@ -176,11 +177,38 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/persistence-storage.test.mjs",
           "tests/platform-spine.test.mjs",
           "tests/campaign-pipeline.test.mjs"
         ]
       },
       "notes": "Loads and saves persistent workspace state with legacy compatibility and shared persistState abstraction."
+    },
+    "packages/app/persistence-io.mjs": {
+      "label": "Atomic persistence IO helpers",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/persistence-storage.test.mjs"
+        ]
+      },
+      "notes": "Shared atomic JSON and text writers used by the live persistence layer for workspace state, exports, and uploads."
+    },
+    "packages/app/security.mjs": {
+      "label": "Authentication and security state runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/security-ops-hardening.test.mjs",
+          "tests/platform-spine.test.mjs"
+        ],
+        "routes": [
+          "/login",
+          "/reset",
+          "/settings/security"
+        ]
+      },
+      "notes": "Live auth, session, password reset, MFA, SSO, and security-state persistence behavior for the running app."
     },
     "packages/app/view.mjs": {
       "label": "Shared app shell and public navigation rendering",
@@ -197,6 +225,22 @@
         ]
       },
       "notes": "Shared rendering layer used by authenticated and public routes in the running app."
+    },
+    "apps/web/public/app-shell.css": {
+      "label": "Client shell overlay styling",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/browser-realism.test.mjs"
+        ],
+        "routes": [
+          "/campaigns/:id/editor",
+          "/automations/:id/builder",
+          "/forms/:id",
+          "/landing-pages/:id"
+        ]
+      },
+      "notes": "Real client-shell styling used by the browser-facing editor/builder surfaces; pointer-event behavior affects whether those surfaces are interactable."
     }
   }
 }

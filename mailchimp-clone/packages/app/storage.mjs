@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeJsonAtomic, writeJsonFile, writeTextFile } from './persistence-io.mjs';
 import { createId, nowIso } from './utils.mjs';
 
-const ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
+const ROOT_DIR = path.resolve(new URL('../..', import.meta.url).pathname);
 
 export const PLAN_CATALOG = [
   { id: 'starter', name: 'Starter', price: '$0', monthlyLimit: 500, features: { scheduledSend: false, advancedSegments: false, auditExport: false, multiUser: false, assetFolders: false } },
@@ -45,11 +46,11 @@ export const DEFAULT_JOURNEY_TEMPLATES = [
 ];
 
 export function dataPaths() {
-  const dataDir = process.env.MAILCLONE_DATA_DIR || path.join(ROOT, 'data');
+  const dataDir = process.env.MAILCLONE_DATA_DIR || path.join(ROOT_DIR, 'data');
   return {
     dataDir,
     dbPath: path.join(dataDir, 'workspace-state.json'),
-    legacyDbPath: path.join(dataDir, 'app.json'),
+    legacyDbPath: path.join(ROOT_DIR, 'app.json'),
     uploadDir: path.join(dataDir, 'uploads'),
     exportDir: path.join(dataDir, 'exports')
   };
@@ -76,13 +77,20 @@ export function createAudience(workspaceId, name = 'Main audience') {
   return { id: createId('aud'), workspaceId, name, description: '', createdAt: nowIso(), updatedAt: nowIso(), taxonomy: { tags: ['vip', 'new'], interests: ['product updates'], groupCategories: [{ name: 'Region', options: ['North', 'South', 'East', 'West'] }] } };
 }
 
+const DEFAULT_DB_STATE = {
+  users: [], memberships: [], workspaces: [], invitations: [], sessions: [], auditEvents: [], events: [], notifications: [], jobs: [], assets: [], audiences: [], contacts: [], segments: [], campaigns: [], templates: DEFAULT_TEMPLATES,
+  passwordResets: [], importPreviews: [], automations: [], automationRuns: [], journeyTemplates: DEFAULT_JOURNEY_TEMPLATES, forms: [], landingPages: [], apiKeys: [], webhooks: [], webhookDeliveries: [], exports: [],
+  integrationInstallations: [], integrationSyncRuns: [], commerceStores: [], commerceProducts: [], commerceOrders: [], revenueAttributions: [], approvalRequests: [], approvalComments: [], brandKits: [], contentTemplates: [], templateCollections: [], suppressionEntries: [], complianceAlerts: [],
+  conversations: [], conversationMessages: [], preferenceCenters: [], preferenceProfiles: [], transactionalJourneys: [], transactionalDeliveries: [], surveyPrograms: [], surveyResponses: [],
+  assetSnippets: [], contentVersions: [], generatedSuggestions: [], campaignExperiments: [], channelPrograms: [], websites: [], websitePages: [], websitePublishes: [], analyticsEvents: [],
+  rateLimits: [], jobDeadLetters: [], mfaChallenges: [], ssoSessions: []
+};
+
 export function initDb() {
   return {
-    users: [], memberships: [], workspaces: [], invitations: [], sessions: [], auditEvents: [], events: [], notifications: [], jobs: [], assets: [], audiences: [], contacts: [], segments: [], campaigns: [], templates: DEFAULT_TEMPLATES,
-    passwordResets: [], importPreviews: [], automations: [], automationRuns: [], journeyTemplates: DEFAULT_JOURNEY_TEMPLATES, forms: [], landingPages: [], apiKeys: [], webhooks: [], webhookDeliveries: [], exports: [],
-    integrationInstallations: [], integrationSyncRuns: [], commerceStores: [], commerceProducts: [], commerceOrders: [], revenueAttributions: [], approvalRequests: [], approvalComments: [], brandKits: [], contentTemplates: [], templateCollections: [], suppressionEntries: [], complianceAlerts: [],
-    conversations: [], conversationMessages: [], preferenceCenters: [], preferenceProfiles: [], transactionalJourneys: [], transactionalDeliveries: [], surveyPrograms: [], surveyResponses: [],
-    rateLimits: [], jobDeadLetters: []
+    ...DEFAULT_DB_STATE,
+    templates: DEFAULT_TEMPLATES.map((entry) => ({ ...entry })),
+    journeyTemplates: DEFAULT_JOURNEY_TEMPLATES.map((entry) => ({ ...entry, nodes: Array.isArray(entry.nodes) ? entry.nodes.map((node) => ({ ...node })) : [] }))
   };
 }
 
@@ -94,22 +102,24 @@ export function loadDb() {
   const dbSourcePath = fs.existsSync(paths.dbPath) ? paths.dbPath : (fs.existsSync(paths.legacyDbPath) ? paths.legacyDbPath : null);
   if (!dbSourcePath) {
     const db = initDb();
-    fs.writeFileSync(paths.dbPath, JSON.stringify(db, null, 2));
+    writeJsonFile(paths.dbPath, db);
     return db;
   }
   const db = JSON.parse(fs.readFileSync(dbSourcePath, 'utf8'));
-  db.automationRuns ||= [];
-  db.rateLimits ||= [];
-  db.jobDeadLetters ||= [];
+  for (const [key, value] of Object.entries(DEFAULT_DB_STATE)) {
+    if (db[key] == null) db[key] = Array.isArray(value) ? [] : structuredClone(value);
+  }
+  if (!Array.isArray(db.templates) || db.templates.length === 0) db.templates = DEFAULT_TEMPLATES.map((entry) => ({ ...entry }));
+  if (!Array.isArray(db.journeyTemplates) || db.journeyTemplates.length === 0) {
+    db.journeyTemplates = DEFAULT_JOURNEY_TEMPLATES.map((entry) => ({ ...entry, nodes: Array.isArray(entry.nodes) ? entry.nodes.map((node) => ({ ...node })) : [] }));
+  }
   return db;
 }
 
 export function saveDb(db) {
   const paths = dataPaths();
   ensureDir(paths.dataDir);
-  const tempPath = `${paths.dbPath}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(db, null, 2));
-  fs.renameSync(tempPath, paths.dbPath);
+  writeJsonAtomic(paths.dbPath, db);
 }
 
 export function persistState(state) {
@@ -125,7 +135,7 @@ export function writeUpload(assetId, body) {
   const paths = dataPaths();
   ensureDir(paths.uploadDir);
   const filePath = path.join(paths.uploadDir, `${assetId}.txt`);
-  fs.writeFileSync(filePath, body || '', 'utf8');
+  writeTextFile(filePath, body || '');
   return filePath;
 }
 
@@ -133,6 +143,6 @@ export function writeExport(exportId, body) {
   const paths = dataPaths();
   ensureDir(paths.exportDir);
   const filePath = path.join(paths.exportDir, `${exportId}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(body, null, 2));
+  writeJsonFile(filePath, body);
   return filePath;
 }
