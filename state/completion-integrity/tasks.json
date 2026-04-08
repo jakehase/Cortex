@@ -4571,7 +4571,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:25:51.284Z",
       "announcementPromptInjectedAt": "2026-03-19T14:25:51.284Z",
-      "updatedAt": "2026-04-08T14:34:16.650Z",
+      "updatedAt": "2026-04-08T14:38:48.884Z",
       "history": [
         {
           "from": null,
@@ -4589,9 +4589,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 540,
+        "runs": 541,
         "failures": [],
-        "lastRunAt": "2026-04-08T14:34:16.664Z",
+        "lastRunAt": "2026-04-08T14:38:48.899Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -20878,12 +20878,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775658900564:a02b79b2a87b1e32",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-08T14:35:00.564Z",
-      "updatedAt": "2026-04-08T14:35:00.576Z",
+      "updatedAt": "2026-04-08T14:40:34.852Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "sistState ok 3 - implement worker: persistence keeps legacy app.json fallback and adds persistState --- duration_ms: 20.477653 type: 'test' ... # Subtest: implement worker: integrations parity creates provider bridge and removes fabricated crm sync count ok 4 - implement worker: ",
       "history": [
         {
           "from": null,
@@ -20894,6 +20894,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-08T14:35:00.576Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-08T14:40:34.852Z",
+          "completedAt": "2026-04-08T14:40:34.852Z",
+          "completionSummary": "sistState ok 3 - implement worker: persistence keeps legacy app.json fallback and adds persistState --- duration_ms: 20.477653 type: 'test' ... # Subtest: implement worker: integrations parity creates provider bridge and removes fabricated crm sync count ok 4 - implement worker: ",
+          "completionSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -20905,18 +20913,23 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-04-08T14:40:34.861Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
       },
       "honesty": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "targetPath": null,
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
         "violations": [],
-        "status": null,
+        "status": "green",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
@@ -20924,11 +20937,11 @@
       "grounding": {
         "required": false,
         "ambiguousReference": true,
-        "proofPresent": false,
+        "proofPresent": true,
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -20936,27 +20949,29 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "contract": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "requestedFidelity": "production_slice",
         "requestedScope": "Do it",
         "stopCondition": "completed_and_delivered"
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
-      }
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-08T14:40:34.852Z",
+      "completionSource": "runtime_message"
     }
   ]
 }
