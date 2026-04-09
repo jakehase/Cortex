@@ -4436,10 +4436,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:31:13.455Z",
-      "completionSummary": "System: 2026-04-09 09:08:11 CDT Exec completed (gentle-h, code 0) :: To https://github.com/jakehase/Cortex.git fd3bc446..934acce6 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://gi… Read HEARTBEAT.md if it exists",
+      "completionSummary": "1mDocker LXC Containerm 🌐 m33m Provided by: 1;92mcommunity-scripts ORG 33m| GitHub: 1;92mhttps://github.com/community-scripts/ProxmoxVEm 🖥️ m33m OS: 1;92mDebian GNU/Linux - Version: 12m 🏠 m33m Hostname: 1;92mdockerm 💡 m33m IP Address: 1;92m10.0.0.220m /root/clawd memory/2026-",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T14:16:23.594Z",
+      "updatedAt": "2026-04-09T14:18:05.785Z",
       "history": [
         {
           "from": null,
@@ -4457,12 +4457,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 179,
+        "runs": 180,
         "failures": [],
-        "lastRunAt": "2026-04-09T14:16:23.606Z",
+        "lastRunAt": "2026-04-09T14:18:05.796Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "trustTier": "normal",
@@ -4498,7 +4498,7 @@
         "overridePath": null,
         "overrideApprovedBy": null
       },
-      "completionSource": "agent_end",
+      "completionSource": "runtime_message",
       "grounding": {
         "required": false,
         "ambiguousReference": false,
