@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T04:33:42.418Z",
+      "updatedAt": "2026-04-09T04:39:02.203Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 39,
+        "runs": 40,
         "failures": [],
-        "lastRunAt": "2026-04-09T04:33:42.429Z",
+        "lastRunAt": "2026-04-09T04:39:02.213Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22160,6 +22160,116 @@
       "failedAt": "2026-04-09T03:39:03.757Z",
       "failureReason": "System: [2026-04-08 22:34:46 CDT] Exec completed (kind-zep, code 1) :: ion-1\", \"remoteArtifactRoot\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260408-orchestration-soak-validation-1/artifacts/implementation_runs/campaign-20260408-orchestrati… Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attentio",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775709655086:c5fd69c44adb7f79",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-09T04:40:55.086Z",
+      "updatedAt": "2026-04-09T04:41:42.532Z",
+      "prompt": "Continue with this next best move",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "internal_complete",
+      "completionSummary": "iltering/bulk update, segment preview, import preview/commit, API update --- duration_ms: 163.89598 type: 'test' ... # Subtest: Wave 1 browser realism foundation: real browser proof spans major journey families ok 2 - Wave 1 browser realism foundation: real browser proof spans major journey families --- duration_ms: 4360.211019 type: 'test' ... # Subtest: conversation inbox supports creating, repl",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-09T04:40:55.086Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-09T04:40:55.099Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-09T04:41:42.532Z",
+          "completedAt": "2026-04-09T04:41:42.532Z",
+          "completionSummary": "iltering/bulk update, segment preview, import preview/commit, API update --- duration_ms: 163.89598 type: 'test' ... # Subtest: Wave 1 browser realism foundation: real browser proof spans major journey families ok 2 - Wave 1 browser realism foundation: real browser proof spans major journey families --- duration_ms: 4360.211019 type: 'test' ... # Subtest: conversation inbox supports creating, repl",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-09T04:41:42.545Z",
+            "reason": "reply_thread_anchor_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-09T04:41:42.545Z",
+        "lastDetails": {
+          "source": "runtime_message",
+          "signal": "completed"
+        }
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [
+          {
+            "rule": "honesty_target_path_missing",
+            "path": "Continue with this next best move",
+            "message": "honesty_target_path_missing"
+          }
+        ],
+        "status": "red",
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": true,
+          "required": true,
+          "proofPresent": false,
+          "replyToId": "3EB0A182323C5C6EC203FA",
+          "senderLabel": "136704681865420@lid",
+          "summary": "[Cortex] Pretty well, actually. - The soak run `campaign-20260408-orchestration-soak-validation-2` is *finished*, not stalled. - It ran for about *31 minutes* continuously, and the detached execution path held up. - It e"
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "[Cortex] Pretty well, actually. - The soak run `campaign-20260408-orchestration-soak-validation-2` is *finished*, not stalled. - It ran for about *31 minutes* continuously, and the detached execution path held up. - It e",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": true,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-09T04:41:42.532Z",
+      "completionSource": "runtime_message"
     }
   ]
 }

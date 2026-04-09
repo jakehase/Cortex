@@ -1,6 +1,7 @@
 {
   "seenKeys": [
-    "eb0ffd02bb975b4d"
+    "eb0ffd02bb975b4d",
+    "f30caa40ffb61a6c"
   ],
   "promotions": [
     {
@@ -11,6 +12,15 @@
       "summary": "canonical status: supervisorStatus=red` - `matrixStatus: partial` - `parityStatus: partial` - `blocker: null` That means: - no stale mixed-state lie - no fake green - just an honest “partial, not done yet” *Exactly which remaining surfaces are still not satisfied* These are still open: - `C_data_model_and_persistence_parity` - `E_reporting_analytics_parity` - `F_ai_predictive_optimization_parity` - `G_integrations_api_oauth_parity` - `H_website_builder_parity` *Why each one is still open* - *C_data_model_and_persistence_parity* - this is still the first real choke point - the run keeps hitting `focus.persistence` early - even after generator fixes, persistence is still not closing cleanly enough to let the rest",
       "score": 1,
       "file": "/root/clawd/memory/2026-04-07.md"
+    },
+    {
+      "at": "2026-04-09T04:40:55.080Z",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "replyToId": "3EB0A182323C5C6EC203FA",
+      "senderLabel": "136704681865420@lid",
+      "summary": "canonical status: supervisorStatus=red` - `matrixStatus: partial` - `parityStatus: blocked` So the important part is: *the orchestration behaved much better*. It stayed alive, reported heartbeats, and terminated with a real blocker instead of just going dark. The thing that stopped this run was the *Mailchimp baseline*, not the orchestration transport. Next best move is for me to inspect that baseline test log, fix the baseline breakage, then rerun the soak so we can keep proving long-haul reliability past the repo-test gate., matrixStatus=partial` - `parityStatus: blocked` So the important part is: *the orchestration behaved much better*. It stayed alive, reported heartbeats, and terminated with a real blocker",
+      "score": 0.78,
+      "file": "/root/clawd/memory/2026-04-09.md"
     }
   ]
 }
