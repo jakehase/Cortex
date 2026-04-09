@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T04:43:01.645Z",
+      "updatedAt": "2026-04-09T04:48:38.764Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 41,
+        "runs": 42,
         "failures": [],
-        "lastRunAt": "2026-04-09T04:43:01.656Z",
+        "lastRunAt": "2026-04-09T04:48:38.773Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22165,12 +22165,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775709655086:c5fd69c44adb7f79",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T04:40:55.086Z",
-      "updatedAt": "2026-04-09T04:41:42.532Z",
+      "updatedAt": "2026-04-09T04:51:18.008Z",
       "prompt": "Continue with this next best move",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "iltering/bulk update, segment preview, import preview/commit, API update --- duration_ms: 163.89598 type: 'test' ... # Subtest: Wave 1 browser realism foundation: real browser proof spans major journey families ok 2 - Wave 1 browser realism foundation: real browser proof spans major journey families --- duration_ms: 4360.211019 type: 'test' ... # Subtest: conversation inbox supports creating, repl",
+      "completionSummary": "iltering/bulk update, segment preview, import preview/commit, API update --- duration_ms: 167.77865 type: 'test' ... # Subtest: Wave 1 browser realism foundation: real browser proof spans major journey families ok 3 - Wave 1 browser realism foundation: real browser proof spans major journey families --- duration_ms: 4617.550171 type: 'test' ... # Subtest: conversation inbox supports creating, repl",
       "history": [
         {
           "from": null,
@@ -22200,14 +22200,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 1,
+        "runs": 2,
         "failures": [
           {
             "at": "2026-04-09T04:41:42.545Z",
             "reason": "reply_thread_anchor_missing"
+          },
+          {
+            "at": "2026-04-09T04:51:18.018Z",
+            "reason": "reply_thread_anchor_missing"
           }
         ],
-        "lastRunAt": "2026-04-09T04:41:42.545Z",
+        "lastRunAt": "2026-04-09T04:51:18.018Z",
         "lastDetails": {
           "source": "runtime_message",
           "signal": "completed"
