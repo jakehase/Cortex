@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T13:28:19.311Z",
+      "updatedAt": "2026-04-09T13:33:01.638Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 156,
+        "runs": 157,
         "failures": [],
-        "lastRunAt": "2026-04-09T13:28:19.321Z",
+        "lastRunAt": "2026-04-09T13:33:01.649Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22480,11 +22480,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775741100609:9e7b1b17f7b1d94e",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T13:25:00.610Z",
-      "updatedAt": "2026-04-09T13:25:00.622Z",
+      "updatedAt": "2026-04-09T13:35:34.394Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -22496,6 +22496,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-09T13:25:00.622Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-09T13:35:34.394Z",
+          "failedAt": "2026-04-09T13:35:34.394Z",
+          "failureReason": "{ \"generatedAt\": \"2026-04-09T13:35:34.281Z\", \"ok\": false, \"running\": false, \"phase\": \"remote_execution_failed\", \"requestedAgentCount\": 100, \"runId\": \"campaign-20260409-orchestration-soak-validation-10\", \"launchPid\": 2915548, \"pollCount\": 3, \"logPath\": \"artifacts/full_audit_campaign/reports/100_agent_worker.log\", \"transportStatusPath\": \"artifacts/full_audit_campaign/cortex_transport/transport_statu",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -22558,7 +22566,10 @@
         "required": false,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-09T13:35:34.394Z",
+      "failureReason": "{ \"generatedAt\": \"2026-04-09T13:35:34.281Z\", \"ok\": false, \"running\": false, \"phase\": \"remote_execution_failed\", \"requestedAgentCount\": 100, \"runId\": \"campaign-20260409-orchestration-soak-validation-10\", \"launchPid\": 2915548, \"pollCount\": 3, \"logPath\": \"artifacts/full_audit_campaign/reports/100_agent_worker.log\", \"transportStatusPath\": \"artifacts/full_audit_campaign/cortex_transport/transport_statu",
+      "failureSource": "runtime_message"
     }
   ]
 }
