@@ -4436,10 +4436,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:31:13.455Z",
-      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
+      "completionSummary": "System: 2026-04-09 11:03:40 CDT Exec completed (sharp-ha, code 0) :: To https://github.com/jakehase/Cortex.git aeb2fe92..e561f3a0 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://gi… Read HEARTBEAT.md if it exists",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T16:53:54.208Z",
+      "updatedAt": "2026-04-09T16:59:10.136Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 222,
+        "runs": 225,
         "failures": [],
-        "lastRunAt": "2026-04-09T16:53:54.222Z",
+        "lastRunAt": "2026-04-09T16:59:10.150Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22865,7 +22865,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775751566963:753a9b861777c7f7",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T16:19:26.963Z",
-      "updatedAt": "2026-04-09T16:58:03.884Z",
+      "updatedAt": "2026-04-09T16:58:41.618Z",
       "prompt": "Let’s continue this now, I want the 100 agent orchestration to be perfect now. I want a full, comprehensive, every single detail looked over type of audit on it, stress tested and all, to be sure we can get this working. It feels like we’ve",
       "kind": "user_visible",
       "trustTier": "important",
@@ -22900,7 +22900,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 5,
+        "runs": 6,
         "failures": [
           {
             "at": "2026-04-09T16:52:09.361Z",
@@ -22921,9 +22921,13 @@
           {
             "at": "2026-04-09T16:58:03.894Z",
             "reason": "reply_thread_anchor_missing"
+          },
+          {
+            "at": "2026-04-09T16:58:41.630Z",
+            "reason": "reply_thread_anchor_missing"
           }
         ],
-        "lastRunAt": "2026-04-09T16:58:03.894Z",
+        "lastRunAt": "2026-04-09T16:58:41.630Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
