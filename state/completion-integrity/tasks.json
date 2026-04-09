@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T16:13:51.383Z",
+      "updatedAt": "2026-04-09T16:18:39.658Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 214,
+        "runs": 215,
         "failures": [],
-        "lastRunAt": "2026-04-09T16:13:51.395Z",
+        "lastRunAt": "2026-04-09T16:18:39.676Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22736,11 +22736,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775750278393:753a9b861777c7f7",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T15:57:58.394Z",
-      "updatedAt": "2026-04-09T16:06:23.075Z",
+      "updatedAt": "2026-04-09T16:19:26.547Z",
       "prompt": "Let’s continue this now, I want the 100 agent orchestration to be perfect now. I want a full, comprehensive, every single detail looked over type of audit on it, stress tested and all, to be sure we can get this working. It feels like we’ve",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "/root/clawd/large-project-capability-stack/packages/campaign-runtime/index.mjs:67:export async function runDelegatedCampaignWorker( /root/clawd/large-project-capability-stack/tests/campaign-runtime.test.mjs:17: runDelegatedCampaignWorker, /root/clawd/large-project-capability-stack/tests/campaign-runtime.test.mjs:75:test('runDelegatedCampaignWorker mirrors delegate status and watchCampaignReadines",
       "history": [
         {
@@ -22760,6 +22760,14 @@
           "completedAt": "2026-04-09T16:02:01.255Z",
           "completionSummary": "ceMatrixPath: /home/jake/clawd-remote/mailchimp-runs/campaign-20260409-orchestration-soak-validation-13/artifacts/implementation_runs/campaign-20260409-orchestration-soak-validation-13/surface_matrix.json, /root/clawd/mailchimp-clone/artifacts/full_audit_campaign/reports/100_agent_worker_status.json:229: targetPath: /home/jake/clawd-remote/mailchimp-worktree-campaign-20260409-orchestration-s",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-09T16:19:26.547Z",
+          "failedAt": "2026-04-09T16:19:26.547Z",
+          "failureReason": "agent_end reported failure",
+          "failureSource": "runtime"
         }
       ],
       "delivery": {
@@ -22848,7 +22856,94 @@
         "status": "missing"
       },
       "completedAt": "2026-04-09T16:02:01.255Z",
-      "completionSource": "runtime_message"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-09T16:19:26.547Z",
+      "failureReason": "agent_end reported failure",
+      "failureSource": "runtime"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775751566963:753a9b861777c7f7",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-09T16:19:26.963Z",
+      "updatedAt": "2026-04-09T16:19:26.976Z",
+      "prompt": "Let’s continue this now, I want the 100 agent orchestration to be perfect now. I want a full, comprehensive, every single detail looked over type of audit on it, stress tested and all, to be sure we can get this working. It feels like we’ve",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-09T16:19:26.963Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-09T16:19:26.976Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": true,
+          "required": true,
+          "proofPresent": false,
+          "replyToId": "3EB0541317C4266D4AA13B",
+          "senderLabel": "136704681865420@lid",
+          "summary": "[Cortex] Done, I kept going. - I patched the shared supervisor logic so a shard that later merges no longer stays red forever because an earlier attempt was rejected. - I patched the Mailchimp clean supervisor to use the"
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "[Cortex] Done, I kept going. - I patched the shared supervisor logic so a shard that later merges no longer stays red forever because an earlier attempt was rejected. - I patched the Mailchimp clean supervisor to use the",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
