@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T03:33:23.181Z",
+      "updatedAt": "2026-04-09T03:38:36.926Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 27,
+        "runs": 28,
         "failures": [],
-        "lastRunAt": "2026-04-09T03:33:23.190Z",
+        "lastRunAt": "2026-04-09T03:38:36.935Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22064,6 +22064,101 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-09T03:34:52.235Z",
       "failureReason": "clean-supervisor.mjs\", \"sha256\": \"760e77d692c7492fcfa99adceefa656a9c61f853815381e6010c77c9b7481227\" }, { \"path\": \"scripts/orchestrator-real-repo-clean-implement.mjs\", \"sha256\": \"f467f0f9fea5ef9ebd387591e80ce7d6d75b90d6d1d54e4a7afc710b5c7a915d\" }, { \"path\": \"scripts/lib/full-audit-campaign-state.mjs\", \"sha256\": \"52d2948579583b07fdacbf8afddcb2ae4f35bb2a6136ace6ac59aede5b56e9f2\" }, { \"path\": \"scripts",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775705942440:3d9394e77d1d5e19",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-09T03:39:02.440Z",
+      "updatedAt": "2026-04-09T03:39:03.757Z",
+      "prompt": "System: [2026-04-08 22:34:46 CDT] Exec completed (kind-zep, code 1) :: ion-1\", \"remoteArtifactRoot\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260408-orchestration-soak-validation-1/artifacts/implementation_runs/campaign-20260408-o",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-09T03:39:02.440Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-09T03:39:02.452Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-09T03:39:03.757Z",
+          "failedAt": "2026-04-09T03:39:03.757Z",
+          "failureReason": "System: [2026-04-08 22:34:46 CDT] Exec completed (kind-zep, code 1) :: ion-1\", \"remoteArtifactRoot\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260408-orchestration-soak-validation-1/artifacts/implementation_runs/campaign-20260408-orchestrati… Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attentio",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-08 22:34:46 CDT] Exec completed (kind-zep, code 1) :: ion-1\", \"remoteArtifactRoot\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260408-orchestration-soak-validation-1/artifacts/implementation_runs",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-09T03:39:03.757Z",
+      "failureReason": "System: [2026-04-08 22:34:46 CDT] Exec completed (kind-zep, code 1) :: ion-1\", \"remoteArtifactRoot\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260408-orchestration-soak-validation-1/artifacts/implementation_runs/campaign-20260408-orchestrati… Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attentio",
       "failureSource": "runtime_message"
     }
   ]
