@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T02:48:10.164Z",
+      "updatedAt": "2026-04-09T02:53:14.876Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 18,
+        "runs": 19,
         "failures": [],
-        "lastRunAt": "2026-04-09T02:48:10.173Z",
+        "lastRunAt": "2026-04-09T02:53:14.885Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -21960,7 +21960,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775698005163:fb7f4aef48f81b5a",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T01:26:45.163Z",
-      "updatedAt": "2026-04-09T02:30:29.357Z",
+      "updatedAt": "2026-04-09T02:56:15.539Z",
       "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-04-08.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, DREAMS.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this f",
       "kind": "user_visible",
       "trustTier": "normal",
@@ -21995,9 +21995,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 6,
+        "runs": 7,
         "failures": [],
-        "lastRunAt": "2026-04-09T02:30:29.369Z",
+        "lastRunAt": "2026-04-09T02:56:15.551Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
