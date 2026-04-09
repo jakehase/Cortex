@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T14:23:42.167Z",
+      "updatedAt": "2026-04-09T14:29:07.850Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 182,
+        "runs": 183,
         "failures": [],
-        "lastRunAt": "2026-04-09T14:23:42.179Z",
+        "lastRunAt": "2026-04-09T14:29:07.859Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22575,7 +22575,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775743038960:27bbab3ce304e79b",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T13:57:18.960Z",
-      "updatedAt": "2026-04-09T14:15:54.382Z",
+      "updatedAt": "2026-04-09T14:29:48.920Z",
       "prompt": "Continue the fixes",
       "kind": "user_visible",
       "trustTier": "important",
@@ -22610,7 +22610,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 2,
+        "runs": 3,
         "failures": [
           {
             "at": "2026-04-09T13:58:14.552Z",
@@ -22619,9 +22619,13 @@
           {
             "at": "2026-04-09T14:15:54.397Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-09T14:29:48.929Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-09T14:15:54.397Z",
+        "lastRunAt": "2026-04-09T14:29:48.929Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
