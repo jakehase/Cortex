@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T03:28:08.141Z",
+      "updatedAt": "2026-04-09T03:33:23.181Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 26,
+        "runs": 27,
         "failures": [],
-        "lastRunAt": "2026-04-09T03:28:08.150Z",
+        "lastRunAt": "2026-04-09T03:33:23.190Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -21960,11 +21960,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775698005163:fb7f4aef48f81b5a",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T01:26:45.163Z",
-      "updatedAt": "2026-04-09T02:58:17.376Z",
+      "updatedAt": "2026-04-09T03:34:52.235Z",
       "prompt": "Pre-compaction memory flush. Store durable memories only in memory/2026-04-08.md (create memory/ if needed). Treat workspace bootstrap/reference files such as MEMORY.md, DREAMS.md, SOUL.md, TOOLS.md, and AGENTS.md as read-only during this f",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 ",
       "history": [
         {
@@ -21984,6 +21984,14 @@
           "completedAt": "2026-04-09T01:27:51.478Z",
           "completionSummary": "A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 ",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-09T03:34:52.235Z",
+          "failedAt": "2026-04-09T03:34:52.235Z",
+          "failureReason": "clean-supervisor.mjs\", \"sha256\": \"760e77d692c7492fcfa99adceefa656a9c61f853815381e6010c77c9b7481227\" }, { \"path\": \"scripts/orchestrator-real-repo-clean-implement.mjs\", \"sha256\": \"f467f0f9fea5ef9ebd387591e80ce7d6d75b90d6d1d54e4a7afc710b5c7a915d\" }, { \"path\": \"scripts/lib/full-audit-campaign-state.mjs\", \"sha256\": \"52d2948579583b07fdacbf8afddcb2ae4f35bb2a6136ace6ac59aede5b56e9f2\" }, { \"path\": \"scripts",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -22053,7 +22061,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-09T01:27:51.478Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-09T03:34:52.235Z",
+      "failureReason": "clean-supervisor.mjs\", \"sha256\": \"760e77d692c7492fcfa99adceefa656a9c61f853815381e6010c77c9b7481227\" }, { \"path\": \"scripts/orchestrator-real-repo-clean-implement.mjs\", \"sha256\": \"f467f0f9fea5ef9ebd387591e80ce7d6d75b90d6d1d54e4a7afc710b5c7a915d\" }, { \"path\": \"scripts/lib/full-audit-campaign-state.mjs\", \"sha256\": \"52d2948579583b07fdacbf8afddcb2ae4f35bb2a6136ace6ac59aede5b56e9f2\" }, { \"path\": \"scripts",
+      "failureSource": "runtime_message"
     }
   ]
 }
