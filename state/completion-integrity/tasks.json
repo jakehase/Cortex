@@ -4436,10 +4436,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:31:13.455Z",
-      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
+      "completionSummary": "System: 2026-04-09 08:22:59 CDT Exec completed (delta-fa, code 0) :: To https://github.com/jakehase/Cortex.git ab95bfa5..dabd8670 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://gi… Read HEARTBEAT.md if it exists",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T13:18:15.818Z",
+      "updatedAt": "2026-04-09T13:23:35.200Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 150,
+        "runs": 154,
         "failures": [],
-        "lastRunAt": "2026-04-09T13:18:15.827Z",
+        "lastRunAt": "2026-04-09T13:23:35.209Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22475,6 +22475,90 @@
       "failedAt": "2026-04-09T13:13:52.813Z",
       "failureReason": "System: [2026-04-09 08:09:34 CDT] Exec completed (young-bl, code 0) :: cture slice --- duration_ms: 1.281446 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 151 - workspace-catalog package e… System: [2026-04-09 08:11:11 CDT] Exec completed (fresh-sl, code 1) :: se, \"sourcePath\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260409-o",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775741100609:9e7b1b17f7b1d94e",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-09T13:25:00.610Z",
+      "updatedAt": "2026-04-09T13:25:00.622Z",
+      "prompt": "Do it",
+      "kind": "user_visible",
+      "trustTier": "normal",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-09T13:25:00.610Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-09T13:25:00.622Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": false,
+        "mode": "light",
+        "passed": true,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": false,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": false,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": false,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do it",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
