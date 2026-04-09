@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T15:03:53.572Z",
+      "updatedAt": "2026-04-09T15:08:39.728Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 193,
+        "runs": 194,
         "failures": [],
-        "lastRunAt": "2026-04-09T15:03:53.585Z",
+        "lastRunAt": "2026-04-09T15:08:39.739Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22579,12 +22579,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775743038960:27bbab3ce304e79b",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T13:57:18.960Z",
-      "updatedAt": "2026-04-09T14:59:48.926Z",
+      "updatedAt": "2026-04-09T15:13:29.130Z",
       "prompt": "Continue the fixes",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 sentences and ask what they want to do. If the runtime model differs from default_model in the system prompt, mention the default model. Do not mention internal steps, files, tools, or reasoning. Current time: Thursday, April 9th, 2026 - 9:59 AM (America/Chicago) / 2026-04-09 14:",
+      "completionSummary": "type:message,id:ef0ed1a2,parentId:9417097c,timestamp:2026-04-06T16:37:49.950Z,message:role:assistant,content:type:toolCall,id:call_KGVdhtmmkX9LYpDW4AqXsVn2|fc_0b4fa25b284a66910169d3e15aab0081968214f88ba0f41649,name:edit,arguments:path:/root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-remote-execution.mjs,oldText: if (blockerText) \\n fs.w",
       "history": [
         {
           "from": null,
@@ -22614,7 +22614,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 5,
+        "runs": 9,
         "failures": [
           {
             "at": "2026-04-09T13:58:14.552Z",
@@ -22635,12 +22635,28 @@
           {
             "at": "2026-04-09T14:59:48.936Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-09T15:11:03.837Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-09T15:11:33.223Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-09T15:13:23.899Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-09T15:13:29.142Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-09T14:59:48.936Z",
+        "lastRunAt": "2026-04-09T15:13:29.142Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -22699,7 +22715,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-09T13:58:14.541Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
