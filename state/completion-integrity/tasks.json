@@ -4436,10 +4436,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:31:13.455Z",
-      "completionSummary": "[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files.\\nCurrent time: Thursday, March 19th, 2026 — 9:30 AM (America/Chicago) / 2026-03-19 14:30 UTC\"}],\"timestamp\":1773930653782},{\"role\":\"custom\",\"customType\":\"cortex-routing\",\"conte",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-03-19T14:31:13.455Z",
+      "updatedAt": "2026-04-09T01:38:37.940Z",
       "history": [
         {
           "from": null,
@@ -4457,41 +4457,61 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [],
+        "lastRunAt": "2026-04-09T01:38:37.952Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "trustTier": "normal",
       "contract": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "requestedFidelity": null,
         "requestedScope": null,
         "stopCondition": null
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
         "supervisorStatus": null,
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": false,
-        "proofPresent": false,
-        "status": null
+        "proofPresent": true,
+        "status": "missing"
       },
       "honesty": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "targetPath": null,
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
         "violations": [],
-        "status": null,
+        "status": "green",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
+      },
+      "completionSource": "agent_end",
+      "grounding": {
+        "required": false,
+        "ambiguousReference": false,
+        "proofPresent": true,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
       }
     },
     {
