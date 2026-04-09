@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-09T13:08:09.427Z",
+      "updatedAt": "2026-04-09T13:13:20.875Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 148,
+        "runs": 149,
         "failures": [],
-        "lastRunAt": "2026-04-09T13:08:09.436Z",
+        "lastRunAt": "2026-04-09T13:13:20.887Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -22379,6 +22379,101 @@
       },
       "failedAt": "2026-04-09T05:10:48.068Z",
       "failureReason": "System: [2026-04-08 23:41:34 CDT] Exec completed (briny-co, code 0) :: d qualitative comments --- duration_ms: 30.950352 type: 'test' ... # Subtest: transactional journeys support creation, activation, and sample dispatches ok 8 - transactional journ… System: [2026-04-08 23:47:02 CDT] Exec failed (nova-mis, signal SIGKILL) :: Object.handler (file:///home/jake/clawd-remote/mailchimp-clone/packages/",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775740431517:a40f25ed046e1159",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-09T13:13:51.517Z",
+      "updatedAt": "2026-04-09T13:13:52.813Z",
+      "prompt": "System: [2026-04-09 08:09:34 CDT] Exec completed (young-bl, code 0) :: cture slice --- duration_ms: 1.281446 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 151 - workspace-catalog",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-09T13:13:51.517Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-09T13:13:51.530Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-09T13:13:52.813Z",
+          "failedAt": "2026-04-09T13:13:52.813Z",
+          "failureReason": "System: [2026-04-09 08:09:34 CDT] Exec completed (young-bl, code 0) :: cture slice --- duration_ms: 1.281446 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 151 - workspace-catalog package e… System: [2026-04-09 08:11:11 CDT] Exec completed (fresh-sl, code 1) :: se, \"sourcePath\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260409-o",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-09 08:09:34 CDT] Exec completed (young-bl, code 0) :: cture slice --- duration_ms: 1.281446 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 151",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": false,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-09T13:13:52.813Z",
+      "failureReason": "System: [2026-04-09 08:09:34 CDT] Exec completed (young-bl, code 0) :: cture slice --- duration_ms: 1.281446 type: 'test' ... # Subtest: workspace-catalog package exposes snapshot, policy, route, and fixture depth ok 151 - workspace-catalog package e… System: [2026-04-09 08:11:11 CDT] Exec completed (fresh-sl, code 1) :: se, \"sourcePath\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260409-o",
       "failureSource": "runtime_message"
     }
   ]
