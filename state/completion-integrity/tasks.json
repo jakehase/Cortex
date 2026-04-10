@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T22:39:24.812Z",
+      "updatedAt": "2026-04-10T22:44:13.564Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 603,
+        "runs": 604,
         "failures": [],
-        "lastRunAt": "2026-04-10T22:39:24.826Z",
+        "lastRunAt": "2026-04-10T22:44:13.579Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -29915,7 +29915,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775857790426:031fe9c1da8cab00",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-10T21:49:50.426Z",
-      "updatedAt": "2026-04-10T22:37:51.883Z",
+      "updatedAt": "2026-04-10T22:47:32.606Z",
       "prompt": "Okay rerun the mailchimp clone campaign",
       "kind": "user_visible",
       "trustTier": "important",
@@ -29950,7 +29950,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 7,
+        "runs": 13,
         "failures": [
           {
             "at": "2026-04-10T21:55:09.447Z",
@@ -29979,9 +29979,33 @@
           {
             "at": "2026-04-10T22:37:51.899Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T22:45:19.696Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T22:45:42.964Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T22:46:27.048Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T22:47:13.637Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T22:47:20.574Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T22:47:32.620Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-10T22:37:51.899Z",
+        "lastRunAt": "2026-04-10T22:47:32.620Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
