@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T21:49:58.013Z",
+      "updatedAt": "2026-04-10T21:55:04.496Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 593,
+        "runs": 594,
         "failures": [],
-        "lastRunAt": "2026-04-10T21:49:58.034Z",
+        "lastRunAt": "2026-04-10T21:55:04.511Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -29915,12 +29915,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775857790426:031fe9c1da8cab00",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-10T21:49:50.426Z",
-      "updatedAt": "2026-04-10T21:49:50.443Z",
+      "updatedAt": "2026-04-10T21:55:25.712Z",
       "prompt": "Okay rerun the mailchimp clone campaign",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "Queued messages while agent was busy --- Queued #1 Status? --- Queued #2 ? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. The goal is to come back with answers, not questions. **Earn trust through competence.** Your human gave you access to their stuff. Don't make them regret it. Be careful with external actions (emails, tweets, anything public). Be bold with internal ones (reading, organizing, lea",
       "history": [
         {
           "from": null,
@@ -29931,6 +29931,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-10T21:49:50.443Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-10T21:55:09.431Z",
+          "completedAt": "2026-04-10T21:55:09.431Z",
+          "completionSummary": "Queued messages while agent was busy --- Queued #1 Status? --- Queued #2 ? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. The goal is to come back with answers, not questions. **Earn trust through competence.** Your human gave you access to their stuff. Don't make them regret it. Be careful with external actions (emails, tweets, anything public). Be bold with internal ones (reading, organizing, lea",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -29942,8 +29950,26 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 3,
+        "failures": [
+          {
+            "at": "2026-04-10T21:55:09.447Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T21:55:16.564Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T21:55:25.726Z",
+            "reason": "honesty_target_path_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-10T21:55:25.726Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "honesty": {
         "required": true,
@@ -29952,8 +29978,14 @@
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
-        "violations": [],
-        "status": null,
+        "violations": [
+          {
+            "rule": "honesty_target_path_missing",
+            "path": "Okay rerun the mailchimp clone campaign",
+            "message": "honesty_target_path_missing"
+          }
+        ],
+        "status": "red",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
@@ -29965,7 +29997,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -29973,14 +30005,14 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "claimIntegrity": {
         "required": false,
         "progressEstimatePresent": false,
         "responseFramed": false,
         "artifactReferenced": false,
-        "passed": null,
+        "passed": true,
         "autoGenerated": false,
         "reportPath": null,
         "responseFramePath": null,
@@ -30013,8 +30045,10 @@
       "surfaceMatrix": {
         "required": true,
         "proofPresent": false,
-        "status": null
-      }
+        "status": "missing"
+      },
+      "completedAt": "2026-04-10T21:55:09.431Z",
+      "completionSource": "agent_end"
     }
   ]
 }
