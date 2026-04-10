@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T00:18:56.094Z",
+      "updatedAt": "2026-04-10T00:23:53.208Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 322,
+        "runs": 323,
         "failures": [],
-        "lastRunAt": "2026-04-10T00:18:56.104Z",
+        "lastRunAt": "2026-04-10T00:23:53.221Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -23006,7 +23006,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775754472655:d27c9067c505070d",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-09T17:07:52.656Z",
-      "updatedAt": "2026-04-10T00:15:05.335Z",
+      "updatedAt": "2026-04-10T00:24:48.175Z",
       "prompt": "System: [2026-04-09 12:06:00 CDT] Exec completed (warm-rid, code 0) :: Context.<anonymous> (file:///root/clawd/mailchimp-clone/tests/implement-worker.regressions.test.mjs:44:21) /root/clawd/mailchimp-clone/artifacts/full_audit_campaign/gene",
       "kind": "user_visible",
       "trustTier": "important",
@@ -23041,7 +23041,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 17,
+        "runs": 18,
         "failures": [
           {
             "at": "2026-04-09T17:07:54.017Z",
@@ -23110,9 +23110,13 @@
           {
             "at": "2026-04-10T00:15:05.347Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T00:24:48.187Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-10T00:15:05.347Z",
+        "lastRunAt": "2026-04-10T00:24:48.187Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
