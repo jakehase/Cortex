@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T05:54:01.235Z",
+      "updatedAt": "2026-04-10T05:59:12.945Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 392,
+        "runs": 393,
         "failures": [],
-        "lastRunAt": "2026-04-10T05:54:01.251Z",
+        "lastRunAt": "2026-04-10T05:59:12.965Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -23403,6 +23403,97 @@
       "failedAt": "2026-04-10T03:47:23.730Z",
       "failureReason": "if (inferTrustTier(prompt, cfg) !== 'important') return false; const p = normalizeSoft(sanitizePrompt(prompt)); return /(implement|fix|build|wire|patch|deploy|create|update|continue|phase\\s*[0-9]+|phases\\s*[0-9-]+|roadmap|clone|follow the previous|follow the roadmap)/.test(p); } function needsCloneParityContract(prompt, cfg) { if (inferTrustTier(prompt, cfg) !== 'important') return false; const p",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "sess:1775800966657:a92921cb400b751f",
+      "sessionKey": "sess",
+      "createdAt": "2026-04-10T06:02:46.657Z",
+      "updatedAt": "2026-04-10T06:02:46.673Z",
+      "prompt": "Do it — implement phases 1-3 from the previous roadmap",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "running",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-10T06:02:46.658Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-10T06:02:46.673Z"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "claimIntegrity": {
+        "required": false,
+        "progressEstimatePresent": false,
+        "responseFramed": false,
+        "artifactReferenced": false,
+        "passed": null
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Do it — implement phases 1-3 from the previous roadmap",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      }
     }
   ]
 }
