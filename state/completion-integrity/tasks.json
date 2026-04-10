@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T02:39:17.833Z",
+      "updatedAt": "2026-04-10T02:43:41.395Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 350,
+        "runs": 351,
         "failures": [],
-        "lastRunAt": "2026-04-10T02:39:17.845Z",
+        "lastRunAt": "2026-04-10T02:43:41.404Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -23294,12 +23294,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775782727153:94fdee6480dc1de5",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-10T00:58:47.153Z",
-      "updatedAt": "2026-04-10T02:28:44.209Z",
+      "updatedAt": "2026-04-10T02:44:49.462Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 ",
+      "completionSummary": "Queued messages while agent was busy --- Queued #1 How’s this going? --- Queued #2 ? results:,provider:cortex-http,mode:semantic_hybrid,memoryMode:investigate,queryType:recent-summary,timeline,resolvedFacts:,conflicts:,fallback:from:memory,reason:clean_but_empty,suggestion:No rel",
       "history": [
         {
           "from": null,
@@ -23329,9 +23329,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 17,
+        "runs": 18,
         "failures": [],
-        "lastRunAt": "2026-04-10T02:28:44.221Z",
+        "lastRunAt": "2026-04-10T02:44:49.474Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
