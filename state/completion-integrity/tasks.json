@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T10:53:55.586Z",
+      "updatedAt": "2026-04-10T10:58:41.139Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 452,
+        "runs": 453,
         "failures": [],
-        "lastRunAt": "2026-04-10T10:53:55.596Z",
+        "lastRunAt": "2026-04-10T10:58:41.151Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -23506,11 +23506,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775816465163:72699478010e3192",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-10T10:21:05.163Z",
-      "updatedAt": "2026-04-10T10:21:23.775Z",
+      "updatedAt": "2026-04-10T10:59:04.653Z",
       "prompt": "System: [2026-04-10 05:18:44 CDT] Exec completed (fast-cru, code 0) :: mp/debug-claim-test.mjs:1:import { createCompletionIntegrityEngine } from '/root/clawd/plugins/completion-integrity/core.mjs'; /root/clawd/_tmp/debug-claim-integrity.mjs",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Is this wired into the existing supervisor/completion-integrity flow? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check ",
       "history": [
         {
@@ -23530,6 +23530,14 @@
           "completedAt": "2026-04-10T10:21:09.401Z",
           "completionSummary": "System: 2026-04-10 05:18:44 CDT Exec completed (fast-cru, code 0) :: mp/debug-claim-test.mjs:1:import createCompletionIntegrityEngine from '/root/clawd/plugins/completion-integrity/core.mjs'; /root/clawd/_tmp/debug-claim-integrity.mjs:1:import … System: 2026-04-10 05:19:20 CDT Exec completed (tidal-tr, code 0) :: requests rather than misclassifying them as questions --- duration_ms: 1.2127",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-10T10:59:04.653Z",
+          "failedAt": "2026-04-10T10:59:04.653Z",
+          "failureReason": "r-qualification/supervisor.mjs:11:const matrix = compileSurfaceMatrix({ contract, graph, surfaces: surfaceDefinitions() }); /root/clawd/large-project-capability-stack/apps/campaign-demo/supervisor.mjs:6:import { compileSurfaceMatrix, saveMatrix } from '../../packages/surface-matrix/index.mjs'; /root/clawd/large-project-capability-stack/apps/campaign-demo/supervisor.mjs:13:const matrixPath = path.j",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -23621,7 +23629,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-10T10:21:09.401Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-10T10:59:04.653Z",
+      "failureReason": "r-qualification/supervisor.mjs:11:const matrix = compileSurfaceMatrix({ contract, graph, surfaces: surfaceDefinitions() }); /root/clawd/large-project-capability-stack/apps/campaign-demo/supervisor.mjs:6:import { compileSurfaceMatrix, saveMatrix } from '../../packages/surface-matrix/index.mjs'; /root/clawd/large-project-capability-stack/apps/campaign-demo/supervisor.mjs:13:const matrixPath = path.j",
+      "failureSource": "runtime_message"
     }
   ]
 }
