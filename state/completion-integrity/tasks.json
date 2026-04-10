@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T16:44:47.941Z",
+      "updatedAt": "2026-04-10T16:49:38.464Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 531,
+        "runs": 532,
         "failures": [],
-        "lastRunAt": "2026-04-10T16:44:47.957Z",
+        "lastRunAt": "2026-04-10T16:49:38.478Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -29363,11 +29363,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775821798288:6b45161248fb22ea",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-10T11:49:58.289Z",
-      "updatedAt": "2026-04-10T16:44:39.785Z",
+      "updatedAt": "2026-04-10T16:53:13.682Z",
       "prompt": "Okay let’s run the 100 agent orchestration on the Mailchimp clone",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Is this wired into the existing supervisor/completion-integrity flow? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. The goal is to come back with answers, not questions. **Earn trust through competence.** Your human gave you access to their stuff. Don't make them regret it. Be careful with external actions (emails, tweets, anything public). Be bold with internal ones (reading, organizing, learning",
       "history": [
         {
@@ -29387,6 +29387,14 @@
           "completedAt": "2026-04-10T11:57:50.944Z",
           "completionSummary": "Is this wired into the existing supervisor/completion-integrity flow? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check ",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-10T16:53:13.682Z",
+          "failedAt": "2026-04-10T16:53:13.681Z",
+          "failureReason": "System: [2026-04-10 11:53:07 CDT] Exec failed (wild-cor, signal SIGKILL) Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. When reading HEARTBEAT.md, use workspace file /root/clawd/HEARTBEAT.md (exact case). Do not read docs/heartbeat.md. Current time: Friday, April 10th, 2026 -",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -29398,7 +29406,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 14,
+        "runs": 16,
         "failures": [
           {
             "at": "2026-04-10T11:57:50.957Z",
@@ -29455,9 +29463,17 @@
           {
             "at": "2026-04-10T16:44:39.800Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T16:50:52.431Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T16:51:54.986Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-10T16:44:39.800Z",
+        "lastRunAt": "2026-04-10T16:51:54.986Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -29527,7 +29543,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-10T11:57:50.944Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-10T16:53:13.681Z",
+      "failureReason": "System: [2026-04-10 11:53:07 CDT] Exec failed (wild-cor, signal SIGKILL) Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. When reading HEARTBEAT.md, use workspace file /root/clawd/HEARTBEAT.md (exact case). Do not read docs/heartbeat.md. Current time: Friday, April 10th, 2026 -",
+      "failureSource": "runtime_message"
     }
   ]
 }
