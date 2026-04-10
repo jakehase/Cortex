@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T10:58:41.139Z",
+      "updatedAt": "2026-04-10T11:03:47.484Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 453,
+        "runs": 454,
         "failures": [],
-        "lastRunAt": "2026-04-10T10:58:41.151Z",
+        "lastRunAt": "2026-04-10T11:03:47.497Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -23632,6 +23632,108 @@
       "completionSource": "agent_end",
       "failedAt": "2026-04-10T10:59:04.653Z",
       "failureReason": "r-qualification/supervisor.mjs:11:const matrix = compileSurfaceMatrix({ contract, graph, surfaces: surfaceDefinitions() }); /root/clawd/large-project-capability-stack/apps/campaign-demo/supervisor.mjs:6:import { compileSurfaceMatrix, saveMatrix } from '../../packages/surface-matrix/index.mjs'; /root/clawd/large-project-capability-stack/apps/campaign-demo/supervisor.mjs:13:const matrixPath = path.j",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775819258052:8ac1e254f1d976fb",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-10T11:07:38.052Z",
+      "updatedAt": "2026-04-10T11:07:40.128Z",
+      "prompt": "System: [2026-04-10 05:59:08 CDT] Exec completed (tidy-fjo, code 0) :: 04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/scripts/real-repo-100-agent-expansion-campaign.mjs:209:const finalMatrix = compileSurfaceMatrix({ contract, graph, ",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-10T11:07:38.052Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-10T11:07:38.064Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-10T11:07:40.128Z",
+          "failedAt": "2026-04-10T11:07:40.128Z",
+          "failureReason": "System: [2026-04-10 05:59:08 CDT] Exec completed (tidy-fjo, code 0) :: 04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/scripts/real-repo-100-agent-expansion-campaign.mjs:209:const finalMatrix = compileSurfaceMatrix({ contract, graph, surfaces: … System: [2026-04-10 06:05:17 CDT] Exec completed (nova-gla, code 1) :: requests rather than misclassifying them as questions --- duration_ms: 1.1645",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "claimIntegrity": {
+        "required": false,
+        "progressEstimatePresent": false,
+        "responseFramed": false,
+        "artifactReferenced": false,
+        "passed": null
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-10 05:59:08 CDT] Exec completed (tidy-fjo, code 0) :: 04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/scripts/real-repo-100-agent-expansion-campaign.mjs:209:const finalMatrix = compileSurfaceMatrix",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-10T11:07:40.128Z",
+      "failureReason": "System: [2026-04-10 05:59:08 CDT] Exec completed (tidy-fjo, code 0) :: 04-05-mailchimp-fluff-tests-and-wave6/mailchimp-clone/scripts/real-repo-100-agent-expansion-campaign.mjs:209:const finalMatrix = compileSurfaceMatrix({ contract, graph, surfaces: … System: [2026-04-10 06:05:17 CDT] Exec completed (nova-gla, code 1) :: requests rather than misclassifying them as questions --- duration_ms: 1.1645",
       "failureSource": "runtime_message"
     }
   ]
