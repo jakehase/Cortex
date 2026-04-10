@@ -4439,7 +4439,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T10:13:40.307Z",
+      "updatedAt": "2026-04-10T10:18:52.843Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 444,
+        "runs": 445,
         "failures": [],
-        "lastRunAt": "2026-04-10T10:13:40.320Z",
+        "lastRunAt": "2026-04-10T10:18:52.860Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -23501,6 +23501,127 @@
         "proofPresent": false,
         "status": null
       }
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775816465163:72699478010e3192",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-10T10:21:05.163Z",
+      "updatedAt": "2026-04-10T10:21:23.775Z",
+      "prompt": "System: [2026-04-10 05:18:44 CDT] Exec completed (fast-cru, code 0) :: mp/debug-claim-test.mjs:1:import { createCompletionIntegrityEngine } from '/root/clawd/plugins/completion-integrity/core.mjs'; /root/clawd/_tmp/debug-claim-integrity.mjs",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "internal_complete",
+      "completionSummary": "Is this wired into the existing supervisor/completion-integrity flow? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check ",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-10T10:21:05.163Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-10T10:21:05.177Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-10T10:21:09.401Z",
+          "completedAt": "2026-04-10T10:21:09.401Z",
+          "completionSummary": "System: 2026-04-10 05:18:44 CDT Exec completed (fast-cru, code 0) :: mp/debug-claim-test.mjs:1:import createCompletionIntegrityEngine from '/root/clawd/plugins/completion-integrity/core.mjs'; /root/clawd/_tmp/debug-claim-integrity.mjs:1:import … System: 2026-04-10 05:19:20 CDT Exec completed (tidal-tr, code 0) :: requests rather than misclassifying them as questions --- duration_ms: 1.2127",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 2,
+        "failures": [
+          {
+            "at": "2026-04-10T10:21:09.421Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-10T10:21:23.786Z",
+            "reason": "honesty_target_path_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-10T10:21:23.786Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [
+          {
+            "rule": "honesty_target_path_missing",
+            "path": "System: [2026-04-10 05:18:44 CDT] Exec completed (fast-cru, code 0) :: mp/debug-claim-test.mjs:1:import { createCompletionIntegrityEngine } from '/root/clawd/plugins/completion-integrity/core.mjs'; /root/clawd/_tmp/debug-claim-integrity.mjs",
+            "message": "honesty_target_path_missing"
+          }
+        ],
+        "status": "red",
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
+      },
+      "claimIntegrity": {
+        "required": false,
+        "progressEstimatePresent": false,
+        "responseFramed": false,
+        "artifactReferenced": false,
+        "passed": true
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-10 05:18:44 CDT] Exec completed (fast-cru, code 0) :: mp/debug-claim-test.mjs:1:import { createCompletionIntegrityEngine } from '/root/clawd/plugins/completion-integrity/core.mjs'; /root/clawd/_tmp/debug",
+        "stopCondition": "completed_and_delivered"
+      },
+      "campaign": {
+        "required": false,
+        "proofPresent": true,
+        "modeRequired": null,
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": false,
+        "proofPresent": true,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-10T10:21:09.401Z",
+      "completionSource": "agent_end"
     }
   ]
 }
