@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T17:34:17.818Z",
+      "updatedAt": "2026-04-10T17:39:27.326Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 541,
+        "runs": 542,
         "failures": [],
-        "lastRunAt": "2026-04-10T17:34:17.833Z",
+        "lastRunAt": "2026-04-10T17:39:27.341Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -29552,11 +29552,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775842324377:8c4a845a951f7212",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-10T17:32:04.377Z",
-      "updatedAt": "2026-04-10T17:32:04.393Z",
+      "updatedAt": "2026-04-10T17:43:14.321Z",
       "prompt": "Fix it",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -29568,6 +29568,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-10T17:32:04.393Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-10T17:43:14.321Z",
+          "failedAt": "2026-04-10T17:43:14.321Z",
+          "failureReason": "file:///root/clawd/mailchimp-clone/scripts/full-audit-campaign-persistent-runner.mjs:116 writeJson(SYNC_STATUS_PATH, { ^ ReferenceError: SYNC_STATUS_PATH is not defined at seedIterationTruth (file:///root/clawd/mailchimp-clone/scripts/full-audit-campaign-persistent-runner.mjs:116:13) at file:///root/clawd/mailchimp-clone/scripts/full-audit-campaign-persistent-runner.mjs:150:3 at ModuleJob.run (nod",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -29651,7 +29659,10 @@
         "required": false,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-10T17:43:14.321Z",
+      "failureReason": "file:///root/clawd/mailchimp-clone/scripts/full-audit-campaign-persistent-runner.mjs:116 writeJson(SYNC_STATUS_PATH, { ^ ReferenceError: SYNC_STATUS_PATH is not defined at seedIterationTruth (file:///root/clawd/mailchimp-clone/scripts/full-audit-campaign-persistent-runner.mjs:116:13) at file:///root/clawd/mailchimp-clone/scripts/full-audit-campaign-persistent-runner.mjs:150:3 at ModuleJob.run (nod",
+      "failureSource": "runtime_message"
     }
   ]
 }
