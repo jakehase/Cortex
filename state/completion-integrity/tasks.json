@@ -4436,10 +4436,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:31:13.455Z",
-      "completionSummary": "System: 2026-04-09 22:33:34 CDT Exec completed (fast-sab, code 0) :: To https://github.com/jakehase/Cortex.git 02627c06..62c6f0e4 HEAD -> openclaw-sync branch 'master' set up to track 'origin/openclaw-sync'. pushed clean cortex export to https://gi… Read HEARTBEAT.md if it exists",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-10T03:41:13.527Z",
+      "updatedAt": "2026-04-10T03:43:52.284Z",
       "history": [
         {
           "from": null,
@@ -4457,9 +4457,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 365,
+        "runs": 366,
         "failures": [],
-        "lastRunAt": "2026-04-10T03:41:13.537Z",
+        "lastRunAt": "2026-04-10T03:43:52.294Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -23294,11 +23294,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775782727153:94fdee6480dc1de5",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-10T00:58:47.153Z",
-      "updatedAt": "2026-04-10T03:40:50.687Z",
+      "updatedAt": "2026-04-10T03:47:23.730Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Queued messages while agent was busy --- Queued #1 How’s this going? --- Queued #2 ? results:,provider:cortex-http,mode:semantic_hybrid,memoryMode:investigate,queryType:recent-summary,timeline,resolvedFacts:,conflicts:,fallback:from:memory,reason:clean_but_empty,suggestion:No rel",
       "history": [
         {
@@ -23318,6 +23318,14 @@
           "completedAt": "2026-04-10T01:01:09.735Z",
           "completionSummary": "A new session was started via /new or /reset. Run your Session Startup sequence - read the required files before responding to the user. Then greet the user in your configured persona, if one is provided. Be yourself - use your defined voice, mannerisms, and mood. Keep it to 1-3 ",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-10T03:47:23.730Z",
+          "failedAt": "2026-04-10T03:47:23.730Z",
+          "failureReason": "if (inferTrustTier(prompt, cfg) !== 'important') return false; const p = normalizeSoft(sanitizePrompt(prompt)); return /(implement|fix|build|wire|patch|deploy|create|update|continue|phase\\s*[0-9]+|phases\\s*[0-9-]+|roadmap|clone|follow the previous|follow the roadmap)/.test(p); } function needsCloneParityContract(prompt, cfg) { if (inferTrustTier(prompt, cfg) !== 'important') return false; const p",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -23387,7 +23395,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-10T01:01:09.735Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-10T03:47:23.730Z",
+      "failureReason": "if (inferTrustTier(prompt, cfg) !== 'important') return false; const p = normalizeSoft(sanitizePrompt(prompt)); return /(implement|fix|build|wire|patch|deploy|create|update|continue|phase\\s*[0-9]+|phases\\s*[0-9-]+|roadmap|clone|follow the previous|follow the roadmap)/.test(p); } function needsCloneParityContract(prompt, cfg) { if (inferTrustTier(prompt, cfg) !== 'important') return false; const p",
+      "failureSource": "runtime_message"
     }
   ]
 }
