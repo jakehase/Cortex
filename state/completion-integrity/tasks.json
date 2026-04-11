@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-11T12:29:16.944Z",
+      "updatedAt": "2026-04-11T12:34:23.654Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 769,
+        "runs": 770,
         "failures": [],
-        "lastRunAt": "2026-04-11T12:29:16.960Z",
+        "lastRunAt": "2026-04-11T12:34:23.676Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -30904,11 +30904,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775910660591:9c28af4904ccd2d7",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-11T12:31:00.591Z",
-      "updatedAt": "2026-04-11T12:31:00.623Z",
+      "updatedAt": "2026-04-11T12:35:50.525Z",
       "prompt": "Yes keep going with the fixes",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -30920,6 +30920,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-11T12:31:00.623Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-11T12:35:50.525Z",
+          "failedAt": "2026-04-11T12:35:50.525Z",
+          "failureReason": "\"repoTestsOk\": true, \"executionMode\": \"real_mailchimp_repo_live_worker_farm\", \"shardCount\": 10, \"mergedShardCount\": 10, \"supervisorStatus\": \"green\", \"recoveryCount\": 0, \"staleLeaseCount\": 0, \"stateLossEvents\": 0, \"continuityFailures\": [], \"workerExitFailures\": 1, \"rejectedPatchCount\": 0, \"runRoot\": \"/home/jake/clawd-remote/mailchimp-runs/default/artifacts/implementation_runs/default/live_runs/tier",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -31003,7 +31011,10 @@
         "required": false,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-11T12:35:50.525Z",
+      "failureReason": "\"repoTestsOk\": true, \"executionMode\": \"real_mailchimp_repo_live_worker_farm\", \"shardCount\": 10, \"mergedShardCount\": 10, \"supervisorStatus\": \"green\", \"recoveryCount\": 0, \"staleLeaseCount\": 0, \"stateLossEvents\": 0, \"continuityFailures\": [], \"workerExitFailures\": 1, \"rejectedPatchCount\": 0, \"runRoot\": \"/home/jake/clawd-remote/mailchimp-runs/default/artifacts/implementation_runs/default/live_runs/tier",
+      "failureSource": "runtime_message"
     }
   ]
 }
