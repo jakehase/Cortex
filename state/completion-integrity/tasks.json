@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-11T05:24:32.859Z",
+      "updatedAt": "2026-04-11T05:29:24.089Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 684,
+        "runs": 685,
         "failures": [],
-        "lastRunAt": "2026-04-11T05:24:32.872Z",
+        "lastRunAt": "2026-04-11T05:29:24.104Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -30738,7 +30738,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775884754571:fd0672c29326ea1f",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-11T05:19:14.571Z",
-      "updatedAt": "2026-04-11T05:23:57.163Z",
+      "updatedAt": "2026-04-11T05:32:47.092Z",
       "prompt": "System: [2026-04-11 00:16:13 CDT] Exec completed (tender-f, code 0) :: un_id>`\\n - `scripts/full-audit-campaign-sync-remote-worktree.mjs` now syncs from the run-id scoped remote worktree\\n - added deterministic baseline refresh scaffold `sc",
       "kind": "user_visible",
       "trustTier": "important",
@@ -30773,7 +30773,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 4,
+        "runs": 5,
         "failures": [
           {
             "at": "2026-04-11T05:19:16.140Z",
@@ -30790,9 +30790,13 @@
           {
             "at": "2026-04-11T05:23:57.189Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-11T05:32:47.115Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-11T05:23:57.188Z",
+        "lastRunAt": "2026-04-11T05:32:47.115Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
