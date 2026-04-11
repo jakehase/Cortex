@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-11T04:49:26.316Z",
+      "updatedAt": "2026-04-11T04:54:16.437Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 677,
+        "runs": 678,
         "failures": [],
-        "lastRunAt": "2026-04-11T04:49:26.332Z",
+        "lastRunAt": "2026-04-11T04:54:16.458Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -30476,12 +30476,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775880159247:432133a4d0d34458",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-11T04:02:39.247Z",
-      "updatedAt": "2026-04-11T04:52:59.955Z",
+      "updatedAt": "2026-04-11T04:58:27.814Z",
       "prompt": "Fix it where we can reliably work on the goal of 100% parity for long periods of time",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Queued messages while agent was busy --- Queued #1 Status? --- Queued #2 ? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. The goal is to come back with answers, not questions. **Earn trust through competence.** Your human gave you access to their stuff. Don't make them regret it. Be careful with external actions (emails, tweets, anything public). Be bold with internal ones (reading, organizing, lea",
+      "completionSummary": "2. Healthy/200: `/health`, `/kernel/status`, `/conductor/status`, `/orchestrator/status`, `/cron/status`, `/librarian/status`, `/bard/status`, `/oracle/status`, `/council/status`, `/night_shift/status`, `/sentinel/scheduler/status`, `/meta_conductor/endpoint_map`, `/kernel/levels`, `/queue/status`, `/context_fabric/status`, `/prediction_fabric/status`, `/backend_integrations/status`.\\n- `openvikin",
       "history": [
         {
           "from": null,
@@ -30511,7 +30511,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 3,
+        "runs": 4,
         "failures": [
           {
             "at": "2026-04-11T04:04:52.481Z",
@@ -30524,12 +30524,16 @@
           {
             "at": "2026-04-11T04:52:59.978Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-11T04:58:27.832Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-11T04:52:59.978Z",
+        "lastRunAt": "2026-04-11T04:58:27.832Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -30609,7 +30613,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-11T04:04:52.466Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
