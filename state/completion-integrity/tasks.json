@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-11T02:14:13.774Z",
+      "updatedAt": "2026-04-11T02:19:43.186Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 646,
+        "runs": 647,
         "failures": [],
-        "lastRunAt": "2026-04-11T02:14:13.796Z",
+        "lastRunAt": "2026-04-11T02:19:43.201Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -29915,11 +29915,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775857790426:031fe9c1da8cab00",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-10T21:49:50.426Z",
-      "updatedAt": "2026-04-11T01:59:13.961Z",
+      "updatedAt": "2026-04-11T02:19:50.194Z",
       "prompt": "Okay rerun the mailchimp clone campaign",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Queued messages while agent was busy --- Queued #1 Status? --- Queued #2 ? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. The goal is to come back with answers, not questions. **Earn trust through competence.** Your human gave you access to their stuff. Don't make them regret it. Be careful with external actions (emails, tweets, anything public). Be bold with internal ones (reading, organizing, lea",
       "history": [
         {
@@ -29939,6 +29939,14 @@
           "completedAt": "2026-04-10T21:55:09.431Z",
           "completionSummary": "Queued messages while agent was busy --- Queued #1 Status? --- Queued #2 ? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. The goal is to come back with answers, not questions. **Earn trust through competence.** Your human gave you access to their stuff. Don't make them regret it. Be careful with external actions (emails, tweets, anything public). Be bold with internal ones (reading, organizing, lea",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-11T02:19:50.194Z",
+          "failedAt": "2026-04-11T02:19:50.194Z",
+          "failureReason": "ode_modules\" }, { \"name\": \"artifacts\", \"linked\": true, \"reused\": false, \"sourcePath\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260410211940/artifacts/implementation_runs/campaign-20260410211940\", \"targetPath\": \"/home/jake/clawd-remote/mailchimp-worktree-campaign-20260410211940/artifacts\" } ] }, \"remoteLauncherPid\": null, \"remoteWatchdog\": null } { \"runId\": \"campaign-20260410211940\", \"sup",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -30096,7 +30104,126 @@
         "status": "missing"
       },
       "completedAt": "2026-04-10T21:55:09.431Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-11T02:19:50.194Z",
+      "failureReason": "ode_modules\" }, { \"name\": \"artifacts\", \"linked\": true, \"reused\": false, \"sourcePath\": \"/home/jake/clawd-remote/mailchimp-runs/campaign-20260410211940/artifacts/implementation_runs/campaign-20260410211940\", \"targetPath\": \"/home/jake/clawd-remote/mailchimp-worktree-campaign-20260410211940/artifacts\" } ] }, \"remoteLauncherPid\": null, \"remoteWatchdog\": null } { \"runId\": \"campaign-20260410211940\", \"sup",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775874049243:7429787c911b4633",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-11T02:20:49.243Z",
+      "updatedAt": "2026-04-11T02:20:51.975Z",
+      "prompt": "System: [2026-04-10 21:16:48 CDT] Exec completed (tide-val, code 0) :: nd /root/clawd/mailchimp-clone/artifacts/reruns/20260410-222922/orchestrator_real_repo_clean_baseline/validation/final_repo_tests.log:3:> node --test --test-concurrency=",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-11T02:20:49.243Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-11T02:20:49.260Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-11T02:20:51.975Z",
+          "failedAt": "2026-04-11T02:20:51.975Z",
+          "failureReason": "System: [2026-04-10 21:16:48 CDT] Exec completed (tide-val, code 0) :: nd /root/clawd/mailchimp-clone/artifacts/reruns/20260410-222922/orchestrator_real_repo_clean_baseline/validation/final_repo_tests.log:3:> node --test --test-concurrency=1 tests/*.… System: [2026-04-10 21:18:44 CDT] Exec completed (young-fo, code 1) :: t_campaign/runs/campaign-20260410211611/delegate/blocker_report.json\", \"notif",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": true,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": false,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "claimIntegrity": {
+        "required": false,
+        "progressEstimatePresent": false,
+        "responseFramed": false,
+        "artifactReferenced": false,
+        "passed": null,
+        "autoGenerated": false,
+        "reportPath": null,
+        "responseFramePath": null,
+        "summaryPath": null,
+        "repoReportPath": null,
+        "repoResponseFramePath": null,
+        "repoSummaryPath": null,
+        "reportGeneratedAt": null,
+        "generationError": null,
+        "sourceMatrixPath": null,
+        "sourceProgramStatePath": null,
+        "derivedCloneParityPercent": null,
+        "derivedCampaignReadinessPercent": null,
+        "proposedPercent": null
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "System: [2026-04-10 21:16:48 CDT] Exec completed (tide-val, code 0) :: nd /root/clawd/mailchimp-clone/artifacts/reruns/20260410-222922/orchestrator_real_repo_clean_baseline/validation/final_repo_tests.log:3:> node --test",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-11T02:20:51.975Z",
+      "failureReason": "System: [2026-04-10 21:16:48 CDT] Exec completed (tide-val, code 0) :: nd /root/clawd/mailchimp-clone/artifacts/reruns/20260410-222922/orchestrator_real_repo_clean_baseline/validation/final_repo_tests.log:3:> node --test --test-concurrency=1 tests/*.… System: [2026-04-10 21:18:44 CDT] Exec completed (young-fo, code 1) :: t_campaign/runs/campaign-20260410211611/delegate/blocker_report.json\", \"notif",
+      "failureSource": "runtime_message"
     }
   ]
 }
