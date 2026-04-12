@@ -5693,10 +5693,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:36:16.288Z",
-      "completionSummary": "System: 2026-04-12 10:34:11 CDT Exec failed (mild-fjo, signal 15) :: Username for 'https://github.com': Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. When ",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:40:51.295Z",
       "announcementPromptInjectedAt": "2026-03-19T14:40:51.295Z",
-      "updatedAt": "2026-04-12T15:56:11.085Z",
+      "updatedAt": "2026-04-12T15:57:26.241Z",
       "history": [
         {
           "from": null,
@@ -5714,9 +5714,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 1,
+        "runs": 2,
         "failures": [],
-        "lastRunAt": "2026-04-12T15:56:11.098Z",
+        "lastRunAt": "2026-04-12T15:57:26.271Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
