@@ -5696,7 +5696,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:40:51.295Z",
       "announcementPromptInjectedAt": "2026-03-19T14:40:51.295Z",
-      "updatedAt": "2026-04-12T18:32:45.832Z",
+      "updatedAt": "2026-04-12T18:37:46.167Z",
       "history": [
         {
           "from": null,
@@ -5714,9 +5714,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 33,
+        "runs": 34,
         "failures": [],
-        "lastRunAt": "2026-04-12T18:32:45.844Z",
+        "lastRunAt": "2026-04-12T18:37:46.180Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -32615,12 +32615,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776018120761:b6fbedbb8f39a330",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-12T18:22:00.762Z",
-      "updatedAt": "2026-04-12T18:27:48.690Z",
+      "updatedAt": "2026-04-12T18:37:20.719Z",
       "prompt": "Fix it",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "rowth__attempt-1.json --verifier lint, /root/clawd/mailchimp-clone/artifacts/full_audit_campaign/reports/supervisor_status.json:515: resultPath: /home/jake/clawd-remote/mailchimp-runs/one-pass-launch-20260412-174634/artifacts/implementation_runs/one-pass-launch-20260412-174634/live_runs/tier-100/results/focus.forms-growth__attempt-1.json /root/clawd/mailchimp-clone/artifacts/full_audit_campai",
+      "completionSummary": ",dependencyLinksPath:artifacts/qualification/orchestrator_real_repo_clean_baseline/dependency_links.json,remoteExecutionStatus:generatedAt:2026-04-12T17:46:49.612Z,running:false,terminal:true,ok:true,phase:remote_execution_finished,statusSource:remote_runner_terminalizer,runId:one-pass-launch-20260412-174634,host:cortex-vm,hostRole:execution_plane,baselineRep",
       "history": [
         {
           "from": null,
@@ -32650,7 +32650,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 2,
+        "runs": 3,
         "failures": [
           {
             "at": "2026-04-12T18:23:11.629Z",
@@ -32659,9 +32659,13 @@
           {
             "at": "2026-04-12T18:27:48.708Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-12T18:37:20.738Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-12T18:27:48.708Z",
+        "lastRunAt": "2026-04-12T18:37:20.738Z",
         "lastDetails": {
           "source": "runtime_message",
           "signal": "completed"
