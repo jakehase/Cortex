@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-12T13:42:43.008Z",
+      "updatedAt": "2026-04-12T13:47:52.931Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 1075,
+        "runs": 1076,
         "failures": [],
-        "lastRunAt": "2026-04-12T13:42:43.022Z",
+        "lastRunAt": "2026-04-12T13:47:52.954Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -31731,12 +31731,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775964642921:0b8bd8035d430550",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-12T03:30:42.922Z",
-      "updatedAt": "2026-04-12T13:38:25.216Z",
+      "updatedAt": "2026-04-12T13:50:35.406Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Status? status: error, tool: read, error: ENOENT: no such file or directory, access '/root/clawd/memory/2026-04-12.md' # 2026-04-11 - Mailchimp full-audit campaign fix: remote execution blocker handoff was being mislabeled as `remote_execution_failed` on the control plane even wh",
+      "completionSummary": "e/canonical_summary.json, delegateBlockerPath: artifacts/full_audit_campaign/runs/one-pass-launch-20260412-134814/delegate/blocker_report.json, notifierEligibilityPath: artifacts/qualification/orchestrator_real_repo_clean_baseline/notifier_eligibility.json, delegateEvidenceFresh:",
       "history": [
         {
           "from": null,
@@ -31766,12 +31766,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 28,
+        "runs": 30,
         "failures": [],
-        "lastRunAt": "2026-04-12T13:38:25.230Z",
+        "lastRunAt": "2026-04-12T13:50:35.427Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -31845,7 +31845,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-12T03:31:57.520Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
