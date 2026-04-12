@@ -5783,7 +5783,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:35:51.289Z",
       "announcementPromptInjectedAt": "2026-03-19T14:35:51.290Z",
-      "updatedAt": "2026-04-12T02:51:34.672Z",
+      "updatedAt": "2026-04-12T02:56:43.768Z",
       "history": [
         {
           "from": null,
@@ -5801,9 +5801,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 944,
+        "runs": 945,
         "failures": [],
-        "lastRunAt": "2026-04-12T02:51:34.684Z",
+        "lastRunAt": "2026-04-12T02:56:43.780Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -31252,12 +31252,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1775929994503:80d6637d80df8176",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-11T17:53:14.503Z",
-      "updatedAt": "2026-04-12T02:42:08.326Z",
+      "updatedAt": "2026-04-12T03:00:41.580Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "System: 2026-04-11 18:45:06 CDT Exec completed (grand-sh, code 0) :: st_progress_spec_2026-04-09.json:565: targetReference: /root/clawd/mailchimp-clone/docs/MAILCHIMP_FULL_CLONE_ONE_PASS_100_AGENT_ROADMAP_2026-04-09.md, /root/clawd/mailchimp-cl… System: 2026-04-11 18:48:03 CDT Ex",
+      "completionSummary": "erlay: generatedAt: 2026-04-12T03:00:29.704Z, runId: one-pass-fixcheck-20260412-0224, baselineRepo: /home/jake/clawd-remote/mailchimp-clone, worktreePath: /home/jake/clawd-remote/mailchimp-worktree-one-pass-fixcheck-20260412-0224, recordCount: 12, operations: type: copy, path: pa",
       "history": [
         {
           "from": null,
@@ -31287,12 +31287,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 41,
+        "runs": 42,
         "failures": [],
-        "lastRunAt": "2026-04-12T02:42:08.342Z",
+        "lastRunAt": "2026-04-12T03:00:41.601Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -31366,7 +31366,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-11T17:58:24.121Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
