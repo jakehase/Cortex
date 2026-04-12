@@ -5696,7 +5696,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:40:51.295Z",
       "announcementPromptInjectedAt": "2026-03-19T14:40:51.295Z",
-      "updatedAt": "2026-04-12T23:27:35.718Z",
+      "updatedAt": "2026-04-12T23:32:45.924Z",
       "history": [
         {
           "from": null,
@@ -5714,9 +5714,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 92,
+        "runs": 93,
         "failures": [],
-        "lastRunAt": "2026-04-12T23:27:35.740Z",
+        "lastRunAt": "2026-04-12T23:32:45.938Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -32765,11 +32765,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776031708012:fdb729a04515778f",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-12T22:08:28.012Z",
-      "updatedAt": "2026-04-12T23:28:35.654Z",
+      "updatedAt": "2026-04-12T23:34:49.453Z",
       "prompt": "System: [2026-04-12 17:07:18 CDT] Exec completed (keen-wil, code 0) :: ,220p'\\\\\\\"\\\",\\\"workdir\\\":\\\"/root/clawd\\\",\\\"yieldMs\\\":4000,\\\"timeout\\\":180}\"}],\"api\":\"openai-codex-responses\",\"provider\":\"openai-codex\",\"model\":\"gpt-5.4\",\"usage\":{\"input\"",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Queued messages while agent was busy --- Queued #1 https://x.com/ameliom612/status/2042952556591055190?s=46 Can we do this? # Home Assistant Configuration ## Connection Details - **IP Address:** 10.0.0.7:8123 - **Authentication:** Token stored in secure credential store (`~/.claw",
       "history": [
         {
@@ -32789,6 +32789,14 @@
           "completedAt": "2026-04-12T22:08:29.568Z",
           "completionSummary": "System: 2026-04-12 17:07:18 CDT Exec completed (keen-wil, code 0) :: ,220p'\\\\\\\\,\\workdir\\:\\/root/clawd\\,\\yieldMs\\:4000,\\timeout\\:180,api:openai-codex-responses,provider:openai-codex,model:gpt-5.4,usage:input:878,outp… System: 2026-04-12 17:07:28 CDT Exec completed (rapid-pi, code",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-12T23:34:49.453Z",
+          "failedAt": "2026-04-12T23:34:49.453Z",
+          "failureReason": "[openclaw] Failed to start CLI: Error: The `openclaw help` command is unavailable because `plugins.allow` excludes \"help\". Add \"help\" to `plugins.allow` if you want that bundled plugin CLI surface. at runCli (file:///usr/lib/node_modules/openclaw/dist/run-main-8bQWSeWd.js:418:45) Process exited with code 1.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -32879,7 +32887,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-12T22:08:29.568Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-12T23:34:49.453Z",
+      "failureReason": "[openclaw] Failed to start CLI: Error: The `openclaw help` command is unavailable because `plugins.allow` excludes \"help\". Add \"help\" to `plugins.allow` if you want that bundled plugin CLI surface. at runCli (file:///usr/lib/node_modules/openclaw/dist/run-main-8bQWSeWd.js:418:45) Process exited with code 1.",
+      "failureSource": "runtime_message"
     }
   ]
 }
