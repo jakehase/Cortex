@@ -1,0 +1,1157 @@
+{
+  "generatedAt": "2026-04-12T00:16:36.989Z",
+  "canonical": true,
+  "sourceAudit": "docs/MAILCHIMP_CANONICAL_PARITY_AUDIT_2026-04-11.md",
+  "sourceMatrix": "docs/MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json",
+  "targetProduct": "Mailchimp large-scale whole-product parity",
+  "fidelity": "full_clone",
+  "stopCondition": "all surfaces at product depth plus cross-cutting programs materially present with direct product evidence",
+  "deepParityEstimate": {
+    "min": 8,
+    "max": 15,
+    "confidence": "low"
+  },
+  "executionRules": [
+    "Do not use campaign green status, supervisor state, or proof-path artifacts as substitutes for direct product parity evidence.",
+    "Do not collapse this backlog into a smaller MVP without explicitly relabeling fidelity.",
+    "Treat the canonical audit and canonical matrix as the only source-of-truth inputs for parity planning unless superseded by a later canonical audit.",
+    "When a surface is claimed complete, direct product files and targeted tests must substantiate the claim."
+  ],
+  "waveOrder": [
+    "wave_1_core_funnel_and_audience",
+    "wave_2_campaign_authoring_content_and_send",
+    "wave_3_reporting_automation_and_growth",
+    "wave_4_admin_integrations_revenue_and_governance"
+  ],
+  "waves": [
+    {
+      "id": "wave_1_core_funnel_and_audience",
+      "title": "Core funnel, workspace bootstrap, and audience management",
+      "rationale": "These surfaces form the first-run path from signup through audience readiness. Without them, downstream campaign/reporting parity is cosmetic.",
+      "surfaceIds": [
+        "signup_onboarding",
+        "account_workspace_setup",
+        "dashboard_home",
+        "audience_overview",
+        "contacts_table",
+        "contact_profile",
+        "tags_groups_interests",
+        "segments"
+      ],
+      "completionCriteria": [
+        "New-account flow works end to end with resume/recovery behavior and richer setup branching.",
+        "Audience management reaches Mailchimp-like daily-operational depth, not just route presence.",
+        "Every surface has direct product tests for happy path, edge cases, and administrative workflows."
+      ],
+      "surfaces": [
+        {
+          "id": "signup_onboarding",
+          "label": "Signup and onboarding wizard",
+          "priority": "P0",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "account_workspace_setup",
+          "label": "Account workspace setup",
+          "priority": "P0",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "dashboard_home",
+          "label": "Dashboard / home",
+          "priority": "P1",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "audience_overview",
+          "label": "Audience overview",
+          "priority": "P0",
+          "currentStatus": "observed_direct",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "contacts_table",
+          "label": "Contacts table",
+          "priority": "P0",
+          "currentStatus": "observed_direct",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "contact_profile",
+          "label": "Contact profile",
+          "priority": "P0",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": []
+        },
+        {
+          "id": "tags_groups_interests",
+          "label": "Tags, groups, and interests management",
+          "priority": "P1",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": []
+        },
+        {
+          "id": "segments",
+          "label": "Segments",
+          "priority": "P0",
+          "currentStatus": "observed_direct",
+          "confidence": "medium",
+          "openGapFamilies": []
+        }
+      ]
+    },
+    {
+      "id": "wave_2_campaign_authoring_content_and_send",
+      "title": "Campaign authoring, content systems, forms, and send/review",
+      "rationale": "This is the revenue-critical middle of Mailchimp: authoring campaigns, designing content, collecting leads, and actually reviewing/sending.",
+      "surfaceIds": [
+        "signup_forms_popups",
+        "campaign_index",
+        "campaign_wizard",
+        "email_builder",
+        "template_library",
+        "content_studio",
+        "send_schedule_review"
+      ],
+      "completionCriteria": [
+        "Users can create, design, preview, review, schedule, and send campaigns with production-style guardrails.",
+        "Templates, content assets, and forms behave as reusable systems rather than thin route demos.",
+        "Campaign build/test/send lifecycle is backed by direct product tests and realistic UX states."
+      ],
+      "surfaces": [
+        {
+          "id": "signup_forms_popups",
+          "label": "Signup forms and popup forms",
+          "priority": "P1",
+          "currentStatus": "observed_direct",
+          "confidence": "medium",
+          "openGapFamilies": [
+            "omnichannel_depth"
+          ]
+        },
+        {
+          "id": "campaign_index",
+          "label": "Campaign index",
+          "priority": "P0",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "campaign_wizard",
+          "label": "Campaign creation wizard",
+          "priority": "P0",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "medium",
+          "openGapFamilies": [
+            "experimentation_depth"
+          ]
+        },
+        {
+          "id": "email_builder",
+          "label": "Email builder",
+          "priority": "P0",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "template_library",
+          "label": "Template library",
+          "priority": "P1",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": []
+        },
+        {
+          "id": "content_studio",
+          "label": "Content studio / asset manager",
+          "priority": "P1",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": [
+            "content_studio_depth"
+          ]
+        },
+        {
+          "id": "send_schedule_review",
+          "label": "Send / schedule / review",
+          "priority": "P0",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": []
+        }
+      ]
+    },
+    {
+      "id": "wave_3_reporting_automation_and_growth",
+      "title": "Reporting, automations, landing pages, and growth surfaces",
+      "rationale": "Mailchimp parity requires not only building campaigns, but understanding outcomes and orchestrating lifecycle growth journeys.",
+      "surfaceIds": [
+        "reports_overview",
+        "report_detail",
+        "automations_overview",
+        "automation_journey_builder",
+        "landing_pages",
+        "website_builder"
+      ],
+      "completionCriteria": [
+        "Reporting supports detailed drill-down, attribution context, and comparison workflows.",
+        "Automations and journeys are deep enough for real triggered lifecycle programs.",
+        "Landing pages and websites move from shallow presence to durable publishing systems."
+      ],
+      "surfaces": [
+        {
+          "id": "reports_overview",
+          "label": "Reports overview",
+          "priority": "P0",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "medium",
+          "openGapFamilies": [
+            "predictive_optimization_depth"
+          ]
+        },
+        {
+          "id": "report_detail",
+          "label": "Report detail",
+          "priority": "P1",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": [
+            "experimentation_depth",
+            "predictive_optimization_depth"
+          ]
+        },
+        {
+          "id": "automations_overview",
+          "label": "Automations overview",
+          "priority": "P1",
+          "currentStatus": "observed_direct",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "automation_journey_builder",
+          "label": "Customer journey / automation builder",
+          "priority": "P0",
+          "currentStatus": "observed_direct",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "landing_pages",
+          "label": "Landing pages",
+          "priority": "P1",
+          "currentStatus": "observed_direct",
+          "confidence": "medium",
+          "openGapFamilies": []
+        },
+        {
+          "id": "website_builder",
+          "label": "Website builder",
+          "priority": "P1",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": [
+            "website_builder_depth"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wave_4_admin_integrations_revenue_and_governance",
+      "title": "Integrations, developer/admin tooling, billing, settings, and team governance",
+      "rationale": "The real product includes partner ecosystem, admin controls, billing, domains, auth, and collaborative governance. These are required for whole-product parity.",
+      "surfaceIds": [
+        "integrations_marketplace",
+        "api_keys_webhooks",
+        "billing_plans",
+        "settings_domains",
+        "team_roles_permissions"
+      ],
+      "completionCriteria": [
+        "Connected-app lifecycle, developer tooling, and billing/admin flows operate at product depth.",
+        "Settings, domains, auth, and team controls support realistic multi-user operation.",
+        "Enterprise and compliance-adjacent behaviors have direct proof rather than implied coverage."
+      ],
+      "surfaces": [
+        {
+          "id": "integrations_marketplace",
+          "label": "Integrations marketplace",
+          "priority": "P2",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": [
+            "integration_ecosystem_realism"
+          ]
+        },
+        {
+          "id": "api_keys_webhooks",
+          "label": "API keys and webhooks",
+          "priority": "P2",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": []
+        },
+        {
+          "id": "billing_plans",
+          "label": "Billing and plans",
+          "priority": "P2",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": []
+        },
+        {
+          "id": "settings_domains",
+          "label": "Settings, domains, and authentication",
+          "priority": "P1",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": []
+        },
+        {
+          "id": "team_roles_permissions",
+          "label": "Team users, roles, and permissions",
+          "priority": "P1",
+          "currentStatus": "partial_or_shallow",
+          "confidence": "low",
+          "openGapFamilies": []
+        }
+      ]
+    }
+  ],
+  "crossCuttingPrograms": [
+    {
+      "id": "program_deliverability_and_sending_infrastructure",
+      "priority": "P0",
+      "wave": "parallel",
+      "work": "Deliverability and sending infrastructure: queues, throughput shaping, suppression pipelines, bounce/complaint processing, sender reputation, warmup, and compliance enforcement."
+    },
+    {
+      "id": "program_data_platform_and_event_ingestion",
+      "priority": "P0",
+      "wave": "parallel",
+      "work": "Data platform and event ingestion: high-volume click/open/site/commerce event collection, retention, indexing, backfill, and report recomputation."
+    },
+    {
+      "id": "program_abuse_and_fraud_controls",
+      "priority": "P0",
+      "wave": "parallel",
+      "work": "Abuse and fraud controls: account risk, sending review, domain trust, webhook abuse, signup abuse, content checks, and sanctions/compliance workflows."
+    },
+    {
+      "id": "program_enterprise_identity_and_governance",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Enterprise identity and governance: SSO, SCIM, org hierarchies, admin policy, audit exports, delegated administration, and region controls."
+    },
+    {
+      "id": "program_billing_entitlements_platform",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Billing/entitlements platform: plans, feature flags, trials, usage meters, invoicing, taxes, collections, and entitlement propagation."
+    },
+    {
+      "id": "program_experimentation_platform",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Experimentation platform: experiment config, traffic allocation, result stats, guardrails, stopping rules, and reporting."
+    },
+    {
+      "id": "program_predictive_ml_systems",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Predictive/ML systems: recommendations, forecast models, content scoring, send-time optimization, churn/CLV/probability models, and model ops."
+    },
+    {
+      "id": "program_omnichannel_orchestration",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Omnichannel orchestration: SMS, ads, social, surveys, push/mobile tie-ins, and cross-channel reporting/journey actions."
+    },
+    {
+      "id": "program_content_design_system_depth",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Content/design system depth: drag/drop blocks, responsive rendering fidelity, brand kits, reusable sections, versioning, and approvals."
+    },
+    {
+      "id": "program_integration_ecosystem_breadth",
+      "priority": "P2",
+      "wave": "parallel",
+      "work": "Integration ecosystem breadth: partner SDK patterns, auth variants, sync monitoring, field mapping, schema evolution, and support workflows."
+    },
+    {
+      "id": "program_support_and_help_surfaces",
+      "priority": "P2",
+      "wave": "parallel",
+      "work": "Support and help surfaces beyond current map: contextual help, guided setup, searchable knowledge, ticketing/escalation, and diagnostics."
+    },
+    {
+      "id": "program_mobile_specific_parity",
+      "priority": "P2",
+      "wave": "parallel",
+      "work": "Mobile-specific parity: mobile workflows, push notifications, approvals, dashboard/report consumption, and edit/send/admin flows on mobile."
+    },
+    {
+      "id": "program_scale_and_multi_tenant_hardening",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Performance, scale, and multi-tenant hardening: caching, background jobs, data partitioning, migrations, failure recovery, and rate limiting."
+    },
+    {
+      "id": "program_observability_and_ops_tooling",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Observability and ops tooling: admin consoles, replay/debugging, alerting, runbooks, audit logs, and customer support tooling."
+    },
+    {
+      "id": "program_localization_accessibility_and_compliance",
+      "priority": "P1",
+      "wave": "parallel",
+      "work": "Localization, accessibility, and compliance depth across all product surfaces."
+    }
+  ],
+  "surfaceBacklog": [
+    {
+      "id": "signup_onboarding",
+      "label": "Signup and onboarding wizard",
+      "wave": "wave_1_core_funnel_and_audience",
+      "priority": "P0",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "purpose": "Turn a new visitor into a configured workspace with enough profile data to send a first campaign.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education.",
+        "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity.",
+        "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "account_workspace_setup",
+      "label": "Account workspace setup",
+      "wave": "wave_1_core_funnel_and_audience",
+      "priority": "P0",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "purpose": "Configure sender identity, business details, defaults, and compliance settings for the workspace.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements.",
+        "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth.",
+        "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "dashboard_home",
+      "label": "Dashboard / home",
+      "wave": "wave_1_core_funnel_and_audience",
+      "priority": "P1",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "purpose": "Summarize account health and provide entry points into campaigns, audience growth, and recommendations.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization.",
+        "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas.",
+        "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "audience_overview",
+      "label": "Audience overview",
+      "wave": "wave_1_core_funnel_and_audience",
+      "priority": "P0",
+      "currentStatus": "observed_direct",
+      "confidence": "medium",
+      "purpose": "Present top-level audience inventory, growth, and management actions.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.",
+        "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "contacts_table",
+      "label": "Contacts table",
+      "wave": "wave_1_core_funnel_and_audience",
+      "priority": "P0",
+      "currentStatus": "observed_direct",
+      "confidence": "medium",
+      "purpose": "List and filter audience members with bulk actions.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.",
+        "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "contact_profile",
+      "label": "Contact profile",
+      "wave": "wave_1_core_funnel_and_audience",
+      "priority": "P0",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Show one contact’s attributes, activity history, and editable metadata.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields.",
+        "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "tags_groups_interests",
+      "label": "Tags, groups, and interests management",
+      "wave": "wave_1_core_funnel_and_audience",
+      "priority": "P1",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Represent audience classification primitives used for targeting and preference management.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration.",
+        "Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "segments",
+      "label": "Segments",
+      "wave": "wave_1_core_funnel_and_audience",
+      "priority": "P0",
+      "currentStatus": "observed_direct",
+      "confidence": "medium",
+      "purpose": "Define reusable filters for audience targeting.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns.",
+        "Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "signup_forms_popups",
+      "label": "Signup forms and popup forms",
+      "wave": "wave_2_campaign_authoring_content_and_send",
+      "priority": "P1",
+      "currentStatus": "observed_direct",
+      "confidence": "medium",
+      "purpose": "Collect new leads and subscription preferences through embeddable or hosted capture surfaces.",
+      "productFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "openGapFamilies": [
+        "omnichannel_depth"
+      ],
+      "requiredWork": [
+        "Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity.",
+        "Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "campaign_index",
+      "label": "Campaign index",
+      "wave": "wave_2_campaign_authoring_content_and_send",
+      "priority": "P0",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "purpose": "Provide list, filtering, lifecycle status, and duplication/archive actions for campaigns.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions.",
+        "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "campaign_wizard",
+      "label": "Campaign creation wizard",
+      "wave": "wave_2_campaign_authoring_content_and_send",
+      "priority": "P0",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "purpose": "Capture high-level campaign metadata before design and send.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "openGapFamilies": [
+        "experimentation_depth"
+      ],
+      "requiredWork": [
+        "Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types.",
+        "Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "email_builder",
+      "label": "Email builder",
+      "wave": "wave_2_campaign_authoring_content_and_send",
+      "priority": "P0",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "purpose": "Assemble message content with block editing, styling, previewing, and asset use.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration.",
+        "Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "template_library",
+      "label": "Template library",
+      "wave": "wave_2_campaign_authoring_content_and_send",
+      "priority": "P1",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Offer reusable starting points for campaigns and saved custom layouts.",
+      "productFiles": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance.",
+        "Add true template lifecycle management, versioning, duplication, review, and dependency tracking."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "content_studio",
+      "label": "Content studio / asset manager",
+      "wave": "wave_2_campaign_authoring_content_and_send",
+      "priority": "P1",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Store and retrieve reusable images or creative assets used across campaigns.",
+      "productFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "openGapFamilies": [
+        "content_studio_depth"
+      ],
+      "requiredWork": [
+        "Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows.",
+        "Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "send_schedule_review",
+      "label": "Send / schedule / review",
+      "wave": "wave_2_campaign_authoring_content_and_send",
+      "priority": "P0",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Review a draft campaign, run preflight checks, send test messages, and schedule delivery.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization.",
+        "Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "reports_overview",
+      "label": "Reports overview",
+      "wave": "wave_3_reporting_automation_and_growth",
+      "priority": "P0",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "purpose": "Aggregate recent campaign, automation, and audience performance metrics.",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "openGapFamilies": [
+        "predictive_optimization_depth"
+      ],
+      "requiredWork": [
+        "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis.",
+        "Add richer export/sharing/report scheduling and role-aware reporting permissions."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "report_detail",
+      "label": "Report detail",
+      "wave": "wave_3_reporting_automation_and_growth",
+      "priority": "P1",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Show per-campaign or per-automation performance metrics and recipient activity.",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "openGapFamilies": [
+        "experimentation_depth",
+        "predictive_optimization_depth"
+      ],
+      "requiredWork": [
+        "Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views.",
+        "Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "automations_overview",
+      "label": "Automations overview",
+      "wave": "wave_3_reporting_automation_and_growth",
+      "priority": "P1",
+      "currentStatus": "observed_direct",
+      "confidence": "medium",
+      "purpose": "List, summarize, and launch automation or journey flows.",
+      "productFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls.",
+        "Match automation governance, ownership, approvals, and diagnostics."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "automation_journey_builder",
+      "label": "Customer journey / automation builder",
+      "wave": "wave_3_reporting_automation_and_growth",
+      "priority": "P0",
+      "currentStatus": "observed_direct",
+      "confidence": "medium",
+      "purpose": "Visually assemble triggered multi-step workflows.",
+      "productFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth.",
+        "Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "landing_pages",
+      "label": "Landing pages",
+      "wave": "wave_3_reporting_automation_and_growth",
+      "priority": "P1",
+      "currentStatus": "observed_direct",
+      "confidence": "medium",
+      "purpose": "Create standalone conversion pages connected to audiences and campaigns.",
+      "productFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle.",
+        "Match domain mapping, asset management, duplication, templates, and conversion reporting."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "website_builder",
+      "label": "Website builder",
+      "wave": "wave_3_reporting_automation_and_growth",
+      "priority": "P1",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Manage broader hosted web presence beyond standalone landing pages.",
+      "productFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "openGapFamilies": [
+        "website_builder_depth"
+      ],
+      "requiredWork": [
+        "Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics.",
+        "Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "integrations_marketplace",
+      "label": "Integrations marketplace",
+      "wave": "wave_4_admin_integrations_revenue_and_governance",
+      "priority": "P2",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Discover and manage connected apps such as Shopify, Salesforce, Zapier, and analytics tools.",
+      "productFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "openGapFamilies": [
+        "integration_ecosystem_realism"
+      ],
+      "requiredWork": [
+        "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior.",
+        "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "api_keys_webhooks",
+      "label": "API keys and webhooks",
+      "wave": "wave_4_admin_integrations_revenue_and_governance",
+      "priority": "P2",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Expose developer-oriented access and event wiring surfaces.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs.",
+        "Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "billing_plans",
+      "label": "Billing and plans",
+      "wave": "wave_4_admin_integrations_revenue_and_governance",
+      "priority": "P2",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Handle subscriptions, payment methods, usage meters, and plan-gated upsells.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/billing-analytics.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows.",
+        "Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "settings_domains",
+      "label": "Settings, domains, and authentication",
+      "wave": "wave_4_admin_integrations_revenue_and_governance",
+      "priority": "P1",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Manage account-level defaults, sender authentication, and connected domains.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings.",
+        "Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    },
+    {
+      "id": "team_roles_permissions",
+      "label": "Team users, roles, and permissions",
+      "wave": "wave_4_admin_integrations_revenue_and_governance",
+      "priority": "P1",
+      "currentStatus": "partial_or_shallow",
+      "confidence": "low",
+      "purpose": "Invite collaborators and enforce scoped access across account surfaces.",
+      "productFiles": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "openGapFamilies": [],
+      "requiredWork": [
+        "Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views.",
+        "Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls."
+      ],
+      "definitionOfDone": [
+        "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+        "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+        "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+      ]
+    }
+  ],
+  "cleanup": {
+    "canonicalDocs": [
+      "docs/MAILCHIMP_CANONICAL_PARITY_AUDIT_2026-04-11.md",
+      "docs/MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json",
+      "docs/MAILCHIMP_CANONICAL_PARITY_EXECUTION_BACKLOG_2026-04-11.md",
+      "docs/MAILCHIMP_CANONICAL_PARITY_EXECUTION_BACKLOG_2026-04-11.json"
+    ],
+    "supersededDocs": [
+      "docs/MAILCHIMP_1TO1_AUDIT_2026-04-04.md",
+      "docs/MAILCHIMP_CURRENT_PRODUCT_PARITY_COMPLETION_2026-04-04.md",
+      "docs/MAILCHIMP_CURRENT_PRODUCT_PARITY_GAP_ROADMAP_2026-04-03.md",
+      "docs/MAILCHIMP_FULL_AUDIT_2026-04-04.md",
+      "docs/MAILCHIMP_FULL_AUDIT_GAP_CLOSURE_CHECKLIST_2026-04-04.md",
+      "docs/MAILCHIMP_FULL_CLONE_CAMPAIGN_LAUNCH_2026-04-04.md",
+      "docs/MAILCHIMP_FULL_CLONE_FINAL_REPORT_2026-04-02.md",
+      "docs/MAILCHIMP_FULL_CLONE_REPLAN_CLEAN_BASELINE_2026-04-04.md",
+      "docs/MAILCHIMP_PROGRAMS_1_3_FINAL_REPORT_2026-04-02.md",
+      "docs/MAILCHIMP_TRUE_1TO1_EXECUTION_BRIEF_2026-04-04.md",
+      "docs/MAILCHIMP_TRUE_1TO1_GAP_CLOSURE_PLAN_2026-04-04.md",
+      "docs/MAILCHIMP_TRUE_1TO1_SURFACE_MATRIX_2026-04-04.json",
+      "docs/mailchimp_current_product_gap_matrix_2026-04-03.json"
+    ]
+  }
+}

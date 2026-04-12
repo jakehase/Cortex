@@ -1,0 +1,1098 @@
+{
+  "generatedAt": "2026-04-11",
+  "canonical": true,
+  "method": "strict_direct_product_evidence_only",
+  "deepParityEstimate": {
+    "min": 8,
+    "max": 15,
+    "confidence": "low"
+  },
+  "surfacePresenceEstimate": {
+    "status": "higher_than_trivial_but_not_a_valid_deep_parity_percent",
+    "notes": "coarse surface presence exceeds 1.5% but does not justify 30% or higher deep parity claims"
+  },
+  "recentCampaignReality": {
+    "latestCampaignRuntimeSeconds": 21,
+    "latestCampaignMergedPatches": 0,
+    "latestCampaignReasonGreen": "carried-forward focus completion plus repaired reconciliation/proof state, not large new implementation work",
+    "recentProductDiffNetLines": 28,
+    "recentProductFilesChanged": 6
+  },
+  "surfaces": [
+    {
+      "label": "Signup and onboarding wizard",
+      "id": "signup_onboarding",
+      "purpose": "Turn a new visitor into a configured workspace with enough profile data to send a first campaign.",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targeted_tests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education.",
+        "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity.",
+        "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel."
+      ]
+    },
+    {
+      "label": "Account workspace setup",
+      "id": "account_workspace_setup",
+      "purpose": "Configure sender identity, business details, defaults, and compliance settings for the workspace.",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targeted_tests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements.",
+        "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth.",
+        "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences."
+      ]
+    },
+    {
+      "label": "Dashboard / home",
+      "id": "dashboard_home",
+      "purpose": "Summarize account health and provide entry points into campaigns, audience growth, and recommendations.",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targeted_tests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization.",
+        "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas.",
+        "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity."
+      ]
+    },
+    {
+      "label": "Audience overview",
+      "id": "audience_overview",
+      "purpose": "Present top-level audience inventory, growth, and management actions.",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targeted_tests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.",
+        "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events."
+      ]
+    },
+    {
+      "label": "Contacts table",
+      "id": "contacts_table",
+      "purpose": "List and filter audience members with bulk actions.",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targeted_tests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.",
+        "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration."
+      ]
+    },
+    {
+      "label": "Contact profile",
+      "id": "contact_profile",
+      "purpose": "Show one contact\u2019s attributes, activity history, and editable metadata.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targeted_tests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields.",
+        "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility."
+      ]
+    },
+    {
+      "label": "Tags, groups, and interests management",
+      "id": "tags_groups_interests",
+      "purpose": "Represent audience classification primitives used for targeting and preference management.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targeted_tests": [
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration.",
+        "Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration."
+      ]
+    },
+    {
+      "label": "Segments",
+      "id": "segments",
+      "purpose": "Define reusable filters for audience targeting.",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targeted_tests": [
+        "tests/audience-funnels.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns.",
+        "Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX."
+      ]
+    },
+    {
+      "label": "Signup forms and popup forms",
+      "id": "signup_forms_popups",
+      "purpose": "Collect new leads and subscription preferences through embeddable or hosted capture surfaces.",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targeted_tests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "open_gap_families": [
+        "omnichannel_depth"
+      ],
+      "required_work": [
+        "Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity.",
+        "Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth."
+      ]
+    },
+    {
+      "label": "Campaign index",
+      "id": "campaign_index",
+      "purpose": "Provide list, filtering, lifecycle status, and duplication/archive actions for campaigns.",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targeted_tests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions.",
+        "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility."
+      ]
+    },
+    {
+      "label": "Campaign creation wizard",
+      "id": "campaign_wizard",
+      "purpose": "Capture high-level campaign metadata before design and send.",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targeted_tests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "open_gap_families": [
+        "experimentation_depth"
+      ],
+      "required_work": [
+        "Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types.",
+        "Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows."
+      ]
+    },
+    {
+      "label": "Email builder",
+      "id": "email_builder",
+      "purpose": "Assemble message content with block editing, styling, previewing, and asset use.",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "targeted_tests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration.",
+        "Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity."
+      ]
+    },
+    {
+      "label": "Template library",
+      "id": "template_library",
+      "purpose": "Offer reusable starting points for campaigns and saved custom layouts.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targeted_tests": [
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance.",
+        "Add true template lifecycle management, versioning, duplication, review, and dependency tracking."
+      ]
+    },
+    {
+      "label": "Content studio / asset manager",
+      "id": "content_studio",
+      "purpose": "Store and retrieve reusable images or creative assets used across campaigns.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targeted_tests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "open_gap_families": [
+        "content_studio_depth"
+      ],
+      "required_work": [
+        "Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows.",
+        "Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations."
+      ]
+    },
+    {
+      "label": "Send / schedule / review",
+      "id": "send_schedule_review",
+      "purpose": "Review a draft campaign, run preflight checks, send test messages, and schedule delivery.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targeted_tests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization.",
+        "Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history."
+      ]
+    },
+    {
+      "label": "Reports overview",
+      "id": "reports_overview",
+      "purpose": "Aggregate recent campaign, automation, and audience performance metrics.",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targeted_tests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "open_gap_families": [
+        "predictive_optimization_depth"
+      ],
+      "required_work": [
+        "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis.",
+        "Add richer export/sharing/report scheduling and role-aware reporting permissions."
+      ]
+    },
+    {
+      "label": "Report detail",
+      "id": "report_detail",
+      "purpose": "Show per-campaign or per-automation performance metrics and recipient activity.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targeted_tests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "open_gap_families": [
+        "experimentation_depth",
+        "predictive_optimization_depth"
+      ],
+      "required_work": [
+        "Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views.",
+        "Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations."
+      ]
+    },
+    {
+      "label": "Automations overview",
+      "id": "automations_overview",
+      "purpose": "List, summarize, and launch automation or journey flows.",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targeted_tests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls.",
+        "Match automation governance, ownership, approvals, and diagnostics."
+      ]
+    },
+    {
+      "label": "Customer journey / automation builder",
+      "id": "automation_journey_builder",
+      "purpose": "Visually assemble triggered multi-step workflows.",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targeted_tests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth.",
+        "Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions."
+      ]
+    },
+    {
+      "label": "Landing pages",
+      "id": "landing_pages",
+      "purpose": "Create standalone conversion pages connected to audiences and campaigns.",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "product_files": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targeted_tests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle.",
+        "Match domain mapping, asset management, duplication, templates, and conversion reporting."
+      ]
+    },
+    {
+      "label": "Website builder",
+      "id": "website_builder",
+      "purpose": "Manage broader hosted web presence beyond standalone landing pages.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targeted_tests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "open_gap_families": [
+        "website_builder_depth"
+      ],
+      "required_work": [
+        "Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics.",
+        "Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management."
+      ]
+    },
+    {
+      "label": "Integrations marketplace",
+      "id": "integrations_marketplace",
+      "purpose": "Discover and manage connected apps such as Shopify, Salesforce, Zapier, and analytics tools.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targeted_tests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "open_gap_families": [
+        "integration_ecosystem_realism"
+      ],
+      "required_work": [
+        "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior.",
+        "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems."
+      ]
+    },
+    {
+      "label": "API keys and webhooks",
+      "id": "api_keys_webhooks",
+      "purpose": "Expose developer-oriented access and event wiring surfaces.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targeted_tests": [
+        "tests/reports-admin.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs.",
+        "Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links."
+      ]
+    },
+    {
+      "label": "Billing and plans",
+      "id": "billing_plans",
+      "purpose": "Handle subscriptions, payment methods, usage meters, and plan-gated upsells.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targeted_tests": [
+        "tests/billing-analytics.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows.",
+        "Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions."
+      ]
+    },
+    {
+      "label": "Settings, domains, and authentication",
+      "id": "settings_domains",
+      "purpose": "Manage account-level defaults, sender authentication, and connected domains.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targeted_tests": [
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings.",
+        "Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes."
+      ],
+      "required_tests": [
+        "tests/security-ops-hardening.test.mjs"
+      ]
+    },
+    {
+      "label": "Team users, roles, and permissions",
+      "id": "team_roles_permissions",
+      "purpose": "Invite collaborators and enforce scoped access across account surfaces.",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "product_files": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targeted_tests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "open_gap_families": [],
+      "required_work": [
+        "Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views.",
+        "Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls."
+      ]
+    }
+  ],
+  "crossCuttingRequiredWork": [
+    "Deliverability and sending infrastructure: queues, throughput shaping, suppression pipelines, bounce/complaint processing, sender reputation, warmup, and compliance enforcement.",
+    "Data platform and event ingestion: high-volume click/open/site/commerce event collection, retention, indexing, backfill, and report recomputation.",
+    "Abuse and fraud controls: account risk, sending review, domain trust, webhook abuse, signup abuse, content checks, and sanctions/compliance workflows.",
+    "Enterprise identity and governance: SSO, SCIM, org hierarchies, admin policy, audit exports, delegated administration, and region controls.",
+    "Billing/entitlements platform: plans, feature flags, trials, usage meters, invoicing, taxes, collections, and entitlement propagation.",
+    "Experimentation platform: experiment config, traffic allocation, result stats, guardrails, stopping rules, and reporting.",
+    "Predictive/ML systems: recommendations, forecast models, content scoring, send-time optimization, churn/CLV/probability models, and model ops.",
+    "Omnichannel orchestration: SMS, ads, social, surveys, push/mobile tie-ins, and cross-channel reporting/journey actions.",
+    "Content/design system depth: drag/drop blocks, responsive rendering fidelity, brand kits, reusable sections, versioning, and approvals.",
+    "Integration ecosystem breadth: partner SDK patterns, auth variants, sync monitoring, field mapping, schema evolution, and support workflows.",
+    "Support and help surfaces beyond current map: contextual help, guided setup, searchable knowledge, ticketing/escalation, and diagnostics.",
+    "Mobile-specific parity: mobile workflows, push notifications, approvals, dashboard/report consumption, and edit/send/admin flows on mobile.",
+    "Performance, scale, and multi-tenant hardening: caching, background jobs, data partitioning, migrations, failure recovery, and rate limiting.",
+    "Observability and ops tooling: admin consoles, replay/debugging, alerting, runbooks, audit logs, and customer support tooling.",
+    "Localization, accessibility, and compliance depth across all product surfaces."
+  ],
+  "gapFamilies": [
+    {
+      "id": "website_builder_depth",
+      "label": "Website builder depth",
+      "priority": 1,
+      "status": "open",
+      "currentEvidence": {
+        "observedCoverage": [
+          "Hosted forms and landing pages are first-class in packages/app/routes/forms.mjs",
+          "Public routes /f/:slug and /lp/:slug exist"
+        ],
+        "observedWeakness": [
+          "No equally first-class multi-page website builder route family was observed",
+          "Site-level theming/navigation/domain/analytics workflows are not obvious first-class product surfaces"
+        ]
+      },
+      "missingSubsurfaces": [
+        "site object model distinct from landing pages",
+        "multi-page builder",
+        "sitewide navigation",
+        "sitewide styles/themes",
+        "website-specific blocks",
+        "SEO metadata",
+        "website publish/domain workflow",
+        "page analytics",
+        "site-to-campaign attribution"
+      ],
+      "likelyTargets": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-website-builder.mjs",
+        "apps/web/server.mjs",
+        "tests/website-builder.test.mjs"
+      ],
+      "parityProof": [
+        "create website",
+        "create multiple pages",
+        "publish website",
+        "render public website",
+        "verify navigation/theme/analytics"
+      ]
+    },
+    {
+      "id": "ai_marketing_assistance",
+      "label": "AI / generative marketing assistance",
+      "priority": 1,
+      "status": "open",
+      "currentEvidence": {
+        "observedCoverage": [
+          "An app named intelligence-works exists in apps/",
+          "Core product shell does not visibly expose strong Mailchimp-grade AI helper flows in the observed routes"
+        ],
+        "observedWeakness": [
+          "No clear first-class subject line generator flow was observed",
+          "No clear first-class AI editor rewrite flow was observed",
+          "No clear first-class journey recommendation flow was observed"
+        ]
+      },
+      "missingSubsurfaces": [
+        "subject line generator",
+        "preheader generator",
+        "block copy generation/rewrite",
+        "landing/website copy generation",
+        "audience recommendations",
+        "journey recommendations",
+        "creative recommendations",
+        "AI governance/audit"
+      ],
+      "likelyTargets": [
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/automations.mjs",
+        "packages/app/routes/content-asset-templates.mjs",
+        "apps/intelligence-works",
+        "tests/ai-marketing-assist.test.mjs"
+      ],
+      "parityProof": [
+        "AI suggestions visible in core product shell",
+        "accepted suggestions persist into campaign/automation state",
+        "audit trail exists"
+      ]
+    },
+    {
+      "id": "experimentation_depth",
+      "label": "Experimentation / A-B / dynamic content depth",
+      "priority": 1,
+      "status": "open",
+      "currentEvidence": {
+        "observedCoverage": [
+          "Campaign wizard and reports are present"
+        ],
+        "observedWeakness": [
+          "No strong first-class experiment authoring route family was observed",
+          "No strong first-class multivariate workflow was observed"
+        ]
+      },
+      "missingSubsurfaces": [
+        "A/B campaign object model",
+        "winner metric selection",
+        "traffic split controls",
+        "multivariate variants",
+        "holdouts/control groups",
+        "dynamic content rules",
+        "experiment lifecycle",
+        "experiment reporting",
+        "winner promotion"
+      ],
+      "likelyTargets": [
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/reports.mjs",
+        "tests/campaign-experimentation.test.mjs"
+      ],
+      "parityProof": [
+        "create experiment",
+        "run variants",
+        "report results",
+        "promote winner",
+        "preview dynamic content"
+      ]
+    },
+    {
+      "id": "predictive_optimization_depth",
+      "label": "Predictive optimization / targeting depth",
+      "priority": 2,
+      "status": "open",
+      "currentEvidence": {
+        "observedCoverage": [
+          "scale-wave references mention send-time-optimizer and predictive-segments"
+        ],
+        "observedWeakness": [
+          "These do not yet read as fully integrated first-class main-app parity surfaces"
+        ]
+      },
+      "missingSubsurfaces": [
+        "campaign-level send-time optimization UX",
+        "predictive audience scores",
+        "segment builder access to predictive fields",
+        "content/product recommendations",
+        "journey optimization recommendations",
+        "fatigue/frequency optimization",
+        "predictive reporting surfaces"
+      ],
+      "likelyTargets": [
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/audience.mjs",
+        "packages/app/routes/reports.mjs",
+        "tests/predictive-optimization.test.mjs"
+      ],
+      "parityProof": [
+        "predictive values visible on contacts/segments",
+        "campaigns and journeys consume predictive logic",
+        "reports expose optimization outcomes"
+      ]
+    },
+    {
+      "id": "omnichannel_depth",
+      "label": "Ads / social / omnichannel depth",
+      "priority": 2,
+      "status": "open",
+      "currentEvidence": {
+        "observedCoverage": [
+          "Inbox, preferences, surveys, and campaign/journey surfaces exist"
+        ],
+        "observedWeakness": [
+          "Digital ads and stronger social/SMS workflows are not obvious first-class route families"
+        ]
+      },
+      "missingSubsurfaces": [
+        "digital ads / retargeting",
+        "social publishing calendar",
+        "SMS campaigns",
+        "cross-channel journey nodes",
+        "channel-specific consent state",
+        "omnichannel reporting"
+      ],
+      "likelyTargets": [
+        "packages/app/routes/ads-social.mjs",
+        "packages/app/routes/sms.mjs",
+        "packages/app/routes/automations.mjs",
+        "packages/app/routes/reports.mjs",
+        "tests/omnichannel-marketing.test.mjs"
+      ],
+      "parityProof": [
+        "multi-channel workflow exists",
+        "preference center reflects channel consent",
+        "reports show channel outcomes"
+      ]
+    },
+    {
+      "id": "content_studio_depth",
+      "label": "Content studio / asset workflow depth",
+      "priority": 3,
+      "status": "open",
+      "currentEvidence": {
+        "observedCoverage": [
+          "Content studio templates/assets route exists",
+          "Asset manager in platform route exists",
+          "Brand kit, saved templates, collections, and assets are present"
+        ],
+        "observedWeakness": [
+          "Surface still looks shallower than a Mailchimp-grade content studio"
+        ]
+      },
+      "missingSubsurfaces": [
+        "richer folders/tags/search",
+        "usage lineage",
+        "image/media transforms",
+        "saved snippets/sections",
+        "template versioning",
+        "approval lifecycle",
+        "content governance",
+        "content performance linkage"
+      ],
+      "likelyTargets": [
+        "packages/app/routes/content-asset-templates.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/collaboration-approval.mjs",
+        "tests/content-studio-depth.test.mjs"
+      ],
+      "parityProof": [
+        "searchable asset library",
+        "reusable snippets/sections",
+        "approval/version workflows",
+        "performance linkage"
+      ]
+    },
+    {
+      "id": "integration_ecosystem_realism",
+      "label": "Marketplace ecosystem realism / integration depth",
+      "priority": 3,
+      "status": "open",
+      "currentEvidence": {
+        "observedCoverage": [
+          "Integrations marketplace route exists",
+          "Connector install list and sync history exist",
+          "Commerce connector surfaces exist"
+        ],
+        "observedWeakness": [
+          "Connector auth/config/remediation depth appears synthetic compared with real Mailchimp ecosystem complexity"
+        ]
+      },
+      "missingSubsurfaces": [
+        "connector-specific OAuth/auth flows",
+        "connector-specific configuration pages",
+        "field mapping UI",
+        "sync remediation and retry depth",
+        "connector health/degraded state",
+        "broader entity realism",
+        "ecosystem reporting linkage",
+        "developer/partner lifecycle"
+      ],
+      "likelyTargets": [
+        "packages/app/routes/integrations-marketplace.mjs",
+        "packages/app/routes/commerce-revenue.mjs",
+        "apps/integrations-studio",
+        "apps/developer-portal",
+        "tests/integration-ecosystem-depth.test.mjs"
+      ],
+      "parityProof": [
+        "install/auth/configure flow",
+        "field mapping/remediation flow",
+        "connector-specific health/errors",
+        "developer/partner publish lifecycle"
+      ]
+    }
+  ],
+  "lanes": [
+    {
+      "id": "signup_onboarding",
+      "label": "Signup and onboarding wizard",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education.",
+        "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity.",
+        "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel."
+      ]
+    },
+    {
+      "id": "account_workspace_setup",
+      "label": "Account workspace setup",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements.",
+        "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth.",
+        "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences."
+      ]
+    },
+    {
+      "id": "dashboard_home",
+      "label": "Dashboard / home",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization.",
+        "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas.",
+        "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity."
+      ]
+    },
+    {
+      "id": "audience_overview",
+      "label": "Audience overview",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.",
+        "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events."
+      ]
+    },
+    {
+      "id": "contacts_table",
+      "label": "Contacts table",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.",
+        "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration."
+      ]
+    },
+    {
+      "id": "contact_profile",
+      "label": "Contact profile",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields.",
+        "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility."
+      ]
+    },
+    {
+      "id": "tags_groups_interests",
+      "label": "Tags, groups, and interests management",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration.",
+        "Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration."
+      ]
+    },
+    {
+      "id": "segments",
+      "label": "Segments",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns.",
+        "Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX."
+      ]
+    },
+    {
+      "id": "signup_forms_popups",
+      "label": "Signup forms and popup forms",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity.",
+        "Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth."
+      ]
+    },
+    {
+      "id": "campaign_index",
+      "label": "Campaign index",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions.",
+        "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility."
+      ]
+    },
+    {
+      "id": "campaign_wizard",
+      "label": "Campaign creation wizard",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types.",
+        "Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows."
+      ]
+    },
+    {
+      "id": "email_builder",
+      "label": "Email builder",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration.",
+        "Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity."
+      ]
+    },
+    {
+      "id": "template_library",
+      "label": "Template library",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance.",
+        "Add true template lifecycle management, versioning, duplication, review, and dependency tracking."
+      ]
+    },
+    {
+      "id": "content_studio",
+      "label": "Content studio / asset manager",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows.",
+        "Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations."
+      ]
+    },
+    {
+      "id": "send_schedule_review",
+      "label": "Send / schedule / review",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization.",
+        "Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history."
+      ]
+    },
+    {
+      "id": "reports_overview",
+      "label": "Reports overview",
+      "status": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis.",
+        "Add richer export/sharing/report scheduling and role-aware reporting permissions."
+      ]
+    },
+    {
+      "id": "report_detail",
+      "label": "Report detail",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views.",
+        "Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations."
+      ]
+    },
+    {
+      "id": "automations_overview",
+      "label": "Automations overview",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls.",
+        "Match automation governance, ownership, approvals, and diagnostics."
+      ]
+    },
+    {
+      "id": "automation_journey_builder",
+      "label": "Customer journey / automation builder",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth.",
+        "Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions."
+      ]
+    },
+    {
+      "id": "landing_pages",
+      "label": "Landing pages",
+      "status": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle.",
+        "Match domain mapping, asset management, duplication, templates, and conversion reporting."
+      ]
+    },
+    {
+      "id": "website_builder",
+      "label": "Website builder",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics.",
+        "Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management."
+      ]
+    },
+    {
+      "id": "integrations_marketplace",
+      "label": "Integrations marketplace",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior.",
+        "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems."
+      ]
+    },
+    {
+      "id": "api_keys_webhooks",
+      "label": "API keys and webhooks",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs.",
+        "Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links."
+      ]
+    },
+    {
+      "id": "billing_plans",
+      "label": "Billing and plans",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows.",
+        "Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions."
+      ]
+    },
+    {
+      "id": "settings_domains",
+      "label": "Settings, domains, and authentication",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings.",
+        "Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes."
+      ]
+    },
+    {
+      "id": "team_roles_permissions",
+      "label": "Team users, roles, and permissions",
+      "status": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views.",
+        "Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls."
+      ]
+    }
+  ]
+}
