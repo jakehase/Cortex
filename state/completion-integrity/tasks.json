@@ -5696,7 +5696,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:40:51.295Z",
       "announcementPromptInjectedAt": "2026-03-19T14:40:51.295Z",
-      "updatedAt": "2026-04-12T18:22:45.657Z",
+      "updatedAt": "2026-04-12T18:27:47.949Z",
       "history": [
         {
           "from": null,
@@ -5714,9 +5714,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 31,
+        "runs": 32,
         "failures": [],
-        "lastRunAt": "2026-04-12T18:22:45.673Z",
+        "lastRunAt": "2026-04-12T18:27:47.966Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -32615,12 +32615,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776018120761:b6fbedbb8f39a330",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-12T18:22:00.762Z",
-      "updatedAt": "2026-04-12T18:23:11.612Z",
+      "updatedAt": "2026-04-12T18:27:48.690Z",
       "prompt": "Fix it",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "9cdb533e0b4363c50a7ba3de163aad3f94057d1c7f81,path:scripts/orchestrator-real-repo-clean-implement.mjs,sha256:af2acefc40cf732e3a954f2ff544a3884cabee37cece9005958564f022b77324,path:scripts/lib/full-audit-campaign-remote-contract.mjs,sha256:e9f170a92e85454b0f056461cb4a51f4005d49f2ea6cdafed068bffbe24734d8,path:scripts/lib/full-audit-campaign-state.mjs,sha256:ca4d8958099837",
+      "completionSummary": "rowth__attempt-1.json --verifier lint, /root/clawd/mailchimp-clone/artifacts/full_audit_campaign/reports/supervisor_status.json:515: resultPath: /home/jake/clawd-remote/mailchimp-runs/one-pass-launch-20260412-174634/artifacts/implementation_runs/one-pass-launch-20260412-174634/live_runs/tier-100/results/focus.forms-growth__attempt-1.json /root/clawd/mailchimp-clone/artifacts/full_audit_campai",
       "history": [
         {
           "from": null,
@@ -32650,14 +32650,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 1,
+        "runs": 2,
         "failures": [
           {
             "at": "2026-04-12T18:23:11.629Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-12T18:27:48.708Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-12T18:23:11.629Z",
+        "lastRunAt": "2026-04-12T18:27:48.708Z",
         "lastDetails": {
           "source": "runtime_message",
           "signal": "completed"
