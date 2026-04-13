@@ -1,7 +1,8 @@
 {
   "seenKeys": [
     "eb0ffd02bb975b4d",
-    "f30caa40ffb61a6c"
+    "f30caa40ffb61a6c",
+    "8e6139fd2f683f71"
   ],
   "promotions": [
     {
@@ -21,6 +22,15 @@
       "summary": "canonical status: supervisorStatus=red` - `matrixStatus: partial` - `parityStatus: blocked` So the important part is: *the orchestration behaved much better*. It stayed alive, reported heartbeats, and terminated with a real blocker instead of just going dark. The thing that stopped this run was the *Mailchimp baseline*, not the orchestration transport. Next best move is for me to inspect that baseline test log, fix the baseline breakage, then rerun the soak so we can keep proving long-haul reliability past the repo-test gate., matrixStatus=partial` - `parityStatus: blocked` So the important part is: *the orchestration behaved much better*. It stayed alive, reported heartbeats, and terminated with a real blocker",
       "score": 0.78,
       "file": "/root/clawd/memory/2026-04-09.md"
+    },
+    {
+      "at": "2026-04-13T18:15:13.359Z",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "replyToId": "3EB0E02E2C305BAA4BA94F",
+      "senderLabel": "136704681865420@lid",
+      "summary": "canonical status: supervisorStatus=red` - `matrixStatus: partial` - `parityStatus: partial` - `nextFocus: []` - `shardCount: 0` The remaining bug is now very narrow: - the strict-gap surfaces are present - but the live issue/shard planning path still isn’t producing executable shard work So, bluntly: it’s *not where it should be yet*, but it is at the right failure layer now. I’m continuing on that exact planner bug unless you want me to pause., matrixStatus=partial` - `parityStatus: partial` - `nextFocus: []` - `shardCount: 0` The remaining bug is now very narrow: - the strict-gap surfaces are present - but the live issue/shard planning path still isn’t producing executable shard work So, bluntly: it’s *not wh",
+      "score": 0.78,
+      "file": "/root/clawd/memory/2026-04-13.md"
     }
   ]
 }
