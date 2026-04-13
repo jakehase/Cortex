@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-13T22:28:04.791Z",
+      "updatedAt": "2026-04-13T22:32:57.728Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 83,
+        "runs": 84,
         "failures": [],
-        "lastRunAt": "2026-04-13T22:28:04.813Z",
+        "lastRunAt": "2026-04-13T22:32:57.743Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -33952,7 +33952,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776104113366:076f694703d7eb82",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-13T18:15:13.366Z",
-      "updatedAt": "2026-04-13T21:35:30.335Z",
+      "updatedAt": "2026-04-13T22:32:51.835Z",
       "prompt": "Continue on the planner bug",
       "kind": "user_visible",
       "trustTier": "important",
@@ -33987,7 +33987,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 5,
+        "runs": 6,
         "failures": [
           {
             "at": "2026-04-13T18:20:15.801Z",
@@ -34008,9 +34008,13 @@
           {
             "at": "2026-04-13T21:35:30.351Z",
             "reason": "reply_thread_anchor_missing"
+          },
+          {
+            "at": "2026-04-13T22:32:51.850Z",
+            "reason": "reply_thread_anchor_missing"
           }
         ],
-        "lastRunAt": "2026-04-13T21:35:30.349Z",
+        "lastRunAt": "2026-04-13T22:32:51.850Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
