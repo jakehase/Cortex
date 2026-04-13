@@ -5519,10 +5519,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:46:11.749Z",
-      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
+      "completionSummary": "Mon 2026-04-13 09:57 CDT An async command the user already approved has completed. Do not run the command again. If the task requires more steps, continue from this result before replying to the user. Only ask the user for help if you are actually blocked. Exact completion detail",
       "escalatedAt": "2026-03-19T14:50:51.302Z",
       "announcementPromptInjectedAt": "2026-03-19T14:50:51.303Z",
-      "updatedAt": "2026-04-13T14:53:21.443Z",
+      "updatedAt": "2026-04-13T14:58:35.406Z",
       "history": [
         {
           "from": null,
@@ -5540,9 +5540,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 89,
+        "runs": 91,
         "failures": [],
-        "lastRunAt": "2026-04-13T14:53:21.468Z",
+        "lastRunAt": "2026-04-13T14:58:35.426Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
