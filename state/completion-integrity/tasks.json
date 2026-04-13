@@ -5522,7 +5522,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:50:51.302Z",
       "announcementPromptInjectedAt": "2026-03-19T14:50:51.303Z",
-      "updatedAt": "2026-04-13T15:12:54.486Z",
+      "updatedAt": "2026-04-13T15:18:09.470Z",
       "history": [
         {
           "from": null,
@@ -5540,9 +5540,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 94,
+        "runs": 95,
         "failures": [],
-        "lastRunAt": "2026-04-13T15:12:54.502Z",
+        "lastRunAt": "2026-04-13T15:18:09.488Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -33695,12 +33695,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776087734081:53a49d6541544404",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-13T13:42:14.081Z",
-      "updatedAt": "2026-04-13T15:15:21.721Z",
+      "updatedAt": "2026-04-13T15:20:44.113Z",
       "prompt": "Yes and fix it",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Yes do this # Home Assistant Configuration ## Connection Details - **IP Address:** 10.0.0.7:8123 - **Authentication:** Token stored in secure credential store (`~/.clawdbot/credentials`) ## Notes - Cozyla device for brightness control - Jake's smart home setup --- # Security Configuration ## Secret Storage All sensitive credentials are stored using Clawdbot's secure credential system: - **Home Assistant Token:** Stored in auth profile `homeassistant:default` - **Tavily API Key:** Stored via `clawdbot config set` - **Browser-Use API Key:** Stored via `cla",
+      "completionSummary": "ic/local rather than provider-backed or production-realistic. , exactRemainingGaps: frontend interaction parity: no Mailchimp-grade client interaction architecture, campaign editor parity: no rich drag/drop email editor, website builder parity: no visual site designer parity, automation/journey parity: no Mailchimp-grade visual/orchestrated runtime parity, audience/CRM parity: limit",
       "history": [
         {
           "from": null,
@@ -33730,7 +33730,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 9,
+        "runs": 10,
         "failures": [
           {
             "at": "2026-04-13T13:55:24.428Z",
@@ -33767,12 +33767,16 @@
           {
             "at": "2026-04-13T15:15:21.743Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-13T15:20:44.131Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-13T15:15:21.743Z",
+        "lastRunAt": "2026-04-13T15:20:44.131Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -33852,7 +33856,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-13T13:55:24.410Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
