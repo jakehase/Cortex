@@ -5696,7 +5696,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:40:51.295Z",
       "announcementPromptInjectedAt": "2026-03-19T14:40:51.295Z",
-      "updatedAt": "2026-04-13T03:08:16.389Z",
+      "updatedAt": "2026-04-13T03:13:16.070Z",
       "history": [
         {
           "from": null,
@@ -5714,9 +5714,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 136,
+        "runs": 137,
         "failures": [],
-        "lastRunAt": "2026-04-13T03:08:16.407Z",
+        "lastRunAt": "2026-04-13T03:13:16.086Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -33012,11 +33012,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776041338253:758f654ae4d17f5a",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-13T00:48:58.254Z",
-      "updatedAt": "2026-04-13T03:09:02.772Z",
+      "updatedAt": "2026-04-13T03:16:46.333Z",
       "prompt": "Fix everything you listed as you see best",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Queued messages while agent was busy --- Queued #1 https://x.com/ameliom612/status/2042952556591055190?s=46 Can we do this? # Home Assistant Configuration ## Connection Details - **IP Address:** 10.0.0.7:8123 - **Authentication:** Token stored in secure credential store (`~/.clawdbot/credentials`) ## Notes - Cozyla device for brightness control - Jake's smart home setup --- # Security Configuration ## Secret Storage All sensitive credentials are stored using Clawdbot's secure credential system: - **Home Assistant Token:** Stored in auth profile `homeassi",
       "history": [
         {
@@ -33036,6 +33036,14 @@
           "completedAt": "2026-04-13T01:07:25.909Z",
           "completionSummary": "Queued messages while agent was busy --- Queued #1 https://x.com/ameliom612/status/2042952556591055190?s=46 Can we do this? # Home Assistant Configuration ## Connection Details - **IP Address:** 10.0.0.7:8123 - **Authentication:** Token stored in secure credential store (`~/.clawdbot/credentials`) ## Notes - Cozyla device for brightness control - Jake's smart home setup --- # Security Configuration ## Secret Storage All sensitive credentials are stored using Clawdbot's secure credential system: - **Home Assistant Token:** Stored in auth profile `homeassi",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-13T03:16:46.333Z",
+          "failedAt": "2026-04-13T03:16:46.333Z",
+          "failureReason": "{ \"archiveRoot\": \"artifacts/reruns/20260413-031604\", \"archivedCount\": 2, \"runId\": \"one-pass-launch-20260413-031604\", \"campaignRunId\": \"campaign-20260413-031604-107439\", \"mode\": \"persistent\", \"persistentExitCode\": 1, \"workerExitCode\": null, \"supervisorExitCode\": null, \"watcherExitCode\": null } Process exited with code 1.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -33157,7 +33165,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-13T01:07:25.909Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-13T03:16:46.333Z",
+      "failureReason": "{ \"archiveRoot\": \"artifacts/reruns/20260413-031604\", \"archivedCount\": 2, \"runId\": \"one-pass-launch-20260413-031604\", \"campaignRunId\": \"campaign-20260413-031604-107439\", \"mode\": \"persistent\", \"persistentExitCode\": 1, \"workerExitCode\": null, \"supervisorExitCode\": null, \"watcherExitCode\": null } Process exited with code 1.",
+      "failureSource": "runtime_message"
     }
   ]
 }
