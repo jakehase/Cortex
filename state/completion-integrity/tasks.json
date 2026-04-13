@@ -5432,10 +5432,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:51:34.658Z",
-      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
+      "completionSummary": "Mon 2026-04-13 10:57 CDT An async command the user already approved has completed. Do not run the command again. If the task requires more steps, continue from this result before replying to the user. Only ask the user for help if you are actually blocked. Exact completion detail",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-13T15:52:59.428Z",
+      "updatedAt": "2026-04-13T15:59:01.702Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 3,
+        "runs": 5,
         "failures": [],
-        "lastRunAt": "2026-04-13T15:52:59.444Z",
+        "lastRunAt": "2026-04-13T15:59:01.722Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -33726,7 +33726,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776087734081:53a49d6541544404",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-13T13:42:14.081Z",
-      "updatedAt": "2026-04-13T15:57:38.554Z",
+      "updatedAt": "2026-04-13T15:58:09.012Z",
       "prompt": "Yes and fix it",
       "kind": "user_visible",
       "trustTier": "important",
@@ -33761,7 +33761,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 16,
+        "runs": 18,
         "failures": [
           {
             "at": "2026-04-13T13:55:24.428Z",
@@ -33826,9 +33826,17 @@
           {
             "at": "2026-04-13T15:57:38.574Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-13T15:57:44.934Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-13T15:58:09.033Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-13T15:57:38.574Z",
+        "lastRunAt": "2026-04-13T15:58:09.033Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
