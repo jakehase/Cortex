@@ -5522,7 +5522,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:50:51.302Z",
       "announcementPromptInjectedAt": "2026-03-19T14:50:51.303Z",
-      "updatedAt": "2026-04-13T13:22:55.754Z",
+      "updatedAt": "2026-04-13T13:28:14.638Z",
       "history": [
         {
           "from": null,
@@ -5540,9 +5540,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 71,
+        "runs": 72,
         "failures": [],
-        "lastRunAt": "2026-04-13T13:22:55.769Z",
+        "lastRunAt": "2026-04-13T13:28:14.651Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -33564,11 +33564,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776084623983:a9ba64991134a1d4",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-13T12:50:23.983Z",
-      "updatedAt": "2026-04-13T13:02:43.581Z",
+      "updatedAt": "2026-04-13T13:31:23.726Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Yes do this # Home Assistant Configuration ## Connection Details - **IP Address:** 10.0.0.7:8123 - **Authentication:** Token stored in secure credential store (`~/.clawdbot/credentials`) ## Notes - Cozyla device for brightness control - Jake's smart home setup --- # Security Conf",
       "history": [
         {
@@ -33588,6 +33588,14 @@
           "completedAt": "2026-04-13T13:01:38.454Z",
           "completionSummary": "(no new output) Process exited with code 0.",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-13T13:31:23.726Z",
+          "failedAt": "2026-04-13T13:31:23.726Z",
+          "failureReason": "System: [2026-04-13 08:31:17 CDT] Exec failed (tender-n, signal SIGTERM) :: Anchor Mailer listening on http://127.0.0.1:3000 Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. When reading HEARTBEAT.md, use workspace file /root/clawd/HEARTBEAT.md (exact case). Do not read docs/he",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -33599,9 +33607,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-04-13T13:02:43.602Z",
+        "lastRunAt": "2026-04-13T13:30:46.436Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -33678,7 +33686,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-13T13:01:38.454Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-13T13:31:23.726Z",
+      "failureReason": "System: [2026-04-13 08:31:17 CDT] Exec failed (tender-n, signal SIGTERM) :: Anchor Mailer listening on http://127.0.0.1:3000 Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. When reading HEARTBEAT.md, use workspace file /root/clawd/HEARTBEAT.md (exact case). Do not read docs/he",
+      "failureSource": "runtime_message"
     }
   ]
 }
