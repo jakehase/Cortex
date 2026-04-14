@@ -5432,10 +5432,10 @@
       "kind": "user_visible",
       "status": "internal_complete",
       "completedAt": "2026-03-19T14:51:34.658Z",
-      "completionSummary": "results:,provider:cortex-http,mode:semantic_hybrid,memoryMode:reconcile,queryType:conflict-prone,preference,resolvedFacts:entity:Jake,attribute:preference,bestPath:cortex:469e3fd8-a90b-4f42-b165-6e5f5aead643,supportingPaths:cortex:469e3fd8-a90b-4f42-b165-6e5f5aead643,cortex:664e8",
+      "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-14T17:02:14.369Z",
+      "updatedAt": "2026-04-14T17:02:46.464Z",
       "history": [
         {
           "from": null,
@@ -5453,12 +5453,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 169,
+        "runs": 170,
         "failures": [],
-        "lastRunAt": "2026-04-14T17:02:14.387Z",
+        "lastRunAt": "2026-04-14T17:02:46.483Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "trustTier": "normal",
@@ -5515,7 +5515,7 @@
         "derivedCampaignReadinessPercent": null,
         "proposedPercent": null
       },
-      "completionSource": "runtime_message",
+      "completionSource": "agent_end",
       "grounding": {
         "required": false,
         "ambiguousReference": false,
