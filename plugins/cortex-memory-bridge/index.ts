@@ -135,6 +135,9 @@ function queryIsAboutExecutionTrace(query: string): boolean { return /toolcall|s
 function isRecentSummaryQuery(query: string): boolean {
   return /\bwhat changed recently\b|\brecent changes\b|\brecent update\b|\bstatus update\b|\bwhat'?s going on\b|\bhow'?s this going\b|\bwhat happened lately\b|\blately\b/.test(normalizeQuery(query));
 }
+function queryLooksLikePreference(query: string): boolean {
+  return /\bprefer|preference|call me|timezone|pronouns|reply prefix|replies begin with|reply begin with|what should replies begin with|prefix should replies use\b/i.test(query);
+}
 function isRecentSummaryMemory(metadata: Record<string, unknown>, text: string): boolean {
   const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
   const topic = String(metadata?.topic ?? '').toLowerCase();
@@ -228,7 +231,7 @@ function extractAttribute(query: string, text: string, metadata: Record<string, 
   const queryHay = query.toLowerCase();
   if (isRecentSummaryMemory(metadata, text)) return 'recent_summary';
   if (/latest|current|changed|used to|timeline|when|before|after|renamed|fixed|updated/.test(textHay)) return 'temporal_state';
-  if (/prefer|preference|like|want|call me|timezone|pronouns/.test(textHay) || /prefer|preference|call me|timezone|pronouns/.test(queryHay)) return 'preference';
+  if (/prefer|preference|like|want|call me|timezone|pronouns|replies begin with|reply prefix/.test(textHay) || queryLooksLikePreference(queryHay)) return 'preference';
   if (/decid|plan|architecture|setup|config|memory/.test(textHay)) return 'decision';
   if (/status|working|l2|browser bridge|tool|runtime/.test(textHay)) return 'runtime_state';
   return undefined;
@@ -254,7 +257,7 @@ function classifyQuery(query: string): { mode: QueryMode; tags: string[] } {
   if (isRecentSummaryQuery(query)) tags.push('recent-summary');
   if (queryNeedsInvestigate(query)) tags.push('timeline');
   if (queryNeedsReconcile(query)) tags.push('conflict-prone');
-  if (/\bprefer|preference|relationship|context|social cue\b/i.test(query)) tags.push('preference');
+  if (/\bprefer|preference|relationship|context|social cue\b/i.test(query) || queryLooksLikePreference(query)) tags.push('preference');
   if (tags.includes('timeline')) return { mode: 'investigate', tags };
   if (tags.includes('recent-summary')) return { mode: 'reconcile', tags };
   if (tags.length > 0) return { mode: 'reconcile', tags };
@@ -288,6 +291,8 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   if (isProjectStateMemory(metadata) && !historical) { score += cfg.projectFactBoost; signals.reasons.push('project_fact_boost'); }
   if (signals.lexicalOverlapScore >= 0.34) { signals.reasons.push('lexical_overlap'); }
   if (!vague && signals.lexicalOverlapScore === 0) { score -= 0.12; signals.reasons.push('no_overlap_penalty'); }
+  if (queryLooksLikePreference(query) && signals.attribute === 'preference') { score += 0.22; signals.reasons.push('preference_match_boost'); }
+  if (queryLooksLikePreference(query) && /\bopen loops?:\b/i.test(text) && signals.attribute !== 'preference') { score -= 0.28; signals.reasons.push('open_loop_preference_penalty'); }
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
@@ -670,4 +675,4 @@ const plugin = {
 };
 
 export default plugin;
-export { durabilityScore, buildWriteThroughMetadata };
+export { durabilityScore, buildWriteThroughMetadata, reconcileResults };
