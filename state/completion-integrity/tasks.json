@@ -33952,11 +33952,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776104113366:076f694703d7eb82",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-13T18:15:13.366Z",
-      "updatedAt": "2026-04-13T23:25:26.525Z",
+      "updatedAt": "2026-04-14T00:32:41.319Z",
       "prompt": "Continue on the planner bug",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "System: 2026-04-13 13:17:22 CDT Exec completed (gentle-b, code 0) :: atus from '../../large-project-capability-stack/packages/issue-dag/index.mjs'; /root/clawd/mailchimp-clone/artifacts/reruns/20260411-052320/full_audit_campaign/runs/campaign-202… System: 2026-04-13 13:20:15 CDT Exec completed (calm-lob, code 0) :: EXIT:1 Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK. When reading HEARTBEAT.md, use workspace file /root/clawd/HEARTBE",
       "history": [
         {
@@ -33976,6 +33976,14 @@
           "completedAt": "2026-04-13T18:20:15.785Z",
           "completionSummary": "EXIT:1 Process exited with code 0.",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-14T00:32:41.319Z",
+          "failedAt": "2026-04-14T00:32:41.318Z",
+          "failureReason": "npm error code ENOTEMPTY npm error syscall rename npm error path /usr/lib/node_modules/openclaw npm error dest /usr/lib/node_modules/.openclaw-gX1GdeX9 npm error errno -39 npm error ENOTEMPTY: directory not empty, rename '/usr/lib/node_modules/openclaw' -> '/usr/lib/node_modules/.openclaw-gX1GdeX9' npm error A complete log of this run can be found in: /root/.npm/_logs/2026-04-14T00_32_24_552Z-debu",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -34105,7 +34113,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-13T18:20:15.785Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-14T00:32:41.318Z",
+      "failureReason": "npm error code ENOTEMPTY npm error syscall rename npm error path /usr/lib/node_modules/openclaw npm error dest /usr/lib/node_modules/.openclaw-gX1GdeX9 npm error errno -39 npm error ENOTEMPTY: directory not empty, rename '/usr/lib/node_modules/openclaw' -> '/usr/lib/node_modules/.openclaw-gX1GdeX9' npm error A complete log of this run can be found in: /root/.npm/_logs/2026-04-14T00_32_24_552Z-debu",
+      "failureSource": "runtime_message"
     }
   ]
 }
