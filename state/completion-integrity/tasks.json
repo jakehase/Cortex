@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-14T15:12:19.665Z",
+      "updatedAt": "2026-04-14T15:17:20.427Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 147,
+        "runs": 148,
         "failures": [],
-        "lastRunAt": "2026-04-14T15:12:19.682Z",
+        "lastRunAt": "2026-04-14T15:17:20.445Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -34238,12 +34238,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776178375553:044b15d6d3881266",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-14T14:52:55.553Z",
-      "updatedAt": "2026-04-14T15:04:47.055Z",
+      "updatedAt": "2026-04-14T15:18:45.271Z",
       "prompt": "Let’s update openclaw but with our plan so it doesn’t mess up any of our implementations or changes we’ve done",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "added 87 packages, removed 180 packages, and changed 668 packages in 1m 108 packages are looking for funding run `npm fund` for details Process exited with code 0.",
+      "completionSummary": "didn't work? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. T",
       "history": [
         {
           "from": null,
@@ -34273,17 +34273,21 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 1,
+        "runs": 2,
         "failures": [
           {
             "at": "2026-04-14T15:04:47.077Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-14T15:18:45.298Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-14T15:04:47.077Z",
+        "lastRunAt": "2026-04-14T15:18:45.298Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "honesty": {
@@ -34363,7 +34367,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-14T15:04:47.054Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
