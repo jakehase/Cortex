@@ -643,20 +643,16 @@ export default function register(api: any) {
         workflowCheckpoint: typeof data?.workflow_checkpoint === 'object' && data.workflow_checkpoint ? data.workflow_checkpoint : undefined,
       };
     } catch (error) {
-      api.logger.warn(`cortex-route-gate: routing failed for prompt: ${String(error)}`);
-      if (!requireRouting) {
-        plan = {
-          recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
-          routingMethod: 'fallback',
-          routingError: String(error), reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
-        };
-      } else {
-        plan = {
-          recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
-          routingMethod: 'fallback',
-          routingError: String(error), reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
-        };
+      const message = `cortex-route-gate: routing failed for prompt: ${String(error)}`;
+      api.logger.warn(message);
+      if (requireRouting) {
+        throw new Error('Cortex routing is required for this runtime, and the route gate could not reach Cortex. Failing closed instead of bypassing Cortex.');
       }
+      plan = {
+        recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
+        routingMethod: 'fallback',
+        routingError: String(error), reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
+      };
     }
     const intentText = latestUserTurnText(messages) || tailIntentText(prompt);
     const creativityEligible = Boolean(latestUserTurnText(messages)) && !(sessionKey || '').includes(':cron:');
