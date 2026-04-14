@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-14T16:12:24.272Z",
+      "updatedAt": "2026-04-14T16:17:11.437Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 159,
+        "runs": 160,
         "failures": [],
-        "lastRunAt": "2026-04-14T16:12:24.289Z",
+        "lastRunAt": "2026-04-14T16:17:11.453Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -34238,12 +34238,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776178375553:044b15d6d3881266",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-14T14:52:55.553Z",
-      "updatedAt": "2026-04-14T16:15:58.039Z",
+      "updatedAt": "2026-04-14T16:20:55.512Z",
       "prompt": "Let’s update openclaw but with our plan so it doesn’t mess up any of our implementations or changes we’ve done",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
-      "completionSummary": "didn't work? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figure it out. Read the file. Check the context. Search for it. _Then_ ask if you're stuck. T",
+      "status": "failed",
+      "completionSummary": "........................................................ 100% 56 passed in 4.62s Process exited with code 0.",
       "history": [
         {
           "from": null,
@@ -34262,6 +34262,14 @@
           "completedAt": "2026-04-14T15:04:47.054Z",
           "completionSummary": "added 87 packages, removed 180 packages, and changed 668 packages in 1m 108 packages are looking for funding run `npm fund` for details Process exited with code 0.",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-14T16:20:55.512Z",
+          "failedAt": "2026-04-14T16:20:55.512Z",
+          "failureReason": "# Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 20384.135488 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 16847.863309 type: 'test' ..",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -34273,7 +34281,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 4,
+        "runs": 5,
         "failures": [
           {
             "at": "2026-04-14T15:04:47.077Z",
@@ -34290,12 +34298,16 @@
           {
             "at": "2026-04-14T16:15:58.059Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-14T16:19:53.971Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-14T16:15:58.059Z",
+        "lastRunAt": "2026-04-14T16:19:53.970Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -34336,7 +34348,7 @@
       },
       "claimIntegrity": {
         "required": false,
-        "progressEstimatePresent": false,
+        "progressEstimatePresent": true,
         "responseFramed": false,
         "artifactReferenced": false,
         "passed": true,
@@ -34353,7 +34365,7 @@
         "sourceProgramStatePath": null,
         "derivedCloneParityPercent": null,
         "derivedCampaignReadinessPercent": null,
-        "proposedPercent": null
+        "proposedPercent": 100
       },
       "contract": {
         "required": true,
@@ -34375,7 +34387,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-14T15:04:47.054Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-14T16:20:55.512Z",
+      "failureReason": "# Subtest: tracks hard state machine through completion, send, confirmation, and close ok 1 - tracks hard state machine through completion, send, confirmation, and close --- duration_ms: 20384.135488 type: 'test' ... # Subtest: important tasks require validator pass before auto-delivery ok 2 - important tasks require validator pass before auto-delivery --- duration_ms: 16847.863309 type: 'test' ..",
+      "failureSource": "runtime_message"
     }
   ]
 }
