@@ -239,11 +239,26 @@ function extractAttribute(query: string, text: string, metadata: Record<string, 
 function normalizeValueSignature(text: string): string {
   return text.toLowerCase().replace(/https?:\/\/\S+/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
 }
+function isTentativePreferenceSignature(signature: string | undefined): boolean {
+  const s = String(signature || '').toLowerCase();
+  return /\bopen loops?\b|\bwhat did\b|\bask me\b|\bquestion\b|\bunknown\b|\bsystem\b/.test(s);
+}
+function canonicalPreferenceCore(signature: string | undefined): string {
+  const s = String(signature || '').toLowerCase();
+  const match = s.match(/(?:jake\s+)?prefers?\s+repl(?:y|ies)\s+to\s+begin\s+with\s+[a-z0-9\[\]]+/);
+  return match ? match[0] : '';
+}
 function detectConflict(a: CandidateSignals, b: CandidateSignals): boolean {
   if (!a.attribute || !b.attribute || a.attribute !== b.attribute) return false;
   if (a.attribute === 'recent_summary') return false;
   if (a.entity && b.entity && a.entity.toLowerCase() !== b.entity.toLowerCase()) return false;
   if (!a.valueSignature || !b.valueSignature || a.valueSignature === b.valueSignature) return false;
+  if (a.attribute === 'preference') {
+    if (isTentativePreferenceSignature(a.valueSignature) || isTentativePreferenceSignature(b.valueSignature)) return false;
+    const aCore = canonicalPreferenceCore(a.valueSignature);
+    const bCore = canonicalPreferenceCore(b.valueSignature);
+    if (aCore && bCore && aCore === bCore) return false;
+  }
   return true;
 }
 function queryNeedsReconcile(query: string): boolean {
