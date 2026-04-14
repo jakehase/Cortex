@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-14T15:42:37.495Z",
+      "updatedAt": "2026-04-14T15:47:14.826Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 153,
+        "runs": 154,
         "failures": [],
-        "lastRunAt": "2026-04-14T15:42:37.512Z",
+        "lastRunAt": "2026-04-14T15:47:14.843Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -34238,7 +34238,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776178375553:044b15d6d3881266",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-14T14:52:55.553Z",
-      "updatedAt": "2026-04-14T15:18:45.271Z",
+      "updatedAt": "2026-04-14T15:47:36.401Z",
       "prompt": "Let’s update openclaw but with our plan so it doesn’t mess up any of our implementations or changes we’ve done",
       "kind": "user_visible",
       "trustTier": "important",
@@ -34273,7 +34273,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 2,
+        "runs": 3,
         "failures": [
           {
             "at": "2026-04-14T15:04:47.077Z",
@@ -34282,9 +34282,13 @@
           {
             "at": "2026-04-14T15:18:45.298Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-14T15:47:36.417Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-14T15:18:45.298Z",
+        "lastRunAt": "2026-04-14T15:47:36.417Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
