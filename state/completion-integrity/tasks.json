@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T02:29:24.870Z",
+      "updatedAt": "2026-04-15T02:34:24.254Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 283,
+        "runs": 284,
         "failures": [],
-        "lastRunAt": "2026-04-15T02:29:24.885Z",
+        "lastRunAt": "2026-04-15T02:34:24.272Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -34628,7 +34628,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776189483082:c17c631bb3eaa54a",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-14T17:58:03.082Z",
-      "updatedAt": "2026-04-15T01:58:40.545Z",
+      "updatedAt": "2026-04-15T02:34:37.850Z",
       "prompt": "Okay continue",
       "kind": "user_visible",
       "trustTier": "important",
@@ -34663,7 +34663,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 2,
+        "runs": 3,
         "failures": [
           {
             "at": "2026-04-15T01:58:18.110Z",
@@ -34672,9 +34672,13 @@
           {
             "at": "2026-04-15T01:58:40.560Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-15T02:34:37.866Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-15T01:58:40.560Z",
+        "lastRunAt": "2026-04-15T02:34:37.866Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
