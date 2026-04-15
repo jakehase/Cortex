@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T19:54:31.097Z",
+      "updatedAt": "2026-04-15T19:59:16.971Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 493,
+        "runs": 494,
         "failures": [],
-        "lastRunAt": "2026-04-15T19:54:31.121Z",
+        "lastRunAt": "2026-04-15T19:59:16.995Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -36355,11 +36355,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776277892374:1fb40772beaeb576",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T18:31:32.374Z",
-      "updatedAt": "2026-04-15T19:38:03.689Z",
+      "updatedAt": "2026-04-15T20:00:16.468Z",
       "prompt": "Okay let’s try the mailchimp clone again with the agent orchestration",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Successfully replaced 4 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-remote-contract.mjs. Successfully replaced 5 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-architecture.mjs. /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs:141: command: 'node mailchimp-clone/scripts/full-audit-campaign-remote-runner.mjs' , /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs:277: const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-remote-runner.mjs'), 'utf8'); /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs:283: const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-remote-runner.mjs'), 'utf8'); /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs:33",
       "history": [
         {
@@ -36379,6 +36379,14 @@
           "completedAt": "2026-04-15T18:33:23.046Z",
           "completionSummary": "Successfully replaced 4 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-remote-contract.mjs. Successfully replaced 5 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-architecture.mjs. /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs:141: command: 'node mailchimp-clone/scripts/full-audit-campaign-remote-runner.mjs' , /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs:277: const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-remote-runner.mjs'), 'utf8'); /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs:283: const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-remote-runner.mjs'), 'utf8'); /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs:33",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-15T20:00:16.468Z",
+          "failedAt": "2026-04-15T20:00:16.468Z",
+          "failureReason": "(no output recorded) Process exited with signal SIGKILL.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -36488,7 +36496,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-15T18:33:23.046Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-15T20:00:16.468Z",
+      "failureReason": "(no output recorded) Process exited with signal SIGKILL.",
+      "failureSource": "runtime_message"
     }
   ]
 }
