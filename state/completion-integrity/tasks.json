@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T14:19:27.462Z",
+      "updatedAt": "2026-04-15T14:24:17.931Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 426,
+        "runs": 427,
         "failures": [],
-        "lastRunAt": "2026-04-15T14:19:27.475Z",
+        "lastRunAt": "2026-04-15T14:24:17.951Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -35202,11 +35202,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776262080277:ab120e2981160607",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T14:08:00.277Z",
-      "updatedAt": "2026-04-15T14:09:40.184Z",
+      "updatedAt": "2026-04-15T14:26:20.971Z",
       "prompt": "Implement all of these",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "version: 1, policy: changedProductFilesMustBeDeclared: true, allowedChangedStatuses: real , requireEvidenceTests: true, bannedPlaceholderLanguage: coming soon, placeholder, stub, mock, fake, simulated, TODO , bootstrapStatus: declare_me , surfaces: large-project-capability-stack/packages/campaign-runtime/index.mjs: label: Shared campaign runtime orchestration helpers, status: real, evidence: tests: large-project-capability-stack/tests/campaign-runtime.test.mjs , notes: Shared worker/delegate/watch/archive runtime used to generalize long-run orchestration",
       "history": [
         {
@@ -35226,6 +35226,14 @@
           "completedAt": "2026-04-15T14:09:00.515Z",
           "completionSummary": "test: canonical one-pass plan productFiles all bind to real product surfaces ok 25 - canonical one-pass plan productFiles all bind to real product surfaces --- duration_ms: 1.024949 type: 'test' ... # Subtest: strict gap inventory mode starts with the first remaining strict gap in sequence mode ok 26 - strict gap inventory mode starts with the first remaining strict gap in sequence mode --- durati",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-15T14:26:20.971Z",
+          "failedAt": "2026-04-15T14:26:20.971Z",
+          "failureReason": "System (untrusted): [2026-04-15 09:02:25 CDT] Exec completed (rapid-la, code 1) :: on_ms: 0.435547 type: 'test' ... # Subtest: parity focus plan excludes completed focus ids instead of falling back to the full focus set ok 32 - parity focus plan excludes complet… System (untrusted): [2026-04-15 09:03:34 CDT] Exec completed (tidal-cr, code 1) :: n_ms: 0.434745 type: 'test' ... # Subtest: parity foc",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -35331,7 +35339,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-15T14:09:00.515Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-15T14:26:20.971Z",
+      "failureReason": "System (untrusted): [2026-04-15 09:02:25 CDT] Exec completed (rapid-la, code 1) :: on_ms: 0.435547 type: 'test' ... # Subtest: parity focus plan excludes completed focus ids instead of falling back to the full focus set ok 32 - parity focus plan excludes complet… System (untrusted): [2026-04-15 09:03:34 CDT] Exec completed (tidal-cr, code 1) :: n_ms: 0.434745 type: 'test' ... # Subtest: parity foc",
+      "failureSource": "runtime_message"
     }
   ]
 }
