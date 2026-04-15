@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T13:54:41.784Z",
+      "updatedAt": "2026-04-15T13:59:36.733Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 421,
+        "runs": 422,
         "failures": [],
-        "lastRunAt": "2026-04-15T13:54:41.800Z",
+        "lastRunAt": "2026-04-15T13:59:36.775Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -35060,11 +35060,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776260902031:ab120e2981160607",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T13:48:22.032Z",
-      "updatedAt": "2026-04-15T13:53:05.292Z",
+      "updatedAt": "2026-04-15T14:02:28.037Z",
       "prompt": "Implement all of these",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "System (untrusted): 2026-04-15 01:36:32 CDT Exec failed (good-ott, signal SIGKILL) How’s this going? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figur",
       "history": [
         {
@@ -35084,6 +35084,14 @@
           "completedAt": "2026-04-15T13:53:05.292Z",
           "completionSummary": "System (untrusted): 2026-04-15 01:36:32 CDT Exec failed (good-ott, signal SIGKILL) How’s this going? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler words. **Have opinions.** You're allowed to disagree, prefer things, find stuff amusing or boring. An assistant with no personality is just a search engine with extra steps. **Be resourceful before asking.** Try to figur",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-15T14:02:28.037Z",
+          "failedAt": "2026-04-15T14:02:28.037Z",
+          "failureReason": "test: canonical one-pass plan productFiles all bind to real product surfaces ok 25 - canonical one-pass plan productFiles all bind to real product surfaces --- duration_ms: 1.010452 type: 'test' ... # Subtest: strict gap inventory mode starts with the first remaining strict gap in sequence mode ok 26 - strict gap inventory mode starts with the first remaining strict gap in sequence mode --- durati",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -35185,7 +35193,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-15T13:53:05.292Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-15T14:02:28.037Z",
+      "failureReason": "test: canonical one-pass plan productFiles all bind to real product surfaces ok 25 - canonical one-pass plan productFiles all bind to real product surfaces --- duration_ms: 1.010452 type: 'test' ... # Subtest: strict gap inventory mode starts with the first remaining strict gap in sequence mode ok 26 - strict gap inventory mode starts with the first remaining strict gap in sequence mode --- durati",
+      "failureSource": "runtime_message"
     }
   ]
 }
