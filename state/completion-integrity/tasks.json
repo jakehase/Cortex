@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T14:49:17.348Z",
+      "updatedAt": "2026-04-15T14:54:35.610Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 432,
+        "runs": 433,
         "failures": [],
-        "lastRunAt": "2026-04-15T14:49:17.372Z",
+        "lastRunAt": "2026-04-15T14:54:35.628Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -35343,6 +35343,141 @@
       "failedAt": "2026-04-15T14:26:20.971Z",
       "failureReason": "System (untrusted): [2026-04-15 09:02:25 CDT] Exec completed (rapid-la, code 1) :: on_ms: 0.435547 type: 'test' ... # Subtest: parity focus plan excludes completed focus ids instead of falling back to the full focus set ok 32 - parity focus plan excludes complet… System (untrusted): [2026-04-15 09:03:34 CDT] Exec completed (tidal-cr, code 1) :: n_ms: 0.434745 type: 'test' ... # Subtest: parity foc",
       "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776264885568:8b05f657b2e17aed",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-15T14:54:45.568Z",
+      "updatedAt": "2026-04-15T14:56:57.436Z",
+      "prompt": "System (untrusted): [2026-04-15 09:27:07 CDT] Exec completed (tidy-she, code 0) :: facts/implementation_runs/campaign-20260409-orchestration-soak-validation-7\",\"targetPath\":\"/home/jake/clawd-remote/mailchimp-worktree-campaign-20260409-orche",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "internal_complete",
+      "completionSummary": "version: 1, policy: changedProductFilesMustBeDeclared: true, allowedChangedStatuses: real , requireEvidenceTests: true, bannedPlaceholderLanguage: coming soon, placeholder, stub, mock, fake, simulated, TODO , bootstrapStatus: declare_me , surfaces: large-project-capability-stack/packages/campaign-runtime/index.mjs: label: Shared campaign runtime orchestration helpers, status: real, evidence: tests: large-project-capability-stack/tests/campaign-runtime.test.mjs , notes: Shared worker/delegate/watch/archive runtime used to generalize long-run orchestration beyond Mailchimp-specific wrappers. , large-project-capability-stack/packages/multi-agent-orchestrator/index.mjs: label: Shared multi-agent orchestrator live worker farm, status: real, evidence: tests: large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs , notes: Shared shard planner + live worker farm now support imple",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-15T14:54:45.568Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-15T14:54:45.588Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-15T14:54:58.360Z",
+          "completedAt": "2026-04-15T14:54:58.360Z",
+          "completionSummary": "System (untrusted): 2026-04-15 09:27:07 CDT Exec completed (tidy-she, code 0) :: facts/implementation_runs/campaign-20260409-orchestration-soak-validation-7,targetPath:/home/jake/clawd-remote/mailchimp-worktree-campaign-20260409-orchestration-soak-validati… System (untrusted): 2026-04-15 09:28:02 CDT Exec completed (keen-slu, code 0) :: n_ms: 0.449423 type: 'test' ... # Subtest: parity foc",
+          "completionSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 2,
+        "failures": [
+          {
+            "at": "2026-04-15T14:54:58.394Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-15T14:56:57.454Z",
+            "reason": "honesty_target_path_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-15T14:56:57.454Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [
+          {
+            "rule": "honesty_target_path_missing",
+            "path": "System (untrusted): [2026-04-15 09:27:07 CDT] Exec completed (tidy-she, code 0) :: facts/implementation_runs/campaign-20260409-orchestration-soak-validation-7\",\"targetPath\":\"/home/jake/clawd-remote/mailchimp-worktree-campaign-20260409-orche",
+            "message": "honesty_target_path_missing"
+          }
+        ],
+        "status": "red",
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": false,
+        "proofPresent": false,
+        "replyThread": {
+          "present": false,
+          "required": false,
+          "proofPresent": true,
+          "replyToId": null,
+          "senderLabel": null,
+          "summary": null
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": true
+      },
+      "claimIntegrity": {
+        "required": false,
+        "progressEstimatePresent": false,
+        "responseFramed": false,
+        "artifactReferenced": false,
+        "passed": true,
+        "autoGenerated": false,
+        "reportPath": null,
+        "responseFramePath": null,
+        "summaryPath": null,
+        "repoReportPath": null,
+        "repoResponseFramePath": null,
+        "repoSummaryPath": null,
+        "reportGeneratedAt": null,
+        "generationError": null,
+        "sourceMatrixPath": null,
+        "sourceProgramStatePath": null,
+        "derivedCloneParityPercent": null,
+        "derivedCampaignReadinessPercent": null,
+        "proposedPercent": null
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "parity_for_scope",
+        "requestedScope": "System (untrusted): [2026-04-15 09:27:07 CDT] Exec completed (tidy-she, code 0) :: facts/implementation_runs/campaign-20260409-orchestration-soak-validation-7\",\"targetPath\":\"/home/jake/clawd-remote/mailchimp-worktree-cam",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": "missing"
+      },
+      "completedAt": "2026-04-15T14:54:58.360Z",
+      "completionSource": "agent_end"
     }
   ]
 }
