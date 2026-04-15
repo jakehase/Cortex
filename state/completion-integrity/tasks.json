@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T17:34:15.110Z",
+      "updatedAt": "2026-04-15T17:39:14.333Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 465,
+        "runs": 466,
         "failures": [],
-        "lastRunAt": "2026-04-15T17:34:15.126Z",
+        "lastRunAt": "2026-04-15T17:39:14.351Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -36089,7 +36089,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776272861943:4b32ef2f81e397df",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T17:07:41.943Z",
-      "updatedAt": "2026-04-15T17:10:24.858Z",
+      "updatedAt": "2026-04-15T17:43:07.160Z",
       "prompt": "Yes do that, and I also noticed you said something about Mailchimp product surfaces. Mailchimp is simply the test, we shouldn't be adding any architecture of the agent orchestration to it. The entire goal is to be able to utilize the agent ",
       "kind": "user_visible",
       "trustTier": "important",
@@ -36124,14 +36124,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 1,
+        "runs": 2,
         "failures": [
           {
             "at": "2026-04-15T17:10:24.875Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-15T17:43:07.177Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-15T17:10:24.875Z",
+        "lastRunAt": "2026-04-15T17:43:07.177Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
