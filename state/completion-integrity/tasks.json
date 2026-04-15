@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T17:49:09.577Z",
+      "updatedAt": "2026-04-15T17:54:16.366Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 468,
+        "runs": 469,
         "failures": [],
-        "lastRunAt": "2026-04-15T17:49:09.598Z",
+        "lastRunAt": "2026-04-15T17:54:16.388Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -36089,11 +36089,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776272861943:4b32ef2f81e397df",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T17:07:41.943Z",
-      "updatedAt": "2026-04-15T17:50:30.160Z",
+      "updatedAt": "2026-04-15T17:55:38.912Z",
       "prompt": "Yes do that, and I also noticed you said something about Mailchimp product surfaces. Mailchimp is simply the test, we shouldn't be adding any architecture of the agent orchestration to it. The entire goal is to be able to utilize the agent ",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Successfully replaced 1 block(s) in /root/clawd/large-project-capability-stack/packages/campaign-runtime/index.mjs. Successfully wrote 2102 bytes to /root/clawd/large-project-capability-stack/tests/campaign-runtime.test.mjs Successfully replaced 2 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-remote-execution.mjs. Successfully replaced 6 block(s) in /root/clawd/mailchimp-clone/scripts/full-audit-campaign-supervisor.mjs. Successfully replaced 7 block(s) in /root/clawd/mailchimp-clone/scripts/full-audit-campaign-persistent-runner.mjs. Successfully wrote 6933 bytes to /root/clawd/mailchimp-clone/tests/full-audit-campaign-persistent-runner.test.mjs Successfully replaced 3 block(s) in /root/clawd/mailchimp-clone/tests/full-audit-campaign-orchestration-audit.test.mjs. Successfully replaced 2 block(s) in /root/clawd/mailchimp-clone/scripts/full-audit-campaign-superviso",
       "history": [
         {
@@ -36113,6 +36113,14 @@
           "completedAt": "2026-04-15T17:10:24.858Z",
           "completionSummary": "generatedAt: 2026-04-15T16:10:27.609Z, supervisorStatus: red, allComplete: false, matrixPath: /home/jake/clawd-remote/mailchimp-runs/campaign-20260415-161010-f2ae53-iter-001/artifacts/implementation_runs/campaign-20260415-161010-f2ae53-iter-001/surface_matrix.json, matrixStatus: partial, provenCoordinationScaleTier: null, qualificationMode: real_mailchimp_repo_live_worker_farm, stopReason: No clean-baseline live tier was honestly proven., graphSummary: title: mailchimp-real-repo-orchestrator-qualification, counts: pending: 10, in_progress: 0, complete: 0, blocked: 0 , lanes: frontend_architecture: total: 1, complete: 0, blocked: 0 , campaign_editor_parity: total: 1, complete: 0, blocked: 0 , website_builder_parity: total: 1, complete: 0, blocked: 0 , automation_journey_parity: total: 1, complete: 0, blocked: 0 , audience_crm_parity: total: 1, complete: 0, blocked: 0 , reporting_analytics",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-15T17:55:38.912Z",
+          "failedAt": "2026-04-15T17:55:38.912Z",
+          "failureReason": "System (untrusted): [2026-04-15 12:37:07 CDT] Exec failed (vivid-em, signal SIGKILL) :: ontend interaction parity: no Mailchimp-grade client interaction architecture\",\"campaign editor parity: no rich drag/drop email editor\",\"website builder parity: no visual site des… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AA7AB4EE633D9F8A221\", \"sender_id\": \"+17855410986\", \"sender\": \"Jak",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -36222,7 +36230,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-15T17:10:24.858Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-15T17:55:38.912Z",
+      "failureReason": "System (untrusted): [2026-04-15 12:37:07 CDT] Exec failed (vivid-em, signal SIGKILL) :: ontend interaction parity: no Mailchimp-grade client interaction architecture\",\"campaign editor parity: no rich drag/drop email editor\",\"website builder parity: no visual site des… Conversation info (untrusted metadata): ```json { \"message_id\": \"3AA7AB4EE633D9F8A221\", \"sender_id\": \"+17855410986\", \"sender\": \"Jak",
+      "failureSource": "runtime_message"
     }
   ]
 }
