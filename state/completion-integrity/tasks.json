@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T17:04:15.628Z",
+      "updatedAt": "2026-04-15T17:09:17.061Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 459,
+        "runs": 460,
         "failures": [],
-        "lastRunAt": "2026-04-15T17:04:15.646Z",
+        "lastRunAt": "2026-04-15T17:09:17.092Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -36089,12 +36089,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776272861943:4b32ef2f81e397df",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T17:07:41.943Z",
-      "updatedAt": "2026-04-15T17:07:41.969Z",
+      "updatedAt": "2026-04-15T17:10:24.858Z",
       "prompt": "Yes do that, and I also noticed you said something about Mailchimp product surfaces. Mailchimp is simply the test, we shouldn't be adding any architecture of the agent orchestration to it. The entire goal is to be able to utilize the agent ",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "running",
-      "completionSummary": "",
+      "status": "internal_complete",
+      "completionSummary": "generatedAt: 2026-04-15T16:10:27.609Z, supervisorStatus: red, allComplete: false, matrixPath: /home/jake/clawd-remote/mailchimp-runs/campaign-20260415-161010-f2ae53-iter-001/artifacts/implementation_runs/campaign-20260415-161010-f2ae53-iter-001/surface_matrix.json, matrixStatus: partial, provenCoordinationScaleTier: null, qualificationMode: real_mailchimp_repo_live_worker_farm, stopReason: No clean-baseline live tier was honestly proven., graphSummary: title: mailchimp-real-repo-orchestrator-qualification, counts: pending: 10, in_progress: 0, complete: 0, blocked: 0 , lanes: frontend_architecture: total: 1, complete: 0, blocked: 0 , campaign_editor_parity: total: 1, complete: 0, blocked: 0 , website_builder_parity: total: 1, complete: 0, blocked: 0 , automation_journey_parity: total: 1, complete: 0, blocked: 0 , audience_crm_parity: total: 1, complete: 0, blocked: 0 , reporting_analytics",
       "history": [
         {
           "from": null,
@@ -36105,6 +36105,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-15T17:07:41.969Z"
+        },
+        {
+          "from": "running",
+          "to": "internal_complete",
+          "at": "2026-04-15T17:10:24.858Z",
+          "completedAt": "2026-04-15T17:10:24.858Z",
+          "completionSummary": "generatedAt: 2026-04-15T16:10:27.609Z, supervisorStatus: red, allComplete: false, matrixPath: /home/jake/clawd-remote/mailchimp-runs/campaign-20260415-161010-f2ae53-iter-001/artifacts/implementation_runs/campaign-20260415-161010-f2ae53-iter-001/surface_matrix.json, matrixStatus: partial, provenCoordinationScaleTier: null, qualificationMode: real_mailchimp_repo_live_worker_farm, stopReason: No clean-baseline live tier was honestly proven., graphSummary: title: mailchimp-real-repo-orchestrator-qualification, counts: pending: 10, in_progress: 0, complete: 0, blocked: 0 , lanes: frontend_architecture: total: 1, complete: 0, blocked: 0 , campaign_editor_parity: total: 1, complete: 0, blocked: 0 , website_builder_parity: total: 1, complete: 0, blocked: 0 , automation_journey_parity: total: 1, complete: 0, blocked: 0 , audience_crm_parity: total: 1, complete: 0, blocked: 0 , reporting_analytics",
+          "completionSource": "agent_end"
         }
       ],
       "delivery": {
@@ -36116,8 +36124,18 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 0,
-        "failures": []
+        "runs": 1,
+        "failures": [
+          {
+            "at": "2026-04-15T17:10:24.875Z",
+            "reason": "honesty_target_path_missing"
+          }
+        ],
+        "lastRunAt": "2026-04-15T17:10:24.875Z",
+        "lastDetails": {
+          "source": "agent_end",
+          "success": true
+        }
       },
       "honesty": {
         "required": true,
@@ -36126,8 +36144,14 @@
         "repoRoot": null,
         "manifestPath": null,
         "changedProductFiles": [],
-        "violations": [],
-        "status": null,
+        "violations": [
+          {
+            "rule": "honesty_target_path_missing",
+            "path": "Yes do that, and I also noticed you said something about Mailchimp product surfaces. Mailchimp is simply the test, we shouldn't be adding any architecture of the agent orchestration to it. The entire goal is to be able to utilize the agent ",
+            "message": "honesty_target_path_missing"
+          }
+        ],
+        "status": "red",
         "bootstrapCreated": false,
         "overridePath": null,
         "overrideApprovedBy": null
@@ -36139,7 +36163,7 @@
         "replyThread": {
           "present": false,
           "required": false,
-          "proofPresent": false,
+          "proofPresent": true,
           "replyToId": null,
           "senderLabel": null,
           "summary": null
@@ -36147,14 +36171,14 @@
       },
       "cloneParity": {
         "required": false,
-        "proofPresent": false
+        "proofPresent": true
       },
       "claimIntegrity": {
         "required": false,
         "progressEstimatePresent": false,
         "responseFramed": false,
         "artifactReferenced": false,
-        "passed": null,
+        "passed": true,
         "autoGenerated": false,
         "reportPath": null,
         "responseFramePath": null,
@@ -36179,16 +36203,18 @@
       },
       "campaign": {
         "required": false,
-        "proofPresent": false,
+        "proofPresent": true,
         "modeRequired": null,
-        "supervisorStatus": null,
+        "supervisorStatus": "red",
         "blockerPresent": false
       },
       "surfaceMatrix": {
         "required": true,
         "proofPresent": false,
-        "status": null
-      }
+        "status": "missing"
+      },
+      "completedAt": "2026-04-15T17:10:24.858Z",
+      "completionSource": "agent_end"
     }
   ]
 }
