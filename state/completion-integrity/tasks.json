@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T04:19:10.802Z",
+      "updatedAt": "2026-04-15T04:24:21.954Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 305,
+        "runs": 306,
         "failures": [],
-        "lastRunAt": "2026-04-15T04:19:10.817Z",
+        "lastRunAt": "2026-04-15T04:24:21.971Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -34798,11 +34798,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776226241054:4b38e07d8a6cb481",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T04:10:41.055Z",
-      "updatedAt": "2026-04-15T04:19:56.103Z",
+      "updatedAt": "2026-04-15T04:26:17.240Z",
       "prompt": "Let’s first make sure that this framing is in hard memory. Then yes continue with that fix",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "/root/clawd/mailchimp-clone/scripts/full-audit-campaign-worker-100-agent.mjs:48:process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE ||= 'mailchimp_parity_focus'; /root/clawd/mailchimp-clone/scripts/full-audit-campaign-remote-runner.mjs:629: ORCHESTRATOR_IMPLEMENTATION_PROFILE: process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE || 'mailchimp_parity_focus', /root/clawd/mailchimp-clone/scripts/full-audit-campaign-remote-runner.mjs:640: strictGapInventorySourcePath: STRICT_GAP_INVENTORY_SOURCE_PATH, /root/clawd/mailchimp-clone/scripts/full-audit-campaign-remote-run",
       "history": [
         {
@@ -34822,6 +34822,14 @@
           "completedAt": "2026-04-15T04:15:51.131Z",
           "completionSummary": "System (untrusted): 2026-04-14 22:08:07 CDT Exec failed (crisp-ba, signal SIGKILL) System (untrusted): 2026-04-14 22:08:30 CDT Exec failed (swift-cl, signal SIGKILL) :: text-engine.md:49: contextEngine: lossless-claw, // must match the plugin's registered engine id /root/clawd/_quarantine/2026-04-12-workspace-large-stage-and-run-pass/_staging/o… Startup context loaded by runtime Bootstrap files like SOUL.md, USER.md, and MEMORY.md are already provided separately when eligible. Recent daily memory was selected and loaded by runtime for this new session. T",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-15T04:26:17.240Z",
+          "failedAt": "2026-04-15T04:26:17.240Z",
+          "failureReason": "59.040Z\", \"claimedBy\": \"scripts/orchestrator-real-repo-run.mjs\", \"completedAt\": \"2026-04-15T04:25:59.940Z\", \"ok\": false, \"outcome\": { \"supervisorLog\": \"/home/jake/clawd-remote/mailchimp-runs/one-pass-launch-20260415-042545/artifacts/implementation_runs/one-pass-launch-20260415-042545/validation/supervisor.log\", \"highestPassingTier\": 100, \"blockerReport\": { \"blocker\": \"Partial parity-surface reduct",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -34927,7 +34935,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-15T04:15:51.131Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-15T04:26:17.240Z",
+      "failureReason": "59.040Z\", \"claimedBy\": \"scripts/orchestrator-real-repo-run.mjs\", \"completedAt\": \"2026-04-15T04:25:59.940Z\", \"ok\": false, \"outcome\": { \"supervisorLog\": \"/home/jake/clawd-remote/mailchimp-runs/one-pass-launch-20260415-042545/artifacts/implementation_runs/one-pass-launch-20260415-042545/validation/supervisor.log\", \"highestPassingTier\": 100, \"blockerReport\": { \"blocker\": \"Partial parity-surface reduct",
+      "failureSource": "runtime_message"
     }
   ]
 }
