@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T19:29:15.354Z",
+      "updatedAt": "2026-04-15T19:34:07.403Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 488,
+        "runs": 489,
         "failures": [],
-        "lastRunAt": "2026-04-15T19:29:15.370Z",
+        "lastRunAt": "2026-04-15T19:34:07.421Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -36355,7 +36355,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776277892374:1fb40772beaeb576",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T18:31:32.374Z",
-      "updatedAt": "2026-04-15T18:53:05.427Z",
+      "updatedAt": "2026-04-15T19:38:03.689Z",
       "prompt": "Okay let’s try the mailchimp clone again with the agent orchestration",
       "kind": "user_visible",
       "trustTier": "important",
@@ -36390,7 +36390,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 2,
+        "runs": 3,
         "failures": [
           {
             "at": "2026-04-15T18:33:23.063Z",
@@ -36399,9 +36399,13 @@
           {
             "at": "2026-04-15T18:53:05.457Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-15T19:38:03.716Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-15T18:53:05.457Z",
+        "lastRunAt": "2026-04-15T19:38:03.716Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
