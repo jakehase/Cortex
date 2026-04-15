@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T20:19:04.167Z",
+      "updatedAt": "2026-04-15T20:24:07.990Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 498,
+        "runs": 499,
         "failures": [],
-        "lastRunAt": "2026-04-15T20:19:04.187Z",
+        "lastRunAt": "2026-04-15T20:24:08.023Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -36505,11 +36505,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776284009093:d6281541d51f306f",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T20:13:29.093Z",
-      "updatedAt": "2026-04-15T20:21:37.892Z",
+      "updatedAt": "2026-04-15T20:25:11.640Z",
       "prompt": "Yes do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Successfully replaced 4 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-remote-contract.mjs. Successfully replaced 5 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-architecture.mjs. /root/clawd/mailchimp-clone/tests/full-audit-camp",
       "history": [
         {
@@ -36529,6 +36529,14 @@
           "completedAt": "2026-04-15T20:14:32.907Z",
           "completionSummary": "Successfully replaced 4 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-remote-contract.mjs. Successfully replaced 5 block(s) in /root/clawd/mailchimp-clone/scripts/lib/full-audit-campaign-architecture.mjs. /root/clawd/mailchimp-clone/tests/full-audit-camp",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-15T20:25:11.640Z",
+          "failedAt": "2026-04-15T20:25:11.640Z",
+          "failureReason": "{ \"ready\": false, \"supervisor\": { \"status\": \"running\", \"blocker\": null, \"matrixStatus\": \"partial\", \"updatedAt\": null, \"blockerKind\": null, \"parityStatus\": null, \"continuationDecision\": \"continue_next_iteration\", \"continuation\": { \"green\": false, \"hasBlocker\": false, \"blockerKind\": null, \"blockerSemantics\": \"none\", \"nextFocus\": [], \"decision\": \"continue_next_iteration\", \"shouldContinue\": true, \"sho",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -36619,7 +36627,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-15T20:14:32.907Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-15T20:25:11.640Z",
+      "failureReason": "{ \"ready\": false, \"supervisor\": { \"status\": \"running\", \"blocker\": null, \"matrixStatus\": \"partial\", \"updatedAt\": null, \"blockerKind\": null, \"parityStatus\": null, \"continuationDecision\": \"continue_next_iteration\", \"continuation\": { \"green\": false, \"hasBlocker\": false, \"blockerKind\": null, \"blockerSemantics\": \"none\", \"nextFocus\": [], \"decision\": \"continue_next_iteration\", \"shouldContinue\": true, \"sho",
+      "failureSource": "runtime_message"
     }
   ]
 }
