@@ -138,6 +138,12 @@ function isRecentSummaryQuery(query: string): boolean {
 function queryLooksLikePreference(query: string): boolean {
   return /\bprefer|preference|call me|timezone|pronouns|reply prefix|replies begin with|reply begin with|what should replies begin with|prefix should replies use\b/i.test(query);
 }
+function looksLikePreferenceQuestionEcho(text: string): boolean {
+  return /\bopen loops?:\b|\bwhat did jake ask me\b|\bwhat should replies begin with\b|\bwhat preference does jake\b|\bprefix replies with\b/i.test(text);
+}
+function looksLikeExplicitPreferenceFact(text: string): boolean {
+  return /\b(?:jake\s+)?prefers?\s+repl(?:y|ies)\s+to\s+begin\s+with\b|\breplies\s+to\s+begin\s+with\s*\[cortex\]/i.test(text);
+}
 function isRecentSummaryMemory(metadata: Record<string, unknown>, text: string): boolean {
   const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
   const topic = String(metadata?.topic ?? '').toLowerCase();
@@ -307,7 +313,8 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   if (signals.lexicalOverlapScore >= 0.34) { signals.reasons.push('lexical_overlap'); }
   if (!vague && signals.lexicalOverlapScore === 0) { score -= 0.12; signals.reasons.push('no_overlap_penalty'); }
   if (queryLooksLikePreference(query) && signals.attribute === 'preference') { score += 0.22; signals.reasons.push('preference_match_boost'); }
-  if (queryLooksLikePreference(query) && /\bopen loops?:\b/i.test(text) && signals.attribute !== 'preference') { score -= 0.28; signals.reasons.push('open_loop_preference_penalty'); }
+  if (queryLooksLikePreference(query) && looksLikeExplicitPreferenceFact(text)) { score += 0.34; signals.reasons.push('explicit_preference_phrase_boost'); }
+  if (queryLooksLikePreference(query) && looksLikePreferenceQuestionEcho(text)) { score -= 0.42; signals.reasons.push('preference_question_echo_penalty'); }
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }

@@ -78,3 +78,45 @@ test('preference recall ranks explicit reply-prefix memory above codec open loop
   assert.equal(results.results[0].citation, 'cortex:pref-1');
   assert.match(results.results[0].snippet, /\[Cortex\]/);
 });
+
+test('preference recall demotes question-echo codec summaries below explicit fact rows', () => {
+  const cfg = {
+    curatedBoost: 0.24,
+    projectFactBoost: 0.12,
+    durableCandidatePenalty: 0.14,
+    noisyWhatsappPenalty: 0.26,
+    noisyPatternPenalty: 0.2,
+    conflictPenalty: 0.18,
+    recencyBoost: 0.12,
+    explicitBoost: 0.14,
+    corroborationBoost: 0.08,
+    hardQueryCandidateCount: 12,
+  };
+  const results = reconcileResults(
+    'What should replies begin with for Jake?',
+    [
+      {
+        id: 'loop-1',
+        text: 'Open loops: What did Jake ask me to prefix replies with? What did Jake ask me to prefix replies with?',
+        distance: 0.05,
+        metadata: { type: 'codec_state', tags: ['cortex_codec', 'codec_state', 'durable_memory'], source: 'chroma_docs' },
+      },
+      {
+        id: 'loop-2',
+        text: 'Projects: regression-safe | Goals: Implement a regression-safe fix and validate it with tests. | Open loops: What did Jake ask me to prefix replies with?',
+        distance: 0.05,
+        metadata: { type: 'codec_state', tags: ['cortex_codec', 'codec_state', 'durable_memory'], source: 'chroma_docs' },
+      },
+      {
+        id: 'pref-1',
+        text: 'Jake prefers replies to begin with [Cortex]. Projects: Cortex Codec, Jake, Nexus | Goals: Build the Cortex Codec into Nexus and OpenClaw.',
+        distance: 0.08,
+        metadata: { type: 'codec_state', tags: ['cortex_codec', 'codec_state', 'durable_memory'] },
+      },
+    ],
+    cfg,
+  );
+
+  assert.equal(results.results[0].citation, 'cortex:pref-1');
+  assert.ok(results.results[0].score > results.results[1].score);
+});
