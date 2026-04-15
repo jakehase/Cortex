@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-15T14:59:30.119Z",
+      "updatedAt": "2026-04-15T15:04:32.722Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 434,
+        "runs": 435,
         "failures": [],
-        "lastRunAt": "2026-04-15T14:59:30.136Z",
+        "lastRunAt": "2026-04-15T15:04:32.742Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -35348,11 +35348,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776264885568:8b05f657b2e17aed",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-15T14:54:45.568Z",
-      "updatedAt": "2026-04-15T14:56:57.436Z",
+      "updatedAt": "2026-04-15T15:07:28.350Z",
       "prompt": "System (untrusted): [2026-04-15 09:27:07 CDT] Exec completed (tidy-she, code 0) :: facts/implementation_runs/campaign-20260409-orchestration-soak-validation-7\",\"targetPath\":\"/home/jake/clawd-remote/mailchimp-worktree-campaign-20260409-orche",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "version: 1, policy: changedProductFilesMustBeDeclared: true, allowedChangedStatuses: real , requireEvidenceTests: true, bannedPlaceholderLanguage: coming soon, placeholder, stub, mock, fake, simulated, TODO , bootstrapStatus: declare_me , surfaces: large-project-capability-stack/packages/campaign-runtime/index.mjs: label: Shared campaign runtime orchestration helpers, status: real, evidence: tests: large-project-capability-stack/tests/campaign-runtime.test.mjs , notes: Shared worker/delegate/watch/archive runtime used to generalize long-run orchestration beyond Mailchimp-specific wrappers. , large-project-capability-stack/packages/multi-agent-orchestrator/index.mjs: label: Shared multi-agent orchestrator live worker farm, status: real, evidence: tests: large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs , notes: Shared shard planner + live worker farm now support imple",
       "history": [
         {
@@ -35372,6 +35372,14 @@
           "completedAt": "2026-04-15T14:54:58.360Z",
           "completionSummary": "System (untrusted): 2026-04-15 09:27:07 CDT Exec completed (tidy-she, code 0) :: facts/implementation_runs/campaign-20260409-orchestration-soak-validation-7,targetPath:/home/jake/clawd-remote/mailchimp-worktree-campaign-20260409-orchestration-soak-validati… System (untrusted): 2026-04-15 09:28:02 CDT Exec completed (keen-slu, code 0) :: n_ms: 0.449423 type: 'test' ... # Subtest: parity foc",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-15T15:07:28.350Z",
+          "failedAt": "2026-04-15T15:07:28.349Z",
+          "failureReason": "System (untrusted): [2026-04-15 09:58:38 CDT] Exec completed (amber-gl, code 1) :: { \"archiveRoot\": \"artifacts/reruns/20260415-145537\", \"archivedCount\": 2, \"runId\": \"one-pass-launch-20260415-145537\", \"campaignRunId\": \"campaign-20260415-145537-fc66c6\", \"mode\": \"p… Conversation info (untrusted metadata): ```json { \"message_id\": \"3A52AAB3C33AD5490970\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -35477,7 +35485,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-15T14:54:58.360Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-15T15:07:28.349Z",
+      "failureReason": "System (untrusted): [2026-04-15 09:58:38 CDT] Exec completed (amber-gl, code 1) :: { \"archiveRoot\": \"artifacts/reruns/20260415-145537\", \"archivedCount\": 2, \"runId\": \"one-pass-launch-20260415-145537\", \"campaignRunId\": \"campaign-20260415-145537-fc66c6\", \"mode\": \"p… Conversation info (untrusted metadata): ```json { \"message_id\": \"3A52AAB3C33AD5490970\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"",
+      "failureSource": "runtime_message"
     }
   ]
 }
