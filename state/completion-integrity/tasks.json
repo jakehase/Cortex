@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-16T19:30:04.697Z",
+      "updatedAt": "2026-04-16T19:34:47.038Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 776,
+        "runs": 777,
         "failures": [],
-        "lastRunAt": "2026-04-16T19:30:04.714Z",
+        "lastRunAt": "2026-04-16T19:34:47.055Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -37710,7 +37710,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776358943673:39163ecbc65b6a33",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-16T17:02:23.673Z",
-      "updatedAt": "2026-04-16T19:32:26.458Z",
+      "updatedAt": "2026-04-16T19:38:42.542Z",
       "prompt": "Let’s fix and clean up the current WhatsApp configs we have",
       "kind": "user_visible",
       "trustTier": "important",
@@ -37745,7 +37745,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 8,
+        "runs": 9,
         "failures": [
           {
             "at": "2026-04-16T17:03:18.127Z",
@@ -37778,9 +37778,13 @@
           {
             "at": "2026-04-16T19:32:26.476Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-16T19:38:42.561Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-16T19:32:26.476Z",
+        "lastRunAt": "2026-04-16T19:38:42.560Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
