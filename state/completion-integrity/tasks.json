@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-16T17:19:54.139Z",
+      "updatedAt": "2026-04-16T17:24:52.430Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 750,
+        "runs": 751,
         "failures": [],
-        "lastRunAt": "2026-04-16T17:19:54.155Z",
+        "lastRunAt": "2026-04-16T17:24:52.452Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -37710,12 +37710,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776358943673:39163ecbc65b6a33",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-16T17:02:23.673Z",
-      "updatedAt": "2026-04-16T17:03:18.161Z",
+      "updatedAt": "2026-04-16T17:27:24.548Z",
       "prompt": "Let’s fix and clean up the current WhatsApp configs we have",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Service: systemd (enabled) File logs: /tmp/openclaw/openclaw-2026-04-16.log Command: /usr/bin/node /usr/lib/node_modules/openclaw/dist/index.js gateway --port 18789 Service file: ~/.config/systemd/user/openclaw-gateway.service Service env: OPENCLAW_GATEWAY_PORT=18789 Config (cli): ~/.openclaw/openclaw.json Config (service): ~/.openclaw/openclaw.json Gateway: bind=loopback (127.0.0.1), port=18789 (",
+      "completionSummary": "archiveRoot: artifacts/reruns/20260416-144849, archivedCount: 2, runId: one-pass-launch-20260416-144849, campaignRunId: campaign-20260416-144849-6a4983, mode: persistent, persistentExitCode: 1, workerExitCode: null, supervisorExitCode: null, watcherExitCode: null Process exited with code 1. generatedAt: 2026-04-16T14:50:01.137Z, running: false, campaignRunId: campaign-20260416-144849-6a4983, iteration: 1, maxIterations: null, maxRuntimeHours: 6, deadlineAt: 2026-04-16T20:48:59.090Z, iterations: iteration: 1, runId: campaign-20260416-144849-6a4983-iter-00",
       "history": [
         {
           "from": null,
@@ -37745,7 +37745,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 2,
+        "runs": 6,
         "failures": [
           {
             "at": "2026-04-16T17:03:18.127Z",
@@ -37754,12 +37754,28 @@
           {
             "at": "2026-04-16T17:03:18.181Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-16T17:24:30.219Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-16T17:26:30.671Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-16T17:26:58.579Z",
+            "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-16T17:27:24.573Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-16T17:03:18.181Z",
+        "lastRunAt": "2026-04-16T17:27:24.573Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "honesty": {
@@ -37839,7 +37855,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-16T17:03:18.111Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
