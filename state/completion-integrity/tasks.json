@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-16T20:14:37.647Z",
+      "updatedAt": "2026-04-16T20:19:45.568Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 785,
+        "runs": 786,
         "failures": [],
-        "lastRunAt": "2026-04-16T20:14:37.675Z",
+        "lastRunAt": "2026-04-16T20:19:45.589Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -37710,11 +37710,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776358943673:39163ecbc65b6a33",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-16T17:02:23.673Z",
-      "updatedAt": "2026-04-16T19:44:55.886Z",
+      "updatedAt": "2026-04-16T20:21:16.975Z",
       "prompt": "Let’s fix and clean up the current WhatsApp configs we have",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "/root/clawd/large-project-capability-stack/apps/system-benchmark/init-transfer-benchmark.mjs:41: durationTargetMinutes: 60, /root/clawd/large-project-capability-stack/apps/system-benchmark/init-transfer-benchmark.mjs:81: durationTargetMinutes: 90, /root/clawd/large-project-capability-stack/apps/system-benchmark/templates/benchmark-run-contract.template.json:9: durationTargetMinutes: 60, /root/clawd/large-project-capability-stack/packages/system-benchmark/index.mjs:275: durationTargetMinutes: 60, /root/clawd/large-project-capability-stack/tests/system-ben",
       "history": [
         {
@@ -37734,6 +37734,14 @@
           "completedAt": "2026-04-16T17:03:18.111Z",
           "completionSummary": "gpt-5.4 │ 19k/272k (7%) · 🗄️ 79% cached │ │ agent:main:cron:0627d61c-d573-4… │ direct │ 5m ago │ gpt-5.4 │ 19k/272k (7%) · 🗄️ 79% cached │ │ agent:main:cron:0627d61c-d573-4… │ direct │ 10m ago │ gpt-5.4 │ 18k/272k (6%) · 🗄️ 71% cached │ │ agent:main:cron:0627d61c-d573-4… │ direct │ 15m ago │ gpt-5.4 │ 14k/272k (5%) · 🗄️ 79% cached │ │ agent:main:cron:0627d61c-d573-4… │ direct │ 20m ago │ gpt-5",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-16T20:21:16.975Z",
+          "failedAt": "2026-04-16T20:21:16.975Z",
+          "failureReason": "System (untrusted): [2026-04-16 14:43:34 CDT] Exec completed (delta-cl, code 0) :: blic/cortex_server/scripts/watch_mailchimp_program1_completion.py ?? public/cortex_server/tests/test_evidence_traceability.py ?? public/cortex_server/tests/test_mailchimp_parity_s… System (untrusted): [2026-04-16 14:43:46 CDT] Exec failed (mild-oce, signal SIGKILL) :: -12-workspace-large-stage-and-run-pass/mailchimp",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -37887,7 +37895,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-16T17:03:18.111Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-16T20:21:16.975Z",
+      "failureReason": "System (untrusted): [2026-04-16 14:43:34 CDT] Exec completed (delta-cl, code 0) :: blic/cortex_server/scripts/watch_mailchimp_program1_completion.py ?? public/cortex_server/tests/test_evidence_traceability.py ?? public/cortex_server/tests/test_mailchimp_parity_s… System (untrusted): [2026-04-16 14:43:46 CDT] Exec failed (mild-oce, signal SIGKILL) :: -12-workspace-large-stage-and-run-pass/mailchimp",
+      "failureSource": "runtime_message"
     }
   ]
 }
