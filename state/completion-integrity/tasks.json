@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-17T02:59:47.111Z",
+      "updatedAt": "2026-04-17T03:05:03.388Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 866,
+        "runs": 867,
         "failures": [],
-        "lastRunAt": "2026-04-17T02:59:47.128Z",
+        "lastRunAt": "2026-04-17T03:05:03.406Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -38398,12 +38398,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776391762685:fc5a9d3ff180da87",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-17T02:09:22.686Z",
-      "updatedAt": "2026-04-17T02:26:26.048Z",
+      "updatedAt": "2026-04-17T03:08:51.487Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "Cortex I fixed the lease TTL issue. What changed: - `packages/system-benchmark/index.mjs` - added `resolveBenchmarkLeaseTtlMs(...)` - lease TTL now scales to the benchmark runtime budget instead of staying hardcoded at 5s - `apps/system-benchmark/run-transfer-orchestrator-benchma",
+      "completionSummary": "/usr/lib/node_modules/openclaw/skills/skill-creator/scripts/init_skill.py /usr/lib/node_modules/openclaw/skills/skill-creator/scripts/package_skill.py /usr/lib/node_modules/openclaw/skills/skill-creator/scripts/test_package_skill.py Process exited with code 0.",
       "history": [
         {
           "from": null,
@@ -38433,12 +38433,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 4,
+        "runs": 6,
         "failures": [],
-        "lastRunAt": "2026-04-17T02:26:26.346Z",
+        "lastRunAt": "2026-04-17T03:08:51.512Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -38512,7 +38512,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-17T02:11:39.931Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
