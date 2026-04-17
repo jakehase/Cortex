@@ -5435,7 +5435,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T14:55:51.317Z",
       "announcementPromptInjectedAt": "2026-03-19T14:55:51.318Z",
-      "updatedAt": "2026-04-17T03:45:03.690Z",
+      "updatedAt": "2026-04-17T03:50:02.894Z",
       "history": [
         {
           "from": null,
@@ -5453,9 +5453,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 875,
+        "runs": 876,
         "failures": [],
-        "lastRunAt": "2026-04-17T03:45:03.715Z",
+        "lastRunAt": "2026-04-17T03:50:02.911Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -38398,7 +38398,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776391762685:fc5a9d3ff180da87",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-17T02:09:22.686Z",
-      "updatedAt": "2026-04-17T03:38:04.814Z",
+      "updatedAt": "2026-04-17T03:52:28.946Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
@@ -38433,9 +38433,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 17,
+        "runs": 19,
         "failures": [],
-        "lastRunAt": "2026-04-17T03:38:04.843Z",
+        "lastRunAt": "2026-04-17T03:52:28.962Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
