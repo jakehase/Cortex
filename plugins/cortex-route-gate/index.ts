@@ -63,6 +63,11 @@ type PendingCreativitySuppression = {
   sessionKey: string;
 };
 
+type LastGoodRoutePlan = {
+  savedAt: string;
+  plan: RoutePlan;
+};
+
 type RunState = {
   prompt: string;
   promptFingerprint: string;
@@ -353,6 +358,10 @@ function classifyTask(prompt: string): string {
 function loadJson<T>(targetPath: string, fallback: T): T {
   try { return JSON.parse(fs.readFileSync(targetPath, 'utf8')) as T; } catch { return fallback; }
 }
+function saveJson(targetPath: string, value: unknown) {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, JSON.stringify(value, null, 2));
+}
 function buildFailureModes(prompt: string, plan: RoutePlan): string[] {
   const task = classifyTask(prompt);
   const modes = [
@@ -547,6 +556,7 @@ export default function register(api: any) {
   const promptHistoryPath = path.join(stateDir, 'prompt-history.json');
   const creativityRetryPath = path.join(stateDir, 'creativity-retry.json');
   const creativityMetricsPath = path.join(stateDir, 'creativity-metrics.json');
+  const lastGoodPlanPath = path.join(stateDir, 'last-good-plan.json');
   const selfModelPath = path.join('/root/clawd/state', 'cortex-self-model.json');
   const contradictionPath = path.join('/root/clawd/state', 'cortex-contradictions.json');
   const runStateByKey = new Map<string, RunState>();
@@ -642,17 +652,45 @@ export default function register(api: any) {
         routingMarkers: typeof data?.routing_markers === 'object' && data.routing_markers ? data.routing_markers : undefined,
         workflowCheckpoint: typeof data?.workflow_checkpoint === 'object' && data.workflow_checkpoint ? data.workflow_checkpoint : undefined,
       };
+      saveJson(lastGoodPlanPath, { savedAt: nowIso(), plan } satisfies LastGoodRoutePlan);
     } catch (error) {
       const message = `cortex-route-gate: routing failed for prompt: ${String(error)}`;
       api.logger.warn(message);
-      if (requireRouting) {
-        throw new Error('Cortex routing is required for this runtime, and the route gate could not reach Cortex. Failing closed instead of bypassing Cortex.');
+      const lastGoodPlan = loadJson<LastGoodRoutePlan | null>(lastGoodPlanPath, null);
+      if (lastGoodPlan?.plan?.recommendedLevels?.length) {
+        const cachedAgeMs = Math.max(0, Date.now() - Date.parse(lastGoodPlan.savedAt || ''));
+        api.logger.warn(`cortex-route-gate: using cached last-good plan from ${lastGoodPlan.savedAt || 'unknown'} after routing failure${requireRouting ? ' (requireRouting preserved via stale fallback)' : ''}`);
+        plan = {
+          ...lastGoodPlan.plan,
+          routingMethod: 'cached_fallback',
+          routingError: String(error),
+          reasoning: [
+            `Cortex routing failed, using cached last-good route plan from ${lastGoodPlan.savedAt || 'unknown'}.`,
+            ...(lastGoodPlan.plan.reasoning || []),
+          ],
+          routingMarkers: {
+            ...(lastGoodPlan.plan.routingMarkers || {}),
+            degraded: true,
+            cachedFallback: true,
+            requireRouting,
+            cachedPlanSavedAt: lastGoodPlan.savedAt || null,
+            cachedPlanAgeMs: Number.isFinite(cachedAgeMs) ? cachedAgeMs : null,
+          },
+        };
+      } else {
+        if (requireRouting) api.logger.warn('cortex-route-gate: requireRouting enabled but no cached plan was available, using minimal fallback envelope');
+        plan = {
+          recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
+          routingMethod: 'fallback',
+          routingError: String(error),
+          reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
+          routingMarkers: {
+            degraded: true,
+            cachedFallback: false,
+            requireRouting,
+          },
+        };
       }
-      plan = {
-        recommendedLevels: [{ level: 24, name: 'Nexus', reason: 'fallback routing' }, { level: 5, name: 'Oracle', reason: 'baseline reasoning' }],
-        routingMethod: 'fallback',
-        routingError: String(error), reasoning: ['Cortex routing failed, using fallback mandatory routing envelope.'],
-      };
     }
     const intentText = latestUserTurnText(messages) || tailIntentText(prompt);
     const creativityEligible = Boolean(latestUserTurnText(messages)) && !(sessionKey || '').includes(':cron:');
