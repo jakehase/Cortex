@@ -5000,7 +5000,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:20:51.341Z",
       "announcementPromptInjectedAt": "2026-03-19T15:20:51.341Z",
-      "updatedAt": "2026-04-19T04:52:04.450Z",
+      "updatedAt": "2026-04-19T04:57:08.599Z",
       "history": [
         {
           "from": null,
@@ -5018,9 +5018,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 167,
+        "runs": 168,
         "failures": [],
-        "lastRunAt": "2026-04-19T04:52:04.471Z",
+        "lastRunAt": "2026-04-19T04:57:08.628Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -39572,11 +39572,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776564849815:dc7913eec6e6bb1a",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-19T02:14:09.815Z",
-      "updatedAt": "2026-04-19T04:45:38.114Z",
+      "updatedAt": "2026-04-19T04:59:02.660Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Cortex Done. What I changed: - set the PMHNP transfer benchmark presets to **`remote_execution_required`** - added a **hard boundary check** to both benchmark runners: - `apps/system-benchmark/run-transfer-benchmark.mjs` - `apps/system-benchmark/run-transfer-orchestrator-benchmar",
       "history": [
         {
@@ -39596,6 +39596,14 @@
           "completedAt": "2026-04-19T02:15:52.024Z",
           "completionSummary": "Warning: Permanently added '10.0.0.52' (ED25519) to the list of known hosts. Warning: Permanently added '10.0.0.52' (ED25519) to the list of known hosts. Process exited with code 0.",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-19T04:59:02.660Z",
+          "failedAt": "2026-04-19T04:59:02.660Z",
+          "failureReason": "System (untrusted): [2026-04-18 23:43:27 CDT] Exec failed (ember-co, signal SIGKILL) :: 2.2G 211M 2.0G 10% /run tmpfs 11G 0 11G 0% /dev/shm --- Filesystem Inodes IUsed IFree IUse% Mounted on /dev/sda1 19464192 17326769 2137423 90% / /dev/sda1 19464192 17326769 213742… System (untrusted): [2026-04-18 23:44:16 CDT] Exec failed (glow-she, signal SIGKILL) :: Warning: Permanently added '10.0.0.52' (ED2",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -39686,7 +39694,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-19T02:15:52.024Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-19T04:59:02.660Z",
+      "failureReason": "System (untrusted): [2026-04-18 23:43:27 CDT] Exec failed (ember-co, signal SIGKILL) :: 2.2G 211M 2.0G 10% /run tmpfs 11G 0 11G 0% /dev/shm --- Filesystem Inodes IUsed IFree IUse% Mounted on /dev/sda1 19464192 17326769 2137423 90% / /dev/sda1 19464192 17326769 213742… System (untrusted): [2026-04-18 23:44:16 CDT] Exec failed (glow-she, signal SIGKILL) :: Warning: Permanently added '10.0.0.52' (ED2",
+      "failureSource": "runtime_message"
     }
   ]
 }
