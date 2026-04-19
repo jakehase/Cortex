@@ -5000,7 +5000,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:20:51.341Z",
       "announcementPromptInjectedAt": "2026-03-19T15:20:51.341Z",
-      "updatedAt": "2026-04-19T07:22:05.832Z",
+      "updatedAt": "2026-04-19T07:27:06.172Z",
       "history": [
         {
           "from": null,
@@ -5018,9 +5018,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 197,
+        "runs": 198,
         "failures": [],
-        "lastRunAt": "2026-04-19T07:22:05.853Z",
+        "lastRunAt": "2026-04-19T07:27:06.198Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -39715,12 +39715,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776579360401:68f59b987fff0815",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-19T06:16:00.401Z",
-      "updatedAt": "2026-04-19T06:17:35.298Z",
+      "updatedAt": "2026-04-19T07:31:34.614Z",
       "prompt": "System (untrusted): [2026-04-19 01:07:05 CDT] Exec completed (briny-ri, code 0) :: perational API token: configured (redacted) Operational route auth: disabled Forwarded TLS gate: disabled Minimal public health: disabled PMHNP recovered dev",
       "kind": "user_visible",
       "trustTier": "important",
       "status": "internal_complete",
-      "completionSummary": "Cortex Done. What I changed: - set the PMHNP transfer benchmark presets to **`remote_execution_required`** - added a **hard boundary check** to both benchmark runners: - `apps/system-benchmark/run-transfer-benchmark.mjs` - `apps/system-benchmark/run-transfer-orchestrator-benchmar",
+      "completionSummary": "System (untrusted): 2026-04-19 01:16:36 CDT Exec completed (warm-gul, code 0) :: Warning: Permanently added '10.0.0.52' (ED25519) to the list of known hosts. Warning: Permanently added '10.0.0.52' (ED25519) to the list of known hosts. Conversation info (untrusted metadata): ```js",
       "history": [
         {
           "from": null,
@@ -39750,12 +39750,12 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 3,
+        "runs": 4,
         "failures": [],
-        "lastRunAt": "2026-04-19T06:17:35.318Z",
+        "lastRunAt": "2026-04-19T07:31:34.657Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -39829,7 +39829,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-19T06:16:04.700Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
