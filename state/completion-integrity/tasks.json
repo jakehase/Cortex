@@ -5000,7 +5000,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:20:51.341Z",
       "announcementPromptInjectedAt": "2026-03-19T15:20:51.341Z",
-      "updatedAt": "2026-04-19T12:56:56.071Z",
+      "updatedAt": "2026-04-19T13:02:21.063Z",
       "history": [
         {
           "from": null,
@@ -5018,9 +5018,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 264,
+        "runs": 265,
         "failures": [],
-        "lastRunAt": "2026-04-19T12:56:56.094Z",
+        "lastRunAt": "2026-04-19T13:02:21.084Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -39719,12 +39719,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776579360401:68f59b987fff0815",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-19T06:16:00.401Z",
-      "updatedAt": "2026-04-19T07:33:31.524Z",
+      "updatedAt": "2026-04-19T13:03:56.253Z",
       "prompt": "System (untrusted): [2026-04-19 01:07:05 CDT] Exec completed (briny-ri, code 0) :: perational API token: configured (redacted) Operational route auth: disabled Forwarded TLS gate: disabled Minimal public health: disabled PMHNP recovered dev",
       "kind": "user_visible",
       "trustTier": "important",
-      "status": "internal_complete",
-      "completionSummary": "Cortex Done. What I changed: - set the PMHNP transfer benchmark presets to **`remote_execution_required`** - added a **hard boundary check** to both benchmark runners: - `apps/system-benchmark/run-transfer-benchmark.mjs` - `apps/system-benchmark/run-transfer-orchestrator-benchmar",
+      "status": "failed",
+      "completionSummary": "System (untrusted): 2026-04-19 04:46:58 CDT Exec completed (faint-fj, code 0) :: ing: Permanently added '10.0.0.52' (ED25519) to the list of known hosts. Warning: Permanently added '10.0.0.52' (ED25519) to the list of known hosts. Warning: Permanently added '1… Conversation info ",
       "history": [
         {
           "from": null,
@@ -39743,6 +39743,14 @@
           "completedAt": "2026-04-19T06:16:04.700Z",
           "completionSummary": "System (untrusted): 2026-04-19 01:07:05 CDT Exec completed (briny-ri, code 0) :: perational API token: configured (redacted) Operational route auth: disabled Forwarded TLS gate: disabled Minimal public health: disabled PMHNP recovered dev server listening on h… Conversation info ",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-19T13:03:56.253Z",
+          "failedAt": "2026-04-19T13:03:56.253Z",
+          "failureReason": "/root/clawd/docs/CORTEX_LEVEL_AUDIT_20260219_100747.md:5:Host: `10.0.0.52` Deployment: `/opt/clawdbot` + `/app/cortex_server` /root/clawd/docs/CORTEX_LEVEL_AUDIT_20260219_100747.md:89:curl -sS http://10.0.0.52:8888/health /root/clawd/docs/CORTEX_LEVEL_AUDIT_20260219_100747.md:97:curl -sS http://10.0.0.52:8888/kernel/levels /root/clawd/docs/CORTEX_LEVEL_AUDIT_20260219_100747.md:105:curl -sS http://",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -39754,12 +39762,12 @@
         "required": true,
         "mode": "strict",
         "passed": true,
-        "runs": 5,
+        "runs": 6,
         "failures": [],
-        "lastRunAt": "2026-04-19T07:33:31.545Z",
+        "lastRunAt": "2026-04-19T13:02:48.523Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -39833,7 +39841,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-19T06:16:04.700Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message",
+      "failedAt": "2026-04-19T13:03:56.253Z",
+      "failureReason": "/root/clawd/docs/CORTEX_LEVEL_AUDIT_20260219_100747.md:5:Host: `10.0.0.52` Deployment: `/opt/clawdbot` + `/app/cortex_server` /root/clawd/docs/CORTEX_LEVEL_AUDIT_20260219_100747.md:89:curl -sS http://10.0.0.52:8888/health /root/clawd/docs/CORTEX_LEVEL_AUDIT_20260219_100747.md:97:curl -sS http://10.0.0.52:8888/kernel/levels /root/clawd/docs/CORTEX_LEVEL_AUDIT_20260219_100747.md:105:curl -sS http://",
+      "failureSource": "runtime_message"
     }
   ]
 }
