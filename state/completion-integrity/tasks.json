@@ -4913,7 +4913,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:25:51.356Z",
       "announcementPromptInjectedAt": "2026-03-19T15:25:51.357Z",
-      "updatedAt": "2026-04-19T19:42:29.275Z",
+      "updatedAt": "2026-04-19T19:47:29.955Z",
       "history": [
         {
           "from": null,
@@ -4931,9 +4931,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 17,
+        "runs": 18,
         "failures": [],
-        "lastRunAt": "2026-04-19T19:42:29.307Z",
+        "lastRunAt": "2026-04-19T19:47:29.975Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -39436,7 +39436,7 @@
       "id": "agent:main:main:1776531751708:72da50957a7c83d7",
       "sessionKey": "agent:main:main",
       "createdAt": "2026-04-18T17:02:31.708Z",
-      "updatedAt": "2026-04-19T15:49:44.880Z",
+      "updatedAt": "2026-04-19T19:47:17.940Z",
       "prompt": "System: [2026-04-18 10:06:48 CDT] [Cortex] System: title: PMHNP Billing in Chicago: Retroactive Eligibility, Medicaid Backdating, and Rebilling Recovery Checklist (2026) System: filename: blog/pmhnp-billing-chicago-retroactive-eligibility-m",
       "kind": "user_visible",
       "trustTier": "important",
@@ -39471,7 +39471,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 15,
+        "runs": 16,
         "failures": [
           {
             "at": "2026-04-18T17:02:53.383Z",
@@ -39532,9 +39532,13 @@
           {
             "at": "2026-04-19T15:49:44.923Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-19T19:47:17.959Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-19T15:49:44.922Z",
+        "lastRunAt": "2026-04-19T19:47:17.959Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
