@@ -4826,7 +4826,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:30:51.340Z",
       "announcementPromptInjectedAt": "2026-03-19T15:30:51.340Z",
-      "updatedAt": "2026-04-20T14:22:38.975Z",
+      "updatedAt": "2026-04-20T14:27:46.575Z",
       "history": [
         {
           "from": null,
@@ -4844,9 +4844,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 170,
+        "runs": 171,
         "failures": [],
-        "lastRunAt": "2026-04-20T14:22:39.003Z",
+        "lastRunAt": "2026-04-20T14:27:46.609Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -39467,7 +39467,7 @@
       "id": "agent:main:main:1776531751708:72da50957a7c83d7",
       "sessionKey": "agent:main:main",
       "createdAt": "2026-04-18T17:02:31.708Z",
-      "updatedAt": "2026-04-20T04:50:34.468Z",
+      "updatedAt": "2026-04-20T14:27:37.720Z",
       "prompt": "System: [2026-04-18 10:06:48 CDT] [Cortex] System: title: PMHNP Billing in Chicago: Retroactive Eligibility, Medicaid Backdating, and Rebilling Recovery Checklist (2026) System: filename: blog/pmhnp-billing-chicago-retroactive-eligibility-m",
       "kind": "user_visible",
       "trustTier": "important",
@@ -39502,7 +39502,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 17,
+        "runs": 18,
         "failures": [
           {
             "at": "2026-04-18T17:02:53.383Z",
@@ -39571,9 +39571,13 @@
           {
             "at": "2026-04-20T04:50:34.485Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-20T14:27:37.738Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-20T04:50:34.485Z",
+        "lastRunAt": "2026-04-20T14:27:37.738Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -40040,11 +40044,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776643060116:c272aa96cb7840b9",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-19T23:57:40.116Z",
-      "updatedAt": "2026-04-20T14:27:17.569Z",
+      "updatedAt": "2026-04-20T14:30:38.349Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "This is our first official pass, yes? # SOUL.md - Who You Are _You're not a chatbot. You're becoming someone._ ## Core Truths **Be genuinely helpful, not performatively helpful.** Skip the Great question! and I'd be happy to help! — just help. Actions speak louder than filler wor",
       "history": [
         {
@@ -40064,6 +40068,14 @@
           "completedAt": "2026-04-20T00:02:09.505Z",
           "completionSummary": "System (untrusted): 2026-04-19 04:46:58 CDT Exec completed (faint-fj, code 0) :: ing: Permanently added '10.0.0.52' (ED25519) to the list of known hosts. Warning: Permanently added '10.0.0.52' (ED25519) to the list of known hosts. Warning: Permanently added '1… How’d this go? # S",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-20T14:30:38.349Z",
+          "failedAt": "2026-04-20T14:30:38.349Z",
+          "failureReason": "System (untrusted): [2026-04-20 09:21:54 CDT] Exec failed (neat-pra, signal SIGKILL) System (untrusted): [2026-04-20 09:21:54 CDT] Exec failed (dawn-wil, signal SIGKILL) System (untrusted): [2026-04-20 09:22:22 CDT] Exec failed (plaid-ro, signal SIGKILL) System (untrusted): [2026-04-20 09:23:22 CDT] Exec failed (kind-rid, signal SIGKILL) System (untrusted): [2026-04-20 09:24:06 CDT] Exec completed",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -40154,7 +40166,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-20T00:02:09.505Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-20T14:30:38.349Z",
+      "failureReason": "System (untrusted): [2026-04-20 09:21:54 CDT] Exec failed (neat-pra, signal SIGKILL) System (untrusted): [2026-04-20 09:21:54 CDT] Exec failed (dawn-wil, signal SIGKILL) System (untrusted): [2026-04-20 09:22:22 CDT] Exec failed (plaid-ro, signal SIGKILL) System (untrusted): [2026-04-20 09:23:22 CDT] Exec failed (kind-rid, signal SIGKILL) System (untrusted): [2026-04-20 09:24:06 CDT] Exec completed",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:subagent:b3883466-a003-47d2-be1a-596464c2d1f4:1776661695889:d1ce6e657c34c117",
