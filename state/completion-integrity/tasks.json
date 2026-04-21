@@ -4739,7 +4739,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:35:51.380Z",
       "announcementPromptInjectedAt": "2026-03-19T15:35:51.381Z",
-      "updatedAt": "2026-04-21T16:05:01.986Z",
+      "updatedAt": "2026-04-21T16:09:42.637Z",
       "history": [
         {
           "from": null,
@@ -4757,9 +4757,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 97,
+        "runs": 98,
         "failures": [],
-        "lastRunAt": "2026-04-21T16:05:02.004Z",
+        "lastRunAt": "2026-04-21T16:09:42.658Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -40612,12 +40612,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776785994828:638bf9f35b916024",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-21T15:39:54.828Z",
-      "updatedAt": "2026-04-21T15:45:01.066Z",
+      "updatedAt": "2026-04-21T16:11:55.473Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "System (untrusted): 2026-04-21 00:35:08 CDT Exec completed (tender-d, code 0) :: n-20260415-202444-a674ca-iter-026/node_modules,name:artifacts,linked:true,reused:false,sourcePath:/home/jake/clawd-remote/mailchimp-runs/campaign-20260415-202444-a67… System (untrusted): 2026-04-21 0",
+      "completionSummary": "System (untrusted): 2026-04-21 10:40:54 CDT Exec completed (kind-gla, code 0) :: lity-stack/artifacts/benchmarks/pmhnp_denial_copilot_transfer_tier2/bootstrap-20260419-021523/run_contract.json /root/clawd/large-project-capability-stack/artifacts/benchmarks/pmh… Conversation info ",
       "history": [
         {
           "from": null,
@@ -40647,12 +40647,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-04-21T15:45:01.093Z",
+        "lastRunAt": "2026-04-21T16:11:55.499Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -40726,7 +40726,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-21T15:40:57.133Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
