@@ -4826,7 +4826,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:30:51.340Z",
       "announcementPromptInjectedAt": "2026-03-19T15:30:51.340Z",
-      "updatedAt": "2026-04-21T05:29:33.905Z",
+      "updatedAt": "2026-04-21T05:34:28.324Z",
       "history": [
         {
           "from": null,
@@ -4844,9 +4844,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 355,
+        "runs": 356,
         "failures": [],
-        "lastRunAt": "2026-04-21T05:29:33.936Z",
+        "lastRunAt": "2026-04-21T05:34:28.342Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -39467,7 +39467,7 @@
       "id": "agent:main:main:1776531751708:72da50957a7c83d7",
       "sessionKey": "agent:main:main",
       "createdAt": "2026-04-18T17:02:31.708Z",
-      "updatedAt": "2026-04-21T04:05:07.047Z",
+      "updatedAt": "2026-04-21T05:36:07.497Z",
       "prompt": "System: [2026-04-18 10:06:48 CDT] [Cortex] System: title: PMHNP Billing in Chicago: Retroactive Eligibility, Medicaid Backdating, and Rebilling Recovery Checklist (2026) System: filename: blog/pmhnp-billing-chicago-retroactive-eligibility-m",
       "kind": "user_visible",
       "trustTier": "important",
@@ -39502,7 +39502,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 22,
+        "runs": 23,
         "failures": [
           {
             "at": "2026-04-18T17:02:53.383Z",
@@ -39591,9 +39591,13 @@
           {
             "at": "2026-04-21T04:05:07.084Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-21T05:36:07.516Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-21T04:05:07.084Z",
+        "lastRunAt": "2026-04-21T05:36:07.516Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -40442,7 +40446,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776743880151:68329c2d986520e4",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-21T03:58:00.151Z",
-      "updatedAt": "2026-04-21T05:31:32.393Z",
+      "updatedAt": "2026-04-21T05:35:45.269Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
@@ -40477,9 +40481,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-04-21T05:31:32.419Z",
+        "lastRunAt": "2026-04-21T05:35:45.287Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
