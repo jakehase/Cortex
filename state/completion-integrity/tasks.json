@@ -4739,7 +4739,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:35:51.380Z",
       "announcementPromptInjectedAt": "2026-03-19T15:35:51.381Z",
-      "updatedAt": "2026-04-21T22:24:37.643Z",
+      "updatedAt": "2026-04-21T22:29:56.729Z",
       "history": [
         {
           "from": null,
@@ -4757,9 +4757,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 173,
+        "runs": 174,
         "failures": [],
-        "lastRunAt": "2026-04-21T22:24:37.684Z",
+        "lastRunAt": "2026-04-21T22:29:56.762Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -41358,11 +41358,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776810381893:82675068dd1e1e05",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-21T22:26:21.894Z",
-      "updatedAt": "2026-04-21T22:26:21.950Z",
+      "updatedAt": "2026-04-21T22:30:18.489Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -41374,6 +41374,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-21T22:26:21.950Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-21T22:30:18.489Z",
+          "failedAt": "2026-04-21T22:30:18.488Z",
+          "failureReason": "node:internal/fs/cp/cp-sync:145 return fsBinding.cpSyncCopyDir(src, dest, ^ Error: ENOENT, No such file or directory '/root/clawd/mailchimp-clone/artifacts/reruns/20260421-223007/full_audit_campaign' at copyDir (node:internal/fs/cp/cp-sync:145:22) at onDir (node:internal/fs/cp/cp-sync:136:25) at getStats (node:internal/fs/cp/cp-sync:68:12) at cpSyncFn (node:internal/fs/cp/cp-sync:58:10) at Object.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -41457,7 +41465,10 @@
         "required": false,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-21T22:30:18.488Z",
+      "failureReason": "node:internal/fs/cp/cp-sync:145 return fsBinding.cpSyncCopyDir(src, dest, ^ Error: ENOENT, No such file or directory '/root/clawd/mailchimp-clone/artifacts/reruns/20260421-223007/full_audit_campaign' at copyDir (node:internal/fs/cp/cp-sync:145:22) at onDir (node:internal/fs/cp/cp-sync:136:25) at getStats (node:internal/fs/cp/cp-sync:68:12) at cpSyncFn (node:internal/fs/cp/cp-sync:58:10) at Object.",
+      "failureSource": "runtime_message"
     }
   ]
 }
