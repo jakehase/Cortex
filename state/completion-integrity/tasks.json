@@ -4739,7 +4739,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:35:51.380Z",
       "announcementPromptInjectedAt": "2026-03-19T15:35:51.381Z",
-      "updatedAt": "2026-04-21T18:34:59.446Z",
+      "updatedAt": "2026-04-21T18:39:49.199Z",
       "history": [
         {
           "from": null,
@@ -4757,9 +4757,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 127,
+        "runs": 128,
         "failures": [],
-        "lastRunAt": "2026-04-21T18:34:59.471Z",
+        "lastRunAt": "2026-04-21T18:39:49.228Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -40751,12 +40751,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776796342381:18621840379ae74e",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-21T18:32:22.381Z",
-      "updatedAt": "2026-04-21T18:34:46.197Z",
+      "updatedAt": "2026-04-21T18:40:21.172Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "/root/clawd/mailchimp-clone/scripts/lib/orchestrator-real-repo-plan.mjs:81: requestedFidelity: 'full_clone', /root/clawd/mailchimp-clone/scripts/lib/full-clone-plan.mjs:24: requestedFidelity: 'full_clone', /root/clawd/mailchimp-clone/scripts/lib/orchestrator-real-repo-clean-plan.",
+      "completionSummary": "System (untrusted): 2026-04-21 13:34:28 CDT Exec completed (mild-hav, code 0) :: , mode: persistent, benchmarkContractSourcePath: ../large-project-capability-stack/artifacts/benchmarks/mailchimp_production_creation_gate/prep-20260421-1039/run_contract.j… Conversation info (untrus",
       "history": [
         {
           "from": null,
@@ -40786,12 +40786,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-04-21T18:34:46.230Z",
+        "lastRunAt": "2026-04-21T18:40:21.192Z",
         "lastDetails": {
-          "source": "agent_end",
-          "success": true
+          "source": "runtime_message",
+          "signal": "completed"
         }
       },
       "honesty": {
@@ -40865,7 +40865,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-21T18:34:35.530Z",
-      "completionSource": "agent_end"
+      "completionSource": "runtime_message"
     }
   ]
 }
