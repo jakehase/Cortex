@@ -4739,7 +4739,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:35:51.380Z",
       "announcementPromptInjectedAt": "2026-03-19T15:35:51.381Z",
-      "updatedAt": "2026-04-21T22:09:37.458Z",
+      "updatedAt": "2026-04-21T22:14:56.729Z",
       "history": [
         {
           "from": null,
@@ -4757,9 +4757,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 170,
+        "runs": 171,
         "failures": [],
-        "lastRunAt": "2026-04-21T22:09:37.480Z",
+        "lastRunAt": "2026-04-21T22:14:56.748Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -41242,11 +41242,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776809490305:82675068dd1e1e05",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-21T22:11:30.305Z",
-      "updatedAt": "2026-04-21T22:11:30.334Z",
+      "updatedAt": "2026-04-21T22:15:37.918Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "running",
+      "status": "failed",
       "completionSummary": "",
       "history": [
         {
@@ -41258,6 +41258,14 @@
           "from": "pending",
           "to": "running",
           "at": "2026-04-21T22:11:30.334Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-21T22:15:37.918Z",
+          "failedAt": "2026-04-21T22:15:37.918Z",
+          "failureReason": "{ \"archiveRoot\": \"artifacts/reruns/20260421-221526\", \"archivedCount\": 2, \"runId\": \"one-pass-launch-20260421-221526\", \"campaignRunId\": \"campaign-20260421-221526-b99319\", \"mode\": \"persistent\", \"benchmarkContractSourcePath\": \"../large-project-capability-stack/artifacts/benchmarks/mailchimp_production_creation_gate/prep-20260421-1039/run_contract.json\", \"benchmarkContractTargetPath\": \"artifacts/full_a",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -41341,7 +41349,10 @@
         "required": false,
         "proofPresent": false,
         "status": null
-      }
+      },
+      "failedAt": "2026-04-21T22:15:37.918Z",
+      "failureReason": "{ \"archiveRoot\": \"artifacts/reruns/20260421-221526\", \"archivedCount\": 2, \"runId\": \"one-pass-launch-20260421-221526\", \"campaignRunId\": \"campaign-20260421-221526-b99319\", \"mode\": \"persistent\", \"benchmarkContractSourcePath\": \"../large-project-capability-stack/artifacts/benchmarks/mailchimp_production_creation_gate/prep-20260421-1039/run_contract.json\", \"benchmarkContractTargetPath\": \"artifacts/full_a",
+      "failureSource": "runtime_message"
     }
   ]
 }
