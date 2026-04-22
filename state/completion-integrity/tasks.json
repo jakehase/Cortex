@@ -4739,7 +4739,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:35:51.380Z",
       "announcementPromptInjectedAt": "2026-03-19T15:35:51.381Z",
-      "updatedAt": "2026-04-22T11:54:32.750Z",
+      "updatedAt": "2026-04-22T11:59:40.494Z",
       "history": [
         {
           "from": null,
@@ -4757,9 +4757,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 347,
+        "runs": 348,
         "failures": [],
-        "lastRunAt": "2026-04-22T11:54:32.770Z",
+        "lastRunAt": "2026-04-22T11:59:40.513Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
