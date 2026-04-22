@@ -4647,18 +4647,26 @@
       "createdAt": "2026-03-19T08:00:51.023Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T15:36:09.941Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:40:51.369Z",
       "announcementPromptInjectedAt": "2026-03-19T15:40:51.370Z",
-      "updatedAt": "2026-04-22T13:44:56.346Z",
+      "updatedAt": "2026-04-22T13:54:37.674Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T15:36:09.941Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-22T13:54:37.674Z",
+          "failedAt": "2026-04-22T13:54:37.674Z",
+          "failureReason": "(no new output) Process exited with signal SIGTERM.",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -4670,9 +4678,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 6,
+        "runs": 7,
         "failures": [],
-        "lastRunAt": "2026-04-22T13:44:56.369Z",
+        "lastRunAt": "2026-04-22T13:49:57.583Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -4746,7 +4754,10 @@
       "cloneParity": {
         "required": false,
         "proofPresent": true
-      }
+      },
+      "failedAt": "2026-04-22T13:54:37.674Z",
+      "failureReason": "(no new output) Process exited with signal SIGTERM.",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773907551028",
