@@ -3782,7 +3782,7 @@
       "status": "internal_complete",
       "completedAt": "2026-03-19T16:26:13.586Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
-      "updatedAt": "2026-04-23T23:36:04.659Z",
+      "updatedAt": "2026-04-23T23:42:10.506Z",
       "history": [
         {
           "from": null,
@@ -3800,9 +3800,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 115,
+        "runs": 117,
         "failures": [],
-        "lastRunAt": "2026-04-23T23:36:04.681Z",
+        "lastRunAt": "2026-04-23T23:42:10.531Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -44845,12 +44845,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776987026490:9b023006db87291a",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-23T23:30:26.490Z",
-      "updatedAt": "2026-04-23T23:39:31.178Z",
+      "updatedAt": "2026-04-23T23:43:09.019Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "TAP version 13 Process still running. (no new output) Process still running. (no new output) Process still running. TAP version 13 (no new output) Process still running. PID PPID ELAPSED %CPU %MEM CMD 2247 254 441077229-00:25:04 0.0 0.2 node --test /root/clawd/plugins/completion-",
+      "completionSummary": "765:function applyCanonicalCampaignIndexFocus(workspacePath, modifiedFiles, assignment = ) 868:function applyCanonicalIntegrationsMarketplaceFocus(workspacePath, modifiedFiles, assignment = ) 915:function applyCanonicalSignupOnboardingFocus(workspacePath, modifiedFiles, assignmen",
       "history": [
         {
           "from": null,
@@ -44880,9 +44880,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 2,
+        "runs": 3,
         "failures": [],
-        "lastRunAt": "2026-04-23T23:39:31.198Z",
+        "lastRunAt": "2026-04-23T23:43:09.040Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
