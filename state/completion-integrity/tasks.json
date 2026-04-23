@@ -4391,7 +4391,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:55:51.387Z",
       "announcementPromptInjectedAt": "2026-03-19T15:55:51.388Z",
-      "updatedAt": "2026-04-23T03:11:33.743Z",
+      "updatedAt": "2026-04-23T03:16:34.514Z",
       "history": [
         {
           "from": null,
@@ -4409,9 +4409,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 81,
+        "runs": 82,
         "failures": [],
-        "lastRunAt": "2026-04-23T03:11:33.764Z",
+        "lastRunAt": "2026-04-23T03:16:34.541Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -43772,12 +43772,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776913879465:41f7ab599aed83f9",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-23T03:11:19.465Z",
-      "updatedAt": "2026-04-23T03:15:42.718Z",
+      "updatedAt": "2026-04-23T03:20:47.956Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
       "status": "internal_complete",
-      "completionSummary": "ISO=/root/clawd/_rerun_workspace_truthfix.serialfix.fMxgMO/mailchimp-clone Process exited with code 0.",
+      "completionSummary": "445100 193 /usr/bin/node scripts/full-audit-campaign-persistent-runner.mjs 446546 446533 /usr/bin/node scripts/full-audit-campaign-persistent-runner.mjs 447190 446546 /usr/bin/node /root/clawd/_rerun_workspace_truthfix.fixcarry.HsvhVG/mailchimp-clone/scripts/full-audit-campaign-w",
       "history": [
         {
           "from": null,
@@ -43807,12 +43807,12 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 1,
+        "runs": 2,
         "failures": [],
-        "lastRunAt": "2026-04-23T03:15:42.738Z",
+        "lastRunAt": "2026-04-23T03:20:47.982Z",
         "lastDetails": {
-          "source": "runtime_message",
-          "signal": "completed"
+          "source": "agent_end",
+          "success": true
         }
       },
       "honesty": {
@@ -43886,7 +43886,7 @@
         "status": "missing"
       },
       "completedAt": "2026-04-23T03:15:42.718Z",
-      "completionSource": "runtime_message"
+      "completionSource": "agent_end"
     }
   ]
 }
