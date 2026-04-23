@@ -4391,7 +4391,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:55:51.387Z",
       "announcementPromptInjectedAt": "2026-03-19T15:55:51.388Z",
-      "updatedAt": "2026-04-23T05:56:59.251Z",
+      "updatedAt": "2026-04-23T06:02:52.231Z",
       "history": [
         {
           "from": null,
@@ -4409,9 +4409,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 114,
+        "runs": 115,
         "failures": [],
-        "lastRunAt": "2026-04-23T05:56:59.274Z",
+        "lastRunAt": "2026-04-23T06:02:52.252Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -39622,7 +39622,7 @@
       "id": "agent:main:main:1776531751708:72da50957a7c83d7",
       "sessionKey": "agent:main:main",
       "createdAt": "2026-04-18T17:02:31.708Z",
-      "updatedAt": "2026-04-23T04:51:58.421Z",
+      "updatedAt": "2026-04-23T06:03:48.925Z",
       "prompt": "System: [2026-04-18 10:06:48 CDT] [Cortex] System: title: PMHNP Billing in Chicago: Retroactive Eligibility, Medicaid Backdating, and Rebilling Recovery Checklist (2026) System: filename: blog/pmhnp-billing-chicago-retroactive-eligibility-m",
       "kind": "user_visible",
       "trustTier": "important",
@@ -39657,7 +39657,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 45,
+        "runs": 46,
         "failures": [
           {
             "at": "2026-04-18T17:02:53.383Z",
@@ -39838,9 +39838,13 @@
           {
             "at": "2026-04-23T04:51:58.439Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-23T06:03:48.964Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-23T04:51:58.439Z",
+        "lastRunAt": "2026-04-23T06:03:48.964Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -44368,6 +44372,122 @@
         "status": null
       },
       "failedAt": "2026-04-23T05:34:49.862Z",
+      "failureReason": "System (untrusted): [2026-04-22 23:24:27 CDT] Exec failed (clear-la, signal SIGKILL) :: /root/clawd/mailchimp-clone /root/clawd/_rerun_workspace_truthfix.serialfix.fMxgMO/mailchimp-clone System (untrusted): [2026-04-22 23:24:51 CDT] Exec failed (brisk-bi, signal SIGKILL) System (untrusted): [2026-04-22 23:28:57 CDT] Exec completed (clear-em, code 1) :: at ModuleLoader.resolve (node:internal/module",
+      "failureSource": "runtime_message"
+    },
+    {
+      "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776924142454:5af31dc570ff5628",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "createdAt": "2026-04-23T06:02:22.454Z",
+      "updatedAt": "2026-04-23T06:02:38.780Z",
+      "prompt": "System (untrusted): [2026-04-22 23:24:27 CDT] Exec failed (clear-la, signal SIGKILL) :: /root/clawd/mailchimp-clone /root/clawd/_rerun_workspace_truthfix.serialfix.fMxgMO/mailchimp-clone System (untrusted): [2026-04-22 23:24:51 CDT] Exec fa",
+      "kind": "user_visible",
+      "trustTier": "important",
+      "status": "failed",
+      "completionSummary": "",
+      "history": [
+        {
+          "from": null,
+          "to": "pending",
+          "at": "2026-04-23T06:02:22.454Z"
+        },
+        {
+          "from": "pending",
+          "to": "running",
+          "at": "2026-04-23T06:02:22.498Z"
+        },
+        {
+          "from": "running",
+          "to": "failed",
+          "at": "2026-04-23T06:02:38.780Z",
+          "failedAt": "2026-04-23T06:02:38.780Z",
+          "failureReason": "System (untrusted): [2026-04-22 23:24:27 CDT] Exec failed (clear-la, signal SIGKILL) :: /root/clawd/mailchimp-clone /root/clawd/_rerun_workspace_truthfix.serialfix.fMxgMO/mailchimp-clone System (untrusted): [2026-04-22 23:24:51 CDT] Exec failed (brisk-bi, signal SIGKILL) System (untrusted): [2026-04-22 23:28:57 CDT] Exec completed (clear-em, code 1) :: at ModuleLoader.resolve (node:internal/module",
+          "failureSource": "runtime_message"
+        }
+      ],
+      "delivery": {
+        "attempts": 0,
+        "dedupeKeys": [],
+        "lastError": null
+      },
+      "validation": {
+        "required": true,
+        "mode": "strict",
+        "passed": false,
+        "runs": 0,
+        "failures": []
+      },
+      "honesty": {
+        "required": true,
+        "proofPresent": false,
+        "targetPath": null,
+        "repoRoot": null,
+        "manifestPath": null,
+        "changedProductFiles": [],
+        "violations": [],
+        "status": null,
+        "bootstrapCreated": false,
+        "overridePath": null,
+        "overrideApprovedBy": null
+      },
+      "grounding": {
+        "required": true,
+        "ambiguousReference": false,
+        "proofPresent": false,
+        "replyThread": {
+          "present": true,
+          "required": true,
+          "proofPresent": false,
+          "replyToId": "3A6DA95717FBD95C370D",
+          "senderLabel": "136704681865420@lid",
+          "summary": "Okay I want you to keep working until the benchmark-winning orchestration is a pass. For any questions and issues that arise, do what’s best for Cortex and the agent orchestration. Use your best judgement, but don’t stop"
+        }
+      },
+      "cloneParity": {
+        "required": false,
+        "proofPresent": false
+      },
+      "claimIntegrity": {
+        "required": false,
+        "progressEstimatePresent": false,
+        "responseFramed": false,
+        "artifactReferenced": false,
+        "passed": null,
+        "autoGenerated": false,
+        "reportPath": null,
+        "responseFramePath": null,
+        "summaryPath": null,
+        "repoReportPath": null,
+        "repoResponseFramePath": null,
+        "repoSummaryPath": null,
+        "reportGeneratedAt": null,
+        "generationError": null,
+        "sourceMatrixPath": null,
+        "sourceProgramStatePath": null,
+        "derivedCloneParityPercent": null,
+        "derivedCampaignReadinessPercent": null,
+        "proposedPercent": null
+      },
+      "contract": {
+        "required": true,
+        "proofPresent": false,
+        "requestedFidelity": "production_slice",
+        "requestedScope": "Okay I want you to keep working until the benchmark-winning orchestration is a pass. For any questions and issues that arise, do what’s best for Cortex and the agent orchestration. Use your best judgement, but don’t stop",
+        "stopCondition": "supervisor_green_or_blocker_report"
+      },
+      "campaign": {
+        "required": true,
+        "proofPresent": false,
+        "modeRequired": "persistent",
+        "supervisorStatus": null,
+        "blockerPresent": false
+      },
+      "surfaceMatrix": {
+        "required": true,
+        "proofPresent": false,
+        "status": null
+      },
+      "failedAt": "2026-04-23T06:02:38.780Z",
       "failureReason": "System (untrusted): [2026-04-22 23:24:27 CDT] Exec failed (clear-la, signal SIGKILL) :: /root/clawd/mailchimp-clone /root/clawd/_rerun_workspace_truthfix.serialfix.fMxgMO/mailchimp-clone System (untrusted): [2026-04-22 23:24:51 CDT] Exec failed (brisk-bi, signal SIGKILL) System (untrusted): [2026-04-22 23:28:57 CDT] Exec completed (clear-em, code 1) :: at ModuleLoader.resolve (node:internal/module",
       "failureSource": "runtime_message"
     }
