@@ -4391,7 +4391,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:55:51.387Z",
       "announcementPromptInjectedAt": "2026-03-19T15:55:51.388Z",
-      "updatedAt": "2026-04-23T03:51:59.926Z",
+      "updatedAt": "2026-04-23T03:56:28.660Z",
       "history": [
         {
           "from": null,
@@ -4409,9 +4409,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 89,
+        "runs": 90,
         "failures": [],
-        "lastRunAt": "2026-04-23T03:51:59.947Z",
+        "lastRunAt": "2026-04-23T03:56:28.679Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -43776,11 +43776,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776913879465:41f7ab599aed83f9",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-23T03:11:19.465Z",
-      "updatedAt": "2026-04-23T03:20:47.956Z",
+      "updatedAt": "2026-04-23T04:00:45.790Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "445100 193 /usr/bin/node scripts/full-audit-campaign-persistent-runner.mjs 446546 446533 /usr/bin/node scripts/full-audit-campaign-persistent-runner.mjs 447190 446546 /usr/bin/node /root/clawd/_rerun_workspace_truthfix.fixcarry.HsvhVG/mailchimp-clone/scripts/full-audit-campaign-w",
       "history": [
         {
@@ -43800,6 +43800,14 @@
           "completedAt": "2026-04-23T03:15:42.718Z",
           "completionSummary": "ISO=/root/clawd/_rerun_workspace_truthfix.serialfix.fMxgMO/mailchimp-clone Process exited with code 0.",
           "completionSource": "runtime_message"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-23T04:00:45.790Z",
+          "failedAt": "2026-04-23T04:00:45.790Z",
+          "failureReason": "System (untrusted): [2026-04-22 21:55:52 CDT] Exec failed (kind-sab, signal SIGKILL) System (untrusted): [2026-04-22 21:56:41 CDT] Exec completed (vivid-tr, code 0) :: 37G /root/clawd/mailchimp-clone System (untrusted): [2026-04-22 21:59:07 CDT] Exec failed (crisp-ze, signal SIGKILL) System (untrusted): [2026-04-22 22:04:23 CDT] Exec failed (grand-cr, signal SIGKILL) System (untrusted): [2026-04-2",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -43890,7 +43898,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-23T03:15:42.718Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-23T04:00:45.790Z",
+      "failureReason": "System (untrusted): [2026-04-22 21:55:52 CDT] Exec failed (kind-sab, signal SIGKILL) System (untrusted): [2026-04-22 21:56:41 CDT] Exec completed (vivid-tr, code 0) :: 37G /root/clawd/mailchimp-clone System (untrusted): [2026-04-22 21:59:07 CDT] Exec failed (crisp-ze, signal SIGKILL) System (untrusted): [2026-04-22 22:04:23 CDT] Exec failed (grand-cr, signal SIGKILL) System (untrusted): [2026-04-2",
+      "failureSource": "runtime_message"
     }
   ]
 }
