@@ -4391,7 +4391,7 @@
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
       "escalatedAt": "2026-03-19T15:55:51.387Z",
       "announcementPromptInjectedAt": "2026-03-19T15:55:51.388Z",
-      "updatedAt": "2026-04-23T03:01:46.127Z",
+      "updatedAt": "2026-04-23T03:06:36.858Z",
       "history": [
         {
           "from": null,
@@ -4409,9 +4409,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 79,
+        "runs": 80,
         "failures": [],
-        "lastRunAt": "2026-04-23T03:01:46.157Z",
+        "lastRunAt": "2026-04-23T03:06:36.880Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -43641,11 +43641,11 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776912268440:41f7ab599aed83f9",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-23T02:44:28.440Z",
-      "updatedAt": "2026-04-23T02:48:03.509Z",
+      "updatedAt": "2026-04-23T03:06:25.286Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
+      "status": "failed",
       "completionSummary": "Launching a fresh campaign from the patched root repo now. This will get a new campaign ID and separate artifact root, so it won’t inherit the staged run’s contaminated carry-forward state. Command still running (session sharp-breeze, pid 405817). Use process (list/poll/log/write",
       "history": [
         {
@@ -43665,6 +43665,14 @@
           "completedAt": "2026-04-23T02:48:03.508Z",
           "completionSummary": "Launching a fresh campaign from the patched root repo now. This will get a new campaign ID and separate artifact root, so it won’t inherit the staged run’s contaminated carry-forward state. Command still running (session sharp-breeze, pid 405817). Use process (list/poll/log/write",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-23T03:06:25.286Z",
+          "failedAt": "2026-04-23T03:06:25.286Z",
+          "failureReason": ") Updating files: 51% (15113/29632) Updating files: 52% (15409/29632) Updating files: 53% (15705/29632) Updating files: 54% (16002/29632) Updating files: 55% (16298/29632) Updating files: 56% (16594/29632) Updating files: 57% (16891/29632) Updating files: 58% (17187/29632) Updating files: 59% (17483/29632) Updating files: 60% (17780/29632) Updating files: 61% (18076/29632) Updating files: 62% (183",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -43755,7 +43763,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-23T02:48:03.508Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-23T03:06:25.286Z",
+      "failureReason": ") Updating files: 51% (15113/29632) Updating files: 52% (15409/29632) Updating files: 53% (15705/29632) Updating files: 54% (16002/29632) Updating files: 55% (16298/29632) Updating files: 56% (16594/29632) Updating files: 57% (16891/29632) Updating files: 58% (17187/29632) Updating files: 59% (17483/29632) Updating files: 60% (17780/29632) Updating files: 61% (18076/29632) Updating files: 62% (183",
+      "failureSource": "runtime_message"
     }
   ]
 }
