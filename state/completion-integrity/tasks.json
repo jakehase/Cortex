@@ -3782,7 +3782,7 @@
       "status": "internal_complete",
       "completedAt": "2026-03-19T16:26:13.586Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
-      "updatedAt": "2026-04-23T23:42:10.506Z",
+      "updatedAt": "2026-04-23T23:46:19.794Z",
       "history": [
         {
           "from": null,
@@ -3800,9 +3800,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 117,
+        "runs": 118,
         "failures": [],
-        "lastRunAt": "2026-04-23T23:42:10.531Z",
+        "lastRunAt": "2026-04-23T23:46:19.826Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -44845,12 +44845,12 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776987026490:9b023006db87291a",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-23T23:30:26.490Z",
-      "updatedAt": "2026-04-23T23:43:09.019Z",
+      "updatedAt": "2026-04-23T23:49:45.044Z",
       "prompt": "Do it",
       "kind": "user_visible",
       "trustTier": "normal",
-      "status": "internal_complete",
-      "completionSummary": "765:function applyCanonicalCampaignIndexFocus(workspacePath, modifiedFiles, assignment = ) 868:function applyCanonicalIntegrationsMarketplaceFocus(workspacePath, modifiedFiles, assignment = ) 915:function applyCanonicalSignupOnboardingFocus(workspacePath, modifiedFiles, assignmen",
+      "status": "failed",
+      "completionSummary": "diff --git a/mailchimp-clone/scripts/lib/orchestrator-real-repo-clean-plan.mjs b/mailchimp-clone/scripts/lib/orchestrator-real-repo-clean-plan.mjs index a9385dd7b..31b3ca642 100644 --- a/mailchimp-clone/scripts/lib/orchestrator-real-repo-clean-plan.mjs +++ b/mailchimp-clone/scrip",
       "history": [
         {
           "from": null,
@@ -44869,6 +44869,14 @@
           "completedAt": "2026-04-23T23:32:46.210Z",
           "completionSummary": "TAP version 13 Process still running. (no new output) Process still running. (no new output) Process still running. TAP version 13 (no new output) Process still running. PID PPID ELAPSED %CPU %MEM CMD 2247 254 441077229-00:25:04 0.0 0.2 node --test /root/clawd/plugins/completion-",
           "completionSource": "agent_end"
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-23T23:49:45.044Z",
+          "failedAt": "2026-04-23T23:49:45.044Z",
+          "failureReason": "[Queued messages while agent was busy] --- Queued #1 (from Jake) System (untrusted): [2026-04-23 18:42:00 CDT] Exec failed (neat-hav, signal SIGKILL) Conversation info (untrusted metadata): ```json { \"chat_id\": \"+17855410986\", \"message_id\": \"3A6433A2C9F72F8660D5\", \"reply_to_id\": \"3EB02A8F923E5A314DCA9B\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"timestamp\": \"Thu 2026-04-23 18:46 CDT\", \"has_r",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -44880,9 +44888,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 3,
+        "runs": 4,
         "failures": [],
-        "lastRunAt": "2026-04-23T23:43:09.040Z",
+        "lastRunAt": "2026-04-23T23:49:27.787Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -44959,7 +44967,10 @@
         "status": "missing"
       },
       "completedAt": "2026-04-23T23:32:46.210Z",
-      "completionSource": "agent_end"
+      "completionSource": "agent_end",
+      "failedAt": "2026-04-23T23:49:45.044Z",
+      "failureReason": "[Queued messages while agent was busy] --- Queued #1 (from Jake) System (untrusted): [2026-04-23 18:42:00 CDT] Exec failed (neat-hav, signal SIGKILL) Conversation info (untrusted metadata): ```json { \"chat_id\": \"+17855410986\", \"message_id\": \"3A6433A2C9F72F8660D5\", \"reply_to_id\": \"3EB02A8F923E5A314DCA9B\", \"sender_id\": \"+17855410986\", \"sender\": \"Jake\", \"timestamp\": \"Thu 2026-04-23 18:46 CDT\", \"has_r",
+      "failureSource": "runtime_message"
     }
   ]
 }
