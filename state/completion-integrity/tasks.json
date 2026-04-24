@@ -3782,7 +3782,7 @@
       "status": "internal_complete",
       "completedAt": "2026-03-19T16:26:13.586Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
-      "updatedAt": "2026-04-24T02:46:08.122Z",
+      "updatedAt": "2026-04-24T02:51:08.604Z",
       "history": [
         {
           "from": null,
@@ -3800,9 +3800,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 159,
+        "runs": 160,
         "failures": [],
-        "lastRunAt": "2026-04-24T02:46:08.146Z",
+        "lastRunAt": "2026-04-24T02:51:08.626Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -45340,7 +45340,7 @@
       "id": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63:1776996845389:2e3eceecc7e99e57",
       "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
       "createdAt": "2026-04-24T02:14:05.390Z",
-      "updatedAt": "2026-04-24T02:24:05.205Z",
+      "updatedAt": "2026-04-24T02:52:11.866Z",
       "prompt": "Do it, let’s let the auto-push jobs use it though",
       "kind": "user_visible",
       "trustTier": "normal",
@@ -45375,9 +45375,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 3,
+        "runs": 4,
         "failures": [],
-        "lastRunAt": "2026-04-24T02:24:05.228Z",
+        "lastRunAt": "2026-04-24T02:52:11.886Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
