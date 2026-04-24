@@ -3779,16 +3779,24 @@
       "createdAt": "2026-03-19T07:10:50.996Z",
       "prompt": "[cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync] In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefl",
       "kind": "user_visible",
-      "status": "internal_complete",
+      "status": "failed",
       "completedAt": "2026-03-19T16:26:13.586Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
-      "updatedAt": "2026-04-24T04:51:26.091Z",
+      "updatedAt": "2026-04-24T05:00:49.808Z",
       "history": [
         {
           "from": null,
           "to": "internal_complete",
           "at": "2026-03-19T16:26:13.586Z",
           "migrated": true
+        },
+        {
+          "from": "internal_complete",
+          "to": "failed",
+          "at": "2026-04-24T05:00:49.808Z",
+          "failedAt": "2026-04-24T05:00:49.808Z",
+          "failureReason": "- Auto-promoted reply-anchor memory: canonical status: supervisorStatus=red` - `matrixStatus: partial` - `parityStatus: partial` - `blocker_report.json` says the *persistent runner stopped after 5 consecutive no-progress iterations*. - There are *no live `full-audit-campaign` processes* still running locally, so those `Exec completed ... code 1` notices line up with the blocked exit. Good news: -",
+          "failureSource": "runtime_message"
         }
       ],
       "delivery": {
@@ -3800,9 +3808,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 191,
+        "runs": 192,
         "failures": [],
-        "lastRunAt": "2026-04-24T04:51:26.141Z",
+        "lastRunAt": "2026-04-24T04:56:51.293Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -3876,7 +3884,10 @@
       "cloneParity": {
         "required": false,
         "proofPresent": true
-      }
+      },
+      "failedAt": "2026-04-24T05:00:49.808Z",
+      "failureReason": "- Auto-promoted reply-anchor memory: canonical status: supervisorStatus=red` - `matrixStatus: partial` - `parityStatus: partial` - `blocker_report.json` says the *persistent runner stopped after 5 consecutive no-progress iterations*. - There are *no live `full-audit-campaign` processes* still running locally, so those `Exec completed ... code 1` notices line up with the blocked exit. Good news: -",
+      "failureSource": "runtime_message"
     },
     {
       "id": "agent:main:cron:0627d61c-d573-42ba-a234-48fce8707b69:1773904550991",
