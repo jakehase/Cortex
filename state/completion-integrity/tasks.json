@@ -41057,7 +41057,7 @@
       "id": "agent:main:main:1776531751708:72da50957a7c83d7",
       "sessionKey": "agent:main:main",
       "createdAt": "2026-04-18T17:02:31.708Z",
-      "updatedAt": "2026-04-24T05:21:21.087Z",
+      "updatedAt": "2026-04-24T13:47:42.373Z",
       "prompt": "System: [2026-04-18 10:06:48 CDT] [Cortex] System: title: PMHNP Billing in Chicago: Retroactive Eligibility, Medicaid Backdating, and Rebilling Recovery Checklist (2026) System: filename: blog/pmhnp-billing-chicago-retroactive-eligibility-m",
       "kind": "user_visible",
       "trustTier": "important",
@@ -41092,7 +41092,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 61,
+        "runs": 62,
         "failures": [
           {
             "at": "2026-04-18T17:02:53.383Z",
@@ -41337,9 +41337,13 @@
           {
             "at": "2026-04-24T05:21:21.109Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-24T13:47:42.403Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-24T05:21:21.108Z",
+        "lastRunAt": "2026-04-24T13:47:42.403Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
