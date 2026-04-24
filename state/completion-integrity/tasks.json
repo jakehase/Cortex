@@ -3782,7 +3782,7 @@
       "status": "internal_complete",
       "completedAt": "2026-03-19T16:26:13.586Z",
       "completionSummary": "cron:0627d61c-d573-42ba-a234-48fce8707b69 cortex-auto-export-sync In /root/clawd, run ./scripts/autocommit-cortex.sh. If there are no cortex-scoped export changes, do nothing. If there is a push failure, summarize the exact blocker briefly. Do not modify unrelated files. Current ",
-      "updatedAt": "2026-04-24T01:51:13.456Z",
+      "updatedAt": "2026-04-24T01:56:10.294Z",
       "history": [
         {
           "from": null,
@@ -3800,9 +3800,9 @@
         "required": false,
         "mode": "light",
         "passed": true,
-        "runs": 148,
+        "runs": 149,
         "failures": [],
-        "lastRunAt": "2026-04-24T01:51:13.478Z",
+        "lastRunAt": "2026-04-24T01:56:10.317Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
@@ -39828,7 +39828,7 @@
       "id": "agent:main:main:1776531751708:72da50957a7c83d7",
       "sessionKey": "agent:main:main",
       "createdAt": "2026-04-18T17:02:31.708Z",
-      "updatedAt": "2026-04-24T01:23:58.860Z",
+      "updatedAt": "2026-04-24T02:00:12.678Z",
       "prompt": "System: [2026-04-18 10:06:48 CDT] [Cortex] System: title: PMHNP Billing in Chicago: Retroactive Eligibility, Medicaid Backdating, and Rebilling Recovery Checklist (2026) System: filename: blog/pmhnp-billing-chicago-retroactive-eligibility-m",
       "kind": "user_visible",
       "trustTier": "important",
@@ -39863,7 +39863,7 @@
         "required": true,
         "mode": "strict",
         "passed": false,
-        "runs": 56,
+        "runs": 57,
         "failures": [
           {
             "at": "2026-04-18T17:02:53.383Z",
@@ -40088,9 +40088,13 @@
           {
             "at": "2026-04-24T01:23:58.894Z",
             "reason": "honesty_target_path_missing"
+          },
+          {
+            "at": "2026-04-24T02:00:12.719Z",
+            "reason": "honesty_target_path_missing"
           }
         ],
-        "lastRunAt": "2026-04-24T01:23:58.894Z",
+        "lastRunAt": "2026-04-24T02:00:12.719Z",
         "lastDetails": {
           "source": "agent_end",
           "success": true
