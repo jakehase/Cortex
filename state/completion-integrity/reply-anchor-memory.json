@@ -2,7 +2,8 @@
   "seenKeys": [
     "eb0ffd02bb975b4d",
     "f30caa40ffb61a6c",
-    "8e6139fd2f683f71"
+    "8e6139fd2f683f71",
+    "ebf4cc0ed0835cb0"
   ],
   "promotions": [
     {
@@ -31,6 +32,15 @@
       "summary": "canonical status: supervisorStatus=red` - `matrixStatus: partial` - `parityStatus: partial` - `nextFocus: []` - `shardCount: 0` The remaining bug is now very narrow: - the strict-gap surfaces are present - but the live issue/shard planning path still isn’t producing executable shard work So, bluntly: it’s *not where it should be yet*, but it is at the right failure layer now. I’m continuing on that exact planner bug unless you want me to pause., matrixStatus=partial` - `parityStatus: partial` - `nextFocus: []` - `shardCount: 0` The remaining bug is now very narrow: - the strict-gap surfaces are present - but the live issue/shard planning path still isn’t producing executable shard work So, bluntly: it’s *not wh",
       "score": 0.78,
       "file": "/root/clawd/memory/2026-04-13.md"
+    },
+    {
+      "at": "2026-04-24T01:10:14.678Z",
+      "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+      "replyToId": "3EB09184D538E8ED9007C1",
+      "senderLabel": "136704681865420@lid",
+      "summary": "canonical status: supervisorStatus=red` - `matrixStatus: partial` - `parityStatus: partial` - `blocker_report.json` says the *persistent runner stopped after 5 consecutive no-progress iterations*. - There are *no live `full-audit-campaign` processes* still running locally, so those `Exec completed ... code 1` notices line up with the blocked exit. Good news: - The old remote-startup bug is actually fixed now. The rerun got past startup and produced the remote artifacts. Real blocker now: - *`No parity-surface reduction was proven by this iteration.`* - The clearest concrete failure is `focus.campaign_index#2`: `packages/app/routes/campaigns.mjs` is importing `campaignIndexSummary` from `../domain-campaigns.mjs`",
+      "score": 0.78,
+      "file": "/root/clawd/memory/2026-04-24.md"
     }
   ]
 }
