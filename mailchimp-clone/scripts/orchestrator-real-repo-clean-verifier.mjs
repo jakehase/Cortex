@@ -82,6 +82,14 @@ function verifyTests(assignment) {
   const testFiles = [assignment.shard.metadata?.testFile, ...(assignment.shard.metadata?.extraTestFiles || [])]
     .filter(Boolean)
     .map((entry) => absolute(entry));
+  if (testFiles.length === 0) {
+    return {
+      ok: false,
+      testFileCount: 0,
+      files: [],
+      note: 'tests verifier requested but no shard test files were configured'
+    };
+  }
   const results = testFiles.map((testFile) => ({ file: path.relative(ROOT, testFile), ...runCommand(process.execPath, ['--test', '--test-concurrency=1', testFile], { cwd: ROOT }) }));
   return {
     ok: results.every((entry) => entry.ok),

@@ -1,35 +1,42 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { deriveCampaignContinuation, recoverCampaign, setSupervisor } from '../../large-project-capability-stack/packages/campaign-runtime/index.mjs';
+import { buildContradictoryDelegateTruthBlocker, buildNotifierEligibilityPayload, buildOutcomeHeadline, buildStaleDelegateEvidenceBlocker, delegateTruthConflictDetails, deriveCanonicalStatuses, deriveRequestedOutcome, isArtifactFreshForRun, resolveCampaignBlocker } from './lib/full-audit-campaign-state.mjs';
+import { resolveCampaignRunBinding, resolveMirroredArtifactPath } from './lib/full-audit-campaign-run-binding.mjs';
+import { resolveProgramEnvKeys, resolveProgramPaths } from './lib/orchestration-program-config.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const ARTIFACT_DIR = path.join(ROOT, 'artifacts', 'full_audit_campaign');
-const CONTRACT_PATH = path.join(ROOT, 'strict_1to1_contract.json');
-const MATRIX_PATH = path.join(ARTIFACT_DIR, 'surface_matrix.json');
-const PROGRAM_STATE_PATH = path.join(ARTIFACT_DIR, 'program_state.json');
-const WORKER_STATE_PATH = path.join(ARTIFACT_DIR, 'worker_state.json');
-const SUMMARY_PATH = path.join(ARTIFACT_DIR, 'completion_summary.json');
-const NOTIFY_PATH = path.join(ARTIFACT_DIR, 'notification_state.json');
-const BLOCKER_PATH = path.join(ARTIFACT_DIR, 'blocker_report.json');
-const REPORTS_DIR = path.join(ARTIFACT_DIR, 'reports');
-const STATUS_REPORT_PATH = path.join(REPORTS_DIR, 'supervisor_status.json');
-const TRANSPORT_STATUS_PATH = path.join(ARTIFACT_DIR, 'cortex_transport', 'transport_status.json');
-const DELEGATE_STATUS_PATH = path.join(REPORTS_DIR, '100_agent_worker_status.json');
-const DELEGATE_ARTIFACT_ROOT = path.join(ROOT, 'artifacts', 'qualification', 'orchestrator_real_repo_clean_baseline');
-const DELEGATE_COMPLETION_PATH = path.join(DELEGATE_ARTIFACT_ROOT, 'completion_summary.json');
-const DELEGATE_PROGRAM_STATE_PATH = path.join(DELEGATE_ARTIFACT_ROOT, 'program_state.json');
+const PROGRAM_ENV = resolveProgramEnvKeys();
+const PROGRAM_PATHS = resolveProgramPaths(ROOT);
+const ARTIFACT_DIR = PROGRAM_PATHS.artifactDir;
+const CURRENT_RUN_PATH = PROGRAM_PATHS.currentRunPath;
+const STRICT_1TO1_CONTRACT_PATH = path.join(ROOT, 'strict_1to1_contract.json');
+const CONTRACT_PATH_CANDIDATES = [
+  path.join(ARTIFACT_DIR, 'one_pass_run_contract.latest.json'),
+  STRICT_1TO1_CONTRACT_PATH
+];
+const PROGRAM_STATE_PATH = PROGRAM_PATHS.programStatePath;
+const SUMMARY_PATH = PROGRAM_PATHS.summaryPath;
+const NOTIFY_PATH = PROGRAM_PATHS.notifyPath;
+const BLOCKER_PATH = PROGRAM_PATHS.blockerPath;
+const THRESHOLD_EVALUATION_PATH = path.join(ARTIFACT_DIR, 'threshold_evaluation.json');
+const REPORTS_DIR = PROGRAM_PATHS.reportsDir;
+const STATUS_REPORT_PATH = PROGRAM_PATHS.supervisorStatusPath;
+const SOAK_FULL_RUNTIME = process.env[PROGRAM_ENV.soakFullRuntime] === '1';
+const STRICT_1TO1_SUPERVISOR_SCRIPT = path.join(ROOT, 'scripts', 'strict-1to1-supervisor.mjs');
+const STRICT_1TO1_STATE_PATH = path.join(ROOT, 'artifacts', 'strict_1to1', 'supervisor_state.json');
+const STRICT_1TO1_BLOCKER_PATH = path.join(ROOT, 'artifacts', 'strict_1to1', 'blocker_report.json');
+const DEFAULT_PRODUCTION_CREDIT_EXCLUDED_PREFIXES = Object.freeze([
+  'packages/product-factory/'
+]);
+const DEFAULT_PRODUCT_PARITY_CHANGED_LINES_PER_SURFACE = 10;
+const DEFAULT_PRODUCT_PARITY_NET_LINES_PER_SURFACE = 5;
 
-function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
-}
-
-function readText(filePath) {
-  try {
-    return fs.readFileSync(filePath, 'utf8');
-  } catch {
-    return '';
-  }
+function ensureDir(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
 }
 
 function readJson(filePath, fallback = null) {
@@ -40,381 +47,891 @@ function readJson(filePath, fallback = null) {
   }
 }
 
-function writeJson(filePath, data) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`);
+function normalizeRequestedContract(rawContract = null, strict1to1Contract = null) {
+  const contract = rawContract && typeof rawContract === 'object' ? { ...rawContract } : {};
+  const fallback = strict1to1Contract && typeof strict1to1Contract === 'object' ? strict1to1Contract : {};
+  const requestedFidelity = String(contract.requestedFidelity || contract.fidelity || fallback.requestedFidelity || '').trim();
+  if (requestedFidelity) contract.requestedFidelity = requestedFidelity;
+  if (!contract.stopCondition && fallback.stopCondition) contract.stopCondition = fallback.stopCondition;
+  return contract;
 }
 
-function walkFiles(dir, visit) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === '.git') continue;
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) walkFiles(fullPath, visit);
-    else if (entry.isFile()) visit(fullPath);
+function uniqueStrings(values) {
+  return Array.from(new Set((Array.isArray(values) ? values : [])
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)));
+}
+
+function parseJsonMaybe(value, fallback = null) {
+  if (typeof value !== 'string') return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
   }
 }
 
-function countClientFiles(rootDir) {
-  const exts = new Set(['.tsx', '.ts', '.jsx', '.vue', '.svelte', '.css', '.scss']);
-  let count = 0;
-  walkFiles(rootDir, (filePath) => {
-    if (exts.has(path.extname(filePath))) count += 1;
-  });
-  return count;
+function toIsoString(value) {
+  const parsed = Date.parse(value || '');
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
-function countOccurrences(rootDir, needle) {
-  let count = 0;
-  walkFiles(rootDir, (filePath) => {
-    const text = readText(filePath);
-    if (!text) return;
-    const matches = text.match(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'));
-    count += matches ? matches.length : 0;
-  });
-  return count;
+function minutesBetween(start, end) {
+  const startMs = Date.parse(start || '');
+  const endMs = Date.parse(end || '');
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  return Number(((endMs - startMs) / 60000).toFixed(2));
 }
 
-function statusFor(check) {
-  return check ? 'complete' : 'red';
+function extractMergedPatchLanes(mergedEntries = []) {
+  return uniqueStrings(mergedEntries.flatMap((entry) => {
+    const metadata = entry?.metadata || {};
+    const implementationMetadata = metadata?.implementation?.metadata || {};
+    const parsedStdout = parseJsonMaybe(metadata?.implementation?.stdout, null);
+    const parsedStdoutMetadata = parsedStdout?.metadata || {};
+    const contextLane = metadata?.contextPack?.shard?.lane;
+    return [
+      contextLane,
+      implementationMetadata.focusGroup,
+      implementationMetadata.rawFocusGroup,
+      parsedStdout?.focusGroup,
+      parsedStdoutMetadata.focusGroup,
+      parsedStdoutMetadata.rawFocusGroup
+    ];
+  }));
 }
 
-function partialOrRed(primary, secondary = false) {
-  if (primary) return 'complete';
-  if (secondary) return 'partial';
-  return 'red';
+function roundMetric(value, digits = 2) {
+  return Number.isFinite(Number(value)) ? Number(Number(value).toFixed(digits)) : null;
 }
 
-function buildSurface(id, label, status, evidence, gaps) {
+function normalizeRepoPath(value) {
+  return String(value || '').replace(/^\.\//, '').replace(/\\/g, '/').trim();
+}
+
+function pathMatchesCreditPattern(filePath, pattern) {
+  const normalizedPath = normalizeRepoPath(filePath);
+  const normalizedPattern = normalizeRepoPath(pattern);
+  if (!normalizedPath || !normalizedPattern || !/[/*]/.test(normalizedPattern)) return false;
+  if (normalizedPattern.endsWith('/**')) return normalizedPath.startsWith(normalizedPattern.slice(0, -3));
+  if (normalizedPattern.endsWith('/*')) {
+    const prefix = normalizedPattern.slice(0, -1);
+    return normalizedPath.startsWith(prefix) && !normalizedPath.slice(prefix.length).includes('/');
+  }
+  if (!normalizedPattern.includes('*')) return normalizedPath === normalizedPattern;
+  const [prefix, suffix = ''] = normalizedPattern.split('*');
+  return normalizedPath.startsWith(prefix) && normalizedPath.endsWith(suffix);
+}
+
+function productionCreditPolicy(contract = null) {
+  const surfaces = Array.isArray(contract?.scope?.surfaces) ? contract.scope.surfaces : [];
+  const allowedFiles = new Set(surfaces.flatMap((surface) => Array.isArray(surface?.allowedFiles) ? surface.allowedFiles : [])
+    .map(normalizeRepoPath)
+    .filter(Boolean));
+  const excludedPatterns = uniqueStrings([
+    ...DEFAULT_PRODUCTION_CREDIT_EXCLUDED_PREFIXES.map((prefix) => `${prefix}**`),
+    ...(Array.isArray(contract?.scope?.excludedCredit) ? contract.scope.excludedCredit : [])
+  ]);
   return {
-    id,
-    label,
-    requiredForGreen: true,
-    status,
-    evidence: evidence.filter(Boolean),
-    gaps: gaps.filter(Boolean)
+    allowedFiles,
+    excludedPatterns,
+    requireAllowedFileMatch: allowedFiles.size > 0,
+    allowGeneratedProductFactoryCredit: contract?.productionCredit?.allowGeneratedProductFactoryCredit === true
   };
 }
 
-ensureDir(ARTIFACT_DIR);
-ensureDir(REPORTS_DIR);
+function productionCreditEligibility(filePath, policy = productionCreditPolicy()) {
+  const normalized = normalizeRepoPath(filePath);
+  if (!normalized) return { eligible: false, reason: 'missing_path' };
+  if (!policy.allowGeneratedProductFactoryCredit && DEFAULT_PRODUCTION_CREDIT_EXCLUDED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return { eligible: false, reason: 'generated_product_factory_scaffold' };
+  }
+  const excludedPattern = policy.excludedPatterns.find((pattern) => pathMatchesCreditPattern(normalized, pattern));
+  if (excludedPattern) return { eligible: false, reason: `excluded_credit:${excludedPattern}` };
+  if (policy.requireAllowedFileMatch && !policy.allowedFiles.has(normalized)) {
+    return { eligible: false, reason: 'outside_contract_allowed_files' };
+  }
+  return { eligible: true, reason: null };
+}
 
-const contract = readJson(CONTRACT_PATH, {});
-const blocker = readJson(BLOCKER_PATH, null);
-const transportStatus = readJson(TRANSPORT_STATUS_PATH, null);
-const delegateStatus = readJson(DELEGATE_STATUS_PATH, null);
-const delegateCompletion = readJson(DELEGATE_COMPLETION_PATH, null);
-const delegateProgramState = readJson(DELEGATE_PROGRAM_STATE_PATH, null);
-const delegateSupervisorStatus = delegateProgramState?.supervisorStatus || delegateProgramState?.supervisor?.status || delegateProgramState?.campaignState?.supervisor?.status || null;
-const delegateGreen = Boolean(delegateCompletion?.supervisorConfirmedCompletion && delegateSupervisorStatus === 'green');
-const viewText = readText(path.join(ROOT, 'packages', 'app', 'view.mjs'));
-const publicRoutesText = readText(path.join(ROOT, 'packages', 'app', 'routes', 'public.mjs'));
-const storageText = readText(path.join(ROOT, 'packages', 'app', 'storage.mjs'));
-const jobsText = readText(path.join(ROOT, 'packages', 'app', 'jobs.mjs'));
-const campaignsText = readText(path.join(ROOT, 'packages', 'app', 'domain-campaigns.mjs'));
-const formsText = readText(path.join(ROOT, 'packages', 'app', 'routes', 'forms.mjs'));
-const growthText = readText(path.join(ROOT, 'packages', 'app', 'domain-growth.mjs'));
-const currentOpsText = readText(path.join(ROOT, 'packages', 'app', 'domain-current-product-ops.mjs'));
-const integrationText = readText(path.join(ROOT, 'packages', 'app', 'domain-integration-marketplace.mjs'));
-const websiteText = readText(path.join(ROOT, 'packages', 'app', 'domain-website-builder.mjs'));
-const securityText = readText(path.join(ROOT, 'packages', 'app', 'security.mjs'));
-const serverText = readText(path.join(ROOT, 'apps', 'web', 'server.mjs'));
+function currentProductDiffStats() {
+  const result = spawnSync('git', ['-C', ROOT, 'diff', '--numstat', '--', 'apps', 'packages', 'plugins'], {
+    encoding: 'utf8',
+    timeout: 120_000,
+    maxBuffer: 1024 * 1024 * 20
+  });
+  if (result.status !== 0 || result.error) {
+    return { ok: false, files: 0, added: 0, deleted: 0, net: 0, error: String(result.stderr || result.stdout || result.error?.message || 'git diff failed').trim() };
+  }
+  let files = 0;
+  let added = 0;
+  let deleted = 0;
+  for (const line of String(result.stdout || '').trim().split(/\r?\n/).filter(Boolean)) {
+    const [addText, deleteText] = line.split(/\s+/);
+    const add = Number(addText);
+    const del = Number(deleteText);
+    if (!Number.isFinite(add) || !Number.isFinite(del)) continue;
+    files += 1;
+    added += add;
+    deleted += del;
+  }
+  return {
+    ok: true,
+    files,
+    added,
+    deleted,
+    net: added - deleted,
+    trackedFiles: files,
+    trackedAdded: added,
+    untrackedFilesExcluded: true,
+    note: 'Control-plane diff excludes untracked files; threshold product LOC is derived from per-run promoted loc_accounting artifacts.'
+  };
+}
 
-const clientFileCount = countClientFiles(ROOT);
-const saveDbHits = countOccurrences(path.join(ROOT, 'packages'), 'saveDb(state.db)');
-const fetchHits = countOccurrences(path.join(ROOT, 'packages'), 'fetch(');
+function promotedProductLocFromAccounting(locAccounting = null, contract = null) {
+  const policy = productionCreditPolicy(contract);
+  const productCodeFiles = Array.isArray(locAccounting?.productCodeFiles) ? locAccounting.productCodeFiles : [];
+  const credited = [];
+  const excluded = [];
+  for (const fileEntry of productCodeFiles) {
+    const filePath = normalizeRepoPath(fileEntry?.path || fileEntry?.file || fileEntry?.relativePath || '');
+    const eligibility = productionCreditEligibility(filePath, policy);
+    const entry = {
+      path: filePath,
+      added: Number(fileEntry?.added || 0),
+      deleted: Number(fileEntry?.deleted || 0),
+      net: Number(fileEntry?.net ?? (Number(fileEntry?.added || 0) - Number(fileEntry?.deleted || 0))),
+      reason: eligibility.reason
+    };
+    if (eligibility.eligible) credited.push(entry);
+    else excluded.push(entry);
+  }
+  const sum = (field) => credited.reduce((total, entry) => total + (Number.isFinite(Number(entry[field])) ? Number(entry[field]) : 0), 0);
+  return {
+    files: credited.map((entry) => entry.path).filter(Boolean),
+    added: sum('added'),
+    deleted: sum('deleted'),
+    net: sum('net'),
+    changedLines: sum('added') + sum('deleted'),
+    excludedFiles: excluded.filter((entry) => entry.path),
+    creditPolicy: {
+      requireAllowedFileMatch: policy.requireAllowedFileMatch,
+      allowedFileCount: policy.allowedFiles.size,
+      excludedPatterns: policy.excludedPatterns
+    }
+  };
+}
 
-const surfaces = [];
+function implicitBenchmarkThresholds(contract = null) {
+  if (contract?.goThresholds && typeof contract.goThresholds === 'object') return contract.goThresholds;
+  const surfaces = Array.isArray(contract?.scope?.surfaces) ? contract.scope.surfaces : [];
+  const benchmarkClass = String(contract?.benchmarkClass || '').trim();
+  const requiresDirectProductEvidence = benchmarkClass === 'product_parity_scope'
+    || surfaces.some((surface) => Array.isArray(surface?.tickRule)
+      && surface.tickRule.some((rule) => /direct product-runtime code change|product evidence/i.test(String(rule || ''))));
+  if (!requiresDirectProductEvidence || surfaces.length === 0) return null;
+  return {
+    minimumProductDiffChangedLines: surfaces.length * DEFAULT_PRODUCT_PARITY_CHANGED_LINES_PER_SURFACE,
+    minimumProductDiffFiles: surfaces.length,
+    minimumNetProductAddedLines: surfaces.length * DEFAULT_PRODUCT_PARITY_NET_LINES_PER_SURFACE,
+    minimumNetProductFiles: surfaces.length,
+    minimumDistinctFocusLanes: surfaces.length,
+    maximumNoOpRate: 0.02,
+    minimumVerificationIntegrity: 0.95,
+    truthIntegrityContradictions: 0,
+    implicit: true,
+    reason: 'Product parity-scope contracts must prove direct promoted product diff even when goThresholds are omitted.'
+  };
+}
 
-surfaces.push(buildSurface(
-  'A_public_brand_marketing_parity',
-  'A. Public brand + marketing parity',
-  statusFor(!viewText.includes('Anchor Mailer') && !publicRoutesText.includes('Program 1–3')),
-  [
-    viewText.includes('Anchor Mailer') ? 'packages/app/view.mjs still brands user-visible surfaces as Anchor Mailer.' : 'Anchor Mailer branding removed from user-visible surfaces.',
-    publicRoutesText.includes('Program 1–3') ? 'packages/app/routes/public.mjs still serves an internal-summary style homepage.' : 'Public homepage no longer exposes the prior internal-summary placeholder.'
-  ],
-  [
-    viewText.includes('Anchor Mailer') ? 'Remove or isolate Anchor Mailer branding from the Mailchimp clone surfaces.' : null,
-    publicRoutesText.includes('Program 1–3') ? 'Replace the placeholder public homepage with Mailchimp-like marketing/pricing/help entry surfaces.' : null
-  ]
-));
+function campaignIterationRunIds(currentRun = null, canonicalSummary = null) {
+  const campaignRunId = String(currentRun?.campaignRunId || '').trim();
+  const fallbackRunId = String(canonicalSummary?.runId || currentRun?.runId || '').trim();
+  const prefix = campaignRunId || fallbackRunId.replace(/-iter-\d+$/, '');
+  const runsDir = path.join(ARTIFACT_DIR, 'runs');
+  if (!prefix || !fs.existsSync(runsDir)) return [];
+  return fs.readdirSync(runsDir)
+    .filter((entry) => entry.startsWith(`${prefix}-iter-`))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+}
 
-surfaces.push(buildSurface(
-  'B_frontend_architecture_parity',
-  'B. Frontend architecture parity',
-  statusFor(clientFileCount > 0),
-  [
-    `Client-surface file count: ${clientFileCount}.`,
-    viewText.includes('<!doctype html>') ? 'packages/app/view.mjs still assembles the UI as server-rendered HTML with inline CSS.' : null
-  ],
-  [
-    clientFileCount === 0 ? 'Introduce a real client application shell for interactive builders/editors.' : null,
-    viewText.includes('<!doctype html>') ? 'Replace form-post editing with richer client interaction where Mailchimp depends on it.' : null
-  ]
-));
+function aggregateBenchmarkObserved({ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null } = {}) {
+  const runIds = campaignIterationRunIds(currentRun, canonicalSummary);
+  const productFiles = new Set();
+  const focusLanes = new Set();
+  const agentIds = new Set();
+  let productDiffChangedLines = 0;
+  let netProductAddedLines = 0;
+  let netProductDeletedLines = 0;
+  let netProductNetLines = 0;
+  let mergedPatchCount = 0;
+  let shardOutputCount = 0;
+  let totalPatchCandidates = 0;
+  let noOpPatchCount = 0;
+  let repeatBlockerCount = 0;
+  let blockerEventCount = 0;
+  let verifiedMergedPatchCount = 0;
+  let truthIntegrityContradictions = 0;
+  let previousBlockerText = null;
+  let candidateProgressDiscardedLines = 0;
+  let candidateProgressDiscardedFiles = 0;
+  const excludedProductFiles = new Map();
 
-surfaces.push(buildSurface(
-  'C_data_model_and_persistence_parity',
-  'C. Data model + persistence parity',
-  statusFor(!storageText.includes("app.json") && saveDbHits === 0),
-  [
-    storageText.includes("app.json") ? 'packages/app/storage.mjs still points primary persistence at data/app.json.' : 'Primary persistence no longer points at data/app.json.',
-    `saveDb(state.db) call sites under packages/: ${saveDbHits}.`
-  ],
-  [
-    storageText.includes("app.json") ? 'Move core state off the monolithic JSON file backend.' : null,
-    saveDbHits > 0 ? 'Eliminate remaining saveDb(state.db) rewrite paths from critical product flows.' : null
-  ]
-));
+  for (const runId of runIds) {
+    const delegateDir = path.join(ARTIFACT_DIR, 'runs', runId, 'delegate');
+    const benchmarkProgress = readJson(path.join(delegateDir, 'benchmark_progress.json'), null);
+    const patchQueueReport = readJson(path.join(delegateDir, 'patch_queue_report.json'), null);
+    const liveExecutionSummary = readJson(path.join(delegateDir, 'live_execution_summary.json'), null);
+    const locAccounting = readJson(path.join(delegateDir, 'loc_accounting.json'), null);
+    const canonical = readJson(path.join(delegateDir, 'canonical_summary.json'), null);
+    const blockerReport = readJson(path.join(delegateDir, 'blocker_report.json'), null);
+    const benchmarkObserved = benchmarkProgress?.observed && typeof benchmarkProgress.observed === 'object'
+      ? benchmarkProgress.observed
+      : null;
+    const promotedLoc = promotedProductLocFromAccounting(locAccounting, contract);
 
-surfaces.push(buildSurface(
-  'D_delivery_jobs_operational_workflow_parity',
-  'D. Delivery + jobs + operational workflow parity',
-  statusFor(!serverText.includes('setInterval(() => runJobs(state), 100)') && !jobsText.includes("if (job.type === 'deliver_campaign')")),
-  [
-    serverText.includes('setInterval(() => runJobs(state), 100)') ? 'apps/web/server.mjs still runs jobs in-process on a setInterval loop.' : 'In-process interval-driven job execution removed from web process.',
-    jobsText.includes("if (job.type === 'deliver_campaign')") ? 'packages/app/jobs.mjs still handles delivery inside the app runtime.' : 'Delivery no longer handled solely by in-process app jobs.'
-  ],
-  [
-    serverText.includes('setInterval(() => runJobs(state), 100)') ? 'Separate worker execution from the web process.' : null,
-    jobsText.includes("if (job.type === 'deliver_campaign')") ? 'Replace local delivery simulation with a real queue/provider flow.' : null
-  ]
-));
+    for (const filePath of promotedLoc.files) productFiles.add(filePath);
+    for (const excluded of promotedLoc.excludedFiles) excludedProductFiles.set(excluded.path, excluded.reason);
+    productDiffChangedLines += promotedLoc.changedLines;
+    netProductAddedLines += promotedLoc.added;
+    netProductDeletedLines += promotedLoc.deleted;
+    netProductNetLines += promotedLoc.net;
 
-surfaces.push(buildSurface(
-  'E_reporting_analytics_parity',
-  'E. Reporting + analytics parity',
-  statusFor(!campaignsText.includes('Math.floor(recipientTotal * 0.6)') && !websiteText.includes('website.analytics.views += 1')),
-  [
-    campaignsText.includes('Math.floor(recipientTotal * 0.6)') ? 'Campaign opens/clicks are still synthesized from recipient counts in domain-campaigns.mjs.' : 'Campaign metrics are no longer synthesized from simple formulas.',
-    websiteText.includes('website.analytics.views += 1') ? 'Website analytics are still local counters in domain-website-builder.mjs.' : 'Website analytics are no longer local-only counters.'
-  ],
-  [
-    campaignsText.includes('Math.floor(recipientTotal * 0.6)') ? 'Replace synthetic campaign metrics with event-backed measurement.' : null,
-    websiteText.includes('website.analytics.views += 1') ? 'Replace local website counters with a more realistic analytics/event model.' : null
-  ]
-));
+    if (benchmarkObserved) {
+      const observedChangedLines = Number(benchmarkObserved.productDiffChangedLines || 0);
+      const observedProductFiles = Number(benchmarkObserved.productDiffFiles || (Array.isArray(benchmarkObserved.productFiles) ? benchmarkObserved.productFiles.length : 0) || 0);
+      if (observedChangedLines > promotedLoc.changedLines || observedProductFiles > promotedLoc.files.length) {
+        truthIntegrityContradictions += 1;
+        candidateProgressDiscardedLines += Math.max(0, observedChangedLines - promotedLoc.changedLines);
+        candidateProgressDiscardedFiles += Math.max(0, observedProductFiles - promotedLoc.files.length);
+      }
+      for (const lane of Array.isArray(benchmarkObserved.focusLanes) ? benchmarkObserved.focusLanes : []) {
+        const normalized = String(lane || '').trim();
+        if (normalized) focusLanes.add(normalized);
+      }
+      for (const agentId of Array.isArray(benchmarkObserved.agentIds) ? benchmarkObserved.agentIds : []) {
+        const normalized = String(agentId || '').trim();
+        if (normalized) agentIds.add(normalized);
+      }
+      mergedPatchCount += Number(benchmarkObserved.mergedPatchCount || 0);
+      shardOutputCount += Number(benchmarkObserved.shardOutputCount || 0);
+      totalPatchCandidates += Number(benchmarkObserved.totalPatchCandidates || 0);
+      noOpPatchCount += Number(benchmarkObserved.noOpPatchCount || 0);
+      repeatBlockerCount += Number(benchmarkObserved.repeatBlockerCount || 0);
+      blockerEventCount += Number(benchmarkObserved.blockerEventCount || 0);
+      verifiedMergedPatchCount += Number(benchmarkObserved.verifiedMergedPatchCount || 0);
+      truthIntegrityContradictions += Number(benchmarkObserved.truthIntegrityContradictions || 0);
+      continue;
+    }
 
-surfaces.push(buildSurface(
-  'F_ai_predictive_optimization_parity',
-  'F. AI / predictive / optimization parity',
-  statusFor(!currentOpsText.includes('function buildSubjectVariants') && !currentOpsText.includes('predictiveScoreForContact')),
-  [
-    currentOpsText.includes('function buildSubjectVariants') ? 'AI assist is still generated from local helper functions in domain-current-product-ops.mjs.' : 'Local heuristic AI helpers removed from the primary product path.',
-    currentOpsText.includes('predictiveScoreForContact') ? 'Predictive scoring is still deterministic local logic in domain-current-product-ops.mjs.' : 'Predictive scoring no longer uses the old deterministic helper path.'
-  ],
-  [
-    currentOpsText.includes('function buildSubjectVariants') ? 'Replace heuristic content generation with a provider-backed or model-backed abstraction.' : null,
-    currentOpsText.includes('predictiveScoreForContact') ? 'Replace local deterministic predictive scoring with a more realistic predictive system.' : null
-  ]
-));
+    const mergedEntries = Array.isArray(patchQueueReport?.merged) ? patchQueueReport.merged : [];
+    const rejectedEntries = Array.isArray(patchQueueReport?.rejected) ? patchQueueReport.rejected : [];
+    const hadAcceptedProductWork = mergedEntries.length > 0 || Number(liveExecutionSummary?.metrics?.mergedPatchCount || 0) > 0;
 
-surfaces.push(buildSurface(
-  'G_integrations_api_oauth_parity',
-  'G. Integrations + API + OAuth parity',
-  statusFor(fetchHits > 0 && !integrationText.includes("syncedContacts: app.category === 'crm' ? 12 : 0")),
-  [
-    `fetch() occurrences under packages/: ${fetchHits}.`,
-    integrationText.includes("syncedContacts: app.category === 'crm' ? 12 : 0") ? 'Integration sync totals are still fabricated in domain-integration-marketplace.mjs.' : 'Hard-coded integration sync totals removed from domain-integration-marketplace.mjs.'
-  ],
-  [
-    fetchHits === 0 ? 'Add real provider/network interaction paths in the primary app runtime for supported integrations.' : null,
-    integrationText.includes("syncedContacts: app.category === 'crm' ? 12 : 0") ? 'Replace synthetic integration sync results with real connector behavior.' : null
-  ]
-));
+    totalPatchCandidates += mergedEntries.length + rejectedEntries.length;
+    noOpPatchCount += rejectedEntries.filter((entry) => entry?.rejectionCategory === 'no_op').length;
+    mergedPatchCount += Number(liveExecutionSummary?.metrics?.mergedPatchCount || mergedEntries.length || 0);
+    shardOutputCount += Number(liveExecutionSummary?.metrics?.shardOutputCount || 0);
 
-surfaces.push(buildSurface(
-  'H_website_builder_parity',
-  'H. Website builder parity',
-  statusFor(clientFileCount > 0 && websiteText.includes('undo') && websiteText.includes('section')),
-  [
-    websiteText.includes('sectionStyle') ? 'Website builder currently stores pages/themes/sections as server-side records.' : null,
-    clientFileCount === 0 ? 'No rich client editing layer exists for website builder interactions.' : `Client-surface file count available for richer website builder UX: ${clientFileCount}.`
-  ],
-  [
-    clientFileCount === 0 ? 'Add a real visual/on-canvas website editing experience.' : null,
-    !websiteText.includes('undo') ? 'Add undo/redo or equivalent revision interaction parity for website editing.' : null
-  ]
-));
+    for (const entry of mergedEntries) {
+      extractMergedPatchLanes([entry]).forEach((lane) => focusLanes.add(lane));
+      if (entry?.agentId) agentIds.add(String(entry.agentId));
+      const verifiers = Array.isArray(entry?.metadata?.verifierResults) ? entry.metadata.verifierResults : [];
+      if (verifiers.length > 0 && verifiers.every((result) => result?.ok === true && result?.skipped !== true)) {
+        verifiedMergedPatchCount += 1;
+      }
+    }
 
-surfaces.push(buildSurface(
-  'I_forms_popup_forms_landing_pages_parity',
-  'I. Forms / popup forms / landing pages parity',
-  statusFor(formsText.includes('popup') && growthText.includes('geotarget') && growthText.includes('trigger')),
-  [
-    formsText.includes('/f/:slug') ? 'Hosted forms and landing pages exist and are executable.' : null,
-    !formsText.includes('popup') ? 'No popup-form specific builder/editor flow is present in packages/app/routes/forms.mjs.' : 'Popup form flow detected in route layer.',
-    !growthText.includes('geotarget') ? 'No geotargeting behavior detected in domain-growth.mjs.' : 'Geotargeting behavior detected in growth domain.'
-  ],
-  [
-    !formsText.includes('popup') ? 'Implement popup-form specific product depth beyond hosted forms.' : null,
-    !growthText.includes('geotarget') ? 'Implement geotargeting / advanced popup targeting behavior.' : null,
-    !growthText.includes('trigger') ? 'Implement popup trigger rules such as time-on-page / inactivity / exit intent.' : null
-  ]
-));
+    const blockerText = String(canonical?.blocker?.blocker || blockerReport?.blocker || '').trim() || null;
+    if (blockerText) blockerEventCount += 1;
+    if (blockerText && blockerText === previousBlockerText) repeatBlockerCount += 1;
+    previousBlockerText = blockerText;
+    if (canonical?.supervisorStatus === 'green' && (canonical?.blocker || (Array.isArray(canonical?.nextFocus) && canonical.nextFocus.length > 0))) {
+      truthIntegrityContradictions += 1;
+    }
+  }
 
-surfaces.push(buildSurface(
-  'J_campaign_experimentation_parity',
-  'J. Campaign experimentation parity',
-  statusFor(!currentOpsText.includes('variant.subject.length % 9') && !currentOpsText.includes('variant.bodyPreview.length % 11')),
-  [
-    currentOpsText.includes('variant.subject.length % 9') ? 'Experiment winners are still computed from deterministic string-length formulas.' : 'Experiment winner logic no longer depends on string-length formulas.'
-  ],
-  [
-    currentOpsText.includes('variant.subject.length % 9') ? 'Replace formula-driven winner logic with event/metric-driven experimentation results.' : null
-  ]
-));
+  const fallbackMergedEntries = Array.isArray(delegatePatchQueueReport?.merged) ? delegatePatchQueueReport.merged : [];
+  const observedMergedPatchCount = mergedPatchCount > 0 ? mergedPatchCount : Number(delegateLiveExecutionSummary?.metrics?.mergedPatchCount || fallbackMergedEntries.length || 0);
+  const verificationIntegrity = observedMergedPatchCount > 0
+    ? roundMetric(verifiedMergedPatchCount / observedMergedPatchCount)
+    : 1;
+  const controlPlaneProductDiff = currentProductDiffStats();
 
-surfaces.push(buildSurface(
-  'K_automation_journey_parity',
-  'K. Automation / journey parity',
-  partialOrRed(growthText.includes('wait_scheduled') && !growthText.includes("status: 'completed'"), growthText.includes('triggerAutomationsForEvent')),
-  [
-    growthText.includes('triggerAutomationsForEvent') ? 'Automation enrollment and trigger plumbing exist in domain-growth.mjs.' : null,
-    growthText.includes("status: 'completed'") ? 'Runs still collapse immediately to completed lifecycle objects in the current implementation.' : 'Runs are no longer forced into immediate completed lifecycle objects.'
-  ],
-  [
-    growthText.includes("status: 'completed'") ? 'Deepen the journey engine beyond immediate local lifecycle completion.' : null
-  ]
-));
+  return {
+    autonomyMinutes: minutesBetween(currentRun?.campaignStartedAt || currentRun?.startedAt || currentRun?.generatedAt || null, canonicalSummary?.generatedAt || null),
+    productDiffChangedLines,
+    productDiffFiles: productFiles.size,
+    netProductAddedLines,
+    netProductDeletedLines,
+    netProductNetLines,
+    netProductFiles: productFiles.size,
+    netProductDiffOk: controlPlaneProductDiff.ok,
+    netProductDiffError: controlPlaneProductDiff.error || null,
+    controlPlaneProductDiff,
+    distinctFocusLanes: focusLanes.size,
+    distinctAgentIds: agentIds.size,
+    mergedPatchCount: observedMergedPatchCount,
+    shardOutputCount: shardOutputCount > 0 ? shardOutputCount : Number(delegateLiveExecutionSummary?.metrics?.shardOutputCount || 0),
+    noOpRate: totalPatchCandidates > 0 ? roundMetric(noOpPatchCount / totalPatchCandidates) : 0,
+    repeatBlockerRate: blockerEventCount > 0
+      ? roundMetric(repeatBlockerCount / blockerEventCount)
+      : (runIds.length > 0 ? roundMetric(repeatBlockerCount / runIds.length) : 0),
+    verificationIntegrity,
+    truthIntegrityContradictions,
+    candidateProgressDiscardedLines,
+    candidateProgressDiscardedFiles,
+    excludedProductFiles: Array.from(excludedProductFiles, ([filePath, reason]) => ({ path: filePath, reason })),
+    generatedAt: new Date().toISOString(),
+    runId: canonicalSummary?.runId || currentRun?.runId || null,
+    startedAt: toIsoString(currentRun?.campaignStartedAt || currentRun?.startedAt || currentRun?.generatedAt || null),
+    completedAt: toIsoString(canonicalSummary?.generatedAt || null)
+  };
+}
 
-surfaces.push(buildSurface(
-  'L_audience_crm_segmentation_parity',
-  'L. Audience / CRM / segmentation parity',
-  partialOrRed(!currentOpsText.includes('predictiveScoreForContact') && growthText.includes('contactActivity') && !growthText.includes("status: 'subscribed'"), growthText.includes('contactActivity')),
-  [
-    growthText.includes('contactActivity') ? 'Audience/contact activity tracking exists.' : null,
-    currentOpsText.includes('predictiveScoreForContact') ? 'Predictive segmentation behavior is still simplified local logic.' : 'Simplified predictive segmentation helper no longer detected.'
-  ],
-  [
-    currentOpsText.includes('predictiveScoreForContact') ? 'Deepen predictive and CRM behavior beyond local heuristics.' : null
-  ]
-));
+function evaluateBenchmarkThresholdGate({ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null } = {}) {
+  const thresholds = implicitBenchmarkThresholds(contract);
+  if (!thresholds) {
+    return {
+      evaluated: false,
+      pass: true,
+      blocker: null,
+      blockerKind: null,
+      matrixStatus: null,
+      parityStatus: null,
+      thresholds: null,
+      observed: null,
+      failures: []
+    };
+  }
 
-surfaces.push(buildSurface(
-  'M_security_account_enterprise_parity',
-  'M. Security / account / enterprise parity',
-  partialOrRed(securityText.includes('mfa') || securityText.includes('sso') || securityText.includes('saml'), securityText.includes('SameSite=Lax') && securityText.includes('content-security-policy')),
-  [
-    securityText.includes('SameSite=Lax') ? 'Basic cookie and header hardening exists in packages/app/security.mjs.' : null,
-    !securityText.includes('mfa') ? 'No MFA flow detected in packages/app/security.mjs.' : 'MFA-related security flow detected.',
-    !securityText.includes('sso') && !securityText.includes('saml') ? 'No SSO/SAML enterprise auth flow detected in packages/app/security.mjs.' : 'Enterprise auth flow detected.'
-  ],
-  [
-    !securityText.includes('mfa') ? 'Add stronger account security parity such as MFA-equivalent flows.' : null,
-    !securityText.includes('sso') && !securityText.includes('saml') ? 'Add enterprise auth/session parity where required.' : null
-  ]
-));
+  const observed = aggregateBenchmarkObserved({
+    contract,
+    currentRun,
+    canonicalSummary,
+    delegateLiveExecutionSummary,
+    delegatePatchQueueReport
+  });
 
-surfaces.push(buildSurface(
-  'N_ops_deployment_scale_parity',
-  'N. Ops / deployment / scale parity',
-  statusFor(!serverText.includes('http.createServer') && !storageText.includes('fs.writeFileSync') && !serverText.includes('server.start =')),
-  [
-    serverText.includes('http.createServer') ? 'apps/web/server.mjs still exposes a single-process node:http server runtime.' : 'Single-process node:http server runtime removed.',
-    storageText.includes('fs.writeFileSync') ? 'Synchronous file writes still appear in the primary storage layer.' : 'Primary storage layer no longer uses sync file writes.'
-  ],
-  [
-    serverText.includes('http.createServer') ? 'Move toward a more realistic deployment/runtime model than the current single-process server.' : null,
-    storageText.includes('fs.writeFileSync') ? 'Remove sync file-write reliance from primary operational paths.' : null
-  ]
-));
+  const failures = [];
+  const compareMinimum = ({ thresholdField, observedField, label }) => {
+    const required = thresholds?.[thresholdField];
+    if (!Number.isFinite(Number(required))) return;
+    const observedValue = Number(observed[observedField]);
+    if (!Number.isFinite(observedValue) || observedValue < Number(required)) {
+      failures.push({ thresholdField, observedField, label, comparator: '>=', required: Number(required), observed: Number.isFinite(observedValue) ? observedValue : null });
+    }
+  };
+  const compareMaximum = ({ thresholdField, observedField, label }) => {
+    const required = thresholds?.[thresholdField];
+    if (!Number.isFinite(Number(required))) return;
+    const observedValue = Number(observed[observedField]);
+    if (!Number.isFinite(observedValue) || observedValue > Number(required)) {
+      failures.push({ thresholdField, observedField, label, comparator: '<=', required: Number(required), observed: Number.isFinite(observedValue) ? observedValue : null });
+    }
+  };
+  const compareEquality = ({ thresholdField, observedField, label }) => {
+    const required = thresholds?.[thresholdField];
+    if (!Number.isFinite(Number(required))) return;
+    const observedValue = Number(observed[observedField]);
+    if (!Number.isFinite(observedValue) || observedValue !== Number(required)) {
+      failures.push({ thresholdField, observedField, label, comparator: '=', required: Number(required), observed: Number.isFinite(observedValue) ? observedValue : null });
+    }
+  };
 
-const prior = surfaces.every((surface) => surface.status === 'complete');
-surfaces.push(buildSurface(
-  'O_final_parity_proof_gate',
-  'O. Final parity proof gate',
-  prior ? 'complete' : 'red',
-  [
-    prior ? 'All required surfaces are supervisor-complete.' : 'At least one required surface remains incomplete, so full-clone proof is not yet valid.'
-  ],
-  prior ? [] : ['Do not claim full_clone until every required surface above is complete with executable evidence.']
-));
+  compareMinimum({ thresholdField: 'minimumAutonomyMinutes', observedField: 'autonomyMinutes', label: 'Autonomy minutes' } );
+  compareMinimum({ thresholdField: 'minimumProductDiffChangedLines', observedField: 'productDiffChangedLines', label: 'Product diff changed lines' } );
+  compareMinimum({ thresholdField: 'minimumProductDiffFiles', observedField: 'productDiffFiles', label: 'Product diff files' } );
+  compareMinimum({ thresholdField: 'minimumNetProductAddedLines', observedField: 'netProductAddedLines', label: 'Net product added lines' } );
+  compareMinimum({ thresholdField: 'minimumNetProductNetLines', observedField: 'netProductNetLines', label: 'Net product net lines' } );
+  compareMinimum({ thresholdField: 'minimumNetProductFiles', observedField: 'netProductFiles', label: 'Net product files' } );
+  compareMinimum({ thresholdField: 'minimumDistinctFocusLanes', observedField: 'distinctFocusLanes', label: 'Distinct focus lanes' } );
+  compareMinimum({ thresholdField: 'minimumDistinctAgentIds', observedField: 'distinctAgentIds', label: 'Distinct agent ids' } );
+  compareMaximum({ thresholdField: 'maximumNoOpRate', observedField: 'noOpRate', label: 'No-op rate' } );
+  compareMaximum({ thresholdField: 'maximumRepeatBlockerRate', observedField: 'repeatBlockerRate', label: 'Repeat-blocker rate' } );
+  compareMinimum({ thresholdField: 'minimumVerificationIntegrity', observedField: 'verificationIntegrity', label: 'Verification integrity' } );
+  compareEquality({ thresholdField: 'truthIntegrityContradictions', observedField: 'truthIntegrityContradictions', label: 'Truth contradictions' } );
 
-if (delegateGreen) {
-  for (const surface of surfaces) {
-    surface.evidence = [
-      ...surface.evidence,
-      `Delegated cleaned-baseline qualification completed green at tier ${delegateCompletion?.provenCoordinationScaleTier || 'unknown'}, but this only counts as supporting execution evidence and does not override unresolved parity gaps.`
-    ];
+  if (failures.length === 0) {
+    return {
+      evaluated: true,
+      pass: true,
+      blocker: null,
+      blockerKind: null,
+      matrixStatus: 'all_complete',
+      parityStatus: 'full',
+      thresholds,
+      observed,
+      failures
+    };
+  }
+
+  return {
+    evaluated: true,
+    pass: false,
+    blockerKind: 'benchmark_threshold_gate',
+    matrixStatus: 'blocked',
+    parityStatus: 'blocked',
+    thresholds,
+    observed,
+    failures,
+    blocker: {
+      blocker: 'Production-creation benchmark thresholds were not met, so this run cannot score green.',
+      nextAction: failures.map((failure) => `${failure.label}: observed ${failure.observed ?? 'unknown'}, required ${failure.comparator} ${failure.required}`),
+      thresholdEvaluation: {
+        benchmarkId: contract?.benchmarkId || null,
+        benchmarkTier: contract?.benchmarkTier || null,
+        fidelity: contract?.requestedFidelity || contract?.fidelity || null,
+        observed,
+        thresholds,
+        failures
+      }
+    }
+  };
+}
+
+function writeJson(filePath, payload) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function rmIfExists(filePath) {
+  try {
+    fs.rmSync(filePath, { force: true });
+  } catch {}
+}
+
+function freshRunBoundArtifactPath(artifactPath, { currentRun = null, runId = null, timestampKeys = ['generatedAt', 'createdAt', 'startedAt'], requireRunMatch = false } = {}) {
+  if (!artifactPath || !fs.existsSync(artifactPath)) return null;
+  const artifact = readJson(artifactPath, null);
+  if (!artifact) return null;
+  return isArtifactFreshForRun({
+    artifact,
+    currentRun,
+    runId,
+    timestampKeys,
+    requireRunMatch
+  })
+    ? artifactPath
+    : null;
+}
+
+function liveRemoteProgress(workerStatus = null, currentRun = null, runId = null) {
+  const remoteExecutionStatus = workerStatus?.remoteExecutionStatus || null;
+  if (!remoteExecutionStatus || remoteExecutionStatus.running !== true) return { active: false, latestIteration: null };
+  const freshRemoteStatus = isArtifactFreshForRun({
+    artifact: remoteExecutionStatus,
+    currentRun,
+    runId,
+    requireRunMatch: false,
+    timestampKeys: ['heartbeatAt', 'generatedAt', 'lastOutputAt', 'finishedAt']
+  });
+  if (!freshRemoteStatus) return { active: false, latestIteration: null };
+  const latestIteration = Array.isArray(remoteExecutionStatus.iterations) ? remoteExecutionStatus.iterations.at(-1) || null : null;
+  const latestBlockerText = String(latestIteration?.blocker?.blocker || '');
+  const active = latestIteration?.freshProgressDetected === true
+    || /partial parity-surface reduction was proven|remaining red surfaces are still open/i.test(latestBlockerText);
+  return { active, latestIteration };
+}
+
+function shouldContinueAutonomySoak({ orchestration = null, benchmarkThresholdGate = null, currentRun = null } = {}) {
+  if (!orchestration?.green) return false;
+  if (benchmarkThresholdGate?.pass !== false || benchmarkThresholdGate?.blockerKind !== 'benchmark_threshold_gate') return false;
+  const failures = Array.isArray(benchmarkThresholdGate.failures) ? benchmarkThresholdGate.failures : [];
+  const onlyAutonomyMissing = failures.length === 1
+    && failures.every((failure) => failure?.thresholdField === 'minimumAutonomyMinutes' || failure?.observedField === 'autonomyMinutes');
+  if (!SOAK_FULL_RUNTIME && !onlyAutonomyMissing) return false;
+  const deadlineMs = Date.parse(currentRun?.campaignDeadlineAt || currentRun?.deadlineAt || '');
+  return Number.isFinite(deadlineMs) && Date.now() < deadlineMs;
+}
+
+function evaluateStrict1To1Ceiling(contract = {}, strict1to1Contract = null) {
+  const requestedFidelity = String(contract?.requestedFidelity || strict1to1Contract?.requestedFidelity || '').trim().toLowerCase();
+  if (requestedFidelity !== 'full_clone') {
+    return { required: false, state: null, blocker: null, supervisorExitCode: null };
+  }
+  if (fs.existsSync(STRICT_1TO1_SUPERVISOR_SCRIPT)) {
+    spawnSync(process.execPath, [STRICT_1TO1_SUPERVISOR_SCRIPT], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 120_000,
+      maxBuffer: 1024 * 1024 * 40
+    });
+  }
+  const state = readJson(STRICT_1TO1_STATE_PATH, null);
+  const strictBlocker = readJson(STRICT_1TO1_BLOCKER_PATH, null);
+  if (!state || state.status === 'green') {
+    return { required: true, state, blocker: null, supervisorExitCode: 0 };
+  }
+  return {
+    required: true,
+    state,
+    supervisorExitCode: 1,
+    blocker: {
+      blocker: 'Strict 1:1 parity ceiling is still red, so the Mailchimp clone cannot be treated as full-clone complete.',
+      nextAction: strictBlocker?.nextAction || 'Expand the canonical Mailchimp parity surface inventory and evidence until the strict 1:1 supervisor turns green.',
+      strict1to1: {
+        status: state.status || null,
+        matrixStatus: state.matrixStatus || null,
+        deepParityEstimate: state.deepParityEstimate || null,
+        exactRemainingGaps: state.exactRemainingGaps || strictBlocker?.exactRemainingGaps || []
+      }
+    }
+  };
+}
+
+const runBinding = resolveCampaignRunBinding({
+  rootDir: ROOT,
+  artifactDir: ARTIFACT_DIR,
+  currentRunPath: CURRENT_RUN_PATH,
+  workerStatusPath: path.join(REPORTS_DIR, '100_agent_worker_status.json')
+});
+const currentRun = runBinding.currentRun;
+const contractPath = CONTRACT_PATH_CANDIDATES.find((candidate) => fs.existsSync(candidate)) || CONTRACT_PATH_CANDIDATES[0];
+const strict1to1Contract = readJson(STRICT_1TO1_CONTRACT_PATH, null);
+const contract = normalizeRequestedContract(readJson(contractPath, {}), strict1to1Contract);
+const oldNotification = readJson(NOTIFY_PATH, {});
+const runId = process.env[PROGRAM_ENV.runId] || runBinding.runId || currentRun?.runId || null;
+const runDir = runId ? path.join(ARTIFACT_DIR, 'runs', runId) : null;
+const delegateDir = runDir ? path.join(runDir, 'delegate') : null;
+const workerStatus = runBinding.workerStatus;
+const workerMirroredCanonicalSummaryPath = resolveMirroredArtifactPath(ROOT, workerStatus, 'canonicalSummaryPath', null);
+const mirroredDelegateRoot = workerMirroredCanonicalSummaryPath && fs.existsSync(workerMirroredCanonicalSummaryPath)
+  ? path.dirname(workerMirroredCanonicalSummaryPath)
+  : null;
+const mirroredCanonicalSummaryPath = resolveMirroredArtifactPath(ROOT, workerStatus, 'canonicalSummaryPath', mirroredDelegateRoot ? path.join(mirroredDelegateRoot, 'canonical_summary.json') : (delegateDir ? path.join(delegateDir, 'canonical_summary.json') : null));
+const mirroredDelegateProgramStatePath = resolveMirroredArtifactPath(ROOT, workerStatus, 'programStatePath', mirroredDelegateRoot ? path.join(mirroredDelegateRoot, 'program_state.json') : (delegateDir ? path.join(delegateDir, 'program_state.json') : null));
+const mirroredDelegateBlockerPath = resolveMirroredArtifactPath(ROOT, workerStatus, 'blockerPath', mirroredDelegateRoot ? path.join(mirroredDelegateRoot, 'blocker_report.json') : (delegateDir ? path.join(delegateDir, 'blocker_report.json') : null));
+const delegateSurfaceMatrixPath = resolveMirroredArtifactPath(ROOT, workerStatus, 'surfaceMatrixPath', mirroredDelegateRoot ? path.join(mirroredDelegateRoot, 'surface_matrix.json') : (delegateDir ? path.join(delegateDir, 'surface_matrix.json') : null));
+const notifierEligibilityPath = resolveMirroredArtifactPath(ROOT, workerStatus, 'notifierEligibilityPath', mirroredDelegateRoot ? path.join(mirroredDelegateRoot, 'notifier_eligibility.json') : (delegateDir ? path.join(delegateDir, 'notifier_eligibility.json') : null));
+const delegateLiveExecutionSummaryPath = resolveMirroredArtifactPath(ROOT, workerStatus, 'liveExecutionSummaryPath', mirroredDelegateRoot ? path.join(mirroredDelegateRoot, 'live_execution_summary.json') : (delegateDir ? path.join(delegateDir, 'live_execution_summary.json') : null));
+const delegatePatchQueueReportPath = resolveMirroredArtifactPath(ROOT, workerStatus, 'patchQueueReportPath', mirroredDelegateRoot ? path.join(mirroredDelegateRoot, 'patch_queue_report.json') : (delegateDir ? path.join(delegateDir, 'patch_queue_report.json') : null));
+const controlPlaneCanonicalSummaryPath = path.join(ARTIFACT_DIR, 'canonical_summary.json');
+const controlPlaneDelegateProgramStatePath = path.join(ARTIFACT_DIR, 'delegate_program_state.json');
+const controlPlaneDelegateBlockerPath = path.join(ARTIFACT_DIR, 'delegate_blocker_report.json');
+const controlPlaneSurfaceMatrixPath = path.join(ARTIFACT_DIR, 'surface_matrix.json');
+if (mirroredCanonicalSummaryPath && fs.existsSync(mirroredCanonicalSummaryPath)) {
+  fs.copyFileSync(mirroredCanonicalSummaryPath, controlPlaneCanonicalSummaryPath);
+}
+if (mirroredDelegateProgramStatePath && fs.existsSync(mirroredDelegateProgramStatePath)) {
+  fs.copyFileSync(mirroredDelegateProgramStatePath, controlPlaneDelegateProgramStatePath);
+}
+if (mirroredDelegateBlockerPath && fs.existsSync(mirroredDelegateBlockerPath)) {
+  fs.copyFileSync(mirroredDelegateBlockerPath, controlPlaneDelegateBlockerPath);
+}
+if (delegateSurfaceMatrixPath && fs.existsSync(delegateSurfaceMatrixPath)) {
+  fs.copyFileSync(delegateSurfaceMatrixPath, controlPlaneSurfaceMatrixPath);
+}
+const canonicalSummaryPath = freshRunBoundArtifactPath(controlPlaneCanonicalSummaryPath, {
+  currentRun,
+  runId,
+  requireRunMatch: true
+}) || freshRunBoundArtifactPath(mirroredCanonicalSummaryPath, {
+  currentRun,
+  runId,
+  requireRunMatch: true
+});
+if (!canonicalSummaryPath) rmIfExists(controlPlaneCanonicalSummaryPath);
+const delegateProgramStatePath = freshRunBoundArtifactPath(controlPlaneDelegateProgramStatePath, {
+  currentRun,
+  runId,
+  requireRunMatch: false,
+  timestampKeys: ['generatedAt', 'updatedAt', 'startedAt']
+}) || freshRunBoundArtifactPath(mirroredDelegateProgramStatePath, {
+  currentRun,
+  runId,
+  requireRunMatch: false,
+  timestampKeys: ['generatedAt', 'updatedAt', 'startedAt']
+});
+if (!delegateProgramStatePath) rmIfExists(controlPlaneDelegateProgramStatePath);
+const delegateBlockerPath = freshRunBoundArtifactPath(controlPlaneDelegateBlockerPath, {
+  currentRun,
+  runId,
+  requireRunMatch: false,
+  timestampKeys: ['generatedAt', 'updatedAt', 'startedAt']
+}) || freshRunBoundArtifactPath(mirroredDelegateBlockerPath, {
+  currentRun,
+  runId,
+  requireRunMatch: false,
+  timestampKeys: ['generatedAt', 'updatedAt', 'startedAt']
+});
+if (!delegateBlockerPath) rmIfExists(controlPlaneDelegateBlockerPath);
+const workerBlockerPath = freshRunBoundArtifactPath(BLOCKER_PATH, {
+  currentRun,
+  runId,
+  requireRunMatch: false,
+  timestampKeys: ['generatedAt', 'updatedAt', 'startedAt']
+});
+const canonicalSummary = canonicalSummaryPath ? readJson(canonicalSummaryPath, null) : null;
+const delegateProgramState = delegateProgramStatePath ? readJson(delegateProgramStatePath, null) : null;
+const delegateBlocker = delegateBlockerPath ? readJson(delegateBlockerPath, null) : null;
+const workerBlocker = workerBlockerPath ? readJson(workerBlockerPath, null) : null;
+const notifierEligibilityArtifact = notifierEligibilityPath ? readJson(notifierEligibilityPath, null) : null;
+const delegateLiveExecutionSummary = delegateLiveExecutionSummaryPath ? readJson(delegateLiveExecutionSummaryPath, null) : null;
+const delegatePatchQueueReport = delegatePatchQueueReportPath ? readJson(delegatePatchQueueReportPath, null) : null;
+const remoteProgress = liveRemoteProgress(workerStatus, currentRun, runId);
+
+const freshDelegateEvidence = isArtifactFreshForRun({
+  artifact: delegateProgramState,
+  currentRun,
+  runId,
+  requireRunMatch: false,
+  timestampKeys: ['generatedAt', 'startedAt', 'createdAt']
+}) && isArtifactFreshForRun({
+  artifact: delegateLiveExecutionSummary,
+  currentRun,
+  runId,
+  requireRunMatch: false
+}) && isArtifactFreshForRun({
+  artifact: delegatePatchQueueReport,
+  currentRun,
+  runId,
+  requireRunMatch: false
+});
+const delegateTruthConflict = delegateTruthConflictDetails({
+  completionSummary: canonicalSummary,
+  programState: delegateProgramState
+});
+const strict1to1 = evaluateStrict1To1Ceiling(contract, strict1to1Contract);
+const requestedFidelity = contract.requestedFidelity || strict1to1Contract?.requestedFidelity || 'full_clone';
+
+let orchestrationBlocker = null;
+let nextFocus = canonicalSummary?.nextFocus || delegateProgramState?.nextFocus || [];
+
+if (!runId) {
+  orchestrationBlocker = {
+    blocker: 'Current run id is missing on the control plane.',
+    nextAction: 'Regenerate current_run.json or re-run the worker so run binding is restored.',
+    runId,
+    currentRun
+  };
+} else {
+  orchestrationBlocker = resolveCampaignBlocker({ canonicalSummary, programState: delegateProgramState, blockerReport: delegateBlocker || workerBlocker, workerStatus });
+  if (remoteProgress.active) {
+    orchestrationBlocker = null;
+  }
+  if (!orchestrationBlocker && canonicalSummary?.supervisorStatus === 'green' && !freshDelegateEvidence) {
+    orchestrationBlocker = buildStaleDelegateEvidenceBlocker({ runId, currentRun });
+  }
+  if (!orchestrationBlocker && canonicalSummary?.supervisorStatus === 'green' && delegateTruthConflict.hasConflict) {
+    orchestrationBlocker = buildContradictoryDelegateTruthBlocker({ conflict: delegateTruthConflict, runId });
   }
 }
 
-const allComplete = surfaces.every((surface) => surface.status === 'complete');
-const summary = {
+const orchestration = deriveCanonicalStatuses({ canonicalSummary, programState: delegateProgramState, blocker: orchestrationBlocker });
+const benchmarkThresholdGate = !orchestrationBlocker && orchestration.green
+  ? evaluateBenchmarkThresholdGate({
+      contract,
+      currentRun,
+      canonicalSummary,
+      delegateLiveExecutionSummary,
+      delegatePatchQueueReport
+    })
+  : {
+      evaluated: false,
+      pass: false,
+      blocker: null,
+      blockerKind: null,
+      matrixStatus: null,
+      parityStatus: null,
+      thresholds: contract?.goThresholds || null,
+      observed: null,
+      failures: []
+    };
+writeJson(THRESHOLD_EVALUATION_PATH, {
   generatedAt: new Date().toISOString(),
-  fidelity: contract.requestedFidelity || 'full_clone',
-  targetPath: contract.targetPath || ROOT,
+  runId,
+  benchmarkId: contract?.benchmarkId || null,
+  benchmarkTier: contract?.benchmarkTier || null,
+  fidelity: requestedFidelity,
+  evaluated: benchmarkThresholdGate.evaluated,
+  pass: benchmarkThresholdGate.pass,
+  thresholds: benchmarkThresholdGate.thresholds,
+  observed: benchmarkThresholdGate.observed,
+  failures: benchmarkThresholdGate.failures,
+  blocker: benchmarkThresholdGate.blocker || null
+});
+const requestedOutcome = deriveRequestedOutcome({
+  requestedFidelity,
+  orchestration,
+  blocker: orchestrationBlocker,
+  strict1to1,
+  benchmarkGate: benchmarkThresholdGate
+});
+const finalBlocker = requestedOutcome.blocker || null;
+let continuation = deriveCampaignContinuation({
+  green: requestedOutcome.green,
+  blocker: finalBlocker,
+  blockerKind: requestedOutcome.blockerKind || null,
+  nextFocus
+});
+if (shouldContinueAutonomySoak({ orchestration, benchmarkThresholdGate, currentRun })) {
+  continuation = {
+    ...continuation,
+    blockerSemantics: 'retryable',
+    decision: 'continue_next_iteration',
+    shouldContinue: true,
+    shouldStop: false
+  };
+}
+const headline = buildOutcomeHeadline({ orchestration, requestedOutcome });
+const notifierEligibility = buildNotifierEligibilityPayload({
+  runId,
+  supervisorStatus: requestedOutcome.supervisorStatus,
+  matrixStatus: requestedOutcome.matrixStatus,
+  blocker: continuation.shouldContinue ? null : finalBlocker,
+  generatedAt: new Date().toISOString()
+});
+
+recoverCampaign(PROGRAM_STATE_PATH, {
+  mode: 'persistent',
   stopCondition: contract.stopCondition || 'supervisor_green_or_blocker_report',
-  matrixStatus: allComplete ? 'all_complete' : blocker ? 'blocked' : 'partial',
-  supervisorStatus: allComplete ? 'green' : 'red',
-  parityStatus: allComplete ? 'full' : 'partial',
-  nextFocus: surfaces.filter((surface) => surface.status !== 'complete' && surface.id !== 'O_final_parity_proof_gate').slice(0, 5).map((surface) => surface.id),
-  blocker: blocker || null,
-  transport: {
-    cortexTransportActive: transportStatus?.active?.cortexTransport || false,
-    threadBindingReadiness: transportStatus?.active?.threadBindingReadiness || false,
-    externalClawhipRuntimeActive: transportStatus?.active?.externalClawhipRuntimeActive || false,
-    transportStatusPath: path.relative(ROOT, TRANSPORT_STATUS_PATH),
-    delegateStatusPath: path.relative(ROOT, DELEGATE_STATUS_PATH),
-    delegateRunning: delegateStatus?.running === true,
-    delegateOk: delegateStatus?.ok ?? null,
-    delegateProgramStatePath: path.relative(ROOT, DELEGATE_PROGRAM_STATE_PATH),
-    delegateCompletionPath: path.relative(ROOT, DELEGATE_COMPLETION_PATH),
-    delegateSupervisorStatus,
-    delegateCompletionConfirmed: delegateCompletion?.supervisorConfirmedCompletion || false
-  },
-  surfaces
+  contractPath: contractPath || null,
+  matrixPath: fs.existsSync(controlPlaneSurfaceMatrixPath) ? controlPlaneSurfaceMatrixPath : null
+});
+setSupervisor(PROGRAM_STATE_PATH, {
+  status: requestedOutcome.supervisorStatus,
+  blocker: finalBlocker,
+  blockerKind: requestedOutcome.blockerKind || null,
+  matrixStatus: requestedOutcome.matrixStatus,
+  parityStatus: requestedOutcome.parityStatus,
+  note: requestedOutcome.note,
+  nextFocus,
+  continuationDecision: continuation.decision,
+  continuation
+});
+
+const notificationState = {
+  delivered: oldNotification?.runId === runId ? Boolean(oldNotification.delivered) : false,
+  deliveredAt: oldNotification?.runId === runId ? oldNotification.deliveredAt || null : null,
+  awaitingNotifier: Boolean(notifierEligibility.eligible && !(oldNotification?.runId === runId && oldNotification?.delivered)),
+  kind: notifierEligibility.kind || null,
+  runId,
+  updatedAt: new Date().toISOString(),
+  blocker: continuation.shouldContinue ? null : finalBlocker,
+  blockerKind: requestedOutcome.blockerKind || null,
+  continuationDecision: continuation.decision
 };
 
-const workerState = readJson(WORKER_STATE_PATH, {
-  role: 'interactive_main_session',
-  status: 'running',
-  phase: 'kickoff',
-  startedAt: new Date().toISOString(),
-  lastTouchedAt: new Date().toISOString()
-});
-workerState.lastTouchedAt = new Date().toISOString();
-if (!workerState.startedAt) workerState.startedAt = workerState.lastTouchedAt;
-if (!workerState.role) workerState.role = 'interactive_main_session';
-if (!workerState.status) workerState.status = 'running';
-writeJson(WORKER_STATE_PATH, workerState);
+const programState = readJson(PROGRAM_STATE_PATH, {});
+programState.generatedAt = new Date().toISOString();
+programState.runId = runId;
+programState.currentRun = currentRun;
+programState.nextFocus = nextFocus;
+programState.supervisor = {
+  ...programState.supervisor,
+  status: requestedOutcome.supervisorStatus,
+  matrixStatus: requestedOutcome.matrixStatus,
+  parityStatus: requestedOutcome.parityStatus,
+  blocker: finalBlocker,
+  blockerKind: requestedOutcome.blockerKind || null,
+  note: requestedOutcome.note,
+  headline,
+  orchestration,
+  requestedOutcome,
+  canonicalSummaryPath: canonicalSummaryPath ? path.relative(ROOT, canonicalSummaryPath) : null,
+  delegateBlockerPath: delegateBlockerPath ? path.relative(ROOT, delegateBlockerPath) : null,
+  workerBlockerPath: workerBlockerPath ? path.relative(ROOT, workerBlockerPath) : null,
+  delegateSurfaceMatrixPath: delegateSurfaceMatrixPath ? path.relative(ROOT, delegateSurfaceMatrixPath) : null,
+  surfaceMatrixPath: fs.existsSync(controlPlaneSurfaceMatrixPath) ? path.relative(ROOT, controlPlaneSurfaceMatrixPath) : null,
+  notifierEligibilityPath: notifierEligibilityPath ? path.relative(ROOT, notifierEligibilityPath) : null,
+  delegateEvidenceFresh: freshDelegateEvidence,
+  delegateTruthConflict,
+  remoteProgress,
+  strict1to1,
+  thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
+  benchmarkThresholdGate,
+  continuationDecision: continuation.decision,
+  continuation,
+  delegateLiveExecutionSummaryPath: delegateLiveExecutionSummaryPath ? path.relative(ROOT, delegateLiveExecutionSummaryPath) : null,
+  delegatePatchQueueReportPath: delegatePatchQueueReportPath ? path.relative(ROOT, delegatePatchQueueReportPath) : null
+};
+programState.stopAllowed = continuation.shouldStop;
+programState.done = continuation.shouldStop;
+programState.stopReason = continuation.decision === 'stop_green'
+  ? 'supervisor_green'
+  : continuation.decision === 'stop_claim_blocked'
+    ? 'supervisor_claim_blocked'
+    : continuation.decision === 'stop_blocked'
+      ? 'supervisor_red_with_blocker'
+      : 'continue';
+programState.workerStatusPath = path.relative(ROOT, path.join(REPORTS_DIR, '100_agent_worker_status.json'));
+programState.workerStatus = workerStatus;
 
-writeJson(MATRIX_PATH, summary);
-writeJson(PROGRAM_STATE_PATH, {
+const summary = {
   generatedAt: new Date().toISOString(),
-  running: !allComplete && !blocker,
-  worker: workerState,
-  transport: summary.transport,
-  supervisor: {
-    status: summary.supervisorStatus,
-    matrixStatus: summary.matrixStatus,
-    parityStatus: summary.parityStatus,
-    blocker: blocker || null,
-    note: allComplete ? 'Supervisor green: full-clone matrix complete.' : blocker ? 'Supervisor red with blocker report present.' : 'Supervisor red: checklist remains incomplete and campaign should continue.'
-  },
-  stopCondition: summary.stopCondition,
-  stopAllowed: Boolean(allComplete || blocker),
-  stopReason: allComplete ? 'supervisor_green' : blocker ? 'blocker_report' : null
-});
-writeJson(SUMMARY_PATH, {
+  runId,
+  fidelity: requestedFidelity,
+  targetPath: contract.targetPath || ROOT,
+  stopCondition: contract.stopCondition || 'supervisor_green_or_blocker_report',
+  matrixStatus: requestedOutcome.matrixStatus,
+  supervisorStatus: requestedOutcome.supervisorStatus,
+  parityStatus: requestedOutcome.parityStatus,
+  nextFocus,
+  blocker: finalBlocker,
+  blockerKind: requestedOutcome.blockerKind || null,
+  note: requestedOutcome.note,
+  headline,
+  orchestration,
+  requestedOutcome,
+  canonicalSummaryPath: canonicalSummaryPath ? path.relative(ROOT, canonicalSummaryPath) : null,
+  delegateBlockerPath: delegateBlockerPath ? path.relative(ROOT, delegateBlockerPath) : null,
+  workerBlockerPath: workerBlockerPath ? path.relative(ROOT, workerBlockerPath) : null,
+  delegateSurfaceMatrixPath: delegateSurfaceMatrixPath ? path.relative(ROOT, delegateSurfaceMatrixPath) : null,
+  surfaceMatrixPath: fs.existsSync(controlPlaneSurfaceMatrixPath) ? path.relative(ROOT, controlPlaneSurfaceMatrixPath) : null,
+  notifierEligibilityPath: notifierEligibilityPath ? path.relative(ROOT, notifierEligibilityPath) : null,
+  delegateEvidenceFresh: freshDelegateEvidence,
+  delegateTruthConflict,
+  remoteProgress,
+  strict1to1,
+  thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
+  benchmarkThresholdGate,
+  continuationDecision: continuation.decision,
+  continuation,
+  orchestrationConfirmedCompletion: orchestration.green,
+  supervisorConfirmedCompletion: requestedOutcome.green
+};
+
+writeJson(PROGRAM_STATE_PATH, programState);
+writeJson(SUMMARY_PATH, summary);
+writeJson(NOTIFY_PATH, notificationState);
+writeJson(STATUS_REPORT_PATH, {
   generatedAt: new Date().toISOString(),
-  supervisorConfirmedCompletion: allComplete,
-  supervisorStatus: summary.supervisorStatus,
-  matrixStatus: summary.matrixStatus,
-  parityStatus: summary.parityStatus,
-  nextFocus: summary.nextFocus,
-  blocker: blocker || null,
-  matrixPath: path.relative(ROOT, MATRIX_PATH),
-  programStatePath: path.relative(ROOT, PROGRAM_STATE_PATH)
+  runId,
+  supervisorStatus: requestedOutcome.supervisorStatus,
+  matrixStatus: requestedOutcome.matrixStatus,
+  parityStatus: requestedOutcome.parityStatus,
+  blocker: finalBlocker,
+  blockerKind: requestedOutcome.blockerKind || null,
+  note: requestedOutcome.note,
+  headline,
+  orchestration,
+  requestedOutcome,
+  canonicalSummary,
+  delegateLiveExecutionSummary,
+  delegatePatchQueueReport,
+  delegateBlocker,
+  workerBlocker,
+  remoteProgress,
+  strict1to1,
+  thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
+  benchmarkThresholdGate,
+  continuationDecision: continuation.decision,
+  continuation,
+  notifierEligibility,
+  currentRun,
+  workerStatus
 });
-writeJson(NOTIFY_PATH, {
-  delivered: false,
-  deliveredAt: null,
-  awaitingNotifier: allComplete,
-  blockedReason: blocker || null,
-  updatedAt: new Date().toISOString()
-});
-writeJson(STATUS_REPORT_PATH, summary);
-console.log(JSON.stringify({ supervisorStatus: summary.supervisorStatus, matrixStatus: summary.matrixStatus, parityStatus: summary.parityStatus, nextFocus: summary.nextFocus, blocker: blocker || null }, null, 2));
-process.exit(allComplete ? 0 : 1);
+if (finalBlocker && continuation.shouldStop) writeJson(BLOCKER_PATH, finalBlocker); else rmIfExists(BLOCKER_PATH);
+
+console.log(JSON.stringify({
+  runId,
+  supervisorStatus: requestedOutcome.supervisorStatus,
+  matrixStatus: requestedOutcome.matrixStatus,
+  parityStatus: requestedOutcome.parityStatus,
+  blocker: finalBlocker,
+  blockerKind: requestedOutcome.blockerKind || null,
+  requestedOutcome,
+  headline
+}, null, 2));
+process.exit(requestedOutcome.green ? 0 : finalBlocker ? 1 : 2);

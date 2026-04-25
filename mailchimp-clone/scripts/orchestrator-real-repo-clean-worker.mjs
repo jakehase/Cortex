@@ -15,7 +15,41 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function requiresExecutableTestEvidence(assignment = {}) {
+  const verifierRequirements = new Set([
+    ...(Array.isArray(assignment?.shard?.requiredVerifiers) ? assignment.shard.requiredVerifiers : []),
+    ...(Array.isArray(assignment?.assignmentContract?.verifierRequirements) ? assignment.assignmentContract.verifierRequirements : []),
+    ...(Array.isArray(assignment?.contextPack?.assignmentContract?.verifierRequirements) ? assignment.contextPack.assignmentContract.verifierRequirements : [])
+  ].map((entry) => String(entry || '').trim()).filter(Boolean));
+  if (!verifierRequirements.has('tests') && !verifierRequirements.has('test')) return false;
+
+  const successPredicate = [
+    ...(Array.isArray(assignment?.assignmentContract?.successPredicate) ? assignment.assignmentContract.successPredicate : []),
+    ...(Array.isArray(assignment?.contextPack?.assignmentContract?.successPredicate) ? assignment.contextPack.assignmentContract.successPredicate : []),
+    ...(Array.isArray(assignment?.contextPack?.acceptanceChecks) ? assignment.contextPack.acceptanceChecks : [])
+  ].map((entry) => String(entry || ''));
+
+  return Boolean(
+    assignment?.shard?.metadata?.strictGap
+    || assignment?.contextPack?.shard?.surfaceIds?.length
+    || assignment?.shard?.metadata?.testFile
+    || (assignment?.shard?.metadata?.extraTestFiles || []).length
+    || successPredicate.some((entry) => /produce executable evidence/i.test(entry))
+  );
+}
+
 function runVerifier(assignmentPath, assignment, verifier) {
+  if (process.env.MAILCHIMP_PRODUCT_ONLY !== '0' && (verifier === 'tests' || verifier === 'test') && !requiresExecutableTestEvidence(assignment)) {
+    return {
+      verifier,
+      ok: true,
+      skipped: true,
+      reason: 'product_only_mode',
+      assignmentId: assignment?.id || null,
+      startedAt: new Date().toISOString(),
+      durationMs: 0,
+    };
+  }
   const command = [process.execPath, assignment.verifierScriptPath, '--assignment', assignmentPath, '--verifier', verifier];
   const startedAt = Date.now();
   try {

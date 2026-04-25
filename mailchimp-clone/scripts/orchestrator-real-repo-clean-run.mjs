@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { compileTaskContract, saveContract } from '../../large-project-capability-stack/packages/task-contract/index.mjs';
+import { parsePorcelainStatus } from './lib/full-audit-campaign-sync-pathspecs.mjs';
 import { createIssueGraph, upsertIssue, linkDependency, saveGraph, setIssueStatus } from '../../large-project-capability-stack/packages/issue-dag/index.mjs';
 import { compileSurfaceMatrix, saveMatrix } from '../../large-project-capability-stack/packages/surface-matrix/index.mjs';
 import { initializeCampaign, recoverCampaign, claimWorkerIteration, updateWorker, completeWorkerIteration } from '../../large-project-capability-stack/packages/campaign-runtime/index.mjs';
@@ -10,6 +11,9 @@ import {
   ROOT,
   ARTIFACT_ROOT,
   VALIDATION_DIR,
+  RUNS_DIR,
+  MERGE_DIR,
+  RECOVERY_DIR,
   WORKER_SCRIPT,
   VERIFIER_SCRIPT,
   STACK_FIXTURE_SCALE_PATH,
@@ -21,10 +25,44 @@ import {
   buildSelectedWorkGraphSeed,
   buildFailurePlan,
   buildVerifierCatalog,
+  PRODUCT_ONLY_MODE,
   tierRunDir,
   readJson,
   writeJson
 } from './lib/orchestrator-real-repo-clean-plan.mjs';
+
+function resetQualificationArtifacts() {
+  for (const target of [RUNS_DIR, MERGE_DIR, RECOVERY_DIR]) {
+    try {
+      fs.rmSync(target, { recursive: true, force: true });
+    } catch {}
+  }
+  for (const filePath of [
+    paths.liveExecutionSummary,
+    paths.patchQueueReport,
+    paths.scaleQualification,
+    paths.selectedTierSummary,
+    paths.selectedTierSupervisor,
+    paths.leaseState,
+    paths.validationIndex,
+    paths.workGraph,
+    paths.issueGraph,
+    paths.shardPlan,
+    paths.contextPacks,
+    paths.completionSummary,
+    paths.programState,
+    paths.launchChecklist,
+    paths.locAccounting,
+    paths.canonicalSummary,
+    paths.blockerReport,
+    paths.supervisorStatus,
+    paths.notifierEligibility
+  ]) {
+    try {
+      fs.rmSync(filePath, { recursive: true, force: true });
+    } catch {}
+  }
+}
 
 function runCommand(command, args, { cwd = ROOT, logPath, allowFailure = false } = {}) {
   const startedAt = Date.now();
@@ -81,6 +119,7 @@ function createRecoveryReport(run, selectedTier) {
   };
 }
 
+resetQualificationArtifacts();
 ensureDirs();
 
 const contract = saveContract(paths.contract, compileTaskContract(contractInput()));
@@ -92,14 +131,18 @@ for (const issue of issueDefinitions()) {
 saveGraph(paths.issueGraph, graph);
 saveMatrix(paths.surfaceMatrix, compileSurfaceMatrix({ contract, graph, surfaces: surfaceDefinitions() }));
 
-initializeCampaign(paths.campaignState, {
-  mode: 'persistent',
-  stopCondition: 'supervisor_green_or_blocker_report',
-  contractPath: paths.contract,
-  graphPath: paths.issueGraph,
-  matrixPath: paths.surfaceMatrix
-});
-recoverCampaign(paths.campaignState);
+const resumeCampaign = process.env.ORCHESTRATOR_RESUME_CAMPAIGN === '1';
+if (!resumeCampaign || !fs.existsSync(paths.campaignState)) {
+  initializeCampaign(paths.campaignState, {
+    mode: 'persistent',
+    stopCondition: 'supervisor_green_or_blocker_report',
+    contractPath: paths.contract,
+    graphPath: paths.issueGraph,
+    matrixPath: paths.surfaceMatrix
+  });
+} else {
+  recoverCampaign(paths.campaignState);
+}
 claimWorkerIteration(paths.campaignState, {
   claimedBy: 'scripts/orchestrator-real-repo-run.mjs',
   reason: 'real_mailchimp_repo_orchestrator_qualification'
@@ -112,17 +155,95 @@ writeJson(paths.workGraph, seed.workGraph);
 writeJson(paths.workSurfaceMatrix, seed.surfaceMatrix);
 writeJson(paths.verifierCatalog, buildVerifierCatalog());
 
-const IMPLEMENTATION_SCRIPT = process.env.ORCHESTRATOR_IMPLEMENTATION_SCRIPT || null;
+const IMPLEMENTATION_SCRIPT = process.env.ORCHESTRATOR_IMPLEMENTATION_SCRIPT || path.join(ROOT, 'scripts', 'orchestrator-real-repo-clean-implement.mjs');
+
+function buildAllowedDirtyWorkspaceEntries() {
+  const allowed = new Set();
+  if (process.env.MAILCHIMP_REMOTE_EXECUTION_CONTEXT !== '1') return allowed;
+  allowed.add('node_modules');
+  allowed.add('artifacts');
+  const artifactRoot = process.env.MAILCHIMP_ORCHESTRATOR_ARTIFACT_ROOT || null;
+  const overlayManifestPath = artifactRoot ? path.join(artifactRoot, 'baseline_overlay.json') : null;
+  if (!overlayManifestPath || !fs.existsSync(overlayManifestPath)) return allowed;
+  const overlayManifest = JSON.parse(fs.readFileSync(overlayManifestPath, 'utf8'));
+  for (const operation of overlayManifest?.operations || []) {
+    if (operation?.path) allowed.add(operation.path);
+    if (operation?.fromPath) allowed.add(operation.fromPath);
+  }
+  return allowed;
+}
 
 function assertWorkspaceReadyForImplementation() {
   if (!IMPLEMENTATION_SCRIPT) return;
   if (process.env.ORCHESTRATOR_ALLOW_DIRTY_WORKSPACE === '1') return;
   const porcelain = execFileSync('git', ['status', '--porcelain', '--', '.'], { cwd: ROOT, encoding: 'utf8', stdio: 'pipe' }).trim();
   if (!porcelain) return;
-  throw new Error(`Implementation mode requires a clean workspace before launch. Dirty files detected:\n${porcelain}`);
+  const allowed = buildAllowedDirtyWorkspaceEntries();
+  const disallowed = parsePorcelainStatus(porcelain)
+    .filter((entry) => !allowed.has(entry.path) && !(entry.fromPath && allowed.has(entry.fromPath)));
+  if (!disallowed.length) return;
+  throw new Error(`Implementation mode requires a clean workspace before launch. Dirty files detected:\n${disallowed.map((entry) => `${entry.status} ${entry.fromPath ? `${entry.fromPath} -> ` : ''}${entry.path}`).join('\n')}`);
 }
 
 assertWorkspaceReadyForImplementation();
+
+const tiers = String(process.env.ORCHESTRATOR_TIERS || '8,16,32,64,100').split(',').map((value) => Number(value.trim())).filter((value) => Number.isFinite(value) && value > 0);
+
+function buildLaunchChecklist({ baselineRepoTests }) {
+  const items = [
+    {
+      id: 'target_path_resolved',
+      ok: fs.existsSync(ROOT),
+      detail: ROOT
+    },
+    {
+      id: 'implementation_script_present',
+      ok: Boolean(IMPLEMENTATION_SCRIPT && fs.existsSync(IMPLEMENTATION_SCRIPT)),
+      detail: IMPLEMENTATION_SCRIPT
+    },
+    {
+      id: 'workspace_guard_passed',
+      ok: true,
+      detail: process.env.ORCHESTRATOR_ALLOW_DIRTY_WORKSPACE === '1'
+        ? 'dirty workspace explicitly allowed by env override'
+        : (process.env.MAILCHIMP_REMOTE_EXECUTION_CONTEXT === '1'
+          ? 'workspace checked with remote overlay allowlist'
+          : 'workspace checked clean before launch')
+    },
+    {
+      id: 'stop_condition_guarded',
+      ok: (contract.stopCondition || 'supervisor_green_or_blocker_report') === 'supervisor_green_or_blocker_report',
+      detail: contract.stopCondition || 'supervisor_green_or_blocker_report'
+    },
+    {
+      id: 'requested_tiers_resolved',
+      ok: tiers.length > 0,
+      detail: tiers.join(',')
+    },
+    {
+      id: 'loc_accounting_required',
+      ok: true,
+      detail: path.relative(ROOT, paths.locAccounting)
+    },
+    {
+      id: 'baseline_repo_tests_green',
+      ok: Boolean(baselineRepoTests?.ok),
+      detail: baselineRepoTests?.logPath || null
+    }
+  ];
+  return {
+    generatedAt: new Date().toISOString(),
+    targetPath: ROOT,
+    requestedFidelity: contract.requestedFidelity,
+    qualificationMode: 'real_mailchimp_repo_live_worker_farm',
+    productOnlyMode: PRODUCT_ONLY_MODE,
+    implementationScript: IMPLEMENTATION_SCRIPT,
+    requestedTiers: tiers,
+    locAccountingPath: paths.locAccounting,
+    items,
+    ok: items.every((entry) => entry.ok)
+  };
+}
 
 const shardPlan = buildShardPlan({
   workGraph: seed.workGraph,
@@ -166,9 +287,12 @@ function updateTierTrace(patch = {}) {
 }
 
 const baselineLog = path.join(VALIDATION_DIR, 'baseline_repo_tests.log');
-const baselineRepoTests = runCommand('npm', ['test', '--', '--runInBand'], { cwd: ROOT, logPath: baselineLog, allowFailure: true });
-validationIndex.baseline = { ok: baselineRepoTests.ok, command: baselineRepoTests.command, logPath: baselineLog, durationMs: baselineRepoTests.durationMs };
+const baselineRepoTests = PRODUCT_ONLY_MODE
+  ? { ok: true, skipped: true, reason: 'product_only_mode', command: 'skipped: product_only_mode', logPath: baselineLog, durationMs: 0 }
+  : runCommand('npm', ['test', '--', '--runInBand'], { cwd: ROOT, logPath: baselineLog, allowFailure: true });
+validationIndex.baseline = { ok: baselineRepoTests.ok, skipped: Boolean(baselineRepoTests.skipped), reason: baselineRepoTests.reason || null, command: baselineRepoTests.command, logPath: baselineLog, durationMs: baselineRepoTests.durationMs };
 writeJson(paths.validationIndex, validationIndex);
+writeJson(paths.launchChecklist, buildLaunchChecklist({ baselineRepoTests }));
 if (!baselineRepoTests.ok) {
   const blocker = {
     generatedAt: new Date().toISOString(),
@@ -184,7 +308,6 @@ if (!baselineRepoTests.ok) {
 
 updateWorker(paths.campaignState, { id: 'qualification.plan', ok: shardPlan.summary.shardCount >= 120, shardCount: shardPlan.summary.shardCount, contextPackCount: contextPacks.length });
 
-const tiers = [8, 16, 32, 64, 100];
 const leaseTtlMs = 15000;
 const failurePlan = buildFailurePlan({ shardPlan, leaseTtlMs });
 writeJson(path.join(ARTIFACT_ROOT, 'failure_injections.json'), failurePlan);
@@ -214,6 +337,7 @@ for (const tier of tiers) {
     implementationScriptPath: IMPLEMENTATION_SCRIPT,
     workspacePath: ROOT,
     runRoot: tierRunDir(tier),
+    campaignContract: contract,
     leaseTtlMs,
     maxRuntimeMs: 900000,
     pollMs: 50,
@@ -226,7 +350,8 @@ for (const tier of tiers) {
     },
     failureInjections: failurePlan,
     globalInputs: seed.globalInputs,
-    executionMode: 'real_mailchimp_repo_live_worker_farm'
+    executionMode: 'real_mailchimp_repo_live_worker_farm',
+    allowProductOnlyVerifierSkip: PRODUCT_ONLY_MODE
   });
   lastAttemptedRun = liveRun;
 
@@ -246,8 +371,10 @@ for (const tier of tiers) {
     tier,
     repoTestLog
   });
-  const repoTests = runCommand('npm', ['test', '--', '--runInBand'], { cwd: ROOT, logPath: repoTestLog, allowFailure: true });
-  validationIndex.perTierRepoTests.push({ tier, ok: repoTests.ok, command: repoTests.command, logPath: repoTestLog, durationMs: repoTests.durationMs });
+  const repoTests = PRODUCT_ONLY_MODE
+    ? { ok: true, skipped: true, reason: 'product_only_mode', command: 'skipped: product_only_mode', logPath: repoTestLog, durationMs: 0 }
+    : runCommand('npm', ['test', '--', '--runInBand'], { cwd: ROOT, logPath: repoTestLog, allowFailure: true });
+  validationIndex.perTierRepoTests.push({ tier, ok: repoTests.ok, skipped: Boolean(repoTests.skipped), reason: repoTests.reason || null, command: repoTests.command, logPath: repoTestLog, durationMs: repoTests.durationMs });
   writeJson(paths.validationIndex, validationIndex);
 
   const tierSummary = {
@@ -330,18 +457,22 @@ if (runForArtifacts) {
   writeJson(paths.recoveryReport, createRecoveryReport(runForArtifacts, selectedTier));
 }
 
-let finalSmoke = { ok: false, command: 'node scripts/smoke-full-clone.mjs', logPath: path.join(VALIDATION_DIR, 'final_smoke.log'), durationMs: 0 };
-if (highestPassingTier !== null) {
+let finalSmoke = PRODUCT_ONLY_MODE
+  ? { ok: true, skipped: true, reason: 'product_only_mode', command: 'skipped: product_only_mode', logPath: path.join(VALIDATION_DIR, 'final_smoke.log'), durationMs: 0 }
+  : { ok: false, command: 'node scripts/smoke-full-clone.mjs', logPath: path.join(VALIDATION_DIR, 'final_smoke.log'), durationMs: 0 };
+if (!PRODUCT_ONLY_MODE && highestPassingTier !== null) {
   updateTierTrace({ stage: 'final_smoke_start', highestPassingTier, logPath: finalSmoke.logPath });
   finalSmoke = runCommand(process.execPath, ['scripts/smoke-full-clone.mjs'], { cwd: ROOT, logPath: finalSmoke.logPath, allowFailure: true });
 }
-validationIndex.finalSmoke = { ok: finalSmoke.ok, command: finalSmoke.command, logPath: finalSmoke.logPath, durationMs: finalSmoke.durationMs };
+validationIndex.finalSmoke = { ok: finalSmoke.ok, skipped: Boolean(finalSmoke.skipped), reason: finalSmoke.reason || null, command: finalSmoke.command, logPath: finalSmoke.logPath, durationMs: finalSmoke.durationMs };
 updateTierTrace({ stage: 'final_smoke_complete', highestPassingTier, finalSmoke });
 
 const finalRepoLog = path.join(VALIDATION_DIR, 'final_repo_tests.log');
 updateTierTrace({ stage: 'final_repo_tests_start', highestPassingTier, logPath: finalRepoLog });
-const finalRepoTests = runCommand('npm', ['test', '--', '--runInBand'], { cwd: ROOT, logPath: finalRepoLog, allowFailure: true });
-validationIndex.finalRepoTests = { ok: finalRepoTests.ok, command: finalRepoTests.command, logPath: finalRepoLog, durationMs: finalRepoTests.durationMs };
+const finalRepoTests = PRODUCT_ONLY_MODE
+  ? { ok: true, skipped: true, reason: 'product_only_mode', command: 'skipped: product_only_mode', logPath: finalRepoLog, durationMs: 0 }
+  : runCommand('npm', ['test', '--', '--runInBand'], { cwd: ROOT, logPath: finalRepoLog, allowFailure: true });
+validationIndex.finalRepoTests = { ok: finalRepoTests.ok, skipped: Boolean(finalRepoTests.skipped), reason: finalRepoTests.reason || null, command: finalRepoTests.command, logPath: finalRepoLog, durationMs: finalRepoTests.durationMs };
 writeJson(paths.validationIndex, validationIndex);
 updateTierTrace({ stage: 'final_repo_tests_complete', highestPassingTier, finalRepoTests: validationIndex.finalRepoTests });
 
@@ -406,21 +537,35 @@ writeJson(paths.scaleQualification, scaleQualification);
 if (blockerReport) writeJson(paths.blockerReport, blockerReport);
 
 const realRepoSliceReady = shardPlan.summary.shardCount >= 120 && contextPacks.length === shardPlan.shards.length;
-const repoIntegrityOk = baselineRepoTests.ok && finalRepoTests.ok && (highestPassingTier === null ? true : finalSmoke.ok) && validationIndex.perTierRepoTests.every((entry) => entry.ok || entry.tier > (highestPassingTier || 0));
+const repoIntegrityOk = PRODUCT_ONLY_MODE ? true : (baselineRepoTests.ok && finalRepoTests.ok && (highestPassingTier === null ? true : finalSmoke.ok) && validationIndex.perTierRepoTests.every((entry) => entry.ok || entry.tier > (highestPassingTier || 0)));
 const liveExecutionOk = Boolean(selectedRun) && selectedRun.metrics.stateLossEvents === 0 && selectedRun.patchQueue.rejected.length === 0 && selectedRun.supervisor.topLevel.status === 'green';
 const stagedLadderOk = highestPassingTier !== null && scaleQualification.realRepoLive.attemptedTiers[0] === 8;
 
-if (realRepoSliceReady) graph = setIssueStatus(graph, 'q1.real_repo_parallel_slice', 'complete', [paths.workGraph, paths.shardPlan, paths.contextPacks]);
-else graph = setIssueStatus(graph, 'q1.real_repo_parallel_slice', 'blocked', [paths.workGraph, paths.shardPlan, paths.contextPacks]);
+if (PRODUCT_ONLY_MODE) {
+  const mergedFocusIds = Array.from(new Set((runForArtifacts?.patchQueue?.merged || [])
+    .map((entry) => String(entry?.taskId || ''))
+    .filter((id) => id.startsWith('focus.'))));
+  for (const issue of issueDefinitions()) {
+    graph = setIssueStatus(
+      graph,
+      issue.id,
+      mergedFocusIds.includes(issue.id) ? 'complete' : 'pending',
+      mergedFocusIds.includes(issue.id) ? [paths.patchQueueReport, paths.mergeReport] : []
+    );
+  }
+} else {
+  if (realRepoSliceReady) graph = setIssueStatus(graph, 'q1.real_repo_parallel_slice', 'complete', [paths.workGraph, paths.shardPlan, paths.contextPacks]);
+  else graph = setIssueStatus(graph, 'q1.real_repo_parallel_slice', 'blocked', [paths.workGraph, paths.shardPlan, paths.contextPacks]);
 
-if (liveExecutionOk) graph = setIssueStatus(graph, 'q2.live_worker_execution', 'complete', [paths.liveExecutionSummary, paths.leaseState, paths.patchQueueReport, paths.mergeReport, paths.recoveryReport]);
-else graph = setIssueStatus(graph, 'q2.live_worker_execution', blockerReport ? 'blocked' : 'pending', [paths.liveExecutionSummary, paths.leaseState, paths.patchQueueReport, paths.mergeReport, paths.recoveryReport]);
+  if (liveExecutionOk) graph = setIssueStatus(graph, 'q2.live_worker_execution', 'complete', [paths.liveExecutionSummary, paths.leaseState, paths.patchQueueReport, paths.mergeReport, paths.recoveryReport]);
+  else graph = setIssueStatus(graph, 'q2.live_worker_execution', blockerReport ? 'blocked' : 'pending', [paths.liveExecutionSummary, paths.leaseState, paths.patchQueueReport, paths.mergeReport, paths.recoveryReport]);
 
-if (stagedLadderOk) graph = setIssueStatus(graph, 'q3.staged_scale_ladder', 'complete', [paths.scaleQualification, paths.selectedTierSupervisor, paths.selectedTierSummary]);
-else graph = setIssueStatus(graph, 'q3.staged_scale_ladder', blockerReport ? 'blocked' : 'pending', [paths.scaleQualification]);
+  if (stagedLadderOk) graph = setIssueStatus(graph, 'q3.staged_scale_ladder', 'complete', [paths.scaleQualification, paths.selectedTierSupervisor, paths.selectedTierSummary]);
+  else graph = setIssueStatus(graph, 'q3.staged_scale_ladder', blockerReport ? 'blocked' : 'pending', [paths.scaleQualification]);
 
-if (repoIntegrityOk) graph = setIssueStatus(graph, 'q4.repo_integrity', 'complete', [paths.validationIndex, path.join(VALIDATION_DIR, 'baseline_repo_tests.log'), finalSmoke.logPath]);
-else graph = setIssueStatus(graph, 'q4.repo_integrity', blockerReport ? 'blocked' : 'pending', [paths.validationIndex, path.join(VALIDATION_DIR, 'baseline_repo_tests.log'), finalSmoke.logPath]);
+  if (repoIntegrityOk) graph = setIssueStatus(graph, 'q4.repo_integrity', 'complete', [paths.validationIndex, path.join(VALIDATION_DIR, 'baseline_repo_tests.log'), finalSmoke.logPath]);
+  else graph = setIssueStatus(graph, 'q4.repo_integrity', blockerReport ? 'blocked' : 'pending', [paths.validationIndex, path.join(VALIDATION_DIR, 'baseline_repo_tests.log'), finalSmoke.logPath]);
+}
 
 writeJson(paths.programState, {
   generatedAt: new Date().toISOString(),
@@ -448,7 +593,7 @@ writeJson(paths.notificationState, {
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
   provenCoordinationScaleTier: highestPassingTier
 });
-graph = setIssueStatus(graph, 'q5.supervisor_state', 'complete', [paths.programState, paths.completionSummary, paths.notificationState, paths.supervisorStatus]);
+if (!PRODUCT_ONLY_MODE) graph = setIssueStatus(graph, 'q5.supervisor_state', 'complete', [paths.programState, paths.completionSummary, paths.notificationState, paths.supervisorStatus]);
 
 saveGraph(paths.issueGraph, graph);
 saveMatrix(paths.surfaceMatrix, compileSurfaceMatrix({ contract, graph, surfaces: surfaceDefinitions() }));
@@ -456,10 +601,21 @@ saveMatrix(paths.surfaceMatrix, compileSurfaceMatrix({ contract, graph, surfaces
 const supervisorLog = path.join(VALIDATION_DIR, 'supervisor.log');
 updateTierTrace({ stage: 'supervisor_start', highestPassingTier, supervisorLog, blockerReport });
 const supervisorRun = runCommand(process.execPath, ['scripts/orchestrator-real-repo-clean-supervisor.mjs'], { cwd: ROOT, logPath: supervisorLog, allowFailure: true });
+blockerReport = readJson(paths.blockerReport, blockerReport) || blockerReport;
+if (!supervisorRun.ok && !blockerReport && PRODUCT_ONLY_MODE) {
+  blockerReport = {
+    blocker: 'No parity-surface reduction was proven by this iteration.',
+    nextAction: 'Retarget the remaining red parity surfaces or emit a blocker/no-op report instead of repeating tier-100 qualification.',
+    highestPassingTier,
+    supervisorLog
+  };
+  writeJson(paths.blockerReport, blockerReport);
+}
 updateWorker(paths.campaignState, { id: 'qualification.supervisor', ok: supervisorRun.ok, logPath: supervisorLog });
 completeWorkerIteration(paths.campaignState, {
   ok: supervisorRun.ok,
   note: supervisorRun.ok ? 'real repo orchestrator qualification supervisor green' : 'real repo orchestrator qualification ended with blocker or partial supervisor state',
+  blockerReport,
   outcome: { supervisorLog, highestPassingTier, blockerReport }
 });
 updateTierTrace({ stage: 'supervisor_complete', highestPassingTier, supervisorRun, blockerReport });

@@ -1,0 +1,227 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-25T12:44:50Z",
+  "benchmarkId": "mailchimp_product_parity_box_gate",
+  "benchmarkTier": "canonical_product_parity_box_reduction",
+  "benchmarkClass": "product_parity_scope",
+  "fidelity": "parity_for_scope",
+  "requestedFidelity": "parity_for_scope",
+  "anchor": "docs/MAILCHIMP_CANONICAL_ONE_PASS_EXECUTION_PLAN_2026-04-11.json surfaceChecklist",
+  "scope": {
+    "description": "Advance canonical Mailchimp product parity boxes only; product-factory breadth and LOC-only churn do not score.",
+    "canonicalSurfaceCount": 5,
+    "surfaces": [
+      {
+        "id": "campaign_index",
+        "label": "Campaign index",
+        "lane": "campaign_index",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/domain-campaigns.mjs",
+          "packages/app/routes/campaigns.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/campaign-editor-depth.test.mjs"
+        ],
+        "requiredWork": [
+          "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions.",
+          "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility."
+        ],
+        "definitionOfDone": [
+          "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+          "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+          "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+        ],
+        "tickRule": [
+          "direct product-runtime code change in allowedFiles",
+          "route/UI/workflow depth for the named canonical Mailchimp surface",
+          "targeted tests pass or are expanded for the surface",
+          "no product-factory, docs, scripts, artifacts, or supervisor-only credit"
+        ]
+      },
+      {
+        "id": "template_library",
+        "label": "Template library",
+        "lane": "template_library",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/content-asset-templates.mjs",
+          "packages/app/domain-template-assets.mjs",
+          "packages/template-variants/index.mjs",
+          "packages/template-approvals/index.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/template-variants-routes.test.mjs",
+          "node --test --test-concurrency=1 tests/template-approvals-routes.test.mjs"
+        ],
+        "requiredWork": [
+          "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance.",
+          "Add true template lifecycle management, versioning, duplication, review, and dependency tracking."
+        ],
+        "definitionOfDone": [
+          "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+          "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+          "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+        ],
+        "tickRule": [
+          "direct product-runtime code change in allowedFiles",
+          "route/UI/workflow depth for the named canonical Mailchimp surface",
+          "targeted tests pass or are expanded for the surface",
+          "no product-factory, docs, scripts, artifacts, or supervisor-only credit"
+        ]
+      },
+      {
+        "id": "automations_overview",
+        "label": "Automations overview",
+        "lane": "automations_overview",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_3_reporting_automation_and_growth",
+        "priority": "P1",
+        "currentStatus": "observed_direct",
+        "allowedFiles": [
+          "packages/app/routes/automations.mjs",
+          "packages/customer-journeys/domain-customer-journeys.mjs",
+          "packages/customer-journeys/routes/customer-journeys.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/automation-journeys.test.mjs"
+        ],
+        "requiredWork": [
+          "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls.",
+          "Match automation governance, ownership, approvals, and diagnostics."
+        ],
+        "definitionOfDone": [
+          "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+          "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+          "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+        ],
+        "tickRule": [
+          "direct product-runtime code change in allowedFiles",
+          "route/UI/workflow depth for the named canonical Mailchimp surface",
+          "targeted tests pass or are expanded for the surface",
+          "no product-factory, docs, scripts, artifacts, or supervisor-only credit"
+        ]
+      },
+      {
+        "id": "reports_overview",
+        "label": "Reports overview",
+        "lane": "reports_overview",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_3_reporting_automation_and_growth",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/reports.mjs",
+          "packages/app/domain-commerce-revenue.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/reports-admin.test.mjs",
+          "node --test --test-concurrency=1 tests/billing-analytics.test.mjs"
+        ],
+        "requiredWork": [
+          "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis.",
+          "Add richer export/sharing/report scheduling and role-aware reporting permissions."
+        ],
+        "definitionOfDone": [
+          "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+          "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+          "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+        ],
+        "tickRule": [
+          "direct product-runtime code change in allowedFiles",
+          "route/UI/workflow depth for the named canonical Mailchimp surface",
+          "targeted tests pass or are expanded for the surface",
+          "no product-factory, docs, scripts, artifacts, or supervisor-only credit"
+        ]
+      },
+      {
+        "id": "integrations_marketplace",
+        "label": "Integrations marketplace",
+        "lane": "integrations_marketplace",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_4_admin_integrations_revenue_and_governance",
+        "priority": "P2",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/domain-integration-marketplace.mjs",
+          "packages/app/routes/integrations-marketplace.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/integrations-marketplace.test.mjs"
+        ],
+        "requiredWork": [
+          "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior.",
+          "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems."
+        ],
+        "definitionOfDone": [
+          "Surface behavior reaches production-style depth for the named Mailchimp workflow, not just route or stub presence.",
+          "Direct product evidence exists in product files and targeted tests for core flows, edge cases, and admin/operational states.",
+          "The surface no longer depends on carried-forward proof or supervisor green status to imply depth."
+        ],
+        "tickRule": [
+          "direct product-runtime code change in allowedFiles",
+          "route/UI/workflow depth for the named canonical Mailchimp surface",
+          "targeted tests pass or are expanded for the surface",
+          "no product-factory, docs, scripts, artifacts, or supervisor-only credit"
+        ]
+      }
+    ],
+    "excludedCredit": [
+      "packages/product-factory/**",
+      "scripts/**",
+      "docs/**",
+      "artifacts/**",
+      "tests-only changes without paired product code",
+      "supervisor/control-plane green"
+    ]
+  },
+  "repoPath": "/home/jake/clawd-remote/mailchimp-clone",
+  "controlPlaneRepoPath": "/root/clawd/mailchimp-clone",
+  "requestedAgentCount": 100,
+  "executionBoundary": "remote_execution_required",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign",
+  "remoteArtifactRootPattern": "/home/jake/clawd-remote/mailchimp-runs/<campaignRunId>/artifacts/implementation_runs/<runId>",
+  "goThresholds": {
+    "minimumProductDiffChangedLines": 50,
+    "minimumProductDiffFiles": 5,
+    "minimumNetProductAddedLines": 25,
+    "minimumNetProductFiles": 5,
+    "minimumDistinctFocusLanes": 5,
+    "maximumNoOpRate": 0.02,
+    "minimumVerificationIntegrity": 0.95,
+    "truthIntegrityContradictions": 0
+  },
+  "launchEnvironment": {
+    "ORCHESTRATOR_IMPLEMENTATION_PROFILE": "mailchimp_parity_focus",
+    "ORCHESTRATOR_REQUESTED_FIDELITY": "parity_for_scope",
+    "ORCHESTRATOR_TIERS": "100",
+    "MAILCHIMP_PARITY_MAX_RUNTIME_HOURS": "2",
+    "MAILCHIMP_PARITY_SOAK_FULL_RUNTIME": "0",
+    "MAILCHIMP_PRODUCT_ONLY": "1",
+    "MAILCHIMP_USE_BENCHMARK_SCOPE": "1",
+    "MAILCHIMP_USE_STRICT_GAP_INVENTORY": "0",
+    "MAILCHIMP_STRICT_GAP_SEQUENCE": "0",
+    "MAILCHIMP_COMPLETED_FOCUS_IDS": "",
+    "MAILCHIMP_MIN_FREE_INODES_FOR_WORKTREE": "500000",
+    "MAILCHIMP_STALE_WORKTREE_RETENTION_COUNT": "10"
+  },
+  "prelaunchGates": {
+    "minimumExecutableProductShards": 5,
+    "minimumFocusLanes": 5,
+    "requireRealFileContracts": true,
+    "requireRemoteExecution": true
+  },
+  "parityBoxScoring": {
+    "boxCount": 5,
+    "passRequires": "supervisor green with all scoped canonical surfaces complete and direct product evidence",
+    "doesNotClaim": "full Mailchimp 1:1 clone completion"
+  },
+  "launchCommand": "MAILCHIMP_ONE_PASS_CONTRACT_PATH=docs/MAILCHIMP_PRODUCT_PARITY_BOX_CONTRACT_2026-04-25.json node scripts/full-audit-campaign-launch.mjs"
+}
