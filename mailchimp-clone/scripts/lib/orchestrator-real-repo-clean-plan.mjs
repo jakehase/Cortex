@@ -93,7 +93,10 @@ function benchmarkScopeCarriesCompletedFocusIds(contract = readBenchmarkContract
   if (requested === '1') return true;
   if (requested === '0') return false;
   const benchmarkId = String(contract?.benchmarkId || '').trim();
-  return benchmarkId === 'mailchimp_substantial_canonical_parity_expansion_gate';
+  return [
+    'mailchimp_substantial_canonical_parity_expansion_gate',
+    'mailchimp_production_creation_gate'
+  ].includes(benchmarkId);
 }
 
 function readBenchmarkContract() {
