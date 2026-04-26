@@ -1,0 +1,263 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-16T22:39:00-05:00",
+  "audit": {
+    "status": "completed",
+    "path": "/root/clawd/docs/assistant-stack-audit-2026-04-16.md",
+    "scope": [
+      "global_skills_on_disk",
+      "local_clawd_skills",
+      "live_openclaw_config",
+      "best_effort_mcp_config_search"
+    ]
+  },
+  "scope": {
+    "mode": "general_assistant_stack",
+    "note": "Benchmark/orchestration skills were authored first because they were the hottest recent repetition cluster, but the target architecture is general-purpose rather than benchmark-only."
+  },
+  "strategy": {
+    "mode": "skills_first_then_mcp_prune",
+    "coreMcpLimit": 5,
+    "rules": [
+      "Prefer skills for repeatable workflows and judgment-heavy operating procedures.",
+      "Prefer MCP servers for authenticated access to external systems of record.",
+      "Do not add MCP servers that duplicate native file, shell, browser, web-fetch, image, or memory tools.",
+      "Keep experimental connectors disabled by default."
+    ]
+  },
+  "enforcement": {
+    "status": "applied",
+    "configPath": "/root/.openclaw/openclaw.json",
+    "bundledSkillAllowlist": [
+      "github",
+      "healthcheck",
+      "node-connect",
+      "skill-creator",
+      "taskflow",
+      "taskflow-inbox-triage",
+      "tmux",
+      "video-frames",
+      "weather"
+    ],
+    "defaultVisibleSkills": [
+      "clawd-task-intake-routing",
+      "clawd-research-and-synthesis",
+      "clawd-external-action-guardrails",
+      "clawd-status-memory-handoff",
+      "clawd-benchmark-orchestration",
+      "clawd-benchmark-incident-audit",
+      "clawd-campaign-truth-audit",
+      "clawd-remote-execution-boundary",
+      "clawd-brownfield-transfer-benchmark",
+      "clawd-workspace-quarantine",
+      "clawd-git-auth-and-export-recovery",
+      "clawd-personal-ops-routing",
+      "github",
+      "healthcheck",
+      "node-connect",
+      "skill-creator",
+      "taskflow",
+      "taskflow-inbox-triage",
+      "tmux",
+      "video-frames",
+      "weather"
+    ],
+    "gatewayRestarted": true,
+    "validation": {
+      "gatewayStatus": "running",
+      "skillsListShowsReadyWorkspaceSkills": true
+    }
+  },
+  "cortexCompatibility": {
+    "mode": "cortex_first",
+    "rules": [
+      "Cortex remains primary for reasoning, memory, browsing, routing, and user-facing identity.",
+      "Local skills add procedure and workspace-specific operating knowledge, not alternate cognition.",
+      "Local MCP servers add connectivity to external systems, not replacement browser/memory/search layers.",
+      "Avoid skill names that collide with platform capabilities or Cortex concepts like memory, browser, planner, router, oracle, research, or cortex.",
+      "Namespace workspace-authored skills with the clawd- prefix."
+    ]
+  },
+  "plannedSkills": [
+    {
+      "id": "clawd-task-intake-routing",
+      "priority": "G0",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-task-intake-routing",
+      "package": "/root/clawd/skills/dist/clawd-task-intake-routing.skill",
+      "why": "General request classification and Cortex-first routing across all domains."
+    },
+    {
+      "id": "clawd-research-and-synthesis",
+      "priority": "G0",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-research-and-synthesis",
+      "package": "/root/clawd/skills/dist/clawd-research-and-synthesis.skill",
+      "why": "General research, evidence comparison, and answer shaping across domains."
+    },
+    {
+      "id": "clawd-external-action-guardrails",
+      "priority": "G0",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-external-action-guardrails",
+      "package": "/root/clawd/skills/dist/clawd-external-action-guardrails.skill",
+      "why": "General outbound-action safety and approval discipline across messaging, email, and other systems."
+    },
+    {
+      "id": "clawd-status-memory-handoff",
+      "priority": "G0",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-status-memory-handoff",
+      "package": "/root/clawd/skills/dist/clawd-status-memory-handoff.skill",
+      "why": "General durable-summary, memory, and handoff workflow across sessions and projects."
+    },
+    {
+      "id": "clawd-benchmark-orchestration",
+      "priority": "P0",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-benchmark-orchestration",
+      "why": "Most repeated workflow across recent benchmark and transfer work.",
+      "triggers": [
+        "bootstrap benchmark",
+        "run contract",
+        "surface matrix",
+        "scoreboard",
+        "threshold evaluation"
+      ]
+    },
+    {
+      "id": "clawd-benchmark-incident-audit",
+      "priority": "P0",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-benchmark-incident-audit",
+      "why": "Needed for failed run triage and artifact-root forensics.",
+      "triggers": [
+        "why did this run fail",
+        "inspect artifacts",
+        "blocker report",
+        "lease churn",
+        "verifier failure"
+      ]
+    },
+    {
+      "id": "clawd-campaign-truth-audit",
+      "priority": "P0",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-campaign-truth-audit",
+      "why": "Truth discipline and fake-green prevention are stable priorities.",
+      "triggers": [
+        "mechanical green",
+        "truth contradiction",
+        "claim audit",
+        "parity status",
+        "fake green"
+      ]
+    },
+    {
+      "id": "clawd-remote-execution-boundary",
+      "priority": "P0",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-remote-execution-boundary",
+      "why": "Control-plane vs execution-plane decisions are recurring and important.",
+      "triggers": [
+        "remote execution",
+        "control plane",
+        "execution plane",
+        "heavy run",
+        "sync to worker"
+      ]
+    },
+    {
+      "id": "clawd-brownfield-transfer-benchmark",
+      "priority": "P1",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-brownfield-transfer-benchmark"
+    },
+    {
+      "id": "clawd-workspace-quarantine",
+      "priority": "P1",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-workspace-quarantine"
+    },
+    {
+      "id": "clawd-git-auth-and-export-recovery",
+      "priority": "P1",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-git-auth-and-export-recovery"
+    },
+    {
+      "id": "clawd-personal-ops-routing",
+      "priority": "P1",
+      "status": "authored",
+      "path": "/root/clawd/skills/clawd-personal-ops-routing"
+    }
+  ],
+  "mcpTiers": {
+    "core": [
+      {
+        "id": "github",
+        "status": "keep",
+        "reason": "High leverage for repo, PR, issue, and CI metadata."
+      },
+      {
+        "id": "google-workspace",
+        "status": "keep",
+        "reason": "High day-to-day value for email, calendar, docs, and drive."
+      },
+      {
+        "id": "home-assistant",
+        "status": "keep",
+        "reason": "Already part of the environment and useful as a real external action surface."
+      }
+    ],
+    "situational": [
+      {
+        "id": "browser-use",
+        "status": "situational",
+        "reason": "Useful fallback, but native Cortex browsing is already strong."
+      },
+      {
+        "id": "slack",
+        "status": "situational",
+        "reason": "Enable only when Slack is an active work surface."
+      },
+      {
+        "id": "notion",
+        "status": "situational",
+        "reason": "Only worth always-on status if it becomes a live source of truth."
+      },
+      {
+        "id": "tavily-or-external-search",
+        "status": "situational",
+        "reason": "Research fallback, not default."
+      }
+    ],
+    "experimental": [
+      {
+        "id": "generic-mcp-router",
+        "status": "quarantine"
+      },
+      {
+        "id": "marketplace-discovery",
+        "status": "quarantine"
+      },
+      {
+        "id": "repo-local-ad-hoc-servers",
+        "status": "quarantine"
+      }
+    ],
+    "avoidDuplicatesOfNativeTools": [
+      "filesystem",
+      "shell",
+      "process-management",
+      "basic-web-fetch",
+      "generic-browser-automation",
+      "memory-rag"
+    ]
+  },
+  "nextActions": [
+    "Decide whether GitHub should stay in the always-visible skill set or move to situational.",
+    "Add connector-specific config only for the core systems that prove active use.",
+    "Refine the authored skills with real-world usage instead of adding more by default."
+  ]
+}

@@ -1,0 +1,150 @@
+--- /tmp/openclaw-audit/staging/pi-embedded-DWASRjxE.test.js.bak-whatsapp-thread-bindings-2026.4.5-staging	2026-04-07 12:58:24.007962204 -0500
++++ /tmp/openclaw-audit/staging/pi-embedded-DWASRjxE.test.js	2026-04-07 12:58:24.010449091 -0500
+@@ -16051,13 +16051,115 @@
+ 	if (typeof err === "string") return err;
+ 	return "error";
+ }
+-async function ensureThreadBindingForSubagentSpawn(params) {
+-	const hookRunner = params.hookRunner;
+-	if (!hookRunner?.hasHooks("subagent_spawning")) return {
++function resolveSubagentSpawnConversationId(requester) {
++	const threadId = requester?.threadId != null ? String(requester.threadId).trim() : "";
++	if (threadId) return threadId;
++	const to = requester?.to != null ? String(requester.to).trim() : "";
++	if (!to) return;
++	return resolveConversationIdForThreadBinding({
++		channel: requester?.channel,
++		to,
++		threadId: requester?.threadId
++	});
++}
++async function ensureCurrentConversationBindingForSubagentSpawn(params) {
++	const channel = params.requester.channel?.trim().toLowerCase() || "";
++	if (!channel) return {
++		status: "error",
++		error: "thread=true requires an active channel conversation context."
++	};
++	const accountId = params.requester.accountId?.trim() || "default";
++	const policy = resolveThreadBindingSpawnPolicy({
++		cfg: params.cfg,
++		channel,
++		accountId,
++		kind: "subagent"
++	});
++	if (!policy.enabled) return {
++		status: "error",
++		error: formatThreadBindingDisabledError({
++			channel: policy.channel,
++			accountId: policy.accountId,
++			kind: "subagent"
++		})
++	};
++	if (!policy.spawnEnabled) return {
++		status: "error",
++		error: formatThreadBindingSpawnDisabledError({
++			channel: policy.channel,
++			accountId: policy.accountId,
++			kind: "subagent"
++		})
++	};
++	const bindingService = getSessionBindingService();
++	const capabilities = bindingService.getCapabilities({
++		channel: policy.channel,
++		accountId: policy.accountId
++	});
++	if (!capabilities.adapterAvailable || !capabilities.bindSupported) return {
++		status: "error",
++		error: `Thread bindings are unavailable for ${policy.channel}.`
++	};
++	if (!capabilities.placements.includes("current")) return {
++		status: "error",
++		error: `Thread bindings do not support current placement for ${policy.channel}.`
++	};
++	const conversationId = resolveSubagentSpawnConversationId(params.requester);
++	if (!conversationId) return {
++		status: "error",
++		error: `thread=true requires running inside an active ${policy.channel} conversation.`
++	};
++	const conversation = {
++		channel: policy.channel,
++		accountId: policy.accountId,
++		conversationId
++	};
++	const existingBinding = bindingService.resolveByConversation(conversation);
++	if (existingBinding && existingBinding.targetSessionKey !== params.childSessionKey && existingBinding.status !== "ended") return {
+ 		status: "error",
+-		error: "thread=true is unavailable because no channel plugin registered subagent_spawning hooks."
++		error: `This ${policy.channel} conversation is already bound to another session. Unbind it first before spawning a new thread-bound subagent.`
+ 	};
+ 	try {
++		await bindingService.bind({
++			targetSessionKey: params.childSessionKey,
++			targetKind: "subagent",
++			conversation,
++			placement: "current",
++			metadata: {
++				threadName: resolveThreadBindingThreadName({
++					agentId: params.agentId,
++					label: params.label
++				}),
++				agentId: params.agentId,
++				label: params.label,
++				boundBy: "system",
++				introText: resolveThreadBindingIntroText({
++					agentId: params.agentId,
++					label: params.label,
++					idleTimeoutMs: resolveThreadBindingIdleTimeoutMsForChannel({
++						cfg: params.cfg,
++						channel: policy.channel,
++						accountId: policy.accountId
++					}),
++					maxAgeMs: resolveThreadBindingMaxAgeMsForChannel({
++						cfg: params.cfg,
++						channel: policy.channel,
++						accountId: policy.accountId
++					})
++				})
++			}
++		});
++		return { status: "ok" };
++	} catch (err) {
++		return {
++			status: "error",
++			error: `Thread bind failed: ${summarizeError$1(err)}`
++		};
++	}
++}
++async function ensureThreadBindingForSubagentSpawn(params) {
++	const hookRunner = params.hookRunner;
++	if (hookRunner?.hasHooks("subagent_spawning")) try {
+ 		const result = await hookRunner.runSubagentSpawning({
+ 			childSessionKey: params.childSessionKey,
+ 			agentId: params.agentId,
+@@ -16073,17 +16175,14 @@
+ 			status: "error",
+ 			error: result.error.trim() || "Failed to prepare thread binding for this subagent session."
+ 		};
+-		if (result?.status !== "ok" || !result.threadBindingReady) return {
+-			status: "error",
+-			error: "Unable to create or bind a thread for this subagent session. Session mode is unavailable for this target."
+-		};
+-		return { status: "ok" };
++		if (result?.status === "ok" && result.threadBindingReady) return { status: "ok" };
+ 	} catch (err) {
+ 		return {
+ 			status: "error",
+ 			error: `Thread bind failed: ${summarizeError$1(err)}`
+ 		};
+ 	}
++	return await ensureCurrentConversationBindingForSubagentSpawn(params);
+ }
+ async function spawnSubagentDirect(params, ctx) {
+ 	const task = params.task;
+@@ -16259,6 +16358,7 @@
+ 	}
+ 	if (requestThreadBinding) {
+ 		const bindResult = await ensureThreadBindingForSubagentSpawn({
++			cfg,
+ 			hookRunner,
+ 			childSessionKey,
+ 			agentId: targetAgentId,

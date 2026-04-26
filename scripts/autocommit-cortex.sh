@@ -7,6 +7,7 @@ REMOTE="${GIT_REMOTE:-origin}"
 BRANCH="${GIT_BRANCH:-openclaw-sync}"
 COMMIT_PREFIX="${COMMIT_PREFIX:-cortex:}"
 REMOTE_URL="${REMOTE_URL:-https://github.com/jakehase/Cortex.git}"
+GITHUB_PUSH_WRAPPER="${GITHUB_PUSH_WRAPPER:-/root/.local/bin/openclaw-safe-github-push}"
 
 CORTEX_PATHS=(
   "plugins/cortex-route-gate"
@@ -69,6 +70,9 @@ fi
 msg="${COMMIT_PREFIX} $(date +%F' '%T) auto-save cortex export"
 git commit -m "$msg" >/dev/null
 
-git push -u "$REMOTE" "HEAD:$BRANCH"
+if [[ -x "$GITHUB_PUSH_WRAPPER" ]]; then
+  "$GITHUB_PUSH_WRAPPER" --repo "$EXPORT_ROOT" -u "$REMOTE" "HEAD:$BRANCH"
+else
+  git push -u "$REMOTE" "HEAD:$BRANCH"
+fi
 echo "pushed clean cortex export to $REMOTE_URL ($BRANCH)"
-"

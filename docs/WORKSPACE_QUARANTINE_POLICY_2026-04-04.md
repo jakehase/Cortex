@@ -25,6 +25,8 @@ When something is no longer active but might still be useful for audit/recovery,
 - Cortex-owned implementations should carry forward only the selected superior ideas from outside systems.
 - Do **not** leave old external repos/runtimes on PATH or in obvious top-level workspace locations if they are no longer part of the active path.
 - Prefer one clear active implementation path over multiple similarly named repos/tools/artifacts.
+- Moving forward: if implementation or repair work adds a new path, revives a fallback path, or chooses one path over another, quarantine the unused/superseded bits instead of letting them remain mixed into the active workspace.
+- Apply this generally, not only to ClawHip-related cleanup.
 
 ## Operational steps
 1. Identify the active architecture first.

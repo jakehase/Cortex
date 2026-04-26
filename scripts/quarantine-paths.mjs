@@ -6,18 +6,20 @@ const WORKSPACE = '/root/clawd';
 const QUARANTINE_ROOT = path.join(WORKSPACE, '_quarantine');
 
 function usage() {
-  console.error('Usage: node scripts/quarantine-paths.mjs --label <name> [--reason <text>] <path> [<path> ...]');
+  console.error('Usage: node scripts/quarantine-paths.mjs --label <name> [--reason <text>] [--from-file <file>] <path> [<path> ...]');
   process.exit(1);
 }
 
 function parseArgs(argv) {
-  const args = { label: null, reason: '', paths: [] };
+  const args = { label: null, reason: '', fromFile: null, paths: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === '--label') {
       args.label = argv[++i] || null;
     } else if (token === '--reason') {
       args.reason = argv[++i] || '';
+    } else if (token === '--from-file') {
+      args.fromFile = argv[++i] || null;
     } else {
       args.paths.push(token);
     }
@@ -43,6 +45,13 @@ function sanitize(value) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+if (args.fromFile) {
+  const filePaths = fs.readFileSync(path.resolve(args.fromFile), 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  args.paths.push(...filePaths);
+}
 if (!args.label || !args.paths.length) usage();
 
 const stamp = new Date().toISOString().slice(0, 10);
