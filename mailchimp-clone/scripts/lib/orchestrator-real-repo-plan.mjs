@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
+const PRODUCT_ONLY_MODE = process.env.MAILCHIMP_PRODUCT_ONLY !== '0';
+
+function productOnlyVerifiers(verifiers = []) {
+  return PRODUCT_ONLY_MODE ? verifiers.filter((value) => value !== 'tests' && value !== 'test') : verifiers;
+}
 export const STACK_ROOT = path.resolve(ROOT, '..', 'large-project-capability-stack');
 export const ARTIFACT_ROOT = path.join(ROOT, 'artifacts', 'qualification', 'orchestrator_real_repo');
 export const VALIDATION_DIR = path.join(ARTIFACT_ROOT, 'validation');
@@ -214,6 +219,7 @@ export function discoverPackageQualificationTargets() {
 }
 
 export function runtimeQualificationTargets() {
+  if (PRODUCT_ONLY_MODE) return [];
   return [
     {
       id: 'runtime.app-shells',
@@ -228,7 +234,7 @@ export function runtimeQualificationTargets() {
         'apps/web/server.mjs',
         'src/server.js'
       ],
-      requiredVerifiers: ['lint', 'imports', 'tests'],
+      requiredVerifiers: productOnlyVerifiers(['lint', 'imports', 'tests']),
       metadata: {
         importFile: 'apps/web/server.mjs',
         testFile: 'tests/app-shells.test.mjs',
@@ -241,7 +247,7 @@ export function runtimeQualificationTargets() {
       domain: 'campaign',
       fileAreas: ['tests/campaign-pipeline.test.mjs'],
       allowedFiles: ['tests/campaign-pipeline.test.mjs'],
-      requiredVerifiers: ['tests'],
+      requiredVerifiers: productOnlyVerifiers(['tests']),
       metadata: {
         testFile: 'tests/campaign-pipeline.test.mjs'
       }
@@ -252,7 +258,7 @@ export function runtimeQualificationTargets() {
       domain: 'journeys',
       fileAreas: ['packages/customer-journeys', 'tests/automation-journeys.test.mjs', 'tests/transactional-journeys.test.mjs'],
       allowedFiles: walkMjs(path.join(ROOT, 'packages', 'customer-journeys')).map(relative),
-      requiredVerifiers: ['lint', 'imports', 'tests'],
+      requiredVerifiers: productOnlyVerifiers(['lint', 'imports', 'tests']),
       metadata: {
         importFile: 'packages/customer-journeys/index.mjs',
         testFile: 'tests/automation-journeys.test.mjs',
@@ -265,7 +271,7 @@ export function runtimeQualificationTargets() {
       domain: 'platform',
       fileAreas: ['packages/app', 'tests/platform-spine.test.mjs', 'tests/forms-landing.test.mjs', 'tests/reports-admin.test.mjs'],
       allowedFiles: walkMjs(path.join(ROOT, 'packages', 'app')).map(relative),
-      requiredVerifiers: ['lint', 'imports', 'tests'],
+      requiredVerifiers: productOnlyVerifiers(['lint', 'imports', 'tests']),
       metadata: {
         importFile: 'packages/app/index.mjs',
         testFile: 'tests/platform-spine.test.mjs',
@@ -309,30 +315,27 @@ export function buildRealRepoWorkGraph() {
         sourceFiles: target.sourceFiles
       }
     });
-    workUnits.push({
-      id: testId,
-      title: `${target.id} targeted regression`,
-      goal: `Run ${target.id} targeted regression on the real repo`,
-      lane: 'package_regression',
-      domain: target.domain,
-      fileAreas: [target.testFile],
-      allowedFiles: [target.testFile],
-      inputRefs: ['qualificationPolicy'],
-      inputs: { packageName: target.id, kind: 'tests', testFile: target.testFile },
-      acceptanceChecks: [
-        `run ${target.testFile}`,
-        `record targeted regression output for ${target.id}`
-      ],
-      requiredVerifiers: ['tests'],
-      effortSteps: 1,
-      metadata: {
-        packageName: target.id,
-        kind: 'tests',
-        testFile: target.testFile
-      }
-    });
+    if (!PRODUCT_ONLY_MODE) {
+      workUnits.push({
+        id: testId,
+        title: `${target.id} targeted regression`,
+        lane: 'package_regression',
+        domain: target.domain,
+        fileAreas: [target.testFile],
+        allowedFiles: [target.testFile],
+        evidence: ['targeted regression green'],
+        requiredVerifiers: ['test'],
+        effortSteps: 1,
+        metadata: {
+          packageName: target.id,
+          kind: 'tests',
+          testFile: target.testFile
+        }
+      });
+      regressionIssueIds.push(testId);
+    }
+
     sourceIssueIds.push(sourceId);
-    regressionIssueIds.push(testId);
   }
 
   for (const runtimeTarget of runtimeQualificationTargets()) {

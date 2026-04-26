@@ -1,0 +1,695 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-25T17:10:34.148Z",
+  "benchmarkId": "mailchimp_substantial_canonical_parity_expansion_gate",
+  "benchmarkTier": "canonical_full_surface_substantial_build",
+  "benchmarkClass": "product_parity_scope",
+  "fidelity": "parity_for_scope",
+  "requestedFidelity": "parity_for_scope",
+  "anchor": "docs/MAILCHIMP_CANONICAL_ONE_PASS_EXECUTION_PLAN_2026-04-11.json surfaceChecklist",
+  "scope": {
+    "description": "Substantial canonical Mailchimp parity expansion across the executable non-overlapping canonical surface set selected by the current planner. Does not claim full 1:1 completion.",
+    "canonicalSurfaceCount": 26,
+    "surfaces": [
+      {
+        "id": "signup_onboarding",
+        "label": "Signup and onboarding wizard",
+        "lane": "wave_1_core_funnel_and_audience",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_1_core_funnel_and_audience",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/index.mjs",
+          "packages/app/routes/public.mjs",
+          "packages/app/routes/platform.mjs",
+          "packages/app/view.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/platform-spine.test.mjs",
+          "node --test --test-concurrency=1 tests/current-product-parity.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Signup and onboarding wizard toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "account_workspace_setup",
+        "label": "Account workspace setup",
+        "lane": "wave_1_core_funnel_and_audience",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_1_core_funnel_and_audience",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/index.mjs",
+          "packages/app/routes/platform.mjs",
+          "packages/app/view.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/platform-spine.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Account workspace setup toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "dashboard_home",
+        "label": "Dashboard / home",
+        "lane": "wave_1_core_funnel_and_audience",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_1_core_funnel_and_audience",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/index.mjs",
+          "packages/app/view.mjs",
+          "packages/app/routes/platform.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/platform-spine.test.mjs",
+          "node --test --test-concurrency=1 tests/parity-route-aliases.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Dashboard / home toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "audience_overview",
+        "label": "Audience overview",
+        "lane": "wave_1_core_funnel_and_audience",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_1_core_funnel_and_audience",
+        "priority": "P0",
+        "currentStatus": "observed_direct",
+        "allowedFiles": [
+          "packages/app/domain-audience.mjs",
+          "packages/app/routes/audience.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/audience-core.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Audience overview toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "contacts_table",
+        "label": "Contacts table",
+        "lane": "wave_1_core_funnel_and_audience",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_1_core_funnel_and_audience",
+        "priority": "P0",
+        "currentStatus": "observed_direct",
+        "allowedFiles": [
+          "packages/app/domain-audience.mjs",
+          "packages/app/routes/audience.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/audience-core.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Contacts table toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "contact_profile",
+        "label": "Contact profile",
+        "lane": "wave_1_core_funnel_and_audience",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_1_core_funnel_and_audience",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/domain-audience.mjs",
+          "packages/app/routes/audience.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/audience-core.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Contact profile toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "tags_groups_interests",
+        "label": "Tags, groups, and interests management",
+        "lane": "wave_1_core_funnel_and_audience",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_1_core_funnel_and_audience",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/domain-audience.mjs",
+          "packages/app/routes/audience.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/audience-core.test.mjs",
+          "node --test --test-concurrency=1 tests/audience-funnels.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Tags, groups, and interests management toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "segments",
+        "label": "Segments",
+        "lane": "wave_1_core_funnel_and_audience",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_1_core_funnel_and_audience",
+        "priority": "P0",
+        "currentStatus": "observed_direct",
+        "allowedFiles": [
+          "packages/app/domain-audience.mjs",
+          "packages/app/routes/audience.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/audience-funnels.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Segments toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "signup_forms_popups",
+        "label": "Signup forms and popup forms",
+        "lane": "wave_2_campaign_authoring_content_and_send",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P1",
+        "currentStatus": "observed_direct",
+        "allowedFiles": [
+          "packages/app/routes/forms.mjs",
+          "packages/app/domain-growth.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/forms-landing.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Signup forms and popup forms toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "campaign_index",
+        "label": "Campaign index",
+        "lane": "wave_2_campaign_authoring_content_and_send",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/domain-campaigns.mjs",
+          "packages/app/routes/campaigns.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/campaign-editor-depth.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Campaign index toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "campaign_wizard",
+        "label": "Campaign creation wizard",
+        "lane": "wave_2_campaign_authoring_content_and_send",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/domain-campaigns.mjs",
+          "packages/app/routes/campaigns.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/campaign-editor-depth.test.mjs",
+          "node --test --test-concurrency=1 tests/current-product-parity.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Campaign creation wizard toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "email_builder",
+        "label": "Email builder",
+        "lane": "wave_2_campaign_authoring_content_and_send",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/content-asset-templates.mjs",
+          "packages/app/domain-campaigns.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/campaign-editor-depth.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Email builder toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "template_library",
+        "label": "Template library",
+        "lane": "wave_2_campaign_authoring_content_and_send",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/content-asset-templates.mjs",
+          "packages/app/domain-template-assets.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/template-variants-routes.test.mjs",
+          "node --test --test-concurrency=1 tests/template-approvals-routes.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Template library toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "content_studio",
+        "label": "Content studio / asset manager",
+        "lane": "wave_2_campaign_authoring_content_and_send",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/content-asset-templates.mjs",
+          "packages/app/domain-content-ecosystem-depth.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/content-library.test.mjs",
+          "node --test --test-concurrency=1 tests/current-product-parity.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Content studio / asset manager toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "send_schedule_review",
+        "label": "Send / schedule / review",
+        "lane": "wave_2_campaign_authoring_content_and_send",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_2_campaign_authoring_content_and_send",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/domain-campaigns.mjs",
+          "packages/app/routes/campaigns.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/campaign-editor-depth.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Send / schedule / review toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "reports_overview",
+        "label": "Reports overview",
+        "lane": "wave_3_reporting_automation_and_growth",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_3_reporting_automation_and_growth",
+        "priority": "P0",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/reports.mjs",
+          "packages/app/routes/api-admin.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/reports-admin.test.mjs",
+          "node --test --test-concurrency=1 tests/billing-analytics.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Reports overview toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "report_detail",
+        "label": "Report detail",
+        "lane": "wave_3_reporting_automation_and_growth",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_3_reporting_automation_and_growth",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/reports.mjs",
+          "packages/app/domain-campaigns.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/reports-admin.test.mjs",
+          "node --test --test-concurrency=1 tests/current-product-parity.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Report detail toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "automations_overview",
+        "label": "Automations overview",
+        "lane": "wave_3_reporting_automation_and_growth",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_3_reporting_automation_and_growth",
+        "priority": "P1",
+        "currentStatus": "observed_direct",
+        "allowedFiles": [
+          "packages/app/routes/automations.mjs",
+          "packages/app/domain-campaigns.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/automation-journeys.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Automations overview toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "automation_journey_builder",
+        "label": "Customer journey / automation builder",
+        "lane": "wave_3_reporting_automation_and_growth",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_3_reporting_automation_and_growth",
+        "priority": "P0",
+        "currentStatus": "observed_direct",
+        "allowedFiles": [
+          "packages/app/routes/automations.mjs",
+          "packages/app/domain-campaigns.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/automation-journeys.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Customer journey / automation builder toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "landing_pages",
+        "label": "Landing pages",
+        "lane": "wave_3_reporting_automation_and_growth",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_3_reporting_automation_and_growth",
+        "priority": "P1",
+        "currentStatus": "observed_direct",
+        "allowedFiles": [
+          "packages/app/routes/website-builder.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/forms-landing.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Landing pages toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "website_builder",
+        "label": "Website builder",
+        "lane": "wave_3_reporting_automation_and_growth",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_3_reporting_automation_and_growth",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/domain-website-builder.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/current-product-parity.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Website builder toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "integrations_marketplace",
+        "label": "Integrations marketplace",
+        "lane": "wave_4_admin_integrations_revenue_and_governance",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_4_admin_integrations_revenue_and_governance",
+        "priority": "P2",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/integrations-marketplace.mjs",
+          "packages/app/domain-integration-marketplace.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/integrations-marketplace.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Integrations marketplace toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "api_keys_webhooks",
+        "label": "API keys and webhooks",
+        "lane": "wave_4_admin_integrations_revenue_and_governance",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_4_admin_integrations_revenue_and_governance",
+        "priority": "P2",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/api-admin.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/reports-admin.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen API keys and webhooks toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "billing_plans",
+        "label": "Billing and plans",
+        "lane": "wave_4_admin_integrations_revenue_and_governance",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_4_admin_integrations_revenue_and_governance",
+        "priority": "P2",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/api-admin.mjs",
+          "packages/app/domain-commerce-revenue.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/billing-analytics.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Billing and plans toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "settings_domains",
+        "label": "Settings, domains, and authentication",
+        "lane": "wave_4_admin_integrations_revenue_and_governance",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_4_admin_integrations_revenue_and_governance",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/api-admin.mjs",
+          "packages/app/routes/platform.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/security-ops-hardening.test.mjs",
+          "node --test --test-concurrency=1 tests/platform-spine.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Settings, domains, and authentication toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      },
+      {
+        "id": "team_roles_permissions",
+        "label": "Team users, roles, and permissions",
+        "lane": "wave_4_admin_integrations_revenue_and_governance",
+        "focusGroup": "canonical_product_parity_box",
+        "canonicalWave": "wave_4_admin_integrations_revenue_and_governance",
+        "priority": "P1",
+        "currentStatus": "partial_or_shallow",
+        "allowedFiles": [
+          "packages/app/routes/api-admin.mjs",
+          "packages/app/routes/platform.mjs"
+        ],
+        "verification": [
+          "node --test --test-concurrency=1 tests/platform-spine.test.mjs"
+        ],
+        "requiredWork": [
+          "Substantially deepen Team users, roles, and permissions toward Mailchimp parity with direct runtime/UI/workflow code."
+        ],
+        "definitionOfDone": [
+          "Direct product-runtime code change in allowed files",
+          "Targeted tests pass for this surface",
+          "No docs/scripts/artifacts-only credit"
+        ]
+      }
+    ],
+    "excludedCredit": [
+      "scripts/** as product parity LOC",
+      "docs/**",
+      "artifacts/**",
+      "tests-only changes without paired product code",
+      "supervisor/control-plane green",
+      "LOC-only churn without direct product-surface behavior"
+    ]
+  },
+  "repoPath": "/home/jake/clawd-remote/mailchimp-clone",
+  "controlPlaneRepoPath": "/root/clawd/mailchimp-clone",
+  "requestedAgentCount": 100,
+  "executionBoundary": "remote_execution_required",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign",
+  "remoteArtifactRootPattern": "/home/jake/clawd-remote/mailchimp-runs/<campaignRunId>/artifacts/implementation_runs/<runId>",
+  "launchEnvironment": {
+    "ORCHESTRATOR_IMPLEMENTATION_PROFILE": "mailchimp_parity_focus",
+    "ORCHESTRATOR_REQUESTED_FIDELITY": "parity_for_scope",
+    "ORCHESTRATOR_TIERS": "100",
+    "MAILCHIMP_PARITY_MAX_RUNTIME_HOURS": "3",
+    "MAILCHIMP_PARITY_SOAK_FULL_RUNTIME": "0",
+    "MAILCHIMP_PRODUCT_ONLY": "1",
+    "MAILCHIMP_USE_BENCHMARK_SCOPE": "1",
+    "MAILCHIMP_BENCHMARK_CARRY_COMPLETED_FOCUS_IDS": "1",
+    "MAILCHIMP_USE_STRICT_GAP_INVENTORY": "0",
+    "MAILCHIMP_STRICT_GAP_SEQUENCE": "0",
+    "MAILCHIMP_COMPLETED_FOCUS_IDS": "",
+    "MAILCHIMP_MIN_FREE_INODES_FOR_WORKTREE": "500000",
+    "MAILCHIMP_STALE_WORKTREE_RETENTION_COUNT": "10"
+  },
+  "prelaunchGates": {
+    "minimumExecutableProductShards": 9,
+    "minimumFocusLanes": 4,
+    "requireRealFileContracts": true,
+    "requireRemoteExecution": true
+  },
+  "substantialProgressScoring": {
+    "substantialProgressTarget": {
+      "minimumNetProductLines": 500,
+      "minimumChangedProductFiles": 20,
+      "minimumCompletedCanonicalSurfaces": 9
+    },
+    "note": "Cortex must post-run evaluate these from artifacts; current supervisor does not enforce LOC target."
+  },
+  "launchCommand": "MAILCHIMP_ONE_PASS_CONTRACT_PATH=docs/MAILCHIMP_SUBSTANTIAL_CANONICAL_PARITY_EXPANSION_CONTRACT_2026-04-25.json node scripts/full-audit-campaign-launch.mjs"
+}

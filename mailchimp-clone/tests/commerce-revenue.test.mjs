@@ -48,6 +48,10 @@ test('Wave 2 commerce revenue: connect stores, sync catalog and orders, and expo
     assert.equal(payload.ok, true);
     assert.ok(payload.revenue.totalRevenue > 0);
     assert.ok(payload.revenue.attributedRevenue > 0);
+    assert.ok(payload.revenue.averageOrderValue > 0);
+    assert.equal(payload.revenue.sourceBreakdown[0].source, 'campaign');
+    assert.equal(payload.revenue.topCampaigns[0].campaignId, server.state.db.campaigns[0].id);
+    assert.equal(payload.revenue.recentActivity.length >= 2, true);
     assert.ok(server.state.db.commerceOrders.length >= 2);
     assert.ok(server.state.db.revenueAttributions.length >= 2);
   } finally {

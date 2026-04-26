@@ -19,7 +19,10 @@ try {
   const signup = await postForm(baseUrl, jar, '/signup', { name: 'Smoke Admin', email: 'smoke@example.com', password: 'secret123', workspaceName: 'Smoke Lab' });
   await followRedirect(baseUrl, jar, signup);
   mark('platform.signup', signup.status === 302, 'account creation and session bootstrap');
-
+  const dashboardAlias = await request(baseUrl, jar, '/dashboard', { redirect: 'manual' });
+  mark('platform.dashboard-alias', dashboardAlias.status === 302 && dashboardAlias.headers.get('location') === '/app', 'legacy dashboard route redirects into the canonical app shell');
+  const audienceAlias = await request(baseUrl, jar, '/audience', { redirect: 'manual' });
+  mark('audience.route-alias', audienceAlias.status === 302 && audienceAlias.headers.get('location') === '/audiences', 'legacy audience route redirects into the canonical audience overview');
 
   const audienceId = server.state.db.audiences[0].id;
   await postForm(baseUrl, jar, '/contacts', { audienceId, firstName: 'Casey', lastName: 'Smoke', email: 'casey@smoke.test', tags: 'smoke' });

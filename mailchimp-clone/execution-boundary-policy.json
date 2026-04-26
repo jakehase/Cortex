@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "architectureIntent": "thin_control_plane_remote_execution",
+  "controlPlane": {
+    "label": "PCT101 / CT101",
+    "responsibilities": [
+      "chat_gateway",
+      "supervisor",
+      "notifier",
+      "artifact_consumer"
+    ],
+    "forbiddenHeavyWorkloads": [
+      "local_multiprocess_worker_farm",
+      "browser_heavy_validation",
+      "repo_scale_qualification",
+      "large_test_farm"
+    ]
+  },
+  "executionPlane": {
+    "label": "VM102",
+    "responsibilities": [
+      "heavy_orchestration",
+      "repo_scale_qualification",
+      "browser_validation",
+      "large_test_execution"
+    ]
+  },
+  "policy": {
+    "denyHeavyLocalExecutionOnControlPlane": true,
+    "maxLocalAgentCount": 8,
+    "requireRemoteExecutionForAgentCountAbove": 8,
+    "requireRemoteExecutionForBrowserValidation": true,
+    "requireRemoteExecutionForRepoScaleQualification": true,
+    "failFastOnMissingRemoteBoundary": true,
+    "localOverrideEnv": "MAILCHIMP_ALLOW_HEAVY_LOCAL_EXECUTION",
+    "hostRoleEnv": "MAILCHIMP_HOST_ROLE"
+  },
+  "remoteExecution": {
+    "enabled": true,
+    "mode": "ssh",
+    "host": "10.0.0.52",
+    "user": "jake",
+    "port": 22,
+    "keyPath": "/root/.ssh/id_ed25519",
+    "proxyJump": null,
+    "connectTimeoutSec": 10,
+    "timeoutMs": 3600000,
+    "batchMode": true,
+    "strictHostKeyChecking": true,
+    "userKnownHostsFile": null,
+    "workdir": "/home/jake/clawd-remote",
+    "runsRoot": "/home/jake/clawd-remote/mailchimp-runs",
+    "launchScript": "mailchimp-clone/scripts/full-audit-campaign-remote-runner.mjs",
+    "sharedArtifactRoot": null,
+    "notes": "VM102 execution-plane path activated on 2026-04-06 using jake@10.0.0.52 with sibling repos under /home/jake/clawd-remote. Remediation path uses disposable worktrees under mailchimp-runs/."
+  }
+}

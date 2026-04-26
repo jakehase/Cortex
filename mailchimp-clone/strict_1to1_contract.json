@@ -1,12 +1,9 @@
 {
   "anchor": [
-    "/root/clawd/mailchimp-clone/docs/MAILCHIMP_FULL_AUDIT_2026-04-04.md",
-    "/root/clawd/mailchimp-clone/docs/MAILCHIMP_FULL_AUDIT_GAP_CLOSURE_CHECKLIST_2026-04-04.md",
-    "/root/clawd/mailchimp-clone/docs/MAILCHIMP_1TO1_AUDIT_2026-04-04.md",
-    "/root/clawd/mailchimp-clone/docs/MAILCHIMP_TRUE_1TO1_GAP_CLOSURE_PLAN_2026-04-04.md",
-    "/root/clawd/mailchimp-clone/docs/MAILCHIMP_CURRENT_PRODUCT_PARITY_GAP_ROADMAP_2026-04-03.md"
+    "/root/clawd/mailchimp-clone/docs/MAILCHIMP_CANONICAL_PARITY_AUDIT_2026-04-11.md",
+    "/root/clawd/mailchimp-clone/docs/MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json"
   ],
-  "replyAnchor": "user said: 'Start the long-run full-clone campaign.'",
+  "replyAnchor": "user said: 'run a deep and thorough audit of what we got done compared to the real deal of Mailchimp ... then write up an extremely thorough list of what needs to be done to get to 100% parity'",
   "targetPath": "/root/clawd/mailchimp-clone",
   "requestedFidelity": "full_clone",
   "requestedScope": [
@@ -22,11 +19,9 @@
     "J_campaign_experimentation_parity",
     "K_automation_journey_parity",
     "L_audience_crm_segmentation_parity",
-    "M_security_account_enterprise_parity",
-    "N_ops_deployment_scale_parity",
-    "O_final_parity_proof_gate"
+    "M_security_account_enterprise_parity"
   ],
-  "implementationSurface": "actual product code + tests + parity evidence + supervisor artifacts + campaign launch state; previous wave6-based delegated 100-agent path is now stopped/quarantined and future 100-agent work must be replanned against the cleaned baseline",
+  "implementationSurface": "Canonical parity source of truth is the new audit+matrix pair. Earlier Mailchimp parity docs/lists are superseded and quarantined.",
   "campaignMode": "persistent",
   "transportMode": {
     "cortexTransport": "active_file_backed",
@@ -39,5 +34,7 @@
   "stopCondition": "supervisor_green_or_blocker_report",
   "blockerPolicy": "if supervisor is red without a structured blocker report, continue the campaign and do not claim completion",
   "createdAt": "2026-04-04T17:00:00.000-05:00",
-  "launchedAt": "2026-04-04T17:00:00.000-05:00"
+  "launchedAt": "2026-04-04T17:00:00.000-05:00",
+  "canonicalAuditPath": "/root/clawd/mailchimp-clone/docs/MAILCHIMP_CANONICAL_PARITY_AUDIT_2026-04-11.md",
+  "canonicalMatrixPath": "/root/clawd/mailchimp-clone/docs/MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json"
 }

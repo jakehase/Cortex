@@ -44,6 +44,7 @@
       "evidence": {
         "tests": [
           "tests/campaign-pipeline.test.mjs",
+          "tests/automation-journeys.test.mjs",
           "tests/campaign-editor-depth.test.mjs",
           "tests/browser-realism.test.mjs"
         ],
@@ -55,6 +56,23 @@
         ]
       },
       "notes": "Real workflow logic for setup, editor, review, queueing, and campaign send state."
+    },
+    "packages/app/routes/automations.mjs": {
+      "label": "Automation overview and journey builder routes",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/automation-journeys.test.mjs"
+        ],
+        "routes": [
+          "/automations",
+          "/automations/:id/builder",
+          "/automations/:id/publish",
+          "/automations/:id/pause",
+          "/automations/:id/resume"
+        ]
+      },
+      "notes": "Real automation overview and journey-builder routes with orchestration/runtime summaries."
     },
     "packages/app/domain-current-product-ops.mjs": {
       "label": "Current-product AI and predictive ops domain",
@@ -146,31 +164,15 @@
       "notes": "Owns the campaign wizard, editor, review, and immediate send path."
     },
     "packages/app/routes/public.mjs": {
-      "label": "Public marketing and acquisition routes",
+      "label": "Public marketing route surface",
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/public-marketing.test.mjs",
-          "tests/browser-realism.test.mjs"
-        ],
-        "routes": [
-          "/",
-          "/pricing",
-          "/templates",
-          "/resources",
-          "/customers",
-          "/features/email-marketing",
-          "/features/marketing-automation",
-          "/features/website-builder",
-          "/features/forms-and-landing-pages",
-          "/help",
-          "/signup",
-          "/login",
-          "/reset",
-          "/status"
+          "tests/browser-realism.test.mjs",
+          "tests/current-product-browser-realism.test.mjs"
         ]
       },
-      "notes": "Rendered public acquisition pages and auth entry points that ship as real product surfaces."
+      "notes": "Serves public-facing pages used by browser realism checks."
     },
     "packages/app/storage.mjs": {
       "label": "Persistent workspace state storage",
@@ -227,20 +229,204 @@
       "notes": "Shared rendering layer used by authenticated and public routes in the running app."
     },
     "apps/web/public/app-shell.css": {
-      "label": "Client shell overlay styling",
+      "label": "App shell styling surface",
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/browser-realism.test.mjs"
-        ],
-        "routes": [
-          "/campaigns/:id/editor",
-          "/automations/:id/builder",
-          "/forms/:id",
-          "/landing-pages/:id"
+          "tests/browser-realism.test.mjs",
+          "tests/current-product-browser-realism.test.mjs"
         ]
       },
-      "notes": "Real client-shell styling used by the browser-facing editor/builder surfaces; pointer-event behavior affects whether those surfaces are interactable."
+      "notes": "Defines public shell styling needed by browser realism coverage."
+    },
+    "packages/app/index.mjs": {
+      "label": "App facade exports for package routes and worker-generated imports",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/implement-worker.regressions.test.mjs",
+          "tests/audience-core.test.mjs",
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      "notes": "Re-exports stable app-layer helpers used by package routes, including persistState for worker-generated persistence updates."
+    },
+    "packages/app/routes/audience.mjs": {
+      "label": "Audience management route surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/audience-core.test.mjs"
+        ]
+      },
+      "notes": "Serves audience CRUD, metrics, taxonomy, and contact management flows."
+    },
+    "packages/app/routes/platform.mjs": {
+      "label": "Platform plans and billing route surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      "notes": "Serves platform pricing, billing, and plan catalog surfaces."
+    },
+    "packages/conversation-inbox/routes/conversation-inbox.mjs": {
+      "label": "Conversation inbox route surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/conversation-inbox.test.mjs"
+        ]
+      },
+      "notes": "Serves conversation inbox listing, reply, and close-thread flows."
+    },
+    "packages/preferences-center/routes/preferences-center.mjs": {
+      "label": "Preferences center route surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/preferences-center.test.mjs"
+        ]
+      },
+      "notes": "Serves hosted preferences center and public preference update flows."
+    },
+    "packages/surveys-feedback/routes/surveys-feedback.mjs": {
+      "label": "Survey feedback route surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/surveys-feedback.test.mjs"
+        ]
+      },
+      "notes": "Serves survey feedback collection, scoring, and qualitative response flows."
+    },
+    "packages/customer-journeys/routes/customer-journeys.mjs": {
+      "label": "Transactional journeys route surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/transactional-journeys.test.mjs"
+        ]
+      },
+      "notes": "Serves journey creation, activation, and dispatch flows."
+    },
+    "packages/app/domain-integration-marketplace.mjs": {
+      "label": "Integration marketplace domain runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/integrations-marketplace.test.mjs",
+          "tests/implement-worker.regressions.test.mjs"
+        ],
+        "routes": [
+          "/integrations",
+          "/api/admin/integrations/:id/sync",
+          "/api/current-product/ops/integrations/:id/retry"
+        ]
+      },
+      "notes": "Live marketplace install and sync behavior for commerce, CRM, and collaboration integrations, including provider-backed sync refreshes."
+    },
+    "packages/app/integration-provider.mjs": {
+      "label": "Integration provider sync bridge",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/integrations-marketplace.test.mjs",
+          "tests/implement-worker.regressions.test.mjs"
+        ]
+      },
+      "notes": "Fetch-based provider bridge that returns live sync payloads and refreshed scopes for installed marketplace integrations."
+    },
+    "scripts/lib/orchestrator-real-repo-clean-plan.mjs": {
+      "label": "Mailchimp parity-focus work graph and grounded assignment contract planner",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/orchestrator-real-repo-clean-plan.test.mjs"
+        ]
+      },
+      "notes": "Builds the real parity-focus work graph, strict-gap sequencing, and shard-scoped assignment contracts for Mailchimp orchestration runs."
+    },
+    "scripts/orchestrator-real-repo-clean-supervisor.mjs": {
+      "label": "Mailchimp orchestration supervisor truth and rejected-patch blocker synthesis",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/full-audit-campaign-orchestration-audit.test.mjs"
+        ]
+      },
+      "notes": "Derives run truth from live artifacts, classifies unresolved rejected patches, and emits blocker language that distinguishes no-op and planner-failure patch classes."
+    },
+    "scripts/full-audit-campaign-persistent-runner.mjs": {
+      "label": "Persistent full-audit campaign runner no-progress circuit breaker",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/full-audit-campaign-persistent-runner.test.mjs",
+          "tests/full-audit-campaign-orchestration-audit.test.mjs"
+        ]
+      },
+      "notes": "Carries parity progress across iterations, records structured no-progress audits, and stops persistent runs after repeated proven no-progress iterations."
+    },
+    "packages/app/domain-commerce-revenue.mjs": {
+      "label": "Commerce revenue attribution and reporting domain",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/commerce-revenue.test.mjs",
+          "tests/reports-admin.test.mjs"
+        ],
+        "routes": [
+          "/commerce",
+          "/api/commerce/revenue",
+          "/reports"
+        ]
+      },
+      "notes": "Real revenue attribution, commerce sync, and reporting summary logic used by commerce and reports surfaces."
+    },
+    "packages/app/domain-template-assets.mjs": {
+      "label": "Template Assets Domain",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/template-approvals-routes.test.mjs",
+          "tests/template-variants-routes.test.mjs"
+        ]
+      },
+      "notes": "Declared after product parity box relaunch changed template-library domain behavior."
+    },
+    "packages/app/routes/content-asset-templates.mjs": {
+      "label": "Content Asset Templates Routes",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/template-approvals-routes.test.mjs",
+          "tests/template-variants-routes.test.mjs"
+        ]
+      },
+      "notes": "Declared after product parity box relaunch changed template-library route behavior."
+    },
+    "packages/app/routes/integrations-marketplace.mjs": {
+      "label": "Integrations Marketplace Routes",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/integrations-marketplace.test.mjs"
+        ]
+      },
+      "notes": "Declared after product parity box relaunch changed integrations marketplace route behavior."
+    },
+    "packages/app/routes/reports.mjs": {
+      "label": "Reports Routes",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/billing-analytics.test.mjs",
+          "tests/reports-admin.test.mjs"
+        ]
+      },
+      "notes": "Declared after product parity box relaunch changed reports overview behavior."
     }
   }
 }

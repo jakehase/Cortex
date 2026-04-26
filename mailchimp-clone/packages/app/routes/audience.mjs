@@ -7,6 +7,11 @@ import { createId, readBody, redirect, text } from '../utils.mjs';
 export function registerAudienceRoutes(router, deps) {
   const { requireAuth } = deps;
 
+  router.register('GET', '/audience', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    redirect(res, '/audiences');
+  });
+
   router.register('GET', '/audiences', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const audiences = state.db.audiences.filter((entry) => entry.workspaceId === actor.workspace.id);

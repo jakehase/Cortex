@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-04-25T17:05:00Z",
+  "benchmarkId": "mailchimp_substantial_parity_build_gate",
+  "benchmarkTier": "strict_1to1_gap_inventory_substantial_build",
+  "benchmarkClass": "product_parity_scope",
+  "fidelity": "parity_for_scope",
+  "requestedFidelity": "parity_for_scope",
+  "anchor": "artifacts/full_audit_campaign/strict_1to1_gap_inventory.json",
+  "scope": {
+    "description": "Advance the strict 1:1 Mailchimp parity gap inventory with meaningful product-surface code. This is not a full-clone completion claim; it is a substantial-build progress run against the known full-clone blockers.",
+    "canonicalSurfaceCount": 10,
+    "surfaces": [
+      { "id": "frontend_interaction_parity", "label": "Frontend interaction parity", "lane": "frontend_architecture" },
+      { "id": "campaign_editor_parity", "label": "Campaign editor parity", "lane": "campaign_editor" },
+      { "id": "website_builder_parity", "label": "Website builder parity", "lane": "website_builder" },
+      { "id": "automation_journey_parity", "label": "Automation/journey parity", "lane": "automation_journey" },
+      { "id": "audience_crm_parity", "label": "Audience/CRM parity", "lane": "audience_crm" },
+      { "id": "reporting_analytics_parity", "label": "Reporting/analytics parity", "lane": "reporting_analytics" },
+      { "id": "ai_predictive_parity", "label": "AI/predictive parity", "lane": "ai_predictive" },
+      { "id": "integration_provider_parity", "label": "Integration/provider parity", "lane": "integrations_api_oauth" },
+      { "id": "auth_session_security_parity", "label": "Auth/session/security parity", "lane": "security_ops" },
+      { "id": "persistence_jobs_operational_parity", "label": "Persistence/jobs/operational parity", "lane": "delivery_jobs" }
+    ],
+    "excludedCredit": [
+      "scripts/** as product parity LOC",
+      "docs/**",
+      "artifacts/**",
+      "tests-only changes without paired product code",
+      "supervisor/control-plane green",
+      "LOC-only churn without direct product-surface behavior"
+    ]
+  },
+  "repoPath": "/home/jake/clawd-remote/mailchimp-clone",
+  "controlPlaneRepoPath": "/root/clawd/mailchimp-clone",
+  "requestedAgentCount": 100,
+  "executionBoundary": "remote_execution_required",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign",
+  "remoteArtifactRootPattern": "/home/jake/clawd-remote/mailchimp-runs/<campaignRunId>/artifacts/implementation_runs/<runId>",
+  "launchEnvironment": {
+    "ORCHESTRATOR_IMPLEMENTATION_PROFILE": "mailchimp_parity_focus",
+    "ORCHESTRATOR_REQUESTED_FIDELITY": "parity_for_scope",
+    "ORCHESTRATOR_TIERS": "100",
+    "MAILCHIMP_PARITY_MAX_RUNTIME_HOURS": "3",
+    "MAILCHIMP_PARITY_SOAK_FULL_RUNTIME": "0",
+    "MAILCHIMP_PRODUCT_ONLY": "1",
+    "MAILCHIMP_USE_BENCHMARK_SCOPE": "0",
+    "MAILCHIMP_USE_STRICT_GAP_INVENTORY": "1",
+    "MAILCHIMP_STRICT_GAP_SEQUENCE": "0",
+    "MAILCHIMP_COMPLETED_FOCUS_IDS": "",
+    "MAILCHIMP_MIN_FREE_INODES_FOR_WORKTREE": "500000",
+    "MAILCHIMP_STALE_WORKTREE_RETENTION_COUNT": "10"
+  },
+  "prelaunchGates": {
+    "minimumExecutableProductShards": 10,
+    "minimumFocusLanes": 10,
+    "requireRealFileContracts": true,
+    "requireRemoteExecution": true
+  },
+  "substantialProgressScoring": {
+    "passRequires": [
+      "supervisor green or structured blocker",
+      "explicit LOC accounting for surviving product code",
+      "manual post-run honesty check for substantial product LOC and changed product files",
+      "no claim of full Mailchimp 1:1 completion unless strict 1:1 ceiling is separately green"
+    ],
+    "substantialProgressTarget": {
+      "minimumNetProductLines": 500,
+      "minimumChangedProductFiles": 15,
+      "minimumCompletedStrictGapSurfaces": 5
+    },
+    "note": "The current supervisor does not mechanically enforce the substantial LOC target; Cortex must report the post-run target as pass/fail from artifacts."
+  },
+  "launchCommand": "MAILCHIMP_ONE_PASS_CONTRACT_PATH=docs/MAILCHIMP_SUBSTANTIAL_PARITY_BUILD_CONTRACT_2026-04-25.json node scripts/full-audit-campaign-launch.mjs"
+}

@@ -108,6 +108,24 @@ export function queueCampaignDelivery(state, actor, campaign, runAt = null) {
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: runAt ? 'campaign-schedule' : 'campaign-send', detail: `${runAt ? 'Scheduled' : 'Queued send for'} ${campaign.name}` });
 }
 
+export function campaignAutomationRuntimeSummary(state, campaign) {
+  const linkedAutomations = state.db.automations.filter((entry) => entry.workspaceId === campaign.workspaceId && (entry.sourceCampaignId === campaign.id || entry.trigger === 'campaign_sent'));
+  const relatedRuns = state.db.automationRuns.filter((run) => run.campaignId === campaign.id);
+  return {
+    linkedAutomations: linkedAutomations.length,
+    liveAutomations: linkedAutomations.filter((entry) => entry.status === 'live').length,
+    relatedRuns: relatedRuns.length,
+    lastTriggeredAt: relatedRuns[0]?.completedAt || relatedRuns[0]?.createdAt || null,
+    recentRuns: relatedRuns.slice(0, 3).map((run) => ({
+      id: run.id,
+      automationId: run.automationId,
+      trigger: run.trigger || 'campaign_sent',
+      status: run.status || 'completed',
+      completedAt: run.completedAt || run.createdAt || ''
+    }))
+  };
+}
+
 export function markCampaignDelivered(state, campaign) {
   campaign.status = 'sent';
   campaign.sentAt = nowIso();

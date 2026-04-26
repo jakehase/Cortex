@@ -7,6 +7,12 @@ import { createInvitationExpiry } from '../security.mjs';
 export function registerPlatformRoutes(router, deps) {
   const { requireAuth } = deps;
 
+  router.register('GET', '/dashboard', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor) return;
+    redirect(res, '/app');
+  });
+
   router.register('GET', '/app', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res);
     if (!actor) return;

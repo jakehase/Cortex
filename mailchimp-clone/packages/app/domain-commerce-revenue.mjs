@@ -131,6 +131,67 @@ export function syncCommerceStore(state, actor, store) {
   };
 }
 
+function summarizeRevenueSources(rows = []) {
+  const bySource = new Map();
+  for (const row of rows) {
+    const source = row.source || 'unknown';
+    const current = bySource.get(source) || { source, revenue: 0, orders: 0, campaigns: new Set() };
+    current.revenue += Number(row.revenue || 0);
+    current.orders += 1;
+    if (row.campaignId) current.campaigns.add(row.campaignId);
+    bySource.set(source, current);
+  }
+  return [...bySource.values()]
+    .map((entry) => ({
+      source: entry.source,
+      revenue: currencyValue(entry.revenue),
+      orders: entry.orders,
+      campaigns: entry.campaigns.size
+    }))
+    .sort((a, b) => Number(b.revenue || 0) - Number(a.revenue || 0));
+}
+
+function summarizeTopCampaigns(state, rows = []) {
+  const byCampaign = new Map();
+  for (const row of rows) {
+    if (!row.campaignId) continue;
+    const current = byCampaign.get(row.campaignId) || { campaignId: row.campaignId, revenue: 0, orders: 0 };
+    current.revenue += Number(row.revenue || 0);
+    current.orders += 1;
+    byCampaign.set(row.campaignId, current);
+  }
+  return [...byCampaign.values()]
+    .map((entry) => {
+      const campaign = state.db.campaigns.find((candidate) => candidate.id === entry.campaignId) || null;
+      return {
+        campaignId: entry.campaignId,
+        name: campaign?.name || 'Unknown campaign',
+        status: campaign?.status || 'unknown',
+        orders: entry.orders,
+        revenue: currencyValue(entry.revenue)
+      };
+    })
+    .sort((a, b) => Number(b.revenue || 0) - Number(a.revenue || 0))
+    .slice(0, 3);
+}
+
+function buildRecentRevenueActivity(orders = [], rows = []) {
+  const rowsByOrderId = new Map(rows.map((row) => [row.orderId, row]));
+  return orders
+    .slice(0, 5)
+    .map((order) => {
+      const attribution = rowsByOrderId.get(order.id) || null;
+      return {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        total: currencyValue(order.total),
+        source: attribution?.source || 'unknown',
+        campaignId: attribution?.campaignId || null,
+        createdAt: order.createdAt
+      };
+    });
+}
+
 export function revenueSummary(state, workspaceId) {
   const stores = workspaceStores(state, workspaceId);
   const orders = state.db.commerceOrders.filter((entry) => entry.workspaceId === workspaceId);
@@ -138,6 +199,10 @@ export function revenueSummary(state, workspaceId) {
   const totalRevenue = currencyValue(rows.reduce((sum, entry) => sum + Number(entry.revenue || 0), 0));
   const attributedRevenue = currencyValue(rows.filter((entry) => entry.campaignId).reduce((sum, entry) => sum + Number(entry.revenue || 0), 0));
   const topProduct = state.db.commerceProducts.filter((entry) => entry.workspaceId === workspaceId).sort((a, b) => Number(b.price || 0) - Number(a.price || 0))[0] || null;
+  const averageOrderValue = orders.length ? currencyValue(totalRevenue / orders.length) : 0;
+  const sourceBreakdown = summarizeRevenueSources(rows);
+  const topCampaigns = summarizeTopCampaigns(state, rows);
+  const recentActivity = buildRecentRevenueActivity(orders, rows);
   return {
     stores: stores.length,
     products: state.db.commerceProducts.filter((entry) => entry.workspaceId === workspaceId).length,
@@ -145,6 +210,11 @@ export function revenueSummary(state, workspaceId) {
     totalRevenue,
     attributedRevenue,
     unattributedRevenue: currencyValue(totalRevenue - attributedRevenue),
-    topProduct: topProduct ? { name: topProduct.name, price: topProduct.price } : null
+    attributedShare: totalRevenue > 0 ? Number(((attributedRevenue / totalRevenue) * 100).toFixed(1)) : 0,
+    averageOrderValue,
+    topProduct: topProduct ? { name: topProduct.name, price: topProduct.price } : null,
+    sourceBreakdown,
+    topCampaigns,
+    recentActivity
   };
 }

@@ -47,10 +47,13 @@ export const DEFAULT_JOURNEY_TEMPLATES = [
 
 export function dataPaths() {
   const dataDir = process.env.MAILCLONE_DATA_DIR || path.join(ROOT_DIR, 'data');
+  const rootLegacyDbPath = path.join(ROOT_DIR, 'app.json');
+  const cwdLegacyDbPath = path.resolve(process.cwd(), 'app.json');
   return {
     dataDir,
     dbPath: path.join(dataDir, 'workspace-state.json'),
-    legacyDbPath: path.join(ROOT_DIR, 'app.json'),
+    legacyDbPath: rootLegacyDbPath,
+    legacyDbCandidates: Array.from(new Set([rootLegacyDbPath, cwdLegacyDbPath])),
     uploadDir: path.join(dataDir, 'uploads'),
     exportDir: path.join(dataDir, 'exports')
   };
@@ -99,7 +102,8 @@ export function loadDb() {
   ensureDir(paths.dataDir);
   ensureDir(paths.uploadDir);
   ensureDir(paths.exportDir);
-  const dbSourcePath = fs.existsSync(paths.dbPath) ? paths.dbPath : (fs.existsSync(paths.legacyDbPath) ? paths.legacyDbPath : null);
+  const legacyDbPath = (paths.legacyDbCandidates || [paths.legacyDbPath]).find((filePath) => fs.existsSync(filePath)) || null;
+  const dbSourcePath = fs.existsSync(paths.dbPath) ? paths.dbPath : legacyDbPath;
   if (!dbSourcePath) {
     const db = initDb();
     writeJsonFile(paths.dbPath, db);

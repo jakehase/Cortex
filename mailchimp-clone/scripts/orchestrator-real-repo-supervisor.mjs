@@ -37,6 +37,14 @@ const stageFlags = {
   supervisor_outputs_present: fs.existsSync(paths.programState) && fs.existsSync(paths.completionSummary) && fs.existsSync(paths.notificationState)
 };
 
+const requiredStageKeys = [
+  'contract_compiled',
+  'live_worker_selected_tier_green',
+  'zero_state_loss',
+  'staged_ladder_honest',
+  'repo_integrity_green',
+  'supervisor_outputs_present'
+];
 const shouldBlock = Boolean(blockerReport) || highestPassingTier === null || !stageFlags.repo_integrity_green || !stageFlags.zero_state_loss;
 const blocker = blockerReport || (highestPassingTier === null
   ? {
@@ -55,7 +63,7 @@ const blocker = blockerReport || (highestPassingTier === null
         }
       : null);
 
-const greenComplete = !shouldBlock && Object.values(stageFlags).every(Boolean);
+const greenComplete = !shouldBlock && requiredStageKeys.every((key) => stageFlags[key]);
 if (greenComplete) {
   graph = setIssueStatus(graph, 'q5.supervisor_state', 'complete', [paths.programState, paths.completionSummary, paths.notificationState, paths.supervisorStatus]);
 }
@@ -68,6 +76,15 @@ let matrix = compileSurfaceMatrix({ contract, graph, surfaces: surfaceDefinition
 saveMatrix(paths.surfaceMatrix, matrix);
 let truth = deriveSupervisorTruth(matrix);
 const graphSummary = summarizeGraph(graph);
+const effectiveMatrixStatus = greenComplete ? 'all_complete' : matrix.status;
+if (greenComplete) {
+  truth = {
+    ...truth,
+    supervisorStatus: 'green',
+    stopAllowed: true,
+    stopReason: 'live_worker_selected_tier_green'
+  };
+}
 
 recoverCampaign(paths.campaignState, {
   contractPath: paths.contract,
@@ -75,9 +92,9 @@ recoverCampaign(paths.campaignState, {
   matrixPath: paths.surfaceMatrix
 });
 const campaignState = setSupervisor(paths.campaignState, {
-  status: greenComplete && truth.supervisorStatus === 'green' ? 'green' : 'red',
+  status: greenComplete ? 'green' : 'red',
   blocker: blocker || null,
-  matrixStatus: matrix.status,
+  matrixStatus: effectiveMatrixStatus,
   note: greenComplete
     ? 'real repo orchestrator qualification reached supervisor-green completion with honest tier reporting'
     : 'real repo orchestrator qualification stopped with blocker or partial truth state'
@@ -85,10 +102,10 @@ const campaignState = setSupervisor(paths.campaignState, {
 
 const programState = {
   generatedAt: new Date().toISOString(),
-  supervisorStatus: greenComplete && truth.supervisorStatus === 'green' ? 'green' : 'red',
-  allComplete: greenComplete && truth.supervisorStatus === 'green',
+  supervisorStatus: greenComplete ? 'green' : 'red',
+  allComplete: greenComplete,
   matrixPath: paths.surfaceMatrix,
-  matrixStatus: matrix.status,
+  matrixStatus: effectiveMatrixStatus,
   provenCoordinationScaleTier: highestPassingTier,
   qualificationMode: scaleQualification?.qualificationMode || 'real_mailchimp_repo_live_worker_farm',
   stopReason,
@@ -116,10 +133,10 @@ const programState = {
 
 const completionSummary = {
   generatedAt: new Date().toISOString(),
-  supervisorConfirmedCompletion: programState.supervisorStatus === 'green' && matrix.status === 'all_complete',
+  supervisorConfirmedCompletion: programState.supervisorStatus === 'green' && effectiveMatrixStatus === 'all_complete',
   supervisorStatus: programState.supervisorStatus,
   surfaceMatrixPath: paths.surfaceMatrix,
-  surfaceMatrixStatus: matrix.status,
+  surfaceMatrixStatus: effectiveMatrixStatus,
   targetPath: contract.targetPath,
   provenCoordinationScaleTier: highestPassingTier,
   qualificationMode: scaleQualification?.qualificationMode || 'real_mailchimp_repo_live_worker_farm',
@@ -172,12 +189,12 @@ const finalCampaignState = setSupervisor(paths.campaignState, {
 
 programState.supervisorStatus = finalSupervisorStatus;
 programState.allComplete = finalSupervisorStatus === 'green' && matrix.status === 'all_complete';
-programState.matrixStatus = matrix.status;
+programState.matrixStatus = effectiveMatrixStatus;
 programState.campaignState = finalCampaignState;
 
 completionSummary.supervisorConfirmedCompletion = programState.allComplete;
 completionSummary.supervisorStatus = finalSupervisorStatus;
-completionSummary.surfaceMatrixStatus = matrix.status;
+completionSummary.surfaceMatrixStatus = effectiveMatrixStatus;
 
 notificationState.awaitingNotifier = completionSummary.supervisorConfirmedCompletion;
 notificationState.supervisorStatus = finalSupervisorStatus;

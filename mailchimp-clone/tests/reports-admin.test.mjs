@@ -93,6 +93,7 @@ test('Program 6 reports, analytics, API/admin surfaces, export and history state
     const reportsHtml = await reports.text();
     assert.match(reportsHtml, /Workspace metrics/);
     assert.match(reportsHtml, /Trend cards/);
+    assert.match(reportsHtml, /averageOrderValue/);
 
     const campaignReport = await request(baseUrl, jar, `/reports/campaigns/${campaignId}`);
     const campaignReportHtml = await campaignReport.text();

@@ -1,0 +1,41 @@
+:root {
+  --mailclone-shell-bg: #0f172a;
+  --mailclone-shell-accent: #f5b301;
+}
+
+body.mailclone-client-shell-ready #app-shell {
+  position: relative;
+}
+
+#mailclone-client-shell {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  background: rgba(15, 23, 42, 0.96);
+  color: white;
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+#mailclone-client-shell .shell-status {
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+[data-builder-panel] {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 320px;
+  background: white;
+  border: 1px solid #d8e0ee;
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.18);
+  padding: 16px;
+  pointer-events: none;
+}

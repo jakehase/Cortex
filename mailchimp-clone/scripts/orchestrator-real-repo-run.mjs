@@ -180,6 +180,7 @@ for (const tier of tiers) {
     verifierScriptPath: VERIFIER_SCRIPT,
     workspacePath: ROOT,
     runRoot: tierRunDir(tier),
+    campaignContract: contract,
     leaseTtlMs,
     maxRuntimeMs: 300000,
     pollMs: 50,

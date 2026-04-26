@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { page } from '../view.mjs';
 import { faqCard, featureCard, marketingShell, marketingStats, planCard, resourceCard, storyCard, templateCard } from '../public-marketing.mjs';
 import { createAccount, actorFromUser, createNotification, findUserByEmail, getCurrentActor, recordAudit } from '../domain-core.mjs';
@@ -13,6 +16,9 @@ import {
   revokeSessionFromRequest,
   revokeUserSessions
 } from '../security.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_ASSET_DIR = path.resolve(__dirname, '../../../apps/web/public');
 
 function passwordLengthOk(password) {
   return String(password || '').length >= 8;
@@ -32,6 +38,13 @@ function inviteExpired(invite) {
 }
 
 export function registerPublicRoutes(router) {
+  router.register('GET', '/static/app-shell.css', async ({ res }) => {
+    text(res, 200, fs.readFileSync(path.join(PUBLIC_ASSET_DIR, 'app-shell.css'), 'utf8'), { 'content-type': 'text/css; charset=utf-8' });
+  });
+
+  router.register('GET', '/static/app-shell.jsx', async ({ res }) => {
+    text(res, 200, fs.readFileSync(path.join(PUBLIC_ASSET_DIR, 'app-shell.jsx'), 'utf8'), { 'content-type': 'text/javascript; charset=utf-8' });
+  });
   router.register('GET', '/', async ({ state, res }) => {
     text(res, 200, marketingShell({
       title: 'Email marketing, automations, and CRM journeys',

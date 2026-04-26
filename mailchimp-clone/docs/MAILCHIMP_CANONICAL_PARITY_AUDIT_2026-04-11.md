@@ -1,6 +1,9 @@
 # Mailchimp canonical parity audit - 2026-04-11
 
-This is the single active source of truth for Mailchimp parity planning in this workspace.
+This is the canonical audit source of truth for Mailchimp parity planning in this workspace.
+
+Primary execution document: `/root/clawd/mailchimp-clone/docs/MAILCHIMP_CANONICAL_ONE_PASS_EXECUTION_PLAN_2026-04-11.md`
+Supporting backlog: `/root/clawd/mailchimp-clone/docs/MAILCHIMP_CANONICAL_PARITY_EXECUTION_BACKLOG_2026-04-11.md`
 
 ## Executive truth
 

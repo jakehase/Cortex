@@ -60,11 +60,18 @@ async function expectBody(page, pattern, message) {
 }
 
 async function submitAndWait(page, buttonLocator, urlPattern) {
-  const navigation = page.waitForNavigation();
+  const navigation = page.waitForEvent('framenavigated', {
+    predicate: (frame) => frame === page.mainFrame(),
+    timeout: 30000
+  }).catch(() => null);
   await buttonLocator.click();
   await navigation;
   await page.waitForLoadState('domcontentloaded');
-  if (urlPattern) assert.match(page.url(), urlPattern, `Expected URL ${page.url()} to match ${urlPattern}`);
+  if (urlPattern) {
+    await waitFor(() => {
+      assert.match(page.url(), urlPattern, `Expected URL ${page.url()} to match ${urlPattern}`);
+    }, { timeoutMs: 5000, intervalMs: 100 });
+  }
 }
 
 async function waitFor(assertFn, { timeoutMs = 5000, intervalMs = 150 } = {}) {
