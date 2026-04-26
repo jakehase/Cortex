@@ -37,6 +37,31 @@ function overlapsArea(left, right) {
   return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
+function normalizeAssignmentContract(contract = {}, fallback = {}) {
+  const targetFiles = stableList(contract.targetFiles || fallback.targetFiles || []);
+  const targetModules = stableList(contract.targetModules || fallback.targetModules || []);
+  const verifierRequirements = stableList(contract.verifierRequirements || fallback.verifierRequirements || []);
+  const successPredicate = stableList(contract.successPredicate || fallback.successPredicate || []);
+  return {
+    artifactKind: `${contract.artifactKind || fallback.artifactKind || 'verification_evidence'}`.trim() || 'verification_evidence',
+    targetFiles,
+    targetModules,
+    verifierRequirements,
+    successPredicate
+  };
+}
+
+function validateGroundedAssignmentContract(contract = {}) {
+  const failures = [];
+  if ((contract.targetFiles || []).length === 0 && (contract.targetModules || []).length === 0) failures.push('missing_targets');
+  if ((contract.verifierRequirements || []).length === 0) failures.push('missing_verifier_requirements');
+  if ((contract.successPredicate || []).length === 0) failures.push('missing_success_predicate');
+  return {
+    ok: failures.length === 0,
+    failures
+  };
+}
+
 function buildSurfaceIndex(surfaceMatrix) {
   const index = new Map();
   for (const surface of surfaceMatrix?.surfaces || []) {
@@ -88,6 +113,14 @@ function normalizeWorkUnit(unit, surfaceIndex = new Map()) {
   const allowedFiles = stableList(unit.allowedFiles || unit.files || []);
   const acceptanceChecks = stableList(unit.acceptanceChecks || unit.acceptanceCriteria || ['complete local acceptance checks']);
   const deps = stableList(unit.deps || unit.dependencies || []);
+  const requiredVerifiers = stableList(unit.requiredVerifiers || ['tests']);
+  const assignmentContract = normalizeAssignmentContract(unit.assignmentContract || unit.metadata?.assignmentContract || {}, {
+    artifactKind: unit.metadata?.artifactKind || 'verification_evidence',
+    targetFiles: allowedFiles,
+    targetModules: fileAreas,
+    verifierRequirements: requiredVerifiers,
+    successPredicate: acceptanceChecks
+  });
   return {
     id: unit.id,
     title: unit.title || unit.id,
@@ -99,7 +132,7 @@ function normalizeWorkUnit(unit, surfaceIndex = new Map()) {
     deps,
     inputRefs: stableList(unit.inputRefs || []),
     inputs: unit.inputs || {},
-    requiredVerifiers: stableList(unit.requiredVerifiers || ['tests']),
+    requiredVerifiers,
     acceptanceChecks,
     effortSteps: Math.max(1, Number(unit.effortSteps || 1)),
     stallAttempts: stableList(unit.stallAttempts || []).map((entry) => Number(entry)).filter((entry) => Number.isFinite(entry) && entry > 0),
@@ -109,7 +142,10 @@ function normalizeWorkUnit(unit, surfaceIndex = new Map()) {
       fileAreas
     },
     surfaceIds: stableList(unit.surfaceIds || surfaceIndex.get(unit.id) || []),
-    metadata: unit.metadata || {}
+    metadata: {
+      ...(unit.metadata || {}),
+      assignmentContract
+    }
   };
 }
 
@@ -141,6 +177,9 @@ export function buildShardPlan({ workGraph, surfaceMatrix = { surfaces: [] }, op
       const dependencyShardIds = index > 0
         ? [shardIds[index - 1]]
         : stableList(unit.deps.map((depId) => unitShardIds.get(depId)?.at(-1)).filter(Boolean));
+      const shardFileAreas = fileAreaChunks[index] || [];
+      const shardAllowedFiles = allowedFileChunks[index] || [];
+      const shardAcceptanceChecks = acceptanceChunks[index] && acceptanceChunks[index].length ? acceptanceChunks[index] : unit.acceptanceChecks;
       shards.push({
         id: shardId,
         rootWorkUnitId: unit.id,
@@ -150,17 +189,28 @@ export function buildShardPlan({ workGraph, surfaceMatrix = { surfaces: [] }, op
         lane: unit.lane,
         domain: unit.domain,
         surfaceIds: unit.surfaceIds,
-        fileAreas: fileAreaChunks[index] || [],
-        allowedFiles: allowedFileChunks[index] || [],
+        fileAreas: shardFileAreas,
+        allowedFiles: shardAllowedFiles,
         dependencyShardIds,
         inputRefs: unit.inputRefs,
         inputs: unit.inputs,
-        acceptanceChecks: acceptanceChunks[index] && acceptanceChunks[index].length ? acceptanceChunks[index] : unit.acceptanceChecks,
+        acceptanceChecks: shardAcceptanceChecks,
         requiredVerifiers: unit.requiredVerifiers,
         effortSteps: unit.effortSteps,
         stallAttempts: unit.stallAttempts,
         ownership: unit.ownership,
-        metadata: unit.metadata
+        metadata: {
+          ...unit.metadata,
+          assignmentContract: normalizeAssignmentContract({
+            ...(unit.metadata?.assignmentContract || {}),
+            targetFiles: shardAllowedFiles,
+            targetModules: shardFileAreas.length ? shardFileAreas : shardAllowedFiles,
+            verifierRequirements: unit.requiredVerifiers,
+            successPredicate: shardAcceptanceChecks
+          }, {
+            artifactKind: unit.metadata?.assignmentContract?.artifactKind || unit.metadata?.artifactKind || 'verification_evidence'
+          })
+        }
       });
     }
   }
@@ -435,6 +485,13 @@ export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix =
     if (Object.prototype.hasOwnProperty.call(globalInputs, ref)) inputs[ref] = globalInputs[ref];
   }
   const relatedSurfaces = (surfaceMatrix.surfaces || []).filter((surface) => (shard.surfaceIds || []).includes(surface.id)).map((surface) => ({ id: surface.id, label: surface.label }));
+  const assignmentContract = normalizeAssignmentContract(shard.metadata?.assignmentContract || {}, {
+    artifactKind: 'verification_evidence',
+    targetFiles: shard.allowedFiles || [],
+    targetModules: shard.fileAreas || [],
+    verifierRequirements: shard.requiredVerifiers || [],
+    successPredicate: shard.acceptanceChecks || []
+  });
   const pack = {
     version: 1,
     generatedAt: new Date().toISOString(),
@@ -462,6 +519,7 @@ export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix =
       artifacts: dependencyArtifacts
     },
     inputs,
+    assignmentContract,
     acceptanceChecks: shard.acceptanceChecks || [],
     verifiers: shard.requiredVerifiers || [],
     relatedSurfaces,
@@ -529,7 +587,7 @@ export function detectPatchConflicts(queue, artifact, { leaseState = createLease
   return conflicts;
 }
 
-export async function processPatchQueue(queue, { leaseState = createLeaseState(), verifyFns = {}, completedShardIds = [] } = {}) {
+export async function processPatchQueue(queue, { leaseState = createLeaseState(), verifyFns = {}, completedShardIds = [], allowProductOnlyVerifierSkip = false } = {}) {
   const next = clone(queue);
   const decisions = [];
   const pending = [];
@@ -569,8 +627,20 @@ export async function processPatchQueue(queue, { leaseState = createLeaseState()
     }
     if (verifierFailed) continue;
 
+    const admission = evaluatePatchAdmission(patch, verifierResults, { allowProductOnlyVerifierSkip });
+    if (!admission.ok) {
+      patch.status = 'rejected';
+      patch.rejectionCategory = admission.category;
+      patch.rejectionReason = admission.reason;
+      patch.admissionAudit = admission.details;
+      next.rejected.push({ ...patch, rejectedAt: new Date().toISOString(), verifierResults });
+      decisions.push({ patchId: patch.id, status: 'rejected', verifierResults, rejectionCategory: admission.category, rejectionReason: admission.reason });
+      continue;
+    }
+
     patch.status = 'merged';
     patch.verifierResults = verifierResults;
+    patch.admissionAudit = admission.details;
     patch.mergedAt = new Date().toISOString();
     next.merged.push(patch);
     mergedShardIds.add(patch.shardId);
@@ -584,9 +654,10 @@ export async function processPatchQueue(queue, { leaseState = createLeaseState()
 
 function deriveShardStatuses({ shardPlan, leaseState, patchQueue, blockers = [], now = Date.now() }) {
   const mergedShardIds = new Set((patchQueue?.merged || []).map((artifact) => artifact.shardId));
+  const unresolvedRejected = (patchQueue?.rejected || []).filter((artifact) => artifact?.shardId && !mergedShardIds.has(artifact.shardId));
   const blockedShardIds = new Set([
     ...blockers.map((entry) => entry.shardId).filter(Boolean),
-    ...(patchQueue?.rejected || []).map((artifact) => artifact.shardId).filter(Boolean)
+    ...unresolvedRejected.map((artifact) => artifact.shardId).filter(Boolean)
   ]);
   const activeTaskIds = new Set(activeLeases(leaseState, now).map((lease) => lease.taskId));
   const statuses = {};
@@ -615,33 +686,57 @@ function aggregateSupervision(shards, statuses, key) {
   })).sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function shardHealth(status) {
+  if (status === 'complete') return 'green';
+  if (status === 'blocked') return 'red';
+  return 'amber';
+}
+
 export function compileSupervisorSnapshot({ shardPlan, leaseState = createLeaseState(), patchQueue = createPatchQueue(), artifactBus = createArtifactBus(), blockers = [], now = Date.now() }) {
   const shardStatuses = deriveShardStatuses({ shardPlan, leaseState, patchQueue, blockers, now });
   const lanes = aggregateSupervision(shardPlan.shards, shardStatuses, 'lane');
   const domains = aggregateSupervision(shardPlan.shards, shardStatuses, 'domain');
   const staleLeases = detectStaleLeases(leaseState, { now });
+  const mergedShardIds = new Set((patchQueue?.merged || []).map((artifact) => artifact.shardId));
+  const unresolvedRejected = (patchQueue?.rejected || []).filter((artifact) => artifact?.shardId && !mergedShardIds.has(artifact.shardId));
   const escalations = [
     ...blockers,
     ...staleLeases.map((lease) => ({ type: 'stale_lease', shardId: lease.taskId, leaseId: lease.leaseId, agentId: lease.agentId })),
-    ...(patchQueue.rejected || []).map((artifact) => ({ type: 'rejected_patch', shardId: artifact.shardId, patchId: artifact.id }))
+    ...unresolvedRejected.map((artifact) => ({ type: 'rejected_patch', shardId: artifact.shardId, patchId: artifact.id }))
   ];
   const counts = Object.values(shardStatuses).reduce((summary, status) => {
     summary[status] += 1;
     return summary;
   }, { ready: 0, pending: 0, in_progress: 0, complete: 0, blocked: 0 });
+  const shards = shardPlan.shards.map((shard) => ({
+    id: shard.id,
+    rootWorkUnitId: shard.rootWorkUnitId,
+    lane: shard.lane,
+    domain: shard.domain,
+    status: shardHealth(shardStatuses[shard.id]),
+    state: shardStatuses[shard.id],
+    dependencyShardIds: [...(shard.dependencyShardIds || [])],
+  }));
+  const topLevelStatus = counts.complete === shardPlan.shards.length && escalations.length === 0 && counts.blocked === 0
+    ? 'green'
+    : escalations.length > 0 || counts.blocked > 0
+      ? 'red'
+      : 'amber';
 
   return {
     generatedAt: new Date().toISOString(),
     topLevel: {
-      status: counts.complete === shardPlan.shards.length && escalations.length === 0 ? 'green' : 'red',
+      status: topLevelStatus,
       counts,
       shardCount: shardPlan.shards.length,
       escalationCount: escalations.length
     },
     lanes,
     domains,
+    shards,
     shardStatuses,
     escalations,
+    escalationCount: escalations.length,
     artifactBusSummary: summarizeArtifactBus(artifactBus)
   };
 }
@@ -768,7 +863,10 @@ export async function runScaleSimulation({
         filePaths: shard.allowedFiles.length ? shard.allowedFiles : shard.fileAreas,
         diffSummary: `${shard.title} patch`,
         requiredVerifiers: shard.requiredVerifiers,
-        dependencyShardIds: shard.dependencyShardIds
+        dependencyShardIds: shard.dependencyShardIds,
+        metadata: {
+          assignmentContract: shard.metadata?.assignmentContract || null
+        }
       }));
     }
 
@@ -873,6 +971,8 @@ function collectRecordedVerifierResult(resultPath, verifierName) {
     durationMs: recorded.durationMs || 0,
     stdout: recorded.stdout || '',
     stderr: recorded.stderr || '',
+    skipped: recorded.skipped === true,
+    reason: recorded.reason || null,
     resultPath
   };
 }
@@ -881,7 +981,90 @@ export function createRecordedVerifierMap() {
   return {
     tests: async (patch) => collectRecordedVerifierResult(patch.metadata?.resultPath, 'tests'),
     lint: async (patch) => collectRecordedVerifierResult(patch.metadata?.resultPath, 'lint'),
+    imports: async (patch) => collectRecordedVerifierResult(patch.metadata?.resultPath, 'imports'),
     smoke: async (patch) => collectRecordedVerifierResult(patch.metadata?.resultPath, 'smoke')
+  };
+}
+
+function evaluatePatchAdmission(patch, verifierResults = [], { allowProductOnlyVerifierSkip = false } = {}) {
+  const assignmentContract = normalizeAssignmentContract(patch.metadata?.assignmentContract || {}, {
+    artifactKind: patch.filePaths?.length ? 'product_diff' : 'verification_evidence',
+    targetFiles: patch.filePaths || [],
+    verifierRequirements: patch.requiredVerifiers || [],
+    successPredicate: patch.metadata?.contextPack?.acceptanceChecks || []
+  });
+  const grounded = validateGroundedAssignmentContract(assignmentContract);
+  if (!grounded.ok) {
+    return {
+      ok: false,
+      category: 'planner_failure',
+      reason: 'ungrounded_assignment_contract',
+      details: {
+        failures: grounded.failures,
+        assignmentContract
+      }
+    };
+  }
+
+  const modifiedFiles = stableList(patch.metadata?.implementation?.modifiedFiles || patch.filePaths || []);
+  const touchedTargetFiles = assignmentContract.targetFiles.length === 0
+    ? modifiedFiles
+    : modifiedFiles.filter((filePath) => assignmentContract.targetFiles.some((targetPath) => overlapsArea(filePath, targetPath)));
+  const outOfScopeFiles = assignmentContract.targetFiles.length === 0
+    ? []
+    : modifiedFiles.filter((filePath) => !assignmentContract.targetFiles.some((targetPath) => overlapsArea(filePath, targetPath)));
+  const nonSkippedVerifierPass = verifierResults.some((result) => result?.ok !== false && result?.skipped !== true);
+  const productOnlyVerifierSkip = verifierResults.some((result) => result?.ok !== false && result?.skipped === true && result?.reason === 'product_only_mode');
+  const productOnlySkipAllowed = Boolean(allowProductOnlyVerifierSkip || patch.metadata?.allowProductOnlyVerifierSkip === true || patch.metadata?.contextPack?.guardrails?.allowProductOnlyVerifierSkip === true);
+  const admissibleVerifierEvidence = nonSkippedVerifierPass
+    || (assignmentContract.artifactKind === 'product_diff' && touchedTargetFiles.length > 0 && productOnlyVerifierSkip && productOnlySkipAllowed);
+
+  if (assignmentContract.artifactKind === 'product_diff') {
+    if (modifiedFiles.length === 0) {
+      return {
+        ok: false,
+        category: 'no_op',
+        reason: 'zero_modified_files',
+        details: { assignmentContract, modifiedFiles }
+      };
+    }
+    if (touchedTargetFiles.length === 0) {
+      return {
+        ok: false,
+        category: 'planner_failure',
+        reason: 'out_of_scope_modified_files',
+        details: { assignmentContract, modifiedFiles, outOfScopeFiles }
+      };
+    }
+    if (!admissibleVerifierEvidence) {
+      return {
+        ok: false,
+        category: 'no_op',
+        reason: 'no_non_skipped_verifier_evidence',
+        details: { assignmentContract, modifiedFiles, verifierResults, productOnlyVerifierSkip, productOnlySkipAllowed }
+      };
+    }
+  } else if (!nonSkippedVerifierPass) {
+    return {
+      ok: false,
+      category: 'no_op',
+      reason: 'no_non_skipped_verifier_evidence',
+      details: { assignmentContract, verifierResults }
+    };
+  }
+
+  return {
+    ok: true,
+    details: {
+      assignmentContract,
+      modifiedFiles,
+      touchedTargetFiles,
+      outOfScopeFiles,
+      nonSkippedVerifierPass,
+      productOnlyVerifierSkip,
+      productOnlySkipAllowed,
+      admissibleVerifierEvidence
+    }
   };
 }
 
@@ -1012,7 +1195,9 @@ export async function runLiveWorkerFarm({
   failureInjections = [],
   globalInputs = {},
   verifyFns = createRecordedVerifierMap(),
-  executionMode = 'live_multiprocess_worker_farm'
+  executionMode = 'live_multiprocess_worker_farm',
+  campaignContract = null,
+  allowProductOnlyVerifierSkip = false
 }) {
   const shardPlan = buildShardPlan({ workGraph, surfaceMatrix, options: plannerOptions });
   const frontier = summarizeShardFrontier(shardPlan.shards);
@@ -1020,9 +1205,42 @@ export async function runLiveWorkerFarm({
   let leaseState = createLeaseState({ defaultTtlMs: leaseTtlMs });
   let artifactBus = createArtifactBus({ rootPath: runRoot });
   let patchQueue = createPatchQueue();
-  const contextPacks = compileContextPacks({ contract: { requestedFidelity: 'production_slice', requestedScope: ['live-worker-qualification'], targetPath: workGraph.targetPath || workspacePath }, shardPlan, surfaceMatrix, artifactBus, globalInputs });
+  const effectiveCampaignContract = {
+    requestedFidelity: campaignContract?.fidelity || campaignContract?.requestedFidelity || 'production_slice',
+    requestedScope: campaignContract?.requestedScope
+      || (Array.isArray(campaignContract?.scope?.surfaces) ? campaignContract.scope.surfaces.map((surface) => surface.id).filter(Boolean) : null)
+      || ['live-worker-qualification'],
+    targetPath: campaignContract?.targetPath || campaignContract?.repoPath || workGraph.targetPath || workspacePath
+  };
+  const contextPacks = compileContextPacks({ contract: effectiveCampaignContract, shardPlan, surfaceMatrix, artifactBus, globalInputs });
   const packByShardId = new Map(contextPacks.map((pack) => [pack.shard.id, pack]));
   const shardById = new Map(shardPlan.shards.map((shard) => [shard.id, shard]));
+  const groundingFailures = shardPlan.shards
+    .map((shard) => {
+      const assignmentContract = normalizeAssignmentContract(shard.metadata?.assignmentContract || {}, {
+        artifactKind: 'verification_evidence',
+        targetFiles: shard.allowedFiles || [],
+        targetModules: shard.fileAreas || [],
+        verifierRequirements: shard.requiredVerifiers || [],
+        successPredicate: shard.acceptanceChecks || []
+      });
+      const grounded = validateGroundedAssignmentContract(assignmentContract);
+      if (grounded.ok) return null;
+      return {
+        type: 'planner_failure',
+        shardId: shard.id,
+        reason: 'ungrounded_assignment_contract',
+        failures: grounded.failures,
+        assignmentContract
+      };
+    })
+    .filter(Boolean);
+  saveJson(path.join(runRoot, 'assignment_contract_audit.json'), {
+    generatedAt: new Date().toISOString(),
+    shardCount: shardPlan.shards.length,
+    invalidShardCount: groundingFailures.length,
+    invalidShards: groundingFailures
+  });
   const injectionMap = normalizeFailureInjections(failureInjections);
   const agents = Array.from({ length: agentCount }, (_, index) => `agent-${index + 1}`);
   const activeWorkers = new Map();
@@ -1048,6 +1266,47 @@ export async function runLiveWorkerFarm({
 
   function mergedShardIds() {
     return new Set((patchQueue.merged || []).map((artifact) => artifact.shardId));
+  }
+
+  if (groundingFailures.length > 0) {
+    const supervisor = compileSupervisorSnapshot({ shardPlan, leaseState, patchQueue, artifactBus, blockers: groundingFailures, now: Date.now() });
+    const summary = {
+      generatedAt: new Date().toISOString(),
+      executionMode,
+      agentCount,
+      shardCount: shardPlan.shards.length,
+      frontier,
+      mergedShardCount: 0,
+      elapsedMs: 0,
+      metrics: {
+        ...metrics,
+        maxAttemptsPerTask,
+        failedShards: [],
+        plannerFailures: groundingFailures,
+        stateLossEvents: 0,
+        continuityFailures: []
+      }
+    };
+    saveJson(path.join(runRoot, 'summary.json'), summary);
+    saveJson(path.join(runRoot, 'worker_events.json'), workerEvents);
+    saveJson(path.join(runRoot, 'lease_state.json'), leaseState);
+    saveJson(path.join(runRoot, 'patch_queue.json'), patchQueue);
+    saveJson(path.join(runRoot, 'artifact_bus.json'), artifactBus);
+    saveJson(path.join(runRoot, 'supervisor.json'), supervisor);
+    return {
+      ok: false,
+      executionMode,
+      agentCount,
+      shardPlan,
+      frontier,
+      summary,
+      supervisor,
+      metrics: summary.metrics,
+      leaseState,
+      patchQueue,
+      artifactBus,
+      runRoot
+    };
   }
 
   function clearWorker(agentId) {
@@ -1101,7 +1360,7 @@ export async function runLiveWorkerFarm({
     artifactBus = publishResult.bus;
     metrics.shardOutputCount += 1;
     leaseState = releaseLease(leaseState, { leaseId: info.leaseId, agentId, reason: 'completed' }).state;
-    const changedFiles = stableList(result?.implementation?.modifiedFiles || shardById.get(info.shardId)?.allowedFiles || shardById.get(info.shardId)?.fileAreas || []);
+    const changedFiles = stableList(result?.implementation?.modifiedFiles || []);
     patchQueue = enqueuePatch(patchQueue, createPatchArtifact({
       shardId: info.shardId,
       taskId: info.shardId,
@@ -1114,7 +1373,9 @@ export async function runLiveWorkerFarm({
         executionMode,
         resultPath: info.resultPath,
         implementation: result.implementation || null,
-        verifierResults: result.verifierResults || []
+        verifierResults: result.verifierResults || [],
+        assignmentContract: shardById.get(info.shardId)?.metadata?.assignmentContract || null,
+        contextPack: packByShardId.get(info.shardId) || null
       }
     }));
     recordWorkerEvent({ type: 'live_worker_exit', shardId: info.shardId, agentId, leaseId: info.leaseId, exitCode: info.exitCode, signalCode: info.signalCode, ok: true, resultPath: info.resultPath });
@@ -1244,7 +1505,7 @@ export async function runLiveWorkerFarm({
       recordWorkerEvent({ type: 'live_worker_spawned', shardId: shard.id, agentId, leaseId: acquisition.lease.leaseId, attempt: acquisition.lease.attempt, failureInjection });
     }
 
-    const queueResult = await processPatchQueue(patchQueue, { leaseState, verifyFns, completedShardIds: [...merged] });
+    const queueResult = await processPatchQueue(patchQueue, { leaseState, verifyFns, completedShardIds: [...merged], allowProductOnlyVerifierSkip });
     patchQueue = queueResult.queue;
     for (const decision of queueResult.decisions.filter((entry) => entry.status === 'merged')) {
       const patch = patchQueue.merged.find((entry) => entry.id === decision.patchId);

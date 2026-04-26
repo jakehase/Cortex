@@ -1,0 +1,28 @@
+{
+  "name": "large-project-capability-stack",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "qualification": "node apps/qualification/run.mjs",
+    "qualification:supervisor": "node apps/qualification/supervisor.mjs",
+    "qualification:watch": "node apps/qualification/watch.mjs",
+    "qualification:notify": "node apps/qualification/notify-once.mjs",
+    "qualification:orchestrator": "node apps/orchestrator-qualification/run.mjs",
+    "qualification:orchestrator:supervisor": "node apps/orchestrator-qualification/supervisor.mjs",
+    "qualification:orchestrator:watch": "node apps/orchestrator-qualification/watch.mjs",
+    "qualification:orchestrator:notify": "node apps/orchestrator-qualification/notify-once.mjs",
+    "qualification:path": "node apps/full-clone-path/run.mjs",
+    "qualification:path:supervisor": "node apps/full-clone-path/supervisor.mjs",
+    "qualification:path:watch": "node apps/full-clone-path/watch.mjs",
+    "qualification:path:notify": "node apps/full-clone-path/notify-once.mjs",
+    "benchmark:cortex-vs-clawhip:live": "node apps/cortex-vs-clawhip-live/run.mjs",
+    "benchmark:cortex-vs-clawhip:live:supervisor": "node apps/cortex-vs-clawhip-live/supervisor.mjs",
+    "benchmark:transfer:init": "node apps/system-benchmark/init-transfer-benchmark.mjs",
+    "benchmark:transfer:run": "node apps/system-benchmark/run-transfer-benchmark.mjs",
+    "benchmark:transfer:orchestrate": "node apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs",
+    "benchmark:scoreboard:update": "node apps/system-benchmark/update-scoreboard.mjs",
+    "architecture:check": "node apps/stack-cli.mjs architecture check ."
+  }
+}

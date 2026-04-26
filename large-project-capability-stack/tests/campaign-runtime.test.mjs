@@ -3,97 +3,134 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import {
-  archiveArtifactRoots,
+  deriveCampaignContinuation,
+  deriveProgramDecision,
   initializeCampaign,
-  setSupervisor,
-  watchCampaign,
-  watchCampaignReadiness,
-  loadCampaign,
-  claimWorkerIteration,
-  completeWorkerIteration,
+  readJson,
   runDelegatedCampaignWorker,
-  writeJson
+  setSupervisor,
+  shouldFinalizeRemoteExecutionMonitor
 } from '../packages/campaign-runtime/index.mjs';
 
-const execFileAsync = promisify(execFile);
-
-test('persistent campaign does not stop while supervisor red without blocker', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campaign-runtime-'));
-  const statePath = path.join(dir, 'campaign.json');
-  initializeCampaign(statePath, {});
-  setSupervisor(statePath, { status: 'red', matrixStatus: 'partial' });
-  await assert.rejects(() => watchCampaign(statePath, { timeoutMs: 150, intervalMs: 50 }), /Timed out/);
-});
-
-test('red supervisor without blocker explicitly requeues the worker', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campaign-runtime-requeue-'));
-  const statePath = path.join(dir, 'campaign.json');
-  initializeCampaign(statePath, {});
-  claimWorkerIteration(statePath, { claimedBy: 'test-worker' });
-  completeWorkerIteration(statePath, { ok: true, note: 'first pass complete' });
-  const state = setSupervisor(statePath, { status: 'red', matrixStatus: 'partial', note: 'still more surfaces to cover' });
-  assert.equal(state.stopAllowed, false);
-  assert.equal(state.done, false);
-  assert.equal(state.worker.shouldRequeue, true);
-  assert.equal(state.worker.queuedIterations.length, 1);
-  assert.equal(state.worker.requeueCount, 1);
-});
-
-test('worker supervisor notifier demo scripts produce a green closeout', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campaign-demo-'));
-  const env = { ...process.env, LP_STACK_ARTIFACT_ROOT: dir, DEMO_TIMEOUT_MS: '1000' };
-  await execFileAsync('node', ['apps/campaign-demo/worker.mjs'], { cwd: path.resolve(new URL('..', import.meta.url).pathname), env });
-  await execFileAsync('node', ['apps/campaign-demo/supervisor.mjs'], { cwd: path.resolve(new URL('..', import.meta.url).pathname), env });
-  await execFileAsync('node', ['apps/campaign-demo/notifier.mjs'], { cwd: path.resolve(new URL('..', import.meta.url).pathname), env });
-  const state = loadCampaign(path.join(dir, 'campaign_state.json'));
-  assert.equal(state.supervisor.status, 'green');
-  assert.equal(state.notifier.delivered, true);
-});
-
-test('archiveArtifactRoots snapshots prior artifact trees into a rerun archive', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campaign-archive-'));
-  fs.mkdirSync(path.join(dir, 'artifacts', 'alpha'), { recursive: true });
-  fs.mkdirSync(path.join(dir, 'artifacts', 'beta'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'artifacts', 'alpha', 'state.json'), '{"ok":true}\n');
-  fs.writeFileSync(path.join(dir, 'artifacts', 'beta', 'state.json'), '{"ok":false}\n');
-
-  const archived = archiveArtifactRoots({
-    repoRoot: dir,
-    archiveBaseDir: path.join('artifacts', 'reruns'),
-    artifactRoots: [path.join('artifacts', 'alpha'), path.join('artifacts', 'beta')],
-    stamp: 'test-run'
+test('campaign continuation treats retryable orchestration blockers as continue-next-iteration', () => {
+  const decision = deriveCampaignContinuation({
+    blocker: 'Partial parity-surface reduction was proven, but remaining red surfaces are still open.',
+    blockerKind: 'orchestration',
+    nextFocus: ['focus.alpha', 'focus.beta']
   });
-
-  assert.equal(archived.archived.length, 2);
-  assert.equal(fs.existsSync(path.join(dir, 'artifacts', 'reruns', 'test-run', 'alpha', 'state.json')), true);
-  assert.equal(fs.existsSync(path.join(dir, 'artifacts', 'reruns', 'test-run', 'beta', 'state.json')), true);
+  assert.equal(decision.blockerSemantics, 'retryable');
+  assert.equal(decision.decision, 'continue_next_iteration');
+  assert.equal(decision.shouldContinue, true);
 });
 
-test('runDelegatedCampaignWorker mirrors delegate status and watchCampaignReadiness fires notifier', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'campaign-delegate-'));
-  const artifactRoot = path.join(dir, 'artifacts', 'demo');
+test('campaign continuation treats strict claim blockers with no remaining focus as stop-claim-blocked', () => {
+  const decision = deriveCampaignContinuation({
+    blocker: 'Strict 1:1 parity ceiling is still red.',
+    blockerKind: 'strict_1to1_ceiling',
+    nextFocus: []
+  });
+  assert.equal(decision.blockerSemantics, 'claim_blocked');
+  assert.equal(decision.decision, 'stop_claim_blocked');
+  assert.equal(decision.shouldStop, true);
+});
+
+test('campaign continuation prefers stop-green when completion is proven', () => {
+  const decision = deriveCampaignContinuation({
+    green: true,
+    blocker: null,
+    blockerKind: null,
+    nextFocus: []
+  });
+  assert.equal(decision.decision, 'stop_green');
+});
+
+test('remote execution monitor does not finalize while remote status is still running', () => {
+  const decision = shouldFinalizeRemoteExecutionMonitor({
+    remoteExecutionStatus: { running: true },
+    mirroredTerminal: { terminal: true, blocked: true }
+  });
+  assert.equal(decision.finalize, false);
+  assert.equal(decision.reason, 'remote_running');
+});
+
+test('remote execution monitor finalizes once remote status stops and mirrored terminal exists', () => {
+  const decision = shouldFinalizeRemoteExecutionMonitor({
+    remoteExecutionStatus: { running: false },
+    mirroredTerminal: { terminal: true, blocked: true }
+  });
+  assert.equal(decision.finalize, true);
+});
+
+test('remote execution monitor does not finalize when the remote status stopped but remote processes are still alive', () => {
+  const decision = shouldFinalizeRemoteExecutionMonitor({
+    remoteExecutionStatus: { running: false, childPid: 1234 },
+    mirroredTerminal: { terminal: false },
+    launcherAlive: true,
+    runnerAlive: true
+  });
+  assert.equal(decision.finalize, false);
+  assert.equal(decision.reason, 'remote_process_still_alive');
+});
+
+test('program decision keeps a persistent campaign alive when continuation says continue-next-iteration', () => {
+  const decision = deriveProgramDecision({
+    mode: 'persistent',
+    supervisor: {
+      status: 'red',
+      blocker: { blocker: 'Partial parity-surface reduction was proven, but remaining red surfaces are still open.' },
+      blockerKind: 'orchestration'
+    },
+    nextFocus: ['focus.alpha']
+  });
+  assert.equal(decision.continuation.decision, 'continue_next_iteration');
+  assert.equal(decision.stopAllowed, false);
+  assert.equal(decision.shouldRequeue, true);
+});
+
+test('setSupervisor persists shared continuation metadata on the canonical program state', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'campaign-runtime-'));
+  const statePath = path.join(tmpDir, 'program_state.json');
+  initializeCampaign(statePath, { mode: 'persistent' });
+  setSupervisor(statePath, {
+    status: 'red',
+    blocker: { blocker: 'Strict 1:1 parity ceiling is still red.' },
+    blockerKind: 'strict_1to1_ceiling',
+    matrixStatus: 'partial',
+    parityStatus: 'blocked',
+    nextFocus: []
+  });
+  const state = readJson(statePath, null);
+  assert.equal(state.supervisor.continuationDecision, 'stop_claim_blocked');
+  assert.equal(state.supervisor.continuation.decision, 'stop_claim_blocked');
+  assert.equal(state.stopReason, 'supervisor_claim_blocked');
+  assert.equal(state.stopAllowed, true);
+});
+
+test('delegated campaign worker preserves legacy role/phase fields and transport readiness semantics', async () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'campaign-runtime-delegate-'));
+  const artifactRoot = path.join(tmpDir, 'artifacts');
   const reportsDir = path.join(artifactRoot, 'reports');
   const workerStatePath = path.join(artifactRoot, 'worker_state.json');
-  const logPath = path.join(reportsDir, 'worker.log');
-  const statusMirrorPath = path.join(reportsDir, 'status.json');
-  const delegateArtifactRoot = path.join(dir, 'artifacts', 'delegate');
+  const statusMirrorPath = path.join(artifactRoot, 'status_mirror.json');
+  const logPath = path.join(artifactRoot, 'delegate.log');
+  const delegateArtifactRoot = path.join(tmpDir, 'delegate-artifacts');
+  const delegateCompletionSummaryPath = path.join(delegateArtifactRoot, 'completion_summary.json');
+  const delegateBlockerPath = path.join(delegateArtifactRoot, 'blocker_report.json');
+  const delegateProgramStatePath = path.join(delegateArtifactRoot, 'program_state.json');
+  const transportStatusPath = path.join(artifactRoot, 'transport_status.json');
+  const delegateScript = path.join(tmpDir, 'delegate.mjs');
+
   fs.mkdirSync(delegateArtifactRoot, { recursive: true });
-  const delegateScript = path.join(dir, 'delegate.mjs');
   fs.writeFileSync(delegateScript, `
-import { mkdirSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-const root = ${JSON.stringify(delegateArtifactRoot)};
-mkdirSync(root, { recursive: true });
-writeFileSync(path.join(root, 'completion_summary.json'), JSON.stringify({ supervisorConfirmedCompletion: true }, null, 2));
-writeFileSync(path.join(root, 'program_state.json'), JSON.stringify({ supervisorStatus: 'green' }, null, 2));
-console.log('delegate ok');
+import fs from 'node:fs';
+fs.mkdirSync(${JSON.stringify(delegateArtifactRoot)}, { recursive: true });
+fs.writeFileSync(${JSON.stringify(delegateProgramStatePath)}, JSON.stringify({ running: false, status: 'green' }, null, 2));
+fs.writeFileSync(${JSON.stringify(delegateCompletionSummaryPath)}, JSON.stringify({ ok: true }, null, 2));
 `);
 
-  const worker = runDelegatedCampaignWorker({
-    repoRoot: dir,
+  const result = await runDelegatedCampaignWorker({
+    repoRoot: tmpDir,
     artifactRoot,
     reportsDir,
     workerStatePath,
@@ -101,37 +138,32 @@ console.log('delegate ok');
     statusMirrorPath,
     delegateScript,
     delegateArtifactRoot,
-    delegateCompletionSummaryPath: path.join(delegateArtifactRoot, 'completion_summary.json'),
-    delegateProgramStatePath: path.join(delegateArtifactRoot, 'program_state.json'),
-    delegateBlockerPath: path.join(delegateArtifactRoot, 'blocker_report.json')
+    delegateCompletionSummaryPath,
+    delegateBlockerPath,
+    delegateProgramStatePath,
+    role: 'real_repo_100_agent_orchestrator',
+    phase: 'delegated_to_100_agent_path',
+    transportStatus: {
+      threadBinding: { active: true },
+      active: {
+        threadBindingReadiness: true,
+        externalClawhipRuntimeActive: false
+      }
+    },
+    transportStatusPath,
+    heartbeatMs: 10,
+    stallTimeoutMs: 1000
   });
-  assert.equal(worker.ok, true);
-  const workerState = JSON.parse(fs.readFileSync(workerStatePath, 'utf8'));
-  assert.equal(workerState.status, 'delegate_finished');
 
-  const programStatePath = path.join(artifactRoot, 'program_state.json');
-  const summaryPath = path.join(artifactRoot, 'completion_summary.json');
-  const notifyPath = path.join(artifactRoot, 'notification_state.json');
-  const notifyScript = path.join(dir, 'notify.mjs');
-  writeJson(programStatePath, {
-    stopAllowed: true,
-    supervisor: { status: 'green' }
-  });
-  writeJson(summaryPath, { supervisorConfirmedCompletion: true });
-  writeJson(notifyPath, { awaitingNotifier: true, delivered: false });
-  fs.writeFileSync(notifyScript, `
-import { writeFileSync } from 'node:fs';
-writeFileSync(${JSON.stringify(notifyPath)}, JSON.stringify({ awaitingNotifier: true, delivered: true }, null, 2));
-`);
-
-  const watched = watchCampaignReadiness({
-    programStatePath,
-    summaryPath,
-    notifyStatePath: notifyPath,
-    cwd: dir,
-    notifyArgs: [notifyScript]
-  });
-  assert.equal(watched.ready, true);
-  const notification = JSON.parse(fs.readFileSync(notifyPath, 'utf8'));
-  assert.equal(notification.delivered, true);
+  assert.equal(result.ok, true);
+  const workerState = readJson(workerStatePath, null);
+  const statusMirror = readJson(statusMirrorPath, null);
+  assert.equal(workerState.role, 'real_repo_100_agent_orchestrator');
+  assert.equal(workerState.phase, 'delegated_to_100_agent_path');
+  assert.equal(workerState.threadBindingReady, true);
+  assert.equal(workerState.externalClawhipRuntimeActive, false);
+  assert.equal(statusMirror.role, 'real_repo_100_agent_orchestrator');
+  assert.equal(statusMirror.phase, 'delegated_to_100_agent_path');
+  assert.equal(statusMirror.threadBindingReady, true);
+  assert.equal(statusMirror.externalClawhipRuntimeActive, false);
 });

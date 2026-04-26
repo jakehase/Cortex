@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "claw.agent_benchmark_run_contract.v1",
+  "generatedAt": "replace-with-iso-timestamp",
+  "benchmarkId": "replace_me_benchmark",
+  "benchmarkTier": "tier1_smoke",
+  "benchmarkClass": "brownfield_product_transfer",
+  "fidelity": "production_slice",
+  "scope": {
+    "durationTargetMinutes": 60,
+    "surfaces": [
+      {
+        "id": "replace_me_surface",
+        "label": "Replace me surface",
+        "allowedFiles": [
+          "src/replace-me.mjs"
+        ],
+        "verification": [
+          "node --test tests/replace-me.test.mjs"
+        ]
+      }
+    ],
+    "stopCondition": "supervisor_green_or_blocker_report"
+  },
+  "repoPath": "/absolute/path/to/repo",
+  "verifierSet": [
+    {
+      "kind": "node_script",
+      "command": "node --test tests/replace-me.test.mjs"
+    }
+  ],
+  "requestedAgentCount": 10,
+  "executionBoundary": "remote_execution_required",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "scoreboardPath": "artifacts/benchmarks/scoreboard.json",
+  "runId": "replace-me-run-id",
+  "artifactRoot": "artifacts/benchmarks/replace_me_benchmark/replace-me-run-id",
+  "notes": "Fill in benchmark-specific scope, verifier, and execution details.",
+  "replyAnchor": "Replace with the user request or benchmark charter."
+}

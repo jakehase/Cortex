@@ -1,0 +1,542 @@
+{
+  "version": 1,
+  "surfaces": {
+    "apps/system-benchmark/init-transfer-benchmark.mjs": {
+      "label": "PMHNP transfer benchmark preset bootstrapper",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/live-transfer-verifier.mjs": {
+      "label": "Transfer benchmark live verifier wrapper",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs": {
+      "label": "Transfer orchestrator benchmark runner",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/multi-agent-orchestrator/index.mjs": {
+      "label": "Multi-agent orchestrator supervisor and live worker farm",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/verify-pmhnp-functional-scenario.mjs": {
+      "label": "PMHNP functional scenario endurance verifier",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/system-benchmark/index.mjs": {
+      "label": "System benchmark duration and autonomy helpers",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/campaign-demo/notifier.mjs": {
+      "label": "Apps Campaign Demo Notifier",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/campaign-demo/supervisor.mjs": {
+      "label": "Apps Campaign Demo Supervisor",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/campaign-demo/worker.mjs": {
+      "label": "Apps Campaign Demo Worker",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/code-value-audit/run.mjs": {
+      "label": "Apps Code Value Audit Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/notify-once.mjs": {
+      "label": "Apps Full Clone Path Notify Once",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/plan.mjs": {
+      "label": "Apps Full Clone Path Plan",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/run.mjs": {
+      "label": "Apps Full Clone Path Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/supervisor.mjs": {
+      "label": "Apps Full Clone Path Supervisor",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/full-clone-path/watch.mjs": {
+      "label": "Apps Full Clone Path Watch",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/fixture-verifier.mjs": {
+      "label": "Apps Orchestrator Qualification Fixture Verifier",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/fixture-workspace.mjs": {
+      "label": "Apps Orchestrator Qualification Fixture Workspace",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/notify-once.mjs": {
+      "label": "Apps Orchestrator Qualification Notify Once",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/plan.mjs": {
+      "label": "Apps Orchestrator Qualification Plan",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/run.mjs": {
+      "label": "Apps Orchestrator Qualification Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/supervisor.mjs": {
+      "label": "Apps Orchestrator Qualification Supervisor",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/orchestrator-qualification/watch.mjs": {
+      "label": "Apps Orchestrator Qualification Watch",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/notify-once.mjs": {
+      "label": "Apps Qualification Notify Once",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/plan.mjs": {
+      "label": "Apps Qualification Plan",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/run.mjs": {
+      "label": "Apps Qualification Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/supervisor.mjs": {
+      "label": "Apps Qualification Supervisor",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/qualification/watch.mjs": {
+      "label": "Apps Qualification Watch",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/stack-cli.mjs": {
+      "label": "Apps Stack Cli",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/live-transfer-worker.mjs": {
+      "label": "Apps System Benchmark Live Transfer Worker",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/pmhnp-tier2-scenarios.mjs": {
+      "label": "Apps System Benchmark Pmhnp Tier2 Scenarios",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/render-ground-truth.mjs": {
+      "label": "Apps System Benchmark Render Ground Truth",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/run-transfer-benchmark.mjs": {
+      "label": "Apps System Benchmark Run Transfer Benchmark",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/run.mjs": {
+      "label": "Apps System Benchmark Run",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/update-scoreboard.mjs": {
+      "label": "Apps System Benchmark Update Scoreboard",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/verify-module-load.mjs": {
+      "label": "Apps System Benchmark Verify Module Load",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "apps/system-benchmark/verify-pmhnp-functional-catalog.mjs": {
+      "label": "Apps System Benchmark Verify Pmhnp Functional Catalog",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/campaign-runtime/index.mjs": {
+      "label": "Packages Campaign Runtime Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/certification/index.mjs": {
+      "label": "Packages Certification Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/claim-integrity/index.mjs": {
+      "label": "Packages Claim Integrity Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/code-value-audit/index.mjs": {
+      "label": "Packages Code Value Audit Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/catalogs.mjs": {
+      "label": "Packages Full Clone Path Catalogs",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/evidence.mjs": {
+      "label": "Packages Full Clone Path Evidence",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/gap-analysis.mjs": {
+      "label": "Packages Full Clone Path Gap Analysis",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/index.mjs": {
+      "label": "Packages Full Clone Path Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/roadmap.mjs": {
+      "label": "Packages Full Clone Path Roadmap",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/thresholds.mjs": {
+      "label": "Packages Full Clone Path Thresholds",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/full-clone-path/trajectory.mjs": {
+      "label": "Packages Full Clone Path Trajectory",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/issue-dag/index.mjs": {
+      "label": "Packages Issue Dag Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/parity-harness/index.mjs": {
+      "label": "Packages Parity Harness Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/recovery-ledger/index.mjs": {
+      "label": "Packages Recovery Ledger Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/surface-matrix/index.mjs": {
+      "label": "Packages Surface Matrix Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/task-contract/index.mjs": {
+      "label": "Packages Task Contract Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "npm test"
+        ]
+      },
+      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    }
+  },
+  "policy": {
+    "changedProductFilesMustBeDeclared": true,
+    "allowedChangedStatuses": [
+      "real"
+    ],
+    "requireEvidenceTests": true,
+    "bannedPlaceholderLanguage": [
+      "coming soon",
+      "placeholder",
+      "stub",
+      "mock",
+      "fake",
+      "simulated",
+      "TODO"
+    ],
+    "bootstrapStatus": "declare_me"
+  }
+}

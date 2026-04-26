@@ -121,6 +121,10 @@ test('context pack compiler keeps local scope and dependency artifacts only', ()
   assert.equal(Object.prototype.hasOwnProperty.call(pack.inputs, 'extraSecret'), false);
   assert.equal(pack.dependencies.artifacts.length, 1);
   assert.equal(pack.guardrails.avoidWholeProjectPromptDump, true);
+  assert.equal(pack.assignmentContract.artifactKind, 'verification_evidence');
+  assert.equal(pack.assignmentContract.targetFiles.length, 2);
+  assert.ok(pack.assignmentContract.targetFiles.every((file) => file.startsWith('src/alpha/')));
+  assert.deepEqual(pack.assignmentContract.verifierRequirements, ['lint', 'tests']);
 });
 
 test('patch queue merge gate rejects ownership conflicts and passes clean patches', async () => {
@@ -129,7 +133,21 @@ test('patch queue merge gate rejects ownership conflicts and passes clean patche
   leaseState = acquireLease(leaseState, { taskId: 'conflict-task', agentId: 'agent-9', fileAreas: ['src/conflict'] }, now).state;
   let queue = createPatchQueue();
   queue = enqueuePatch(queue, { shardId: 'bad-shard', filePaths: ['src/conflict/file.mjs'], requiredVerifiers: ['tests'] });
-  queue = enqueuePatch(queue, { shardId: 'good-shard', filePaths: ['src/good/file.mjs'], requiredVerifiers: ['tests', 'lint'] });
+  queue = enqueuePatch(queue, {
+    shardId: 'good-shard',
+    filePaths: ['src/good/file.mjs'],
+    requiredVerifiers: ['tests', 'lint'],
+    metadata: {
+      assignmentContract: {
+        artifactKind: 'product_diff',
+        targetFiles: ['src/good/file.mjs'],
+        targetModules: ['src/good'],
+        verifierRequirements: ['tests', 'lint'],
+        successPredicate: ['modify src/good/file.mjs']
+      },
+      implementation: { modifiedFiles: ['src/good/file.mjs'] }
+    }
+  });
   const processed = await processPatchQueue(queue, {
     leaseState,
     verifyFns: {
@@ -140,6 +158,116 @@ test('patch queue merge gate rejects ownership conflicts and passes clean patche
   assert.equal(processed.queue.rejected.length, 1);
   assert.equal(processed.queue.merged.length, 1);
   assert.equal(processed.queue.merged[0].shardId, 'good-shard');
+});
+
+test('patch queue rejects no-op product diffs and ungrounded assignments', async () => {
+  let queue = createPatchQueue();
+  queue = enqueuePatch(queue, {
+    shardId: 'noop-shard',
+    filePaths: [],
+    requiredVerifiers: ['tests'],
+    metadata: {
+      assignmentContract: {
+        artifactKind: 'product_diff',
+        targetFiles: ['src/feature/file.mjs'],
+        targetModules: ['src/feature'],
+        verifierRequirements: ['tests'],
+        successPredicate: ['modify src/feature/file.mjs']
+      },
+      implementation: { modifiedFiles: [] }
+    }
+  });
+  queue = enqueuePatch(queue, {
+    shardId: 'ungrounded-shard',
+    filePaths: ['src/feature/file.mjs'],
+    requiredVerifiers: ['tests'],
+    metadata: {
+      assignmentContract: {
+        artifactKind: 'product_diff',
+        targetFiles: [],
+        targetModules: [],
+        verifierRequirements: [],
+        successPredicate: []
+      },
+      implementation: { modifiedFiles: ['src/feature/file.mjs'] }
+    }
+  });
+
+  const processed = await processPatchQueue(queue, {
+    verifyFns: {
+      tests: async () => ({ ok: true })
+    }
+  });
+
+  assert.equal(processed.queue.merged.length, 0);
+  assert.equal(processed.queue.rejected.length, 2);
+  assert.equal(processed.queue.rejected[0].rejectionCategory, 'no_op');
+  assert.equal(processed.queue.rejected[0].rejectionReason, 'zero_modified_files');
+  assert.equal(processed.queue.rejected[1].rejectionCategory, 'planner_failure');
+  assert.equal(processed.queue.rejected[1].rejectionReason, 'ungrounded_assignment_contract');
+});
+
+test('patch queue rejects product-only verifier skips unless explicitly allowed', async () => {
+  let queue = createPatchQueue();
+  queue = enqueuePatch(queue, {
+    shardId: 'product-only-shard',
+    filePaths: ['src/feature/file.mjs'],
+    requiredVerifiers: ['tests'],
+    metadata: {
+      assignmentContract: {
+        artifactKind: 'product_diff',
+        targetFiles: ['src/feature/file.mjs'],
+        targetModules: ['src/feature'],
+        verifierRequirements: ['tests'],
+        successPredicate: ['modify src/feature/file.mjs']
+      },
+      implementation: { modifiedFiles: ['src/feature/file.mjs'] }
+    }
+  });
+
+  const processed = await processPatchQueue(queue, {
+    verifyFns: {
+      tests: async () => ({ ok: true, skipped: true, reason: 'product_only_mode' })
+    }
+  });
+
+  assert.equal(processed.queue.merged.length, 0);
+  assert.equal(processed.queue.rejected.length, 1);
+  assert.equal(processed.queue.rejected[0].rejectionReason, 'no_non_skipped_verifier_evidence');
+  assert.equal(processed.queue.rejected[0].admissionAudit.productOnlySkipAllowed, false);
+});
+
+test('patch queue admits product diffs with real scoped changes when product-only skips are explicitly allowed', async () => {
+  let queue = createPatchQueue();
+  queue = enqueuePatch(queue, {
+    shardId: 'product-only-shard',
+    filePaths: ['src/feature/file.mjs'],
+    requiredVerifiers: ['tests'],
+    metadata: {
+      allowProductOnlyVerifierSkip: true,
+      assignmentContract: {
+        artifactKind: 'product_diff',
+        targetFiles: ['src/feature/file.mjs'],
+        targetModules: ['src/feature'],
+        verifierRequirements: ['tests'],
+        successPredicate: ['modify src/feature/file.mjs']
+      },
+      implementation: { modifiedFiles: ['src/feature/file.mjs'] }
+    }
+  });
+
+  const processed = await processPatchQueue(queue, {
+    verifyFns: {
+      tests: async () => ({ ok: true, skipped: true, reason: 'product_only_mode' })
+    }
+  });
+
+  assert.equal(processed.queue.rejected.length, 0);
+  assert.equal(processed.queue.merged.length, 1);
+  assert.equal(processed.queue.merged[0].shardId, 'product-only-shard');
+  assert.equal(processed.queue.merged[0].admissionAudit.admissibleVerifierEvidence, true);
+  assert.equal(processed.queue.merged[0].admissionAudit.productOnlyVerifierSkip, true);
+  assert.equal(processed.queue.merged[0].admissionAudit.productOnlySkipAllowed, true);
 });
 
 test('hierarchical supervision aggregates lane/domain state and escalations', () => {
@@ -154,6 +282,19 @@ test('hierarchical supervision aggregates lane/domain state and escalations', ()
   assert.equal(snapshot.lanes.find((lane) => lane.id === 'backend').status, 'green');
   assert.equal(snapshot.lanes.find((lane) => lane.id === 'frontend').status, 'red');
   assert.ok(snapshot.escalations.some((entry) => entry.shardId === 'alpha#3'));
+});
+
+test('hierarchical supervision clears rejected patch escalations once the same shard later merges', () => {
+  const { workGraph, surfaceMatrix } = sampleGraph();
+  const plan = buildShardPlan({ workGraph, surfaceMatrix, options: { maxFileAreasPerShard: 2, maxFilesPerShard: 2 } });
+  let queue = createPatchQueue();
+  queue.rejected.push({ id: 'patch-alpha-old', shardId: 'alpha#1', filePaths: ['src/alpha/index.mjs'] });
+  queue.merged.push({ id: 'patch-alpha-new', shardId: 'alpha#1', filePaths: ['src/alpha/index.mjs'] });
+  const snapshot = compileSupervisorSnapshot({ shardPlan: plan, patchQueue: queue, now: 500 });
+  assert.equal(snapshot.topLevel.status, 'amber');
+  assert.equal(snapshot.escalationCount, 0);
+  assert.equal(snapshot.shards.find((shard) => shard.id === 'alpha#1').status, 'green');
+  assert.ok(!snapshot.escalations.some((entry) => entry.patchId === 'patch-alpha-old'));
 });
 
 test('scale simulation completes with recovery and no state loss', async () => {
