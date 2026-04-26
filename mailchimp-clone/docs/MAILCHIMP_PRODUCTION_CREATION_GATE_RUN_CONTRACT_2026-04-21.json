@@ -1,0 +1,231 @@
+{
+  "schemaVersion": "claw.agent_benchmark_run_contract.v1",
+  "generatedAt": "2026-04-21T10:39:00-05:00",
+  "benchmarkId": "mailchimp_production_creation_gate",
+  "benchmarkTier": "tier2_production_creation_gate",
+  "benchmarkClass": "mailchimp_parity_long_run_stress",
+  "fidelity": "parity_for_scope",
+  "scope": {
+    "durationTargetMinutes": 120,
+    "surfaces": [
+      {
+        "id": "frontend_client_shell_state",
+        "label": "Frontend shell gains richer client interaction and state realism",
+        "lane": "frontend_interaction_parity",
+        "allowedFiles": [
+          "apps/web/server.mjs",
+          "packages/app/view.mjs",
+          "packages/app/routes/platform.mjs"
+        ],
+        "verification": [
+          "node --test tests/current-product-browser-realism.test.mjs"
+        ]
+      },
+      {
+        "id": "website_builder_editor_realism",
+        "label": "Website builder moves toward real editor interactions",
+        "lane": "website_builder_parity",
+        "allowedFiles": [
+          "packages/app/routes/website-builder.mjs",
+          "packages/app/domain-website-builder.mjs",
+          "packages/app/view.mjs"
+        ],
+        "verification": [
+          "node --test tests/current-product-parity.test.mjs",
+          "node --test tests/current-product-browser-realism.test.mjs"
+        ]
+      },
+      {
+        "id": "campaign_editor_template_workflows",
+        "label": "Campaign editor depth improves through template variants and approvals",
+        "lane": "campaign_editor_parity",
+        "allowedFiles": [
+          "packages/template-variants/domain-template-variants.mjs",
+          "packages/template-variants/routes/template-variants-dashboard.mjs",
+          "packages/template-approvals/domain-template-approvals.mjs",
+          "packages/template-approvals/routes/template-approvals-dashboard.mjs"
+        ],
+        "verification": [
+          "node --test tests/campaign-editor-depth.test.mjs",
+          "node --test tests/template-variants-routes.test.mjs",
+          "node --test tests/template-approvals-routes.test.mjs"
+        ]
+      },
+      {
+        "id": "automation_journey_execution",
+        "label": "Automation runtime gains real journey execution depth",
+        "lane": "automation_journey_parity",
+        "allowedFiles": [
+          "packages/app/routes/automations.mjs",
+          "packages/app/domain-campaigns.mjs"
+        ],
+        "verification": [
+          "node --test tests/automation-journeys.test.mjs"
+        ]
+      },
+      {
+        "id": "campaign_ops_calendar_workflow",
+        "label": "Campaign ops and calendar workflow act more like product flows than fixtures",
+        "lane": "automation_journey_parity",
+        "allowedFiles": [
+          "packages/campaign-ops/domain-campaign-ops.mjs",
+          "packages/campaign-ops/service-campaign-ops.mjs",
+          "packages/campaign-calendar/domain-campaign-calendar.mjs",
+          "packages/campaign-calendar/service-campaign-calendar.mjs"
+        ],
+        "verification": [
+          "node --test tests/campaign-ops.test.mjs",
+          "node --test tests/campaign-calendar.test.mjs"
+        ]
+      },
+      {
+        "id": "audience_identity_lifecycle",
+        "label": "Audience identity and lifecycle handling become materially deeper",
+        "lane": "audience_crm_parity",
+        "allowedFiles": [
+          "packages/app/domain-audience.mjs",
+          "packages/app/routes/audience.mjs"
+        ],
+        "verification": [
+          "node --test tests/audience-core.test.mjs",
+          "node --test tests/audience-funnels.test.mjs"
+        ]
+      },
+      {
+        "id": "audience_sync_warehouse",
+        "label": "Audience sync, warehouse, and intelligence paths produce real product movement",
+        "lane": "audience_crm_parity",
+        "allowedFiles": [
+          "packages/audience-sync/service-audience-sync.mjs",
+          "packages/audience-warehouse/service-audience-warehouse.mjs",
+          "packages/audience-intelligence/domain-audience-intelligence.mjs"
+        ],
+        "verification": [
+          "node --test tests/audience-sync.test.mjs",
+          "node --test tests/audience-warehouse.test.mjs",
+          "node --test tests/audience-intelligence.test.mjs"
+        ]
+      },
+      {
+        "id": "reporting_metrics_pipeline",
+        "label": "Reporting and revenue metrics become less synthetic and more pipeline-backed",
+        "lane": "reporting_analytics_parity",
+        "allowedFiles": [
+          "packages/app/domain-commerce-revenue.mjs",
+          "packages/app/routes/reports.mjs",
+          "packages/app/routes/commerce-revenue.mjs"
+        ],
+        "verification": [
+          "node --test tests/reports-admin.test.mjs",
+          "node --test tests/commerce-revenue.test.mjs"
+        ]
+      },
+      {
+        "id": "integration_provider_sync",
+        "label": "Integrations marketplace moves toward real provider-backed sync behavior",
+        "lane": "integration_provider_parity",
+        "allowedFiles": [
+          "packages/app/domain-integration-marketplace.mjs",
+          "packages/app/routes/integrations-marketplace.mjs"
+        ],
+        "verification": [
+          "node --test tests/integrations-marketplace.test.mjs"
+        ]
+      },
+      {
+        "id": "auth_session_security_hardening",
+        "label": "Auth, session, and trust surfaces harden toward production expectations",
+        "lane": "auth_session_security_parity",
+        "allowedFiles": [
+          "packages/app/routes/public.mjs",
+          "packages/trust-automation/domain-trust-automation.mjs",
+          "packages/trust-automation/routes/trust-automation-api.mjs"
+        ],
+        "verification": [
+          "node --test tests/public-marketing.test.mjs",
+          "node --test tests/trust-automation.test.mjs",
+          "node --test tests/trust-automation-routes.test.mjs"
+        ]
+      },
+      {
+        "id": "persistence_jobs_operational_db",
+        "label": "Persistence and job execution move beyond JSON-file and in-process shortcuts",
+        "lane": "persistence_jobs_operational_parity",
+        "allowedFiles": [
+          "packages/app/storage.mjs",
+          "packages/app/jobs.mjs"
+        ],
+        "verification": [
+          "node --test tests/architecture-hardening.test.mjs",
+          "node --test tests/campaign-pipeline.test.mjs"
+        ]
+      },
+      {
+        "id": "ai_predictive_ops_realism",
+        "label": "Current-product AI and ops paths move toward less heuristic behavior",
+        "lane": "ai_predictive_parity",
+        "allowedFiles": [
+          "packages/app/domain-current-product-ops.mjs",
+          "packages/app/routes/current-product-ops.mjs",
+          "packages/app/routes/current-product-parity.mjs"
+        ],
+        "verification": [
+          "node --test tests/current-product-parity.test.mjs",
+          "node --test tests/current-product-browser-realism.test.mjs"
+        ]
+      }
+    ]
+  },
+  "repoPath": "/home/jake/clawd-remote/mailchimp-clone",
+  "controlPlaneRepoPath": "/root/clawd/mailchimp-clone",
+  "surfaceMatrixPath": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_production_creation_gate/prep-20260421-1039/surface_matrix.json",
+  "verifierSet": [
+    {
+      "kind": "node_test_catalog",
+      "command": "node --test tests/current-product-browser-realism.test.mjs tests/current-product-parity.test.mjs tests/campaign-editor-depth.test.mjs tests/automation-journeys.test.mjs tests/audience-core.test.mjs tests/reports-admin.test.mjs tests/integrations-marketplace.test.mjs tests/trust-automation.test.mjs tests/campaign-pipeline.test.mjs",
+      "purpose": "Baseline serial proof that the main counted product journeys still execute before the long run."
+    },
+    {
+      "kind": "browser_proof",
+      "command": "node --test tests/current-product-browser-realism.test.mjs",
+      "purpose": "Require browser-facing realism evidence for editor and frontend claims."
+    }
+  ],
+  "requestedAgentCount": 10,
+  "executionBoundary": "remote_execution_required",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "scoreboardPath": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/scoreboard.json",
+  "runId": "mailchimp-production-creation-gate-20260421-planned",
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign",
+  "remoteArtifactRootPattern": "/home/jake/clawd-remote/mailchimp-runs/<campaignRunId>/artifacts/implementation_runs/<runId>",
+  "launchEnvironment": {
+    "ORCHESTRATOR_REQUESTED_FIDELITY": "parity_for_scope",
+    "ORCHESTRATOR_TIERS": "10",
+    "MAILCHIMP_PARITY_MAX_RUNTIME_HOURS": "3",
+    "MAILCHIMP_PARITY_SOAK_FULL_RUNTIME": "1",
+    "MAILCHIMP_PRODUCT_ONLY": "1",
+    "MAILCHIMP_USE_STRICT_GAP_INVENTORY": "0",
+    "MAILCHIMP_STRICT_GAP_SEQUENCE": "0"
+  },
+  "launchCommand": "ORCHESTRATOR_REQUESTED_FIDELITY=parity_for_scope ORCHESTRATOR_TIERS=10 MAILCHIMP_PARITY_MAX_RUNTIME_HOURS=3 MAILCHIMP_PARITY_SOAK_FULL_RUNTIME=1 MAILCHIMP_PRODUCT_ONLY=1 MAILCHIMP_USE_STRICT_GAP_INVENTORY=0 MAILCHIMP_STRICT_GAP_SEQUENCE=0 node scripts/full-audit-campaign-launch.mjs",
+  "prelaunchGates": {
+    "minimumExecutableProductShards": 10,
+    "minimumFocusLanes": 3,
+    "requireRealFileContracts": true,
+    "requireLocAccounting": true,
+    "requireRemoteExecution": true
+  },
+  "goThresholds": {
+    "minimumAutonomyMinutes": 120,
+    "minimumProductDiffChangedLines": 150,
+    "minimumProductDiffFiles": 8,
+    "minimumDistinctFocusLanes": 3,
+    "minimumDistinctAgentIds": 4,
+    "maximumNoOpRate": 0.2,
+    "maximumRepeatBlockerRate": 0.15,
+    "minimumVerificationIntegrity": 0.95,
+    "truthIntegrityContradictions": 0
+  },
+  "notes": "This contract deliberately replaces live-worker qualification with an actual product-creation gate. Scripts, docs, artifacts, and supervisor-only churn cannot count toward passing. A green run with trivial surviving product diff is a no-go, not a success. The endurance rerun disables strict-gap narrowing and enables full-runtime soak so autonomy is measured across the full campaign instead of a final short cleanup iteration.",
+  "replyAnchor": "Jake asked when actual production creation testing starts. The bound answer was: the next serious Mailchimp run, not another qualification-style pass."
+}
