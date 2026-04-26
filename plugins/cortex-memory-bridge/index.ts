@@ -135,6 +135,15 @@ function queryIsAboutExecutionTrace(query: string): boolean { return /toolcall|s
 function isRecentSummaryQuery(query: string): boolean {
   return /\bwhat changed recently\b|\brecent changes\b|\brecent update\b|\bstatus update\b|\bwhat'?s going on\b|\bhow'?s this going\b|\bwhat happened lately\b|\blately\b/.test(normalizeQuery(query));
 }
+function queryLooksLikePreference(query: string): boolean {
+  return /\bprefer|preference|call me|timezone|pronouns|reply prefix|replies begin with|reply begin with|what should replies begin with|prefix should replies use\b/i.test(query);
+}
+function looksLikePreferenceQuestionEcho(text: string): boolean {
+  return /\bopen loops?:\b|\bwhat did jake ask me\b|\bwhat should replies begin with\b|\bwhat preference does jake\b|\bprefix replies with\b/i.test(text);
+}
+function looksLikeExplicitPreferenceFact(text: string): boolean {
+  return /\b(?:jake\s+)?prefers?\s+repl(?:y|ies)\s+to\s+begin\s+with\b|\breplies\s+to\s+begin\s+with\s*\[cortex\]/i.test(text);
+}
 function isRecentSummaryMemory(metadata: Record<string, unknown>, text: string): boolean {
   const tags = Array.isArray(metadata?.tags) ? metadata.tags.map((x: unknown) => String(x).toLowerCase()) : [];
   const topic = String(metadata?.topic ?? '').toLowerCase();
@@ -228,7 +237,7 @@ function extractAttribute(query: string, text: string, metadata: Record<string, 
   const queryHay = query.toLowerCase();
   if (isRecentSummaryMemory(metadata, text)) return 'recent_summary';
   if (/latest|current|changed|used to|timeline|when|before|after|renamed|fixed|updated/.test(textHay)) return 'temporal_state';
-  if (/prefer|preference|like|want|call me|timezone|pronouns/.test(textHay) || /prefer|preference|call me|timezone|pronouns/.test(queryHay)) return 'preference';
+  if (/prefer|preference|like|want|call me|timezone|pronouns|replies begin with|reply prefix/.test(textHay) || queryLooksLikePreference(queryHay)) return 'preference';
   if (/decid|plan|architecture|setup|config|memory/.test(textHay)) return 'decision';
   if (/status|working|l2|browser bridge|tool|runtime/.test(textHay)) return 'runtime_state';
   return undefined;
@@ -236,11 +245,26 @@ function extractAttribute(query: string, text: string, metadata: Record<string, 
 function normalizeValueSignature(text: string): string {
   return text.toLowerCase().replace(/https?:\/\/\S+/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
 }
+function isTentativePreferenceSignature(signature: string | undefined): boolean {
+  const s = String(signature || '').toLowerCase();
+  return /\bopen loops?\b|\bwhat did\b|\bask me\b|\bquestion\b|\bunknown\b|\bsystem\b/.test(s);
+}
+function canonicalPreferenceCore(signature: string | undefined): string {
+  const s = String(signature || '').toLowerCase();
+  const match = s.match(/(?:jake\s+)?prefers?\s+repl(?:y|ies)\s+to\s+begin\s+with\s+[a-z0-9\[\]]+/);
+  return match ? match[0] : '';
+}
 function detectConflict(a: CandidateSignals, b: CandidateSignals): boolean {
   if (!a.attribute || !b.attribute || a.attribute !== b.attribute) return false;
   if (a.attribute === 'recent_summary') return false;
   if (a.entity && b.entity && a.entity.toLowerCase() !== b.entity.toLowerCase()) return false;
   if (!a.valueSignature || !b.valueSignature || a.valueSignature === b.valueSignature) return false;
+  if (a.attribute === 'preference') {
+    if (isTentativePreferenceSignature(a.valueSignature) || isTentativePreferenceSignature(b.valueSignature)) return false;
+    const aCore = canonicalPreferenceCore(a.valueSignature);
+    const bCore = canonicalPreferenceCore(b.valueSignature);
+    if (aCore && bCore && aCore === bCore) return false;
+  }
   return true;
 }
 function queryNeedsReconcile(query: string): boolean {
@@ -254,7 +278,7 @@ function classifyQuery(query: string): { mode: QueryMode; tags: string[] } {
   if (isRecentSummaryQuery(query)) tags.push('recent-summary');
   if (queryNeedsInvestigate(query)) tags.push('timeline');
   if (queryNeedsReconcile(query)) tags.push('conflict-prone');
-  if (/\bprefer|preference|relationship|context|social cue\b/i.test(query)) tags.push('preference');
+  if (/\bprefer|preference|relationship|context|social cue\b/i.test(query) || queryLooksLikePreference(query)) tags.push('preference');
   if (tags.includes('timeline')) return { mode: 'investigate', tags };
   if (tags.includes('recent-summary')) return { mode: 'reconcile', tags };
   if (tags.length > 0) return { mode: 'reconcile', tags };
@@ -288,6 +312,9 @@ function mapCandidate(query: string, item: any, cfg: ReturnType<typeof resolveCo
   if (isProjectStateMemory(metadata) && !historical) { score += cfg.projectFactBoost; signals.reasons.push('project_fact_boost'); }
   if (signals.lexicalOverlapScore >= 0.34) { signals.reasons.push('lexical_overlap'); }
   if (!vague && signals.lexicalOverlapScore === 0) { score -= 0.12; signals.reasons.push('no_overlap_penalty'); }
+  if (queryLooksLikePreference(query) && signals.attribute === 'preference') { score += 0.22; signals.reasons.push('preference_match_boost'); }
+  if (queryLooksLikePreference(query) && looksLikeExplicitPreferenceFact(text)) { score += 0.34; signals.reasons.push('explicit_preference_phrase_boost'); }
+  if (queryLooksLikePreference(query) && looksLikePreferenceQuestionEcho(text)) { score -= 0.42; signals.reasons.push('preference_question_echo_penalty'); }
   if (isDurableCandidate(metadata) && vague && !historical) { score -= cfg.durableCandidatePenalty; signals.reasons.push('vague_candidate_penalty'); }
   if (isWhatsappHighSignal(metadata) && vague && !historical) { score -= cfg.noisyWhatsappPenalty; signals.reasons.push('vague_whatsapp_penalty'); }
   if (textMatchesNoise(text) && !noiseSeeking && !historical) { score -= cfg.noisyPatternPenalty; signals.reasons.push('noise_pattern_penalty'); }
@@ -459,6 +486,12 @@ function extractAssistantVisibleText(messages: unknown): string {
     .filter(Boolean)
     .join('\n');
 }
+function detectProjectSlug(text: string): string | null {
+  const t = normalizeQuery(text);
+  if (/\bmailchimp\b/.test(t)) return 'mailchimp';
+  if (/\bpmhnp\b|\bclaim guard\b/.test(t)) return 'pmhnp-claim-guard';
+  return null;
+}
 function containsSecretLike(text: string): boolean {
   return /\b(api[_-]?key|token|password|secret|bearer|ssh-rsa|BEGIN [A-Z ]+ PRIVATE KEY)\b/i.test(text);
 }
@@ -480,13 +513,42 @@ function durabilityScore(text: string): { score: number; reasons: string[]; kind
   let score = 0;
   let kind = 'transient';
   if (!t || t.length < 20) return { score: 0, reasons: ['too_short'], kind };
+  if (/\b(supervisorstatus|matrixstatus|paritystatus)\b|\bcanonical status\b|\bremaining surfaces\b|\bremaining unsatisfied surfaces\b|\bwhat this run actually changed\b|\bblocker\s*:\s*|\btrustworthy partial result\b/i.test(t)) { score += 0.58; reasons.push('canonical_project_status'); kind = 'project_state'; }
   if (/\bremember this\b|\bplease remember\b|\bmy preference\b|\bi prefer\b|\bcall me\b|\btimezone\b|\bpronouns\b/i.test(t)) { score += 0.45; reasons.push('explicit_preference'); kind = 'preference'; }
   if (/\bdecision\b|\bwe decided\b|\bthe plan is\b|\bfrom now on\b|\bdefault to\b|\balways use\b/i.test(t)) { score += 0.35; reasons.push('decision'); kind = 'decision'; }
+  if (/\breply-anchor context .* primary\b|\breply anchor .* primary\b|\bpersistence first\b/i.test(t)) { score += 0.2; reasons.push('anti_drift_or_lesson'); if (kind === 'transient') kind = 'decision'; }
   if (/\bproject\b|\barchitecture\b|\bsetup\b|\bconnection details\b|\bssh\b|\bendpoint\b/i.test(t)) { score += 0.22; reasons.push('project_fact'); if (kind === 'transient') kind = 'fact'; }
+  if (detectProjectSlug(t)) { score += 0.16; reasons.push('named_project'); if (kind === 'transient') kind = 'fact'; }
   if (/\b(today|right now|currently|just now|this morning|tonight|lol|haha|thanks|ok|okay|sure)\b/i.test(t)) { score -= 0.18; reasons.push('transient_chat'); }
   if (/https?:\/\/\S+/.test(t) && t.length < 140) { score -= 0.18; reasons.push('bare_link'); }
   if (containsSecretLike(t)) { score = 0; reasons.push('secret_like'); kind = 'blocked'; }
   return { score: Math.max(0, Math.min(1, score)), reasons, kind };
+}
+function buildWriteThroughMetadata(cfg: ReturnType<typeof resolveConfig>, ctx: any, text: string, dur: ReturnType<typeof durabilityScore>) {
+  const project = detectProjectSlug(text);
+  const tags = Array.from(new Set([...(cfg.writeTags || []), ...dur.reasons, ...(project ? [project] : [])]));
+  let source = 'openclaw-agent-end';
+  let topic: string | undefined;
+  if (dur.kind === 'project_state') {
+    source = 'curated-project-facts';
+    topic = project ? `${project}-canonical-status` : 'canonical-project-status';
+  } else if (dur.kind === 'preference') {
+    source = 'curated-preferences-priorities';
+    topic = 'preferences';
+  } else if (dur.kind === 'decision') {
+    source = 'curated-anti-drift';
+    topic = project ? `${project}-durable-decision` : 'durable-decision';
+  }
+  return {
+    channel: ctx?.channelId ?? 'unknown',
+    sessionKey: ctx?.sessionKey ?? undefined,
+    source,
+    quality: 'curated',
+    memory_kind: dur.kind,
+    tags,
+    project: project ?? undefined,
+    topic,
+  };
 }
 async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof resolveConfig>, event: any, ctx: any, fallbackText?: string) {
   if (!cfg.enabledWriteThrough) return;
@@ -501,8 +563,11 @@ async function maybeWriteThrough(api: OpenClawPluginApi, cfg: ReturnType<typeof 
   }
   const recent = text.slice(-2000);
   const dur = durabilityScore(recent);
-  if (dur.score < cfg.minDurabilityScore) return;
-  const senderScoped = { channel: ctx?.channelId ?? 'unknown', sessionKey: ctx?.sessionKey ?? undefined, source: 'openclaw-agent-end', quality: 'curated', memory_kind: dur.kind, tags: [...cfg.writeTags, ...dur.reasons] };
+  if (dur.score < cfg.minDurabilityScore) {
+    api.logger.info?.(`cortex-memory-bridge: write-through skipped (score=${dur.score.toFixed(2)} < min=${cfg.minDurabilityScore.toFixed(2)} reasons=${dur.reasons.join(',') || 'none'})`);
+    return;
+  }
+  const senderScoped = buildWriteThroughMetadata(cfg, ctx, recent, dur);
   try {
     await postJson(cfg.baseUrl, cfg.storePath, { type: 'memory', content: recent, tags: senderScoped.tags, metadata: senderScoped }, cfg.timeoutMs, cfg.retryCount, cfg.retryBackoffMs);
     api.logger.info?.(`cortex-memory-bridge: stored durable memory candidate (${dur.kind}, score=${dur.score.toFixed(2)})`);
@@ -632,3 +697,4 @@ const plugin = {
 };
 
 export default plugin;
+export { durabilityScore, buildWriteThroughMetadata, reconcileResults };

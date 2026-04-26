@@ -33,10 +33,20 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "large-project-capability-stack/tests/multi-agent-orchestrator.test.mjs"
+          "cd large-project-capability-stack && node --test tests/multi-agent-orchestrator.test.mjs tests/campaign-runtime.test.mjs tests/system-benchmark.test.mjs"
         ]
       },
-      "notes": "Shared shard planner + live worker farm now support implement+verify execution instead of verifier-only merges."
+      "notes": "Shared shard planner + live worker farm now enforce grounded assignment contracts, admission rejection of no-op or out-of-scope patches, and live assignment-contract audits before merge or execution."
+    },
+    "large-project-capability-stack/apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs": {
+      "label": "Transfer orchestrator benchmark runner",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "cd large-project-capability-stack && node --test tests/multi-agent-orchestrator.test.mjs tests/campaign-runtime.test.mjs tests/system-benchmark.test.mjs"
+        ]
+      },
+      "notes": "Scores transfer productivity from real productive surface evidence instead of counting verification-only merges as productive transfer proof."
     },
     "large-project-capability-stack/apps/orchestrator-qualification/live-worker.mjs": {
       "label": "Shared live worker implementation/verifier runner",
@@ -47,6 +57,174 @@
         ]
       },
       "notes": "Shared worker can execute a scoped implementation script before running verifiers and returning patch metadata."
+    },
+    "plugins/completion-integrity/core.mjs": {
+      "label": "Completion-integrity runtime guardrails, reply-thread grounding, and daily memory promotion",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "plugins/completion-integrity/core.test.mjs"
+        ]
+      },
+      "notes": "Controls reply-thread prompt injection for both task and conversational prompts, objective grounding, auto-promotion of high-signal reply anchors into workspace daily memory, and automatic claim-integrity artifact generation/mirroring."
+    },
+    "plugins/completion-integrity/openclaw.plugin.json": {
+      "label": "Completion-integrity plugin config schema",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "plugins/completion-integrity/core.test.mjs"
+        ]
+      },
+      "notes": "Declares the plugin workspaceRoot configuration used for deterministic daily-memory promotion and testability."
+    },
+    "large-project-capability-stack/packages/code-value-audit/index.mjs": {
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "large-project-capability-stack/tests/code-value-audit.test.mjs"
+        ]
+      }
+    },
+    "public/cortex_server/cortex_server/routers/librarian.py": {
+      "label": "Hybrid knowledge recall ranking and fallback filtering",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_librarian_recall_fallback.py"
+        ]
+      },
+      "notes": "Suppresses awareness and codec-state blob noise when better human-readable recall rows exist."
+    },
+    "public/cortex_server/cortex_server/routers/meta_conductor.py": {
+      "label": "Meta conductor health and probe compatibility router",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_meta_conductor_kernel_v2_integration.py"
+        ]
+      },
+      "notes": "Probes current status endpoints across local Cortex ports instead of assuming a single legacy path."
+    },
+    "public/cortex_server/cortex_server/routers/nexus.py": {
+      "label": "Nexus router canonical level map",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Includes registered L37 Awareness and L38 Augmenter rather than missing/incorrect level metadata."
+    },
+    "plugins/cortex-memory-bridge/index.ts": {
+      "label": "Cortex memory bridge reranking and durable recall cleanup",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "plugins/cortex-memory-bridge/index.test.mjs"
+        ]
+      },
+      "notes": "Boosts explicit preference matches over codec open-loop noise for reply-prefix memory recall."
+    },
+    "public/cortex_server/cortex_server/modules/nexus.py": {
+      "label": "Imported Nexus helper canonical registry orchestration",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Uses canonical level registry, dynamic keyword scoring, and reports registered level counts instead of stale empty orchestration."
+    },
+    "public/cortex_server/cortex_server/routers/openclaw.py": {
+      "label": "OpenClaw Cortex config identity/API provider",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Repairs stale 36-level and hardcoded API labels in default and file-loaded config."
+    },
+    "public/cortex_server/cortex_server/routers/oracle.py": {
+      "label": "Oracle backend status honesty",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Status policy string now matches disabled/enabled fallback configuration."
+    },
+    "public/cortex_server/cortex_server/routers/browser.py": {
+      "label": "Ghost browser capability honesty",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Status distinguishes Playwright-backed features from local heuristic helpers."
+    },
+    "public/cortex_server/cortex_server/modules/context_aware.py": {
+      "label": "Context-aware level relevance map",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Extends relevance config to registered L37/L38 and removes stale 36-only wording."
+    },
+    "public/cortex_server/cortex_server/modules/cartographer.py": {
+      "label": "Cartographer canonical level map",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Derives level map from shared level registry to prevent topology count drift."
+    },
+    "public/cortex_server/cortex_server/routers/hud_display.py": {
+      "label": "HUD registered level count",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Derives displayed level names/count from the shared level registry."
+    },
+    "public/cortex_server/cortex_server/routers/mirror.py": {
+      "label": "Mirror dashboard registered topology",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Dashboard now includes L37/L38 and avoids stale 36-only status language."
+    },
+    "public/cortex_server/cortex_server/modules/consciousness_core.py": {
+      "label": "Consciousness core registered-level coherence",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Coherence denominator uses the shared level registry."
+    },
+    "public/cortex_server/cortex_server/modules/consciousness_integration.py": {
+      "label": "Consciousness integration registered-level coherence",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "public/cortex_server/tests/test_cortex_audit_honesty_fixes.py"
+        ]
+      },
+      "notes": "Context coherence denominator uses the shared level registry."
     }
   }
 }

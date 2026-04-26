@@ -8,6 +8,7 @@
     "additionalProperties": false,
     "properties": {
       "stateDir": { "type": "string", "default": "/root/clawd/state/completion-integrity" },
+      "workspaceRoot": { "type": "string", "default": "/root/clawd" },
       "validationMode": { "type": "string", "enum": ["light", "important_only", "strict"], "default": "important_only" },
       "autoDeliveryAfterMs": { "type": "number", "default": 15000 },
       "retryBackoffMs": { "type": "number", "default": 10000 },

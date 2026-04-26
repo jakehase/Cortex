@@ -8,9 +8,10 @@ import { createCompletionIntegrityEngine } from './core.mjs';
 
 function makeHarness(opts = {}) {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'completion-integrity-'));
+  const workspaceRoot = opts.config?.workspaceRoot || path.join(stateDir, 'workspace');
   let now = Date.parse('2026-03-19T16:00:00.000Z');
   const deliveries = [];
-  const engine = createCompletionIntegrityEngine({ stateDir, autoDeliveryAfterMs: 1000, retryBackoffMs: 1000, pollIntervalMs: 1000, escalationAfterMs: 2000, ...opts.config }, {
+  const engine = createCompletionIntegrityEngine({ stateDir, workspaceRoot, autoDeliveryAfterMs: 1000, retryBackoffMs: 1000, pollIntervalMs: 1000, escalationAfterMs: 2000, ...opts.config }, {
     clock: () => now,
     isoNow: () => new Date(now).toISOString(),
     logger: { warn() {}, info() {} },
@@ -18,6 +19,7 @@ function makeHarness(opts = {}) {
   });
   return {
     stateDir,
+    workspaceRoot,
     deliveries,
     engine,
     tick(ms) { now += ms; },
@@ -39,6 +41,61 @@ function makeHonestyRepo() {
   fs.writeFileSync(path.join(dir, 'packages/app/index.mjs'), 'export const feature = true;\n');
   fs.writeFileSync(path.join(dir, 'tests/smoke.test.mjs'), 'export const ok = true;\n');
   return dir;
+}
+
+function makeClaimIntegritySupervisorArtifacts(root) {
+  const dir = path.join(root, 'artifacts', 'claim-integrity-supervisor');
+  fs.mkdirSync(dir, { recursive: true });
+
+  const surfaces = Array.from({ length: 10 }, (_, index) => {
+    const id = `S${index + 1}`;
+    const artifactPath = path.join(dir, `${id}.json`);
+    if (index === 0 || index === 1) fs.writeFileSync(artifactPath, JSON.stringify({ ok: true }, null, 2));
+    const status = index === 0 ? 'all_complete' : index === 1 ? 'partial' : 'partial';
+    const issueStatus = index === 0 ? 'complete' : index === 1 ? 'in_progress' : 'pending';
+    return {
+      id,
+      label: `Surface ${index + 1}`,
+      status,
+      artifactsPresent: index <= 1,
+      requiredArtifacts: index <= 1 ? [artifactPath] : [path.join(dir, `${id}-missing.json`)],
+      issues: [
+        {
+          id: `${id}.issue`,
+          title: `Surface ${index + 1} issue`,
+          status: issueStatus,
+          artifacts: index <= 1 ? [artifactPath] : [path.join(dir, `${id}-missing.json`)],
+          notes: issueStatus === 'complete' ? 'validated by supervisor artifacts' : 'supervisor still marks this surface incomplete'
+        }
+      ]
+    };
+  });
+
+  const matrixPath = path.join(dir, 'surface_matrix.json');
+  fs.writeFileSync(matrixPath, JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    contractSummary: {
+      targetPath: root,
+      requestedFidelity: 'parity_for_scope',
+      requestedScope: 'Roadmap progress'
+    },
+    status: 'partial',
+    surfaces
+  }, null, 2));
+
+  const recoveryPath = path.join(dir, 'recovery_simulation.json');
+  fs.writeFileSync(recoveryPath, JSON.stringify({ ok: true }, null, 2));
+
+  const programStatePath = path.join(dir, 'program_state.json');
+  fs.writeFileSync(programStatePath, JSON.stringify({
+    mode: 'persistent',
+    worker: { steps: [{ id: 'run.start', ok: true }, { id: 'run.progress', ok: true }] },
+    supervisor: { status: 'red', blocker: 'provider offline', matrixStatus: 'partial' },
+    notifier: { delivered: false },
+    evidence: { recoveryPath }
+  }, null, 2));
+
+  return { matrixPath, programStatePath };
 }
 
 function replyPrompt(userText, repliedBody, extra = {}) {
@@ -202,6 +259,41 @@ test('reply-thread grounding treats replied message as primary anchor and requir
   assert.equal(h.task().grounding.replyThread.proofPresent, true);
 });
 
+test('conversational reply questions still get reply-thread grounding and auto-promote high-signal anchor memory', () => {
+  const h = makeHarness();
+  const prompt = replyPrompt(
+    'That’s actually for this, how come you weren’t able to deduct that from memory?',
+    `[Cortex] Mailchimp remediated-run takeaway: the architecture is finally giving us a trustworthy result.\n\nFor the current run:\n- supervisorStatus: red\n- matrixStatus: partial\n- parityStatus: partial\n- blocker: null\n\nExactly which remaining surfaces are still not satisfied\n- C_data_model_and_persistence_parity\n- E_reporting_analytics_parity\n- F_ai_predictive_optimization_parity\n\nMost important structural insight\n- Persistence first.\n- Reply-anchor context should be treated as primary.`
+  );
+
+  h.engine.onMessageReceived({ from: '+1', metadata: { messageId: 'm1' } }, ctx('sess-memory'));
+  const injection = h.engine.onBeforePromptBuild({ prompt }, ctx('sess-memory'));
+
+  assert.equal(h.engine.loadStore().tasks.length, 0);
+  assert.match(injection.appendSystemContext, /REPLY_THREAD_GROUNDING/);
+  assert.match(injection.appendSystemContext, /reply-anchor context first/i);
+
+  const memoryFile = path.join(h.workspaceRoot, 'memory', '2026-03-19.md');
+  const memoryText = fs.readFileSync(memoryFile, 'utf8');
+  assert.match(memoryText, /Auto-promoted reply-anchor memory:/);
+  assert.match(memoryText, /supervisorStatus=red/);
+  assert.match(memoryText, /C_data_model_and_persistence_parity/);
+
+  const projectFile = path.join(h.workspaceRoot, 'memory', 'projects', 'mailchimp.md');
+  const projectText = fs.readFileSync(projectFile, 'utf8');
+  assert.match(projectText, /# Mailchimp project memory/);
+  assert.match(projectText, /supervisorStatus: red/);
+  assert.match(projectText, /C_data_model_and_persistence_parity/);
+  assert.match(projectText, /reply-anchor context should be treated as primary/i);
+
+  h.engine.onBeforePromptBuild({ prompt }, ctx('sess-memory'));
+  const dedupedText = fs.readFileSync(memoryFile, 'utf8');
+  assert.equal((dedupedText.match(/Auto-promoted reply-anchor memory:/g) || []).length, 1);
+
+  const dedupedProjectText = fs.readFileSync(projectFile, 'utf8');
+  assert.equal((dedupedProjectText.match(/## Recent promotions/g) || []).length, 1);
+});
+
 test('1:1 clone requests require full-parity proof and reject prototype-style completions', () => {
   const h = makeHarness({ config: { validationMode: 'important_only' } });
   const prompt = 'Build a 1:1 clone of Mailchimp for programs 1-3';
@@ -221,6 +313,115 @@ test('1:1 clone requests require full-parity proof and reject prototype-style co
   h.engine.runValidator(h.task().id, { source: 'manual-clone-parity' });
   assert.equal(h.task().validation.passed, true);
   assert.equal(h.task().cloneParity.proofPresent, true);
+});
+
+test('progress estimate prompts inject claim-integrity guidance and reject unsupported percentage claims', () => {
+  const h = makeHarness({ config: { validationMode: 'important_only' } });
+  const prompt = 'What percentage complete is the roadmap project right now?';
+  h.engine.onMessageReceived({ from: '+1', metadata: { messageId: 'm1' } }, ctx('sess-claim-integrity'));
+  h.engine.onBeforePromptBuild({ prompt }, ctx('sess-claim-integrity'));
+  const store = h.engine.loadStore();
+  store.tasks.at(-1).contract.required = false;
+  store.tasks.at(-1).campaign.required = false;
+  store.tasks.at(-1).surfaceMatrix.required = false;
+  store.tasks.at(-1).cloneParity.required = false;
+  store.tasks.at(-1).honesty.required = false;
+  store.tasks.at(-1).grounding.required = false;
+  store.tasks.at(-1).grounding.replyThread.required = false;
+  fs.writeFileSync(h.engine.paths.tasks, JSON.stringify(store, null, 2));
+
+  const injection = h.engine.buildPromptInjection('sess-claim-integrity');
+  assert.ok(injection);
+  assert.match(injection.appendSystemContext, /CLAIM_INTEGRITY/);
+  assert.equal(h.task().claimIntegrity.required, true);
+
+  h.engine.onAgentEnd({ success: true, result: 'Estimated: about 40% done on the roadmap project.' }, ctx('sess-claim-integrity'));
+  assert.equal(h.task().validation.passed, false);
+  assert.equal(h.task().validation.failures.at(-1).reason, 'claim_integrity_progress_estimate_unbacked');
+
+  h.engine.completeInternally(h.task().id, [
+    'Observed: execution readiness is stronger than product parity.',
+    'Estimated: clone parity is 5%.',
+    'Confidence: low to medium, because the rubric is still sparse.',
+    "What's missing: most of the actual product surface area.",
+    'What would have to be true for a higher estimate: multiple major surface families would need real parity proof.'
+  ].join(' '));
+  h.engine.runValidator(h.task().id, { source: 'manual-claim-integrity' });
+  assert.equal(h.task().validation.passed, true);
+  assert.equal(h.task().claimIntegrity.passed, true);
+});
+
+test('claim-integrity prompts auto-generate supervisor-backed artifacts and reject percentages that exceed the generated report', () => {
+  const h = makeHarness({ config: { validationMode: 'important_only' } });
+  const prompt = 'What percentage complete is the roadmap project right now?';
+  h.engine.onMessageReceived({ from: '+1', metadata: { messageId: 'm1' } }, ctx('sess-claim-auto'));
+  h.engine.onBeforePromptBuild({ prompt }, ctx('sess-claim-auto'));
+  const store = h.engine.loadStore();
+  store.tasks.at(-1).contract.required = false;
+  store.tasks.at(-1).campaign.required = false;
+  store.tasks.at(-1).surfaceMatrix.required = false;
+  store.tasks.at(-1).cloneParity.required = false;
+  store.tasks.at(-1).honesty.required = false;
+  store.tasks.at(-1).grounding.required = false;
+  store.tasks.at(-1).grounding.replyThread.required = false;
+  fs.writeFileSync(h.engine.paths.tasks, JSON.stringify(store, null, 2));
+
+  const { matrixPath, programStatePath } = makeClaimIntegritySupervisorArtifacts(h.workspaceRoot);
+
+  h.engine.completeInternally(h.task().id, `Estimated: 40% complete. Target path: ${h.workspaceRoot}. Fidelity: parity_for_scope. Scope: roadmap progress. Surface matrix: ${matrixPath}. Program state path: ${programStatePath}. Campaign mode: persistent. Supervisor status: red. Blocker: provider offline.`);
+  h.engine.runValidator(h.task().id, { source: 'claim-auto-too-high' });
+
+  assert.equal(h.task().claimIntegrity.autoGenerated, true);
+  assert.ok(fs.existsSync(h.task().claimIntegrity.reportPath));
+  assert.ok(fs.existsSync(h.task().claimIntegrity.responseFramePath));
+  assert.ok(fs.existsSync(h.task().claimIntegrity.repoReportPath));
+  assert.ok(fs.existsSync(h.task().claimIntegrity.repoResponseFramePath));
+  assert.ok(fs.existsSync(h.task().claimIntegrity.repoSummaryPath));
+  assert.equal(h.task().validation.passed, false);
+  assert.equal(h.task().validation.failures.at(-1).reason, 'claim_integrity_progress_estimate_exceeds_generated_report');
+
+  const generatedReport = JSON.parse(fs.readFileSync(h.task().claimIntegrity.reportPath, 'utf8'));
+  assert.ok(generatedReport.progress.cloneParityPercent < 40);
+
+  h.engine.completeInternally(h.task().id, `Estimated: 1% complete. Target path: ${h.workspaceRoot}. Fidelity: parity_for_scope. Scope: roadmap progress. Surface matrix: ${matrixPath}. Program state path: ${programStatePath}. Campaign mode: persistent. Supervisor status: red. Blocker: provider offline.`);
+  h.engine.runValidator(h.task().id, { source: 'claim-auto-aligned' });
+
+  assert.equal(h.task().validation.passed, true);
+  assert.equal(h.task().claimIntegrity.passed, true);
+
+  const frame = JSON.parse(fs.readFileSync(h.task().claimIntegrity.responseFramePath, 'utf8'));
+  assert.equal(frame.estimated.proposedPercent, 1);
+
+  const repoSummary = JSON.parse(fs.readFileSync(h.task().claimIntegrity.repoSummaryPath, 'utf8'));
+  assert.equal(repoSummary.repoArtifactPaths.reportPath, h.task().claimIntegrity.repoReportPath);
+});
+
+test('completion messages cite repo-local claim-integrity artifact paths when they exist', async () => {
+  const h = makeHarness({ config: { validationMode: 'important_only' } });
+  const prompt = 'What percentage complete is the roadmap project right now?';
+  h.engine.onMessageReceived({ from: '+1', metadata: { messageId: 'm1' } }, ctx('sess-claim-delivery'));
+  h.engine.onBeforePromptBuild({ prompt }, ctx('sess-claim-delivery'));
+  const store = h.engine.loadStore();
+  store.tasks.at(-1).contract.required = false;
+  store.tasks.at(-1).campaign.required = false;
+  store.tasks.at(-1).surfaceMatrix.required = false;
+  store.tasks.at(-1).cloneParity.required = false;
+  store.tasks.at(-1).honesty.required = false;
+  store.tasks.at(-1).grounding.required = false;
+  store.tasks.at(-1).grounding.replyThread.required = false;
+  fs.writeFileSync(h.engine.paths.tasks, JSON.stringify(store, null, 2));
+
+  const { matrixPath, programStatePath } = makeClaimIntegritySupervisorArtifacts(h.workspaceRoot);
+  h.engine.completeInternally(h.task().id, `Estimated: 1% complete. Target path: ${h.workspaceRoot}. Fidelity: parity_for_scope. Scope: roadmap progress. Surface matrix: ${matrixPath}. Program state path: ${programStatePath}. Campaign mode: persistent. Supervisor status: red. Blocker: provider offline.`);
+  h.engine.runValidator(h.task().id, { source: 'claim-delivery' });
+  assert.equal(h.task().validation.passed, true);
+
+  h.tick(1500);
+  await h.engine.autoDeliverCompletedTasks({});
+  const delivered = h.deliveries.at(-1).payloads[0].text;
+  assert.match(delivered, /Claim integrity artifacts:/);
+  assert.match(delivered, new RegExp(h.task().claimIntegrity.repoReportPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.match(delivered, new RegExp(h.task().claimIntegrity.repoResponseFramePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
 
 test('campaign tasks inject task contract, campaign runtime, and surface matrix requirements', () => {
