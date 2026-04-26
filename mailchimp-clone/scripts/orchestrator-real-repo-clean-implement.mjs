@@ -1440,20 +1440,27 @@ function assignmentAllowsAnyFile(assignment = {}, candidates = []) {
 function canonicalSurfaceHandler(surfaceFocusId) {
   const normalized = String(surfaceFocusId || '').trim().toLowerCase();
   if (['account_workspace_setup', 'dashboard_home', 'signup_onboarding'].includes(normalized)) return 'signup_onboarding';
+  if (normalized === 'frontend_client_shell_state') return 'frontend_interaction_parity';
   if (normalized === 'signup_forms_popups') return 'signup_forms_popups';
   if (['campaign_index', 'campaign_wizard'].includes(normalized)) return 'campaign_index';
-  if (['audience_overview', 'contacts_table', 'contact_profile', 'tags_groups_interests', 'segments'].includes(normalized)) return 'audience_crm';
+  if (normalized === 'campaign_editor_template_workflows') return 'campaign_editor_parity';
+  if (['audience_overview', 'contacts_table', 'contact_profile', 'tags_groups_interests', 'segments', 'audience_identity_lifecycle', 'audience_sync_warehouse'].includes(normalized)) return 'audience_crm';
   if (normalized === 'landing_pages') return 'landing_pages';
-  if (normalized === 'website_builder') return 'website_builder';
+  if (['website_builder', 'website_builder_editor_realism'].includes(normalized)) return 'website_builder';
   if (normalized === 'email_builder') return 'email_builder';
   if (normalized === 'template_library') return 'template_library';
   if (normalized === 'content_studio') return 'content_studio';
-  if (['automations_overview', 'automation_journey_builder'].includes(normalized)) return 'automation_journey';
+  if (['automations_overview', 'automation_journey_builder', 'automation_journey_execution'].includes(normalized)) return 'automation_journey';
+  if (normalized === 'campaign_ops_calendar_workflow') return 'campaign_experimentation';
   if (normalized === 'reports_overview') return 'reports_overview';
+  if (normalized === 'reporting_metrics_pipeline') return 'reporting_analytics_parity';
   if (normalized === 'report_detail') return 'report_detail';
   if (normalized === 'send_schedule_review') return 'send_schedule_review';
-  if (normalized === 'integrations_marketplace') return 'integrations_marketplace';
+  if (['integrations_marketplace', 'integration_provider_sync'].includes(normalized)) return 'integrations_marketplace';
   if (normalized === 'api_keys_webhooks') return 'api_keys_webhooks';
+  if (normalized === 'auth_session_security_hardening') return 'security_ops';
+  if (normalized === 'persistence_jobs_operational_db') return 'persistence_jobs_operational_parity';
+  if (normalized === 'ai_predictive_ops_realism') return 'ai_predictive';
   if (normalized === 'billing_plans') return 'billing_plans';
   if (normalized === 'settings_domains') return 'settings_domains';
   if (normalized === 'team_roles_permissions') return 'team_roles_permissions';
@@ -1898,7 +1905,14 @@ function applyProductFactoryScaffold(workspacePath, modifiedFiles, assignment = 
 function deriveFocusGroup(assignment) {
   const surfaceFocusId = deriveFocusSurfaceId(assignment);
   const canonicalHandler = canonicalSurfaceHandler(surfaceFocusId);
+  if (canonicalHandler === 'frontend_interaction_parity') return 'frontend_architecture';
   if (canonicalHandler === 'audience_crm') return 'audience_crm';
+  if (canonicalHandler === 'campaign_editor_parity') return 'campaign_editor';
+  if (canonicalHandler === 'campaign_experimentation') return 'campaign_experimentation';
+  if (canonicalHandler === 'reporting_analytics_parity') return 'reporting_analytics';
+  if (canonicalHandler === 'security_ops') return 'security_ops';
+  if (canonicalHandler === 'persistence_jobs_operational_parity') return 'delivery_jobs';
+  if (canonicalHandler === 'ai_predictive') return 'ai_predictive';
   if (canonicalHandler === 'email_builder') return 'email_builder';
   if (canonicalHandler === 'template_library') return 'template_library';
   if (canonicalHandler === 'content_studio') return 'content_studio';
@@ -1969,13 +1983,16 @@ function main() {
   else if (canonicalHandler === 'settings_domains') applyCanonicalSettingsDomainsFocus(workspacePath, modifiedFiles, assignment);
   else if (canonicalHandler === 'team_roles_permissions') applyCanonicalTeamRolesPermissionsFocus(workspacePath, modifiedFiles, assignment);
   else if (surfaceFocusId === 'audience_crm_parity' || canonicalHandler === 'audience_crm' || focusGroup === 'audience_crm') applyAudienceCrmStrictFocus(workspacePath, modifiedFiles, assignment);
-  else if (surfaceFocusId === 'campaign_editor_parity' || focusGroup === 'campaign_editor') applyCampaignEditorStrictFocus(workspacePath, modifiedFiles, assignment);
+  else if (surfaceFocusId === 'campaign_editor_parity' || canonicalHandler === 'campaign_editor_parity' || focusGroup === 'campaign_editor') applyCampaignEditorStrictFocus(workspacePath, modifiedFiles, assignment);
   else if (surfaceFocusId === 'automation_journey_parity' || canonicalHandler === 'automation_journey' || focusGroup === 'automation_journey') applyAutomationJourneyStrictFocus(workspacePath, modifiedFiles, assignment);
-  else if (surfaceFocusId === 'reporting_analytics_parity') applyReportingAnalyticsStrictFocus(workspacePath, modifiedFiles, assignment);
-  else if (surfaceFocusId === 'persistence_jobs_operational_parity') {
+  else if (surfaceFocusId === 'reporting_analytics_parity' || canonicalHandler === 'reporting_analytics_parity') applyReportingAnalyticsStrictFocus(workspacePath, modifiedFiles, assignment);
+  else if (surfaceFocusId === 'persistence_jobs_operational_parity' || canonicalHandler === 'persistence_jobs_operational_parity') {
     applyPersistenceParity(workspacePath, modifiedFiles, assignment);
     if (assignmentAllowsAnyFile(assignment, ['packages/app/job-handlers.mjs', 'packages/app/job-runtime.mjs', 'packages/app/jobs.mjs', 'apps/web/server.mjs'])) applyDeliveryJobs(workspacePath, modifiedFiles);
   }
+  else if (canonicalHandler === 'campaign_experimentation') applyExperimentationParity(workspacePath, modifiedFiles);
+  else if (canonicalHandler === 'security_ops') applySecurityOpsParity(workspacePath, modifiedFiles);
+  else if (canonicalHandler === 'ai_predictive') applyAiPredictive(workspacePath, modifiedFiles, assignment);
   else if (focusGroup === 'frontend_architecture') applyFrontendArchitecture(workspacePath, modifiedFiles);
   if (focusGroup === 'persistence') applyPersistenceParity(workspacePath, modifiedFiles, assignment);
   if (focusGroup === 'delivery_jobs' && surfaceFocusId !== 'persistence_jobs_operational_parity') applyDeliveryJobs(workspacePath, modifiedFiles);
