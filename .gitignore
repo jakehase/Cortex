@@ -11,6 +11,8 @@
 /mailchimp-clone/artifacts/
 /public/cortex_server/artifacts/
 /public/.env
+/artifacts/openclaw-upgrade-guard/
+/artifacts/benchmarks/
 /AGENTS.md
 /MEMORY.md
 /SOUL.md
