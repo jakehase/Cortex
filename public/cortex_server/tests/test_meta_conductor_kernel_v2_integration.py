@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import asyncio
 
 from cortex_server.modules import cortex_kernel_v2
 import cortex_server.routers.meta_conductor as meta_conductor
@@ -71,3 +72,31 @@ def test_meta_conductor_orchestrate_records_kernel_runtime(monkeypatch):
     status = client.get("/meta_conductor/status")
     assert status.status_code == 200
     assert status.json()["kernel_v2"]["telemetry"]["events"] == 1
+
+
+def test_probe_level_tries_status_endpoints_before_legacy_paths(monkeypatch):
+    calls = []
+
+    class _FakeResponse:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class _FakeClient:
+        async def get(self, url, timeout):
+            calls.append(url)
+            if url == "http://127.0.0.1:8000/ethicist/status":
+                return _FakeResponse(200, {"level": 33, "status": "active"})
+            return _FakeResponse(404, {"detail": "not found"})
+
+    monkeypatch.setenv("CORTEX_META_PROBE_BASES", "http://127.0.0.1:8000,http://127.0.0.1:8888")
+
+    result = asyncio.run(meta_conductor._probe_level(_FakeClient(), 33, 1.0))
+
+    assert result["success"] is True
+    assert result["reported_level"] == 33
+    assert result["probed_url"] == "http://127.0.0.1:8000/ethicist/status"
+    assert calls[0] == "http://127.0.0.1:8000/ethicist/status"

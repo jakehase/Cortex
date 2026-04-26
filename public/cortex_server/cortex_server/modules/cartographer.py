@@ -4,46 +4,13 @@ import socket
 from pathlib import Path
 from datetime import datetime
 
-# Complete LEVEL_MAP - All 36 levels (number -> name)
-LEVEL_MAP = {
-    1: 'kernel',        # Base OS/Hardware
-    2: 'ghost',         # Browser/Playwright  
-    3: 'parser',        # Parser
-    4: 'lab',           # REPL/Interpreter
-    5: 'oracle',        # API Server
-    6: 'bard',          # TTS
-    7: 'librarian',     # Knowledge Graph
-    8: 'cron',          # Cron/Scheduler
-    9: 'architect',     # Code Writer
-    10: 'listener',     # STT
-    11: 'catalyst',     # Performance optimization
-    12: 'hive',         # Swarm/Agents
-    13: 'dreamer',      # Log Analysis
-    14: 'chronos',      # Scheduler
-    15: 'council',      # Safety
-    16: 'academy',      # Learning
-    17: 'exoskeleton',  # Docker
-    18: 'diplomat',     # Notifications
-    19: 'geneticist',   # Versioning
-    20: 'simulator',    # Testing
-    21: 'ouroboros',    # Regeneration
-    22: 'mnemosyne',    # Memory
-    23: 'cartographer', # Self-Discovery
-    24: 'nexus',        # Orchestration
-    25: 'bridge',       # Context Stream
-    26: 'orchestrator', # Workflow Orchestration
-    27: 'forge',        # Module Generation
-    28: 'polyglot',     # Multi-language support
-    29: 'muse',         # Creative inspiration
-    30: 'seer',         # Predictive analysis
-    31: 'mediator',     # Conflict resolution
-    32: 'synthesist',   # Knowledge Synthesis
-    33: 'ethicist',     # Ethical review
-    34: 'validator',    # Validation testing
-    35: 'singularity',  # Self-modification
-    36: 'conductor',    # Meta-orchestration
-    37: 'awareness'     # Consciousness
-}
+from cortex_server.modules.level_registry import get_level_registry
+
+# Canonical LEVEL_MAP - derived from the shared registry to avoid count drift.
+LEVEL_MAP = {int(row['level']): str(row['name']).split()[0].lower().replace('(browser)', '').strip() for row in get_level_registry()}
+LEVEL_MAP[2] = 'ghost'
+LEVEL_MAP[12] = 'hive'
+LEVEL_MAP[36] = 'conductor'
 
 # Reverse mapping for name lookups
 NAME_TO_LEVEL = {v: k for k, v in LEVEL_MAP.items()}
@@ -168,7 +135,7 @@ class Cartographer:
         return identity
     
     def get_all_levels(self):
-        '''Return all 36 levels'''
+        '''Return all registered levels'''
         return LEVEL_MAP
     
     def get_level_name(self, level_num):

@@ -1,0 +1,138 @@
+import asyncio
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+import cortex_server.modules.cortex_codec as codec_module
+import cortex_server.routers.nexus as nexus
+import cortex_server.routers.orchestrator as orchestrator
+from cortex_server.middleware.hud_middleware import HUDMiddleware
+from cortex_server.modules.cortex_codec import update_codec_state_for_session
+from cortex_server.modules.evidence_governance import normalize_runtime_event, validate_state_class_collection
+
+
+def test_normalize_runtime_event_accepts_legacy_aliases_and_redacts_sensitive_fields():
+    event = normalize_runtime_event(
+        {
+            "event_id": "ev_legacy_1",
+            "kind": "command_stdout",
+            "processId": "proc_legacy",
+            "objectiveKey": "obj_legacy",
+            "agentId": "cortex",
+            "subsystem": "lab",
+            "traceId": "trace_123",
+            "parentEventId": "ev_parent",
+            "sessionId": "session_123",
+            "repoPath": "/tmp/repo",
+            "payload": {
+                "scope": "task:legacy",
+                "command": "pytest -q",
+                "token": "sk-secret-token-1234567890",
+            },
+        }
+    )
+
+    assert event["process_id"] == "proc_legacy"
+    assert event["objective_key"] == "obj_legacy"
+    assert event["agent_id"] == "cortex"
+    assert event["source_subsystem"] == "lab"
+    assert event["correlation_id"] == "trace_123"
+    assert event["causal_parent_ids"] == ["ev_parent"]
+    assert event["session_key"] == "session_123"
+    assert event["repo_path"] == "/tmp/repo"
+    assert event["payload"]["token"] == "[REDACTED]"
+    assert event["lineage"]["redaction"]["redacted_field_count"] >= 1
+
+
+def test_validate_state_class_collection_rejects_cross_class_promotion():
+    with pytest.raises(ValueError, match="state_class_mismatch"):
+        validate_state_class_collection(
+            [{"state_class": "raw_evidence", "event_id": "ev_1", "lineage": {}}],
+            expected_state_class="inferred_state",
+        )
+
+    with pytest.raises(ValueError, match="missing_lineage"):
+        validate_state_class_collection(
+            [{"state_class": "raw_evidence", "event_id": "ev_2"}],
+            expected_state_class="raw_evidence",
+            require_lineage=True,
+        )
+
+
+def test_runtime_process_traceability_alias_returns_canonical_bundle(monkeypatch):
+    monkeypatch.setattr(
+        orchestrator,
+        "get_runtime_process",
+        lambda process_id: {
+            "process_id": process_id,
+            "status": "running",
+            "session_key": "session:traceability",
+            "task_id": "task_traceability",
+            "workflow": {"name": "Traceability Workflow"},
+        },
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "get_runtime_events",
+        lambda process_id, limit=120: [
+            {
+                "event_id": "ev_trace_1",
+                "kind": "command_stdout",
+                "processId": process_id,
+                "payload": {
+                    "agentId": "cortex",
+                    "objectiveKey": "obj_traceability",
+                    "scope": "task:traceability",
+                    "chunk": "tests passed",
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(orchestrator, "get_codec_packet_for_session", lambda session_key, max_chars=800: {"state": {}})
+
+    result = asyncio.run(orchestrator.get_runtime_process_traceability("proc_traceability", limit=10))
+
+    assert result["success"] is True
+    assert result["process"]["process_id"] == "proc_traceability"
+    assert result["summary"]["observed_count"] == 1
+    assert result["classes"]["observed_evidence"][0]["state_class"] == "raw_evidence"
+    assert result["traceability_contract"]["raw_event_class"] == "observed_evidence"
+
+
+def test_nexus_codec_memory_lineage_route_returns_single_memory_fact(monkeypatch):
+    monkeypatch.setattr(codec_module, "CODEC_DURABLE_ENABLED", False)
+
+    session_key = "session:nexus-memory-lineage"
+    update_codec_state_for_session(
+        session_key,
+        [
+            {
+                "text": "Call me Jake and start replies with [Cortex].",
+                "metadata": {"project": "Codec Memory Lineage"},
+            }
+        ],
+    )
+    packet = codec_module.get_codec_packet_for_session(session_key, max_chars=400)
+    memory_facts = ((packet.get("state") or {}).get("memory_facts") or []) if isinstance(packet, dict) else []
+    assert memory_facts, "expected codec memory facts to exist"
+    memory_id = memory_facts[0]["memory_id"]
+
+    app = FastAPI()
+    app.add_middleware(HUDMiddleware)
+    app.include_router(nexus.router, prefix="/nexus")
+    client = TestClient(app)
+
+    response = client.get(f"/nexus/codec/memory/{memory_id}/lineage", headers={"x-session-id": session_key})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["memory_id"] == memory_id
+    assert body["memory"]["state_class"] == "learned_preference"
+    assert body["codec"]["summary"]
+    assert body["capability_matrix"]["state_classes"] == [
+        "raw_evidence",
+        "inferred_state",
+        "learned_preference",
+        "operator_override",
+    ]

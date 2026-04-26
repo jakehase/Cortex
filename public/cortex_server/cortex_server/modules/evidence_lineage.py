@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from cortex_server.models.evidence import CodecMemoryFact, DerivedStateFact, OperatorOverride
-from cortex_server.modules.evidence_governance import LINEAGE_SCHEMA_VERSION, capability_matrix, normalize_runtime_events, redact_payload
+from cortex_server.modules.evidence_governance import LINEAGE_SCHEMA_VERSION, capability_matrix, normalize_runtime_events, redact_payload, validate_state_class_collection
 
 
 JsonDict = Dict[str, Any]
@@ -308,6 +308,47 @@ def build_codec_memory_facts(*, session_key: Optional[str], codec_state: Optiona
     return out
 
 
+def build_codec_memory_lineage(*, memory_id: str, session_key: Optional[str], codec_state: Optional[JsonDict]) -> Optional[JsonDict]:
+    target_id = str(memory_id or "").strip()
+    if not target_id:
+        return None
+    memories = validate_state_class_collection(
+        build_codec_memory_facts(session_key=session_key, codec_state=codec_state),
+        expected_state_class="learned_preference",
+    )
+    match = next((row for row in memories if str(row.get("memory_id") or "").strip() == target_id), None)
+    if not match:
+        return None
+    source_refs = [dict(row) for row in (match.get("source_refs") or []) if isinstance(row, dict)]
+    source_event_ids: List[str] = []
+    for row in source_refs:
+        for key in ("event_id", "source_event_id"):
+            text = str(row.get(key) or "").strip()
+            if text and text not in source_event_ids:
+                source_event_ids.append(text)
+        for key in ("event_ids", "source_event_ids"):
+            for item in row.get(key) or []:
+                text = str(item or "").strip()
+                if text and text not in source_event_ids:
+                    source_event_ids.append(text)
+    return {
+        "success": True,
+        "schema_version": LINEAGE_SCHEMA_VERSION,
+        "generated_at": _now_iso(),
+        "memory_id": target_id,
+        "session_key": session_key,
+        "memory": match,
+        "lineage": {
+            "schema_version": LINEAGE_SCHEMA_VERSION,
+            "source_refs": source_refs,
+            "source_event_ids": source_event_ids,
+            "rollup_method": match.get("rollup_method"),
+            "revision_chain": list(match.get("revision_chain") or []),
+            "supersedes": list(match.get("supersedes") or []),
+        },
+    }
+
+
 def build_lineage_bundle(
     *,
     process: Optional[JsonDict],
@@ -338,6 +379,10 @@ def build_lineage_bundle(
     inferred = build_derived_state_facts(process=process, events=normalized_events, objective=objective, roadmap_detail=roadmap_detail, delivery_detail=delivery_detail)
     learned = build_codec_memory_facts(session_key=session_key, codec_state=codec_state)
     overrides = build_operator_overrides(detail=detail, process_id=str((process or {}).get("process_id") or objective.get("process_id") or ""))
+    observed = validate_state_class_collection(observed, expected_state_class="raw_evidence", require_lineage=True)
+    inferred = validate_state_class_collection(inferred, expected_state_class="inferred_state")
+    learned = validate_state_class_collection(learned, expected_state_class="learned_preference")
+    overrides = validate_state_class_collection(overrides, expected_state_class="operator_override")
     return {
         "success": True,
         "schema_version": LINEAGE_SCHEMA_VERSION,

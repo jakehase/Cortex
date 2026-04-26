@@ -1,0 +1,1409 @@
+{
+  "case_count": 120,
+  "cases": [
+    {
+      "case_id": "MC-P0-001",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Create a free account and complete the default email verification path."
+    },
+    {
+      "case_id": "MC-P0-002",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Retry signup using an email address that already belongs to an existing account."
+    },
+    {
+      "case_id": "MC-P0-003",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Trigger password policy validation with a weak password and then correct it inline."
+    },
+    {
+      "case_id": "MC-P0-004",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Complete the business/profile questionnaire using mostly default or suggested answers."
+    },
+    {
+      "case_id": "MC-P0-005",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Change industry or use-case answers and observe recommendation changes in the onboarding flow."
+    },
+    {
+      "case_id": "MC-P0-006",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Skip optional onboarding steps and verify the workspace still lands on a usable dashboard."
+    },
+    {
+      "case_id": "MC-P0-007",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Invite a teammate during onboarding and inspect the visible pending-invite state."
+    },
+    {
+      "case_id": "MC-P0-008",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Abandon onboarding midstream, log back in later, and resume from the correct step."
+    },
+    {
+      "case_id": "MC-P0-009",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Encounter a plan-gated upsell during onboarding and dismiss it without breaking completion."
+    },
+    {
+      "case_id": "MC-P0-010",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Attempt to enable SMS-related options from a region that is not eligible."
+    },
+    {
+      "case_id": "MC-P0-011",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P2",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Follow the first-login domain/authentication nudge and then return to the dashboard."
+    },
+    {
+      "case_id": "MC-P0-012",
+      "category": "signup_onboarding",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Signup and onboarding wizard",
+      "required_setup": "Fresh browser session with no existing authenticated Mailchimp session and access to inbox for verification steps.",
+      "scenario_description": "Use the first-campaign call-to-action from the post-onboarding empty state."
+    },
+    {
+      "case_id": "MC-P0-013",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Create the first audience from an empty account."
+    },
+    {
+      "case_id": "MC-P0-014",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Create an additional audience using a naming convention that distinguishes brands or regions."
+    },
+    {
+      "case_id": "MC-P0-015",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Choose default from-name, from-email, and physical address values during audience setup."
+    },
+    {
+      "case_id": "MC-P0-016",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Trigger required-contact-info validation before the audience can be saved."
+    },
+    {
+      "case_id": "MC-P0-017",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Archive or delete an audience and review the visible confirmation language."
+    },
+    {
+      "case_id": "MC-P0-018",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Hit an audience-count or plan-cap warning while trying to create another audience."
+    },
+    {
+      "case_id": "MC-P0-019",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Create a new audience by copying or manually reproducing settings from an existing one."
+    },
+    {
+      "case_id": "MC-P0-020",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Set marketing permissions or reminder text for imported contacts as part of setup."
+    },
+    {
+      "case_id": "MC-P0-021",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Launch a contact import directly from the new-audience empty state."
+    },
+    {
+      "case_id": "MC-P0-022",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Flow from audience creation into campaign setup without losing the chosen audience context."
+    },
+    {
+      "case_id": "MC-P0-023",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P2",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Cancel audience creation mid-flow and verify no partial audience remains in listings."
+    },
+    {
+      "case_id": "MC-P0-024",
+      "category": "audience_creation",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Audience overview",
+      "required_setup": "Authenticated workspace with permissions to manage audiences and no blocking billing or compliance holds.",
+      "scenario_description": "Return to the audience overview after creation and confirm summary cards update."
+    },
+    {
+      "case_id": "MC-P0-025",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Import a clean CSV containing email, first name, and last name fields."
+    },
+    {
+      "case_id": "MC-P0-026",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "api",
+      "parity_priority": "P0",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Import duplicates and choose a mode that updates existing contacts instead of creating new ones."
+    },
+    {
+      "case_id": "MC-P0-027",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Import malformed rows and inspect the partial-failure summary presented to the user."
+    },
+    {
+      "case_id": "MC-P0-028",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Manually add a single contact from the UI rather than via import."
+    },
+    {
+      "case_id": "MC-P0-029",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Apply a bulk tag edit to a selected set of contacts."
+    },
+    {
+      "case_id": "MC-P0-030",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Toggle unsubscribe and resubscribe states for an existing contact."
+    },
+    {
+      "case_id": "MC-P0-031",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Edit notes and custom attributes on an individual contact profile."
+    },
+    {
+      "case_id": "MC-P0-032",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Review the contact activity feed after a campaign send or automation event."
+    },
+    {
+      "case_id": "MC-P0-033",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Delete or archive a contact and confirm the irreversible-action messaging."
+    },
+    {
+      "case_id": "MC-P0-034",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Preview and adjust field mapping before committing an import job."
+    },
+    {
+      "case_id": "MC-P0-035",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "api",
+      "parity_priority": "P2",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Import values with type mismatches such as invalid dates or phone formats."
+    },
+    {
+      "case_id": "MC-P0-036",
+      "category": "contact_import_update",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Contacts table and contact profile",
+      "required_setup": "Audience with permission to import and edit contacts; test CSV files with clean, duplicate, and malformed rows available.",
+      "scenario_description": "Export contacts after a batch of updates and confirm the exported view matches filters."
+    },
+    {
+      "case_id": "MC-P0-037",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Create a simple segment based on a single tag condition."
+    },
+    {
+      "case_id": "MC-P0-038",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Create a multi-condition segment using AND/OR rules."
+    },
+    {
+      "case_id": "MC-P0-039",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Attempt to use predicted or behavioral segmentation on a plan that may gate the feature."
+    },
+    {
+      "case_id": "MC-P0-040",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Observe whether the segment count preview updates live while rules change."
+    },
+    {
+      "case_id": "MC-P0-041",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Save a filtered contacts-table view as a reusable segment."
+    },
+    {
+      "case_id": "MC-P0-042",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Create a segment that yields zero matches and inspect the empty state."
+    },
+    {
+      "case_id": "MC-P0-043",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Edit a saved segment and verify counts recalculate before saving."
+    },
+    {
+      "case_id": "MC-P0-044",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Use a saved segment as the recipient set for a campaign."
+    },
+    {
+      "case_id": "MC-P0-045",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Segment by signup source, geography, or locale-sensitive fields."
+    },
+    {
+      "case_id": "MC-P0-046",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Try to save a segment with a duplicate or ambiguous name."
+    },
+    {
+      "case_id": "MC-P0-047",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Delete a segment that is referenced by another workflow and inspect warnings."
+    },
+    {
+      "case_id": "MC-P0-048",
+      "category": "segmentation_behavior",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Segments",
+      "required_setup": "Audience populated with contacts spanning multiple tags, attributes, geographies, and activity histories.",
+      "scenario_description": "Re-evaluate a segment immediately after a fresh import changes qualifying contacts."
+    },
+    {
+      "case_id": "MC-P0-049",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Create a regular email campaign from the dashboard or campaign-list primary CTA."
+    },
+    {
+      "case_id": "MC-P0-050",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Set campaign name, audience, and subject during the initial setup step."
+    },
+    {
+      "case_id": "MC-P0-051",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Edit from-name and reply-to settings before entering the designer."
+    },
+    {
+      "case_id": "MC-P0-052",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Switch templates during draft creation without losing core metadata."
+    },
+    {
+      "case_id": "MC-P0-053",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Duplicate an existing draft campaign and inspect copied settings."
+    },
+    {
+      "case_id": "MC-P0-054",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Pause mid-wizard and return later from the campaign list."
+    },
+    {
+      "case_id": "MC-P0-055",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Rename a campaign and preserve tracking or analytics toggles."
+    },
+    {
+      "case_id": "MC-P0-056",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Enable optional tracking settings such as social or ecommerce-related toggles."
+    },
+    {
+      "case_id": "MC-P0-057",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Attempt to continue when no audience has been selected and observe validation."
+    },
+    {
+      "case_id": "MC-P0-058",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Archive or delete a draft campaign from list actions."
+    },
+    {
+      "case_id": "MC-P0-059",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P2",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Sort and filter campaign listings by status or recency."
+    },
+    {
+      "case_id": "MC-P0-060",
+      "category": "campaign_creation_editing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Campaign index and campaign creation wizard",
+      "required_setup": "Workspace with at least one audience and permission to create/edit campaigns.",
+      "scenario_description": "Recover from an unsaved-draft prompt after refresh or navigation away."
+    },
+    {
+      "case_id": "MC-P0-061",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Start from a basic template and enter the builder."
+    },
+    {
+      "case_id": "MC-P0-062",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Drag a new content block into the email canvas."
+    },
+    {
+      "case_id": "MC-P0-063",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Edit rich text content and use undo/redo affordances."
+    },
+    {
+      "case_id": "MC-P0-064",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Replace an image block with an asset from content studio."
+    },
+    {
+      "case_id": "MC-P0-065",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Toggle between desktop and mobile preview states."
+    },
+    {
+      "case_id": "MC-P0-066",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Save the current design as a reusable custom template."
+    },
+    {
+      "case_id": "MC-P0-067",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Insert merge tags and inspect sample-data or preview behavior."
+    },
+    {
+      "case_id": "MC-P0-068",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Add invalid custom HTML or code and inspect the warning path."
+    },
+    {
+      "case_id": "MC-P0-069",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Duplicate, delete, and reorder content sections."
+    },
+    {
+      "case_id": "MC-P0-070",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Change global style tokens such as colors or fonts."
+    },
+    {
+      "case_id": "MC-P0-071",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P2",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Collapse and re-open block settings while preserving in-progress edits."
+    },
+    {
+      "case_id": "MC-P0-072",
+      "category": "template_editor_interactions",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Email builder and template library",
+      "required_setup": "Draft campaign opened in the builder with access to templates and content studio assets.",
+      "scenario_description": "Exit the builder with unsaved changes and observe the confirmation modal."
+    },
+    {
+      "case_id": "MC-P0-073",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Send a test email to the current user or a teammate."
+    },
+    {
+      "case_id": "MC-P0-074",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Schedule a campaign for a future date and time."
+    },
+    {
+      "case_id": "MC-P0-075",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Use send-now confirmation and inspect progress or completion messaging."
+    },
+    {
+      "case_id": "MC-P0-076",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Change timezone settings and confirm scheduled-delivery display updates visibly."
+    },
+    {
+      "case_id": "MC-P0-077",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Attempt to use send-time optimization where the feature may be plan-gated."
+    },
+    {
+      "case_id": "MC-P0-078",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Cancel a scheduled send before dispatch."
+    },
+    {
+      "case_id": "MC-P0-079",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Trigger a preflight blocker by leaving required content or settings incomplete."
+    },
+    {
+      "case_id": "MC-P0-080",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Encounter a compliance or authentication blocker before the send step."
+    },
+    {
+      "case_id": "MC-P0-081",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Inspect recipient-count estimation before confirming send."
+    },
+    {
+      "case_id": "MC-P0-082",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Attempt to schedule delivery in the past and verify validation."
+    },
+    {
+      "case_id": "MC-P0-083",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Replicate or resend a previously sent campaign as the basis for a new send."
+    },
+    {
+      "case_id": "MC-P0-084",
+      "category": "send_schedule_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Send / schedule / review",
+      "required_setup": "Completed campaign draft with recipients, sender details, and content configured.",
+      "scenario_description": "Observe progress messaging for a larger audience where sending may take noticeable time."
+    },
+    {
+      "case_id": "MC-P0-085",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Open a report overview from a sent campaign."
+    },
+    {
+      "case_id": "MC-P0-086",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Inspect opens, clicks, bounces, and unsubscribe cards on a report."
+    },
+    {
+      "case_id": "MC-P0-087",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Use date-range or filter controls on the reporting dashboard."
+    },
+    {
+      "case_id": "MC-P0-088",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Drill into recipient activity from a summary metric."
+    },
+    {
+      "case_id": "MC-P0-089",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Inspect ecommerce revenue or conversion panels when a store integration exists."
+    },
+    {
+      "case_id": "MC-P0-090",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Compare trend or benchmark charts across multiple campaigns."
+    },
+    {
+      "case_id": "MC-P0-091",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Export report data from the detail view."
+    },
+    {
+      "case_id": "MC-P0-092",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Open reporting for a draft or unsent campaign and inspect the empty or unavailable state."
+    },
+    {
+      "case_id": "MC-P0-093",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Open reports with a limited-permission user and inspect access restrictions."
+    },
+    {
+      "case_id": "MC-P0-094",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Toggle between desktop/mobile or similar rendering/stat sections where exposed."
+    },
+    {
+      "case_id": "MC-P0-095",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Open click-map or link-performance detail for a message."
+    },
+    {
+      "case_id": "MC-P0-096",
+      "category": "reporting_screens",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Reports overview and report detail",
+      "required_setup": "Workspace with at least one sent campaign and, where relevant, connected store or automation activity.",
+      "scenario_description": "Refresh reports after late-arriving metrics or processing lag."
+    },
+    {
+      "case_id": "MC-P0-097",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Create a welcome journey from a starter template."
+    },
+    {
+      "case_id": "MC-P0-098",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Build a multi-step customer journey with delays and multiple message nodes."
+    },
+    {
+      "case_id": "MC-P0-099",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Set a signup or audience-entry event as the trigger."
+    },
+    {
+      "case_id": "MC-P0-100",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Edit an email step inside an existing journey."
+    },
+    {
+      "case_id": "MC-P0-101",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Pause and resume an automation after publication."
+    },
+    {
+      "case_id": "MC-P0-102",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Add branching logic based on tags or purchase behavior."
+    },
+    {
+      "case_id": "MC-P0-103",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P1",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Attempt to publish a journey missing a required trigger or destination."
+    },
+    {
+      "case_id": "MC-P0-104",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Clone an automation draft and verify copied structure."
+    },
+    {
+      "case_id": "MC-P0-105",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Publish a journey with an audience mismatch or warning condition."
+    },
+    {
+      "case_id": "MC-P0-106",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Delete or move a step and ensure the canvas reconnects logically."
+    },
+    {
+      "case_id": "MC-P0-107",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P2",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Inspect performance stats for an active journey."
+    },
+    {
+      "case_id": "MC-P0-108",
+      "category": "automation_journey_flows",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Automations overview and customer journey builder",
+      "required_setup": "Workspace with audience data and permissions to create automations or customer journeys.",
+      "scenario_description": "Stop or archive an automation that currently has enrolled contacts."
+    },
+    {
+      "case_id": "MC-P0-109",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Open plan and billing screens and inspect upgrade or downgrade CTAs."
+    },
+    {
+      "case_id": "MC-P0-110",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Change billing-contact details."
+    },
+    {
+      "case_id": "MC-P0-111",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Add or replace a payment method."
+    },
+    {
+      "case_id": "MC-P0-112",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Inspect monthly usage meters for contacts or sends."
+    },
+    {
+      "case_id": "MC-P0-113",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P0",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Encounter plan-gated feature lock messaging from settings or premium entry points."
+    },
+    {
+      "case_id": "MC-P0-114",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P0",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Enter domain authentication or sender-identity settings."
+    },
+    {
+      "case_id": "MC-P0-115",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Invite a teammate and choose a role."
+    },
+    {
+      "case_id": "MC-P0-116",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P1",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Verify role-based access differences across sensitive settings pages."
+    },
+    {
+      "case_id": "MC-P0-117",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "api",
+      "parity_priority": "P1",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Create and revoke an API key."
+    },
+    {
+      "case_id": "MC-P0-118",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "api",
+      "parity_priority": "P1",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Review webhook or connected-app management surfaces."
+    },
+    {
+      "case_id": "MC-P0-119",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "ui",
+      "parity_priority": "P2",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Observe security or audit messaging after a sensitive settings action."
+    },
+    {
+      "case_id": "MC-P0-120",
+      "category": "admin_settings_billing",
+      "expected_failure_modes": "If the task cannot complete, the UI should expose a legible blocker such as inline validation, plan/permission gating, duplicate/conflict messaging, async-job partial failure detail, or an empty/unavailable state with recovery options.",
+      "expected_visible_behavior": "The visible workflow should preserve Mailchimp-style step order, naming, validation timing, loading/success/error states, and the resulting object/report/list state implied by the scenario.",
+      "parity_mode": "workflow",
+      "parity_priority": "P2",
+      "product_surface": "Billing, settings, domains, team roles, and developer settings",
+      "required_setup": "Authenticated admin user with access to account settings, billing, domains, and team management.",
+      "scenario_description": "Initiate account cancellation or data-export workflow and inspect confirmations."
+    }
+  ],
+  "categories": [
+    {
+      "case_count": 12,
+      "category": "signup_onboarding",
+      "surface": "Signup and onboarding wizard"
+    },
+    {
+      "case_count": 12,
+      "category": "audience_creation",
+      "surface": "Audience overview"
+    },
+    {
+      "case_count": 12,
+      "category": "contact_import_update",
+      "surface": "Contacts table and contact profile"
+    },
+    {
+      "case_count": 12,
+      "category": "segmentation_behavior",
+      "surface": "Segments"
+    },
+    {
+      "case_count": 12,
+      "category": "campaign_creation_editing",
+      "surface": "Campaign index and campaign creation wizard"
+    },
+    {
+      "case_count": 12,
+      "category": "template_editor_interactions",
+      "surface": "Email builder and template library"
+    },
+    {
+      "case_count": 12,
+      "category": "send_schedule_flows",
+      "surface": "Send / schedule / review"
+    },
+    {
+      "case_count": 12,
+      "category": "reporting_screens",
+      "surface": "Reports overview and report detail"
+    },
+    {
+      "case_count": 12,
+      "category": "automation_journey_flows",
+      "surface": "Automations overview and customer journey builder"
+    },
+    {
+      "case_count": 12,
+      "category": "admin_settings_billing",
+      "surface": "Billing, settings, domains, team roles, and developer settings"
+    }
+  ],
+  "date": "2026-04-01",
+  "schema_version": "cortex.mailchimp.parity_corpus_seed.v1",
+  "source_grounding": [
+    {
+      "label": "Mailchimp home page",
+      "observations": [
+        "Markets itself as an AI-powered email marketing and automations platform.",
+        "Calls out email + SMS, analytics, automations, onboarding, and plan-tier feature differences.",
+        "Highlights popup forms, predictive segmentation, A/B testing, and 300+ integrations."
+      ],
+      "observed_at": "2026-04-02T05:28Z",
+      "url": "https://mailchimp.com/"
+    },
+    {
+      "label": "Mailchimp features page",
+      "observations": [
+        "Lists product areas spanning email builder, landing pages, websites, content studio, segmentation, sign-up forms, surveys, tags, automations, reports, transactional email, webhooks, and integrations.",
+        "Shows visible surface families useful for parity scoping rather than internal implementation assumptions."
+      ],
+      "observed_at": "2026-04-02T05:28Z",
+      "url": "https://mailchimp.com/features/"
+    },
+    {
+      "label": "Mailchimp help center",
+      "observations": [
+        "Help categories include Accounts, Audiences, Automation, Edit and Design, Emails, Integrations, Landing Pages, Reports, Templates, Transactional Email, and Websites.",
+        "This corroborates the core product surface families used in the surface map and teardown pack."
+      ],
+      "observed_at": "2026-04-02T05:28Z",
+      "url": "https://mailchimp.com/help/"
+    }
+  ]
+}

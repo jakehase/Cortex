@@ -16,6 +16,7 @@ import uuid
 from cortex_server.routers.librarian import (
     collection,
     index_with_novelty,
+    robust_search,
     search_with_novelty,
 )
 
@@ -135,21 +136,18 @@ async def l22_store_novel(request: L22NovelStoreRequest):
 async def l22_search(request: L22SearchRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty")
-
-    results = collection.query(query_texts=[request.query], n_results=request.n_results)
-    memories = []
-    if results.get("ids") and results["ids"][0]:
-        for i, memory_id in enumerate(results["ids"][0]):
-            memories.append(
-                {
-                    "id": memory_id,
-                    "text": results["documents"][0][i],
-                    "distance": results["distances"][0][i] if results.get("distances") else 0.0,
-                    "metadata": results["metadatas"][0][i] if results.get("metadatas") else None,
-                }
-            )
-
-    return {"query": request.query, "results": memories}
+    result = robust_search(
+        query=request.query,
+        n_results=request.n_results,
+        allow_fallback=True,
+    )
+    return {
+        "query": request.query,
+        "results": result.get("results", []),
+        "search_mode": result.get("search_mode", "semantic"),
+        "degraded": bool(result.get("degraded", False)),
+        "warning": result.get("warning"),
+    }
 
 
 @router.post("/search_novel")

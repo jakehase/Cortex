@@ -169,6 +169,30 @@ def _default_visibility_for_kind(kind: str) -> str:
     return "public_safe"
 
 
+def _first_non_empty(*values: Any) -> Optional[str]:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return None
+
+
+def _coerce_parent_ids(*values: Any) -> List[str]:
+    out: List[str] = []
+    for value in values:
+        if isinstance(value, (list, tuple)):
+            candidates = value
+        elif value is None:
+            continue
+        else:
+            candidates = [value]
+        for item in candidates:
+            text = str(item or "").strip()
+            if text and text not in out:
+                out.append(text)
+    return out
+
+
 def normalize_runtime_event(
     event: Optional[JsonDict] = None,
     *,
@@ -179,9 +203,9 @@ def normalize_runtime_event(
     event_id: Optional[str] = None,
 ) -> JsonDict:
     raw = dict(event or {})
-    process_value = str(process_id or raw.get("process_id") or "").strip()
-    kind_value = str(kind or raw.get("event_kind") or raw.get("kind") or "runtime_event").strip() or "runtime_event"
     payload_value = dict(payload or raw.get("payload") or {})
+    process_value = _first_non_empty(process_id, raw.get("process_id"), raw.get("processId"), payload_value.get("process_id"), payload_value.get("processId")) or ""
+    kind_value = str(kind or raw.get("event_kind") or raw.get("kind") or "runtime_event").strip() or "runtime_event"
     requested_visibility = str(raw.get("visibility") or payload_value.get("visibility") or _default_visibility_for_kind(kind_value)).strip() or _default_visibility_for_kind(kind_value)
     requested_redaction = str(raw.get("redaction_level") or payload_value.get("redaction_level") or requested_visibility).strip() or requested_visibility
     presentation_policy = str(raw.get("presentation_policy") or payload_value.get("presentation_policy") or requested_visibility).strip() or requested_visibility
@@ -198,14 +222,14 @@ def normalize_runtime_event(
         event_kind=kind_value,
         ts=str(ts or raw.get("ts") or _now_iso()),
         process_id=process_value,
-        objective_key=str(raw.get("objective_key") or redacted_payload.get("objective_key") or "").strip() or None,
-        agent_id=str(raw.get("agent_id") or redacted_payload.get("agent_id") or "").strip() or None,
-        scope=str(raw.get("scope") or redacted_payload.get("scope") or "").strip() or None,
-        source_subsystem=str(raw.get("source_subsystem") or redacted_payload.get("source_subsystem") or classify_event_family(kind_value)).strip() or classify_event_family(kind_value),
-        correlation_id=str(raw.get("correlation_id") or redacted_payload.get("correlation_id") or "").strip() or None,
-        causal_parent_ids=[str(item).strip() for item in (raw.get("causal_parent_ids") or redacted_payload.get("causal_parent_ids") or []) if str(item).strip()],
-        session_key=str(raw.get("session_key") or redacted_payload.get("session_key") or "").strip() or None,
-        repo_path=str(raw.get("repo_path") or redacted_payload.get("repo_path") or "").strip() or None,
+        objective_key=_first_non_empty(raw.get("objective_key"), raw.get("objectiveKey"), redacted_payload.get("objective_key"), redacted_payload.get("objectiveKey")),
+        agent_id=_first_non_empty(raw.get("agent_id"), raw.get("agentId"), redacted_payload.get("agent_id"), redacted_payload.get("agentId")),
+        scope=_first_non_empty(raw.get("scope"), redacted_payload.get("scope")),
+        source_subsystem=_first_non_empty(raw.get("source_subsystem"), raw.get("sourceSubsystem"), raw.get("subsystem"), redacted_payload.get("source_subsystem"), redacted_payload.get("sourceSubsystem"), redacted_payload.get("subsystem"), classify_event_family(kind_value)) or classify_event_family(kind_value),
+        correlation_id=_first_non_empty(raw.get("correlation_id"), raw.get("correlationId"), raw.get("trace_id"), raw.get("traceId"), redacted_payload.get("correlation_id"), redacted_payload.get("correlationId"), redacted_payload.get("trace_id"), redacted_payload.get("traceId")),
+        causal_parent_ids=_coerce_parent_ids(raw.get("causal_parent_ids"), raw.get("causalParentIds"), raw.get("causal_parent_id"), raw.get("parent_event_id"), raw.get("parentEventId"), redacted_payload.get("causal_parent_ids"), redacted_payload.get("causalParentIds"), redacted_payload.get("causal_parent_id"), redacted_payload.get("parent_event_id"), redacted_payload.get("parentEventId")),
+        session_key=_first_non_empty(raw.get("session_key"), raw.get("sessionKey"), raw.get("session_id"), raw.get("sessionId"), redacted_payload.get("session_key"), redacted_payload.get("sessionKey"), redacted_payload.get("session_id"), redacted_payload.get("sessionId")),
+        repo_path=_first_non_empty(raw.get("repo_path"), raw.get("repoPath"), redacted_payload.get("repo_path"), redacted_payload.get("repoPath")),
         visibility=requested_visibility,
         redaction_level=requested_redaction,
         storage_policy=storage_policy,
@@ -231,6 +255,23 @@ def normalize_runtime_events(events: Iterable[JsonDict]) -> List[JsonDict]:
             continue
         out.append(normalize_runtime_event(event))
     return out
+
+
+def validate_state_class_collection(rows: Iterable[JsonDict], *, expected_state_class: str, require_lineage: bool = False) -> List[JsonDict]:
+    expected = str(expected_state_class or "").strip()
+    if expected not in STATE_CLASSES:
+        raise ValueError(f"unknown_state_class:{expected}")
+    validated: List[JsonDict] = []
+    for idx, row in enumerate(rows or []):
+        if not isinstance(row, dict):
+            raise ValueError(f"invalid_row:{expected}:{idx}")
+        actual = str(row.get("state_class") or "").strip()
+        if actual != expected:
+            raise ValueError(f"state_class_mismatch:{expected}:{idx}:{actual or 'missing'}")
+        if require_lineage and not isinstance(row.get("lineage"), dict):
+            raise ValueError(f"missing_lineage:{expected}:{idx}")
+        validated.append(dict(row))
+    return validated
 
 
 def capability_matrix() -> JsonDict:

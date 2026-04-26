@@ -1258,7 +1258,7 @@ def _frontend_contract_block() -> str:
         "- Pick a clear visual direction and keep spacing/typography consistent.\n"
         "- Prefer semantic, accessible markup (labels, landmarks, contrast-safe choices).\n"
         "- Mobile-first responsiveness required; avoid brittle fixed sizes unless requested.\n"
-        "- Return production-ready output (no placeholder filler, no pseudo-code-only stubs).\n"
+        "- Return production-ready output (no filler and no pseudo-code-only output).\n"
         "- Minimize dependencies; if using a framework/library, keep it explicit and coherent.\n"
         "- Keep output deterministic and copy-paste runnable where possible."
     )
@@ -2092,7 +2092,7 @@ def _bridge_is_low_quality_response(prompt: str, text: str) -> bool:
     if not t:
         return True
 
-    # Known placeholders / sentinel text
+    # Known low-quality sentinel text
     if t.startswith('pong from gladys bridge'):
         # Allow ultra-basic ping/pong prompts only.
         return not _is_ultra_basic_prompt(prompt)
@@ -2113,7 +2113,7 @@ def call_bridge(prompt: str) -> str:
     - {"ok": true, "response": "..."}
     - {"response": "..."}  # legacy Gladys bridge format
 
-    Safety: reject low-quality placeholder/sentinel bridge responses for non-trivial prompts
+    Safety: reject low-quality sentinel bridge responses for non-trivial prompts
     to avoid silent quality regression.
     """
     headers = {"Content-Type": "application/json"}
@@ -2269,7 +2269,7 @@ def call_openclaw_local(prompt: str, system: Optional[str] = None) -> str:
                 if payloads and isinstance(payloads[0], dict):
                     text = (payloads[0].get("text") or "").strip()
 
-                # Debug: simulate one empty OpenClaw result to validate bounded retries
+                # Debug: force one empty OpenClaw result to validate bounded retries
                 if _FORCE_OPENCLAW_EMPTY_ONCE.is_set():
                     _FORCE_OPENCLAW_EMPTY_ONCE.clear()
                     text = ""
@@ -3281,7 +3281,11 @@ async def oracle_status():
             **_forecast_calibration(),
         },
         'kernel_v2': cortex_kernel_v2.performance_snapshot(runtime="oracle"),
-        'policy': 'Codex-majority with bridge/local fallback chain',
+        'policy': (
+            'OpenClaw-local primary; fallbacks disabled'
+            if not ORACLE_FALLBACKS_ENABLED
+            else ('OpenClaw-local primary with hedged bridge/local fallback chain' if ORACLE_HEDGE_ENABLED else 'OpenClaw-local primary with bridge/local fallback chain')
+        ),
         'local_error': local_err,
         'bridge_error': bridge_err,
         'bridge_cb': {'fails': _BRIDGE_CB_FAILS, 'open_until': _BRIDGE_CB_OPEN_UNTIL, 'allows': _bridge_cb_allows(), 'threshold': _BRIDGE_CB_THRESHOLD, 'cooldown_s': _BRIDGE_CB_COOLDOWN_S},

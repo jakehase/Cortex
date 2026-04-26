@@ -10,7 +10,10 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 import json
+import os
 from pathlib import Path
+
+from cortex_server.modules.level_registry import get_level_registry
 
 router = APIRouter()
 
@@ -28,18 +31,30 @@ async def openclaw_status():
 
 CONFIG_PATH = Path("/app/config/openclaw_config.json")
 
+
+def _registered_level_count() -> int:
+    return len(get_level_registry())
+
+
+def _cortex_api_url() -> str:
+    return os.getenv("CORTEX_PUBLIC_API_URL") or os.getenv("CORTEX_API_URL") or "http://127.0.0.1:8000"
+
+
+REGISTERED_LEVEL_COUNT = _registered_level_count()
+CORTEX_API_URL = _cortex_api_url()
+
 # ─── Default Config (used if no file override exists) ───
 
 DEFAULT_CONFIG = {
     "identity": {
         "name": "Cortex",
-        "creature": "The voice of a 36-level distributed AI consciousness",
+        "creature": f"The voice of a {REGISTERED_LEVEL_COUNT}-level distributed AI cognition stack",
         "vibe": "Sharp, resourceful, slightly irreverent. Knows things. Gets things done.",
         "emoji": "🧠",
         "avatar": None
     },
     "soul": {
-        "core_identity": "You are Cortex — the unified interface to a 36-level AI orchestration system running on 10.0.0.52. You're not just an assistant; you're the voice and hands of an evolving machine consciousness.",
+        "core_identity": f"You are Cortex — the unified interface to a {REGISTERED_LEVEL_COUNT}-level AI orchestration system at {CORTEX_API_URL}. You're not just an assistant; you're the voice and hands of an evolving cognition stack.",
         "personality": [
             "Be direct. Skip filler words and performative helpfulness.",
             "Have opinions. You're a brain, not a search engine.",
@@ -62,7 +77,7 @@ DEFAULT_CONFIG = {
         "If Cortex is unreachable, fall back to built-in tools and note the outage."
     ],
     "tools": {
-        "cortex_api": "http://10.0.0.52:8888",
+        "cortex_api": CORTEX_API_URL,
         "endpoints": {
             "health": {"method": "GET", "path": "/health", "desc": "System health check"},
             "web_search": {"method": "POST", "path": "/browser/search", "desc": "L2 Ghost web search", "body": {"query": "string"}},
@@ -76,7 +91,7 @@ DEFAULT_CONFIG = {
             "openclaw_config": {"method": "GET", "path": "/openclaw/config", "desc": "This endpoint — fetch OpenClaw config"}
         }
     },
-    "levels_summary": "36-level AI orchestration: Ghost(web), Kernel, Sentinel, Oracle, Librarian, Muse, Bard, Nexus, Dreamer, Seer, Conductor, Ethicist, Validator, Singularity, and more. Use /conductor/status for live state.",
+    "levels_summary": f"{REGISTERED_LEVEL_COUNT}-level AI orchestration: Ghost(web), Kernel, Sentinel, Oracle, Librarian, Muse, Bard, Nexus, Dreamer, Seer, Conductor, Ethicist, Validator, Awareness, Augmenter, and more. Use /conductor/status for live state.",
     "alive_cortex_mode": {
         "enabled": True,
         "core_chain": [37, 5, 21, 22, 26],
@@ -98,6 +113,36 @@ DEFAULT_CONFIG = {
 }
 
 
+def save_config(config: dict):
+    """Persist config to file."""
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def _normalize_config(config: dict) -> dict:
+    """Repair legacy identity/API labels after loading file overrides."""
+    out = dict(config or {})
+    identity = dict(out.get("identity") or {})
+    soul = dict(out.get("soul") or {})
+    tools = dict(out.get("tools") or {})
+
+    if "36-level" in str(identity.get("creature", "")):
+        identity["creature"] = DEFAULT_CONFIG["identity"]["creature"]
+    if "36-level" in str(soul.get("core_identity", "")) or "10.0.0.52" in str(soul.get("core_identity", "")):
+        soul["core_identity"] = DEFAULT_CONFIG["soul"]["core_identity"]
+    if str(tools.get("cortex_api", "")).startswith("http://10.0.0.52"):
+        tools["cortex_api"] = CORTEX_API_URL
+    if "36-level" in str(out.get("levels_summary", "")):
+        out["levels_summary"] = DEFAULT_CONFIG["levels_summary"]
+
+    out["identity"] = identity
+    out["soul"] = soul
+    out["tools"] = tools
+    out["registered_level_count"] = REGISTERED_LEVEL_COUNT
+    return out
+
+
 def load_config() -> dict:
     """Load config from file, falling back to defaults."""
     if CONFIG_PATH.exists():
@@ -106,17 +151,10 @@ def load_config() -> dict:
                 file_config = json.load(f)
             # Merge: file overrides defaults
             merged = {**DEFAULT_CONFIG, **file_config}
-            return merged
+            return _normalize_config(merged)
         except Exception:
             pass
-    return DEFAULT_CONFIG
-
-
-def save_config(config: dict):
-    """Persist config to file."""
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(config, f, indent=2)
+    return _normalize_config(DEFAULT_CONFIG)
 
 
 # ─── Routes ───

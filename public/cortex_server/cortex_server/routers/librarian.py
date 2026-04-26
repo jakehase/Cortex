@@ -428,6 +428,221 @@ def _lexical_score(query: str, text: str) -> float:
     return round(_clamp01(raw), 4)
 
 
+def _metadata_tags(metadata: Optional[Dict[str, Any]]) -> List[str]:
+    if not isinstance(metadata, dict):
+        return []
+    tags = metadata.get("tags")
+    if not isinstance(tags, list):
+        return []
+    return [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+
+
+def _is_curated_memory(metadata: Optional[Dict[str, Any]]) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    source = str(metadata.get("source") or "").strip().lower()
+    quality = str(metadata.get("quality") or "").strip().lower()
+    tags = _metadata_tags(metadata)
+    return (
+        quality == "curated"
+        or "curated" in tags
+        or source in {
+            "curated-project-facts",
+            "curated-preferences-priorities",
+            "curated-anti-drift",
+            "curated-noise-suppression",
+        }
+    )
+
+
+def _is_awareness_noise_row(text: str, metadata: Optional[Dict[str, Any]]) -> bool:
+    tags = _metadata_tags(metadata)
+    source = str((metadata or {}).get("source") or "").strip().lower()
+    tier = str((metadata or {}).get("tier") or "").strip().lower()
+    normalized = str(text or "").strip().lower()
+    if "semantic_prediction" in tags or "awareness" in tags or "l37" in tags:
+        return True
+    if source in {"awareness", "oracle", "oracle_prediction", "semantic_prediction"}:
+        return True
+    if tier == "l2-awareness":
+        return True
+    return normalized in {
+        "asking oracle for a semantic prediction...",
+        "asking oracle for a semantic prediction..",
+        "asking oracle for a semantic prediction.",
+    } or normalized.startswith("oracle predicts:")
+
+
+def _is_codec_state_row(text: str, metadata: Optional[Dict[str, Any]]) -> bool:
+    tags = _metadata_tags(metadata)
+    source = str((metadata or {}).get("source") or "").strip().lower()
+    memory_type = str((metadata or {}).get("type") or "").strip().lower()
+    normalized = str(text or "").strip().lower()
+    return (
+        memory_type == "codec_state"
+        or "codec_state" in tags
+        or "cortex_codec" in tags
+        or source == "codec_state"
+        or normalized.startswith('{"compression":')
+    )
+
+
+def _query_wants_codec_state(query: str) -> bool:
+    normalized = str(query or "").strip().lower()
+    return any(token in normalized for token in [
+        "codec",
+        "codec state",
+        "compressed behavioral context",
+        "memory facts",
+        "rollup",
+        "session state",
+        "durable memory blob",
+    ])
+
+
+def _codec_state_display_text(text: str) -> Optional[str]:
+    normalized = str(text or "").strip()
+    if not normalized.startswith("{"):
+        return None
+    try:
+        payload = json.loads(normalized)
+    except Exception:
+        return None
+
+    snippets: List[str] = []
+
+    def _push(value: Any) -> None:
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if cleaned and cleaned not in snippets:
+                snippets.append(cleaned)
+        elif isinstance(value, dict):
+            for key in ["text", "summary", "value", "label", "fact"]:
+                if isinstance(value.get(key), str):
+                    _push(value.get(key))
+                    return
+
+    for bucket in ["identity_state", "summary", "memory_facts", "project_state"]:
+        value = payload.get(bucket)
+        if isinstance(value, dict):
+            for nested_key in ["preferences", "projects", "open_loops", "lessons", "facts", "summary"]:
+                nested = value.get(nested_key)
+                if isinstance(nested, list):
+                    for item in nested[:4]:
+                        _push(item)
+                else:
+                    _push(nested)
+        elif isinstance(value, list):
+            for item in value[:4]:
+                _push(item)
+        else:
+            _push(value)
+
+    if not snippets:
+        return None
+    return " ".join(snippets[:4])[:600]
+
+
+def _rank_memory_row(query: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    text = str(row.get("text") or "")
+    metadata = dict(row.get("metadata") or {})
+    codec_state_row = _is_codec_state_row(text, metadata)
+    display_text = _codec_state_display_text(text) if codec_state_row and not _query_wants_codec_state(query) else None
+    rank_text = display_text or text
+    if display_text:
+        row["text"] = display_text
+        metadata = {
+            **metadata,
+            "source_document_type": str(metadata.get("type") or "codec_state"),
+            "source_document_preview": text[:200],
+        }
+    lexical = _lexical_score(query, rank_text)
+    relevance = _relevance_from_distance(row.get("distance", 1.0))
+    curated = _is_curated_memory(metadata)
+    awareness_noise = _is_awareness_noise_row(rank_text, metadata)
+    codec_state_noise = codec_state_row and not _query_wants_codec_state(query)
+
+    score = (0.55 * lexical) + (0.35 * relevance)
+    if curated:
+        score += 0.18
+    if awareness_noise:
+        score -= 0.55
+    if codec_state_noise:
+        score -= 0.42
+    if lexical >= 0.75:
+        score += 0.18
+    elif lexical >= 0.45:
+        score += 0.08
+
+    row["metadata"] = {
+        **metadata,
+        "lexical_score": round(lexical, 4),
+        "relevance_score": round(relevance, 4),
+        "hybrid_score": round(_clamp01(score), 4),
+        "awareness_noise": awareness_noise,
+        "codec_state_noise": codec_state_noise,
+    }
+    row["_hybrid_score"] = round(_clamp01(score), 4)
+    row["_lexical_score"] = round(lexical, 4)
+    row["_awareness_noise"] = awareness_noise
+    row["_codec_state_noise"] = codec_state_noise
+    return row
+
+
+def _merge_ranked_rows(
+    query: str,
+    semantic_rows: List[Dict[str, Any]],
+    lexical_rows: List[Dict[str, Any]],
+    n_results: int,
+) -> List[Dict[str, Any]]:
+    ranked: Dict[str, Dict[str, Any]] = {}
+    for row in semantic_rows + lexical_rows:
+        candidate = _rank_memory_row(query, dict(row))
+        key = str(candidate.get("id") or "") or _fingerprint(str(candidate.get("text") or ""))
+        existing = ranked.get(key)
+        if existing is None or float(candidate.get("_hybrid_score", 0.0)) > float(existing.get("_hybrid_score", 0.0)):
+            ranked[key] = candidate
+
+    ordered = sorted(
+        ranked.values(),
+        key=lambda item: (
+            float(item.get("_hybrid_score", 0.0)),
+            float(item.get("_lexical_score", 0.0)),
+            -float(item.get("distance", 1.0)),
+        ),
+        reverse=True,
+    )
+
+    strong_non_noise = [
+        row for row in ordered
+        if not bool(row.get("_awareness_noise")) and not bool(row.get("_codec_state_noise")) and float(row.get("_hybrid_score", 0.0)) >= 0.22
+    ]
+    if strong_non_noise:
+        ordered = [row for row in ordered if not bool(row.get("_awareness_noise")) and not bool(row.get("_codec_state_noise"))]
+
+    cleaned: List[Dict[str, Any]] = []
+    for row in ordered[: max(1, int(n_results))]:
+        row.pop("_hybrid_score", None)
+        row.pop("_lexical_score", None)
+        row.pop("_awareness_noise", None)
+        row.pop("_codec_state_noise", None)
+        cleaned.append(row)
+    return cleaned
+
+
+def _semantic_rows_need_help(query: str, rows: List[Dict[str, Any]]) -> bool:
+    if not rows:
+        return True
+    ranked = [_rank_memory_row(query, dict(row)) for row in rows[:5]]
+    best_score = max(float(row.get("_hybrid_score", 0.0)) for row in ranked)
+    non_noise = [row for row in ranked if not bool(row.get("_awareness_noise")) and not bool(row.get("_codec_state_noise"))]
+    if not non_noise:
+        return True
+    if best_score < 0.18:
+        return True
+    return all(float(row.get("_lexical_score", 0.0)) < 0.18 for row in ranked)
+
+
 def _lexical_search_rows(query: str, n_results: int = 5, scan_limit: int = 300) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
 
@@ -498,6 +713,7 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
     semantic_warning: Optional[str] = None
+    semantic_rows: List[Dict[str, Any]] = []
     try:
         results = collection.query(query_texts=[query], n_results=max(1, int(n_results)))
         out_rows: List[Dict[str, Any]] = []
@@ -517,16 +733,17 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
                     }
                 )
 
-        if out_rows:
+        semantic_rows = out_rows
+        if out_rows and not _semantic_rows_need_help(query, out_rows):
             return {
                 "query": query,
-                "results": out_rows,
+                "results": _merge_ranked_rows(query, out_rows, [], n_results=max(1, int(n_results))),
                 "search_mode": "semantic",
                 "degraded": False,
                 "warning": None,
             }
 
-        semantic_warning = "semantic_empty"
+        semantic_warning = "semantic_low_signal" if out_rows else "semantic_empty"
     except Exception as exc:
         _mark_embedding_error(exc)
         semantic_warning = f"semantic_failed: {str(exc)[:220]}"
@@ -542,6 +759,16 @@ def robust_search(query: str, n_results: int = 5, allow_fallback: bool = True) -
 
     _mark_fallback_search()
     lexical_rows = _lexical_search_rows(query, n_results=max(1, int(n_results)))
+    merged_rows = _merge_ranked_rows(query, semantic_rows, lexical_rows, n_results=max(1, int(n_results)))
+    if merged_rows:
+        return {
+            "query": query,
+            "results": merged_rows,
+            "search_mode": "semantic_hybrid" if semantic_rows else "lexical_fallback",
+            "degraded": bool(semantic_warning),
+            "warning": semantic_warning or ("fallback_requested" if not semantic_rows else None),
+        }
+
     for row in lexical_rows:
         row.pop("_score", None)
 

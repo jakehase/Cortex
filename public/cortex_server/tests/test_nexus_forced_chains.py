@@ -44,6 +44,15 @@ def test_research_chain_forced(monkeypatch):
     assert body["routing_markers"]["research_chain"] == ["ghost", "librarian", "mnemosyne", "oracle", "validator"]
 
 
+def test_preference_prefix_query_does_not_trigger_coding_chain(monkeypatch):
+    client = _client(monkeypatch)
+    r = client.get("/nexus/orchestrate", params={"query": "What prefix should replies use for Jake?"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["routing_method"] != "coding_chain_forced"
+    assert body["routing_markers"]["coding_triggered"] is False
+
+
 def test_architecture_chain_forced(monkeypatch):
     monkeypatch.setattr(nexus, "_architect_healthy", lambda: True)
     client = _client(monkeypatch)

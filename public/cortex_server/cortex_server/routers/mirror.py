@@ -1,7 +1,7 @@
 """
 Level 23: The Cartographer / Mirror — Full System Dashboard & Self-Discovery
 
-Provides a live HTML dashboard showing all 36 Cortex levels with real-time
+Provides a live HTML dashboard showing all registered Cortex levels with real-time
 status checks, plus structured JSON endpoints for system introspection.
 """
 from fastapi import APIRouter
@@ -54,6 +54,8 @@ LEVEL_MAP: Dict[int, Dict[str, Any]] = {
     34: {"name": "Validator",    "path": "/validator",      "category": "Singularity",    "always_on": True},
     35: {"name": "Singularity",  "path": "/singularity",    "category": "Singularity",    "always_on": True},
     36: {"name": "Conductor",    "path": "/meta_conductor", "category": "Singularity",    "always_on": True},
+    37: {"name": "Awareness",    "path": "/awareness",      "category": "Singularity",    "always_on": False},
+    38: {"name": "Augmenter",    "path": "/augmenter",      "category": "Singularity",    "always_on": False},
 }
 
 BASE_URL = "http://127.0.0.1:8888"
@@ -119,7 +121,7 @@ async def _probe_all() -> List[Dict[str, Any]]:
 
 @router.get("/", response_class=HTMLResponse)
 async def get_dashboard():
-    """Full HTML dashboard with live status for all 36 levels."""
+    """Full HTML dashboard with live status for all registered levels."""
     results = await _probe_all()
 
     online = sum(1 for r in results if r["status"] == "online")

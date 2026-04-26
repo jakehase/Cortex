@@ -8,21 +8,14 @@ from fastapi import APIRouter, Request
 from datetime import datetime
 from typing import List, Dict
 
+from cortex_server.modules.level_registry import get_level_registry
+
 router = APIRouter()
 
 # Canonical always-on levels
 ALWAYS_ON_LEVELS = [5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36]
 
-LEVEL_NAMES = {
-    1: "Kernel", 2: "Ghost", 3: "Parser", 4: "Lab", 5: "Oracle",
-    6: "Bard", 7: "Librarian", 8: "Cron", 9: "Architect", 10: "Listener",
-    11: "Catalyst", 12: "Hive", 13: "Dreamer", 14: "Chronos", 15: "Council",
-    16: "Academy", 17: "Exoskeleton", 18: "Diplomat", 19: "Geneticist", 20: "Simulator",
-    21: "Ouroboros", 22: "Mnemosyne", 23: "Cartographer", 24: "Nexus", 25: "Bridge",
-    26: "Orchestrator", 27: "Forge", 28: "Polyglot", 29: "Muse", 30: "Seer",
-    31: "Mediator", 32: "Synthesist", 33: "Ethicist", 34: "Validator", 35: "Singularity",
-    36: "Conductor",
-}
+LEVEL_NAMES = {int(row["level"]): str(row["name"]) for row in get_level_registry()}
 
 
 def _format_hud(always_on: List[int], activated: List[Dict]) -> str:
@@ -87,7 +80,7 @@ async def get_hud_display():
             {"level": a["level"], "name": a["name"], "timestamp": a.get("timestamp")}
             for a in recent
         ],
-        "total_levels": 36,
+        "total_levels": len(LEVEL_NAMES),
         "timestamp": datetime.now().isoformat(),
     }
 

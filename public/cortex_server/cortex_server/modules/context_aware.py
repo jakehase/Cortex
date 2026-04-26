@@ -1,8 +1,8 @@
-"""Context-Aware Orchestration - All 36 levels evaluate relevance with semantic understanding"""
+"""Context-Aware Orchestration - registered Cortex levels evaluate relevance."""
 
 # from .semantic_scorer import get_semantic_scorer  # Disabled - numpy not installed
 
-# Complete LEVEL_RELEVANCE - All 36 levels with keyword configurations
+# Complete LEVEL_RELEVANCE - registered Cortex levels with keyword configurations
 LEVEL_RELEVANCE = {
     1: {  # Kernel
         'terms': ['system', 'hardware', 'os', 'kernel', 'process', 'cpu', 'memory'],
@@ -100,7 +100,7 @@ LEVEL_RELEVANCE = {
         'action': 'Version management'
     },
     20: {  # Simulator
-        'terms': ['test', 'simulate', 'what if scenario', 'predict outcome', 'sandbox'],
+        'terms': ['test', 'scenario run', 'what if scenario', 'predict outcome', 'sandbox'],
         'weight': 0.3,
         'action': 'Simulation testing'
     },
@@ -183,6 +183,16 @@ LEVEL_RELEVANCE = {
         'terms': ['orchestrate', 'conduct', 'coordinate', 'synchronize', 'harmonize', 'unify', 'integrate', 'collective', 'symphony', 'ensemble'],
         'weight': 0.45,
         'action': 'Meta-orchestration'
+    },
+    37: {  # Awareness
+        'terms': ['awareness', 'self', 'introspect', 'capability', 'state', 'identity'],
+        'weight': 0.35,
+        'action': 'Self-awareness and internal state'
+    },
+    38: {  # Augmenter
+        'terms': ['augment', 'enhance', 'control surface', 'classifier', 'intent', 'enrich'],
+        'weight': 0.35,
+        'action': 'Intent augmentation and control surface'
     }
 }
 
@@ -257,7 +267,7 @@ def _keyword_fallback(query: str, level_num: int) -> dict:
     return {'score': score, 'reason': reason, 'action': config.get('action')}
 
 def get_all_level_configs():
-    """Return configurations for all 36 levels"""
+    """Return configurations for all registered levels"""
     return LEVEL_RELEVANCE
 
 def get_configured_level_count():

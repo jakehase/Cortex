@@ -39,6 +39,7 @@ from cortex_server.modules.codec_policy import get_codec_policy_for_query, get_c
 from cortex_server.modules.cortex_codec import get_codec_debug_view, get_codec_packet_for_session, observe_codec_rollup_eval_history, update_codec_state_for_session
 from cortex_server.modules import cortex_kernel_v2
 from cortex_server.modules.evidence_governance import capability_matrix
+from cortex_server.modules.evidence_lineage import build_codec_memory_lineage
 from cortex_server.modules.nexus_assurance import build_orchestration_assurance, build_memory_commit_decision, build_validator_summary
 from cortex_server.middleware.hud_middleware import track_level
 
@@ -111,7 +112,8 @@ LEVEL_MAP = {
     34: {"name": "validator", "layer": "Apex", "purpose": "Testing - verification"},
     35: {"name": "singularity", "layer": "Apex", "purpose": "Self-improvement"},
     36: {"name": "conductor", "layer": "Apex", "purpose": "Meta-orchestration"},
-    38: {"name": "classifier", "layer": "Apex", "purpose": "Intent and context classifier"},
+    37: {"name": "awareness", "layer": "Apex", "purpose": "Self-awareness and internal state"},
+    38: {"name": "augmenter", "layer": "Apex", "purpose": "Intent augmentation and control surface"},
 }
 
 ALWAYS_ON_LEVELS = [5, 17, 18, 20, 21, 22, 23, 24, 25, 27, 32, 33, 34, 35, 36]
@@ -1046,11 +1048,13 @@ def _is_brainstorm_intent(query: str) -> bool:
 
 def _is_coding_intent(query: str) -> bool:
     q = (query or "").lower()
-    markers = [
-        "write code", "implement", "refactor", "patch", "bug", "fix", "debug",
-        "unit test", "tests", "function", "class", "api endpoint", "migration",
+    phrase_markers = [
+        "write code", "unit test", "unit tests", "api endpoint",
     ]
-    return any(m in q for m in markers)
+    if any(m in q for m in phrase_markers):
+        return True
+
+    return bool(re.search(r"\b(?:implement|refactor|patch|bug|fix|debug|test|tests|function|class|migration)\b", q))
 
 
 def _is_incident_intent(query: str) -> bool:
@@ -3001,6 +3005,36 @@ async def get_nexus_codec_lineage(request: Request, session_key: Optional[str] =
             "learned_memory": view.get("memory_facts", []),
             "operator_overrides": [],
         },
+        "codec": {
+            "summary": view.get("summary"),
+            "source_refs": view.get("source_refs", []),
+            "promotion": view.get("promotion", {}),
+            "retention_policy": view.get("retention_policy", {}),
+        },
+        "capability_matrix": capability_matrix(),
+    }
+
+
+@router.get("/codec/memory/{memory_id}/lineage")
+async def get_nexus_codec_memory_lineage(request: Request, memory_id: str, session_key: Optional[str] = None, max_chars: int = 420, history_limit: int = 8):
+    resolved_session_key = (session_key or _codec_session_key(request) or "").strip()
+    if not resolved_session_key:
+        raise HTTPException(status_code=400, detail="session_key is required")
+    view = get_codec_debug_view(
+        resolved_session_key,
+        max_chars=max(120, min(int(max_chars), 2400)),
+        history_limit=max(1, min(int(history_limit), 50)),
+    )
+    packet = get_codec_packet_for_session(resolved_session_key, max_chars=max(120, min(int(max_chars), 2400)))
+    state = packet.get("state") if isinstance(packet, dict) and isinstance(packet.get("state"), dict) else {}
+    lineage = build_codec_memory_lineage(memory_id=memory_id, session_key=resolved_session_key, codec_state=state)
+    if not lineage:
+        raise HTTPException(status_code=404, detail="codec memory fact not found")
+    return {
+        "success": True,
+        "level": 24,
+        "name": "The Nexus",
+        **lineage,
         "codec": {
             "summary": view.get("summary"),
             "source_refs": view.get("source_refs", []),

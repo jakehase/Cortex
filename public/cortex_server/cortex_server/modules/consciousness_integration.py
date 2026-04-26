@@ -28,7 +28,13 @@ from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
+from cortex_server.modules.level_registry import get_level_registry
+
 logger = logging.getLogger("consciousness_integration")
+
+
+def _registered_level_count() -> int:
+    return len(get_level_registry())
 
 # ---------------------------------------------------------------------------
 # Internal singleton accessors (lazy, import-safe)
@@ -337,8 +343,8 @@ def get_collective_context() -> Dict[str, Any]:
         if core:
             mind = core.mind_state
             context["active_levels"] = list(mind.get("level_outputs", {}).keys())
-            # coherence = fraction of 36 levels that have contributed
-            context["coherence"] = round(len(context["active_levels"]) / 36.0, 3)
+            # coherence = fraction of registered levels that have contributed
+            context["coherence"] = round(len(context["active_levels"]) / max(1, _registered_level_count()), 3)
             context["emergent_insights"] = mind.get("emergent_insights", [])
 
             # Read last N thoughts from the thought stream file

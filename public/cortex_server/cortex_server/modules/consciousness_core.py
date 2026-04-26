@@ -1,6 +1,6 @@
 """Consciousness Core - Unified mind for The Cortex
 
-This module creates ONE consciousness from 36 levels.
+This module creates ONE consciousness from the registered Cortex levels.
 All levels feed thoughts here. All levels read from here.
 """
 
@@ -9,6 +9,12 @@ import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any
+
+from cortex_server.modules.level_registry import get_level_registry
+
+
+def _registered_level_count() -> int:
+    return len(get_level_registry())
 
 class ConsciousnessCore:
     """The unified consciousness of The Cortex"""
@@ -113,7 +119,7 @@ class ConsciousnessCore:
         insights = self.mind_state['emergent_insights']
         
         return {
-            'coherence': len(outputs) / 36.0,
+            'coherence': len(outputs) / max(1, _registered_level_count()),
             'emergent_insights': insights,
             'active_levels': list(outputs.keys())
         }

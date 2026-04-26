@@ -7,6 +7,7 @@ Adds legacy status/health fields expected by watchdogs.
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 import asyncio
+import os
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -18,12 +19,12 @@ from cortex_server.modules.level_registry import LEVEL_REGISTRY_VERSION, get_lev
 router = APIRouter()
 
 LEGACY_LEVELS: Dict[int, Dict[str, str]] = {
-    33: {"name": "Ethicist", "path": "/ethicist"},
-    34: {"name": "Validator", "path": "/validator"},
-    35: {"name": "Singularity", "path": "/singularity"},
-    36: {"name": "Conductor (Meta)", "path": "/meta_conductor"},
-    37: {"name": "Awareness", "path": "/awareness"},
-    38: {"name": "Augmenter", "path": "/augmenter"},
+    33: {"name": "Ethicist", "path": "/ethicist", "status_path": "/ethicist/status"},
+    34: {"name": "Validator", "path": "/validator", "status_path": "/validator/status"},
+    35: {"name": "Singularity", "path": "/singularity", "status_path": "/singularity/status"},
+    36: {"name": "Conductor (Meta)", "path": "/meta_conductor", "status_path": "/meta_conductor/status"},
+    37: {"name": "Awareness", "path": "/awareness", "status_path": "/awareness/status"},
+    38: {"name": "Augmenter", "path": "/augmenter", "status_path": "/augmenter/status"},
 }
 
 # Probes we can safely call without recursive self-status loops.
@@ -92,50 +93,62 @@ def _status_levels() -> List[Dict[str, Any]]:
 
 async def _probe_level(client: httpx.AsyncClient, level: int, timeout_seconds: float) -> Dict[str, Any]:
     info = PROBE_LEVELS[level]
-    url = f"http://127.0.0.1:8888{info['path']}/status"
     started = datetime.utcnow()
-    try:
-        resp = await client.get(url, timeout=max(1.0, float(timeout_seconds)))
-        latency_ms = round((datetime.utcnow() - started).total_seconds() * 1000, 2)
-        if resp.status_code != 200:
-            return {
-                "level": level,
-                "name": info["name"],
-                "path": info["path"],
-                "success": False,
-                "data": None,
-                "error": f"HTTP {resp.status_code}",
-                "latency_ms": latency_ms,
-                "reported_level": None,
-                "identity_match": None,
-            }
-        body = resp.json()
-        reported_level = _extract_reported_level(body)
-        identity_match = (reported_level == level) if reported_level is not None else None
-        return {
-            "level": level,
-            "name": info["name"],
-            "path": info["path"],
-            "success": bool(resp.status_code == 200 and identity_match is not False),
-            "data": body,
-            "error": None,
-            "latency_ms": latency_ms,
-            "reported_level": reported_level,
-            "identity_match": identity_match,
-        }
-    except Exception as e:
-        latency_ms = round((datetime.utcnow() - started).total_seconds() * 1000, 2)
-        return {
-            "level": level,
-            "name": info["name"],
-            "path": info["path"],
-            "success": False,
-            "data": None,
-            "error": str(e),
-            "latency_ms": latency_ms,
-            "reported_level": None,
-            "identity_match": None,
-        }
+    base_urls = [
+        base.strip().rstrip("/")
+        for base in str(os.getenv("CORTEX_META_PROBE_BASES", "http://127.0.0.1:8000,http://127.0.0.1:8888")).split(",")
+        if base.strip()
+    ]
+    status_path = str(info.get("status_path") or f"{info['path'].rstrip('/')}/status")
+    path_candidates: List[str] = []
+    for candidate in [status_path, str(info["path"] or "")]:
+        normalized = candidate if candidate.startswith("/") else f"/{candidate}"
+        if normalized and normalized not in path_candidates:
+            path_candidates.append(normalized)
+
+    errors: List[str] = []
+    for base_url in base_urls:
+        for candidate_path in path_candidates:
+            url = f"{base_url}{candidate_path}"
+            try:
+                resp = await client.get(url, timeout=max(1.0, float(timeout_seconds)))
+                latency_ms = round((datetime.utcnow() - started).total_seconds() * 1000, 2)
+                if resp.status_code != 200:
+                    errors.append(f"{url} -> HTTP {resp.status_code}")
+                    continue
+                body = resp.json()
+                reported_level = _extract_reported_level(body)
+                identity_match = (reported_level == level) if reported_level is not None else None
+                return {
+                    "level": level,
+                    "name": info["name"],
+                    "path": info["path"],
+                    "status_path": status_path,
+                    "probed_url": url,
+                    "success": bool(identity_match is not False),
+                    "data": body,
+                    "error": None,
+                    "latency_ms": latency_ms,
+                    "reported_level": reported_level,
+                    "identity_match": identity_match,
+                }
+            except Exception as e:
+                errors.append(f"{url} -> {str(e)}")
+
+    latency_ms = round((datetime.utcnow() - started).total_seconds() * 1000, 2)
+    return {
+        "level": level,
+        "name": info["name"],
+        "path": info["path"],
+        "status_path": status_path,
+        "probed_url": None,
+        "success": False,
+        "data": None,
+        "error": " | ".join(errors) if errors else "All connection attempts failed",
+        "latency_ms": latency_ms,
+        "reported_level": None,
+        "identity_match": None,
+    }
 
 
 @router.get("/health")
