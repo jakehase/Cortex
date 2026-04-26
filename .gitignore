@@ -1,6 +1,16 @@
 /.openclaw/
 /.cortex-export/
 /pmhnpbilling-site/
+/_backups/
+/_quarantine/
+/_rerun_*/
+/_staging/
+/backups/
+/_tmp_*
+/large-project-capability-stack/artifacts/
+/mailchimp-clone/artifacts/
+/public/cortex_server/artifacts/
+/public/.env
 /AGENTS.md
 /MEMORY.md
 /SOUL.md
