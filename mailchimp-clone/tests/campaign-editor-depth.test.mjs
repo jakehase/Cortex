@@ -19,8 +19,11 @@ test('campaign editor supports presets, settings, and snapshot restore', async (
     let res = await request(baseUrl, jar, `/campaigns/${campaignId}/editor`);
     let html = await res.text();
     assert.match(html, /Builder palette/);
+    assert.match(html, /Guided layouts/);
     assert.match(html, /Campaign design system/);
     assert.match(html, /Draft checkpoints/);
+    assert.match(html, /Editor readiness/);
+    assert.match(html, /Narrative outline/);
 
     await request(baseUrl, jar, `/campaigns/${campaignId}/editor/add-block`, {
       method: 'POST',
@@ -38,6 +41,20 @@ test('campaign editor supports presets, settings, and snapshot restore', async (
     assert.match(html, /education/);
     assert.match(html, /story-led/);
     assert.match(html, /Shop now/);
+
+    await request(baseUrl, jar, `/campaigns/${campaignId}/editor/apply-layout`, {
+      method: 'POST',
+      body: new URLSearchParams({ preset: 'launch_story', mode: 'replace' })
+    });
+
+    res = await request(baseUrl, jar, `/campaigns/${campaignId}/editor`);
+    html = await res.text();
+    assert.match(html, /Launch story/);
+    assert.match(html, /Score:/);
+    assert.match(html, /Launch hero/);
+    assert.match(html, /Primary CTA/);
+    assert.match(html, /Support footer/);
+    assert.match(html, /Review the launch/);
 
     const snapshots = [...html.matchAll(/restore-snapshot\/([^"/]+)/g)].map((m) => m[1]);
     assert.ok(snapshots.length >= 2);

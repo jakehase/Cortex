@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { audienceLifecycleSummary, buildAudienceSegmentRecommendations } from '../packages/app/domain-audience.mjs';
-import { buildCampaignFollowupPlan, campaignLaunchChecklist, campaignPerformanceSnapshot } from '../packages/app/domain-campaigns.mjs';
+import { buildCampaignEditorLayoutPreset, buildCampaignEditorNarrativeOutline, buildCampaignFollowupPlan, campaignLaunchChecklist, campaignPerformanceSnapshot, summarizeCampaignEditorReadiness } from '../packages/app/domain-campaigns.mjs';
 import { buildCampaignOptimizationBrief, buildJourneyChannelMix, buildWebsiteExperimentCopyPack } from '../packages/app/ai-provider.mjs';
 import { buildWebsitePublishingChecklist, websiteExperienceSummary, websiteRevisionSummary } from '../packages/app/domain-website-builder.mjs';
 import { createTemplateVariantExperimentMatrix, summarizeVariantPromotionQueue } from '../packages/template-variants/domain-template-variants.mjs';
@@ -98,6 +98,9 @@ test('parity expansion helpers expose richer real-surface summaries', () => {
   const checklist = campaignLaunchChecklist(state, campaign, workspace);
   const performance = campaignPerformanceSnapshot(state, campaign);
   const followup = buildCampaignFollowupPlan(state, campaign);
+  const editorReadiness = summarizeCampaignEditorReadiness(campaign);
+  const editorOutline = buildCampaignEditorNarrativeOutline(campaign);
+  const editorLayout = buildCampaignEditorLayoutPreset({ ...campaign, editorSettings: { brandTone: 'editorial', audienceAngle: 'education', layoutDensity: 'balanced', heroStyle: 'story-led' } }, { preset: 'launch_story' });
   const optimization = buildCampaignOptimizationBrief(campaign, { goal: 'conversion' });
   const channelMix = buildJourneyChannelMix(state.db.automations[0], { goal: 'retention' });
   const copyPack = buildWebsiteExperimentCopyPack(website, { goal: 'lead capture' });
@@ -114,6 +117,10 @@ test('parity expansion helpers expose richer real-surface summaries', () => {
   assert.equal(checklist.ready, true);
   assert.ok(performance.openRate > 0);
   assert.ok(Array.isArray(followup.plan));
+  assert.ok(editorReadiness.score < 100);
+  assert.equal(editorOutline[0].sectionName, 'Section 1');
+  assert.equal(editorLayout.length, 4);
+  assert.equal(editorLayout[0].sectionName, 'Launch hero');
   assert.ok(optimization.subjectSummary.average > 0);
   assert.equal(channelMix.primaryChannel, 'email');
   assert.equal(copyPack.variants.length, 2);

@@ -88,6 +88,180 @@ export function campaignReviewState(state, campaign, workspace) {
   };
 }
 
+export function summarizeCampaignEditorReadiness(campaign = {}) {
+  const blocks = Array.isArray(campaign.blocks) ? campaign.blocks : [];
+  const blockCounts = blocks.reduce((acc, block) => {
+    const key = String(block?.type || 'text');
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const warnings = [];
+  const sectionNames = blocks.map((block) => String(block?.sectionName || '').trim()).filter(Boolean);
+  const hasHero = blocks.some((block) => block?.type === 'hero' || block?.stylePreset === 'hero');
+  const hasPrimaryCta = blocks.some((block) => block?.type === 'button' && String(block?.buttonLabel || '').trim());
+  const hasFooter = blocks.some((block) => String(block?.stylePreset || '') === 'footer' || /footer/i.test(String(block?.sectionName || '')));
+  const hasProofBlock = blocks.some((block) => /feature|proof|testimonial/i.test(`${block?.stylePreset || ''} ${block?.sectionName || ''} ${block?.title || ''}`));
+  const blockCount = blocks.length;
+  if (!hasHero) warnings.push('Add a hero section to establish the lead message above the fold.');
+  if (!hasProofBlock) warnings.push('Add a proof or feature block so the email earns the CTA.');
+  if (!hasPrimaryCta) warnings.push('Add at least one clear CTA button so the flow has a conversion moment.');
+  if (!hasFooter) warnings.push('Add a footer block for support, preference, or follow-up links.');
+  if (blockCount < 4) warnings.push('Add more editorial depth so the message can progress from promise to proof to CTA.');
+  const score = Math.max(0, 100 - (warnings.length * 18) - (sectionNames.length < 3 ? 8 : 0));
+  return {
+    score,
+    blockCount,
+    sectionCount: new Set(sectionNames).size,
+    blockCounts,
+    hasHero,
+    hasPrimaryCta,
+    hasFooter,
+    warnings,
+    strengths: [
+      hasHero ? 'Hero section present' : null,
+      hasPrimaryCta ? 'Primary CTA present' : null,
+      hasFooter ? 'Footer/support section present' : null,
+      hasProofBlock ? 'Proof/value block present' : null
+    ].filter(Boolean)
+  };
+}
+
+export function buildCampaignEditorNarrativeOutline(campaign = {}) {
+  const blocks = Array.isArray(campaign.blocks) ? campaign.blocks : [];
+  return blocks.map((block, index) => ({
+    index,
+    type: block?.type || 'text',
+    sectionName: String(block?.sectionName || '').trim() || `Section ${index + 1}`,
+    title: String(block?.title || '').trim() || null,
+    stylePreset: block?.stylePreset || 'default',
+    ctaLabel: block?.type === 'button' ? String(block?.buttonLabel || '').trim() || null : null,
+    intent: block?.type === 'button'
+      ? 'conversion'
+      : /hero/i.test(String(block?.stylePreset || ''))
+        ? 'promise'
+        : /feature|proof/i.test(`${block?.stylePreset || ''} ${block?.sectionName || ''}`)
+          ? 'proof'
+          : /footer/i.test(`${block?.stylePreset || ''} ${block?.sectionName || ''}`)
+            ? 'retention'
+            : 'narrative'
+  }));
+}
+
+export function buildCampaignEditorLayoutPreset(campaign = {}, { preset = 'launch_story' } = {}) {
+  const tone = campaign.editorSettings?.brandTone || 'confident';
+  const heroStyle = campaign.editorSettings?.heroStyle || 'feature-led';
+  const audienceAngle = campaign.editorSettings?.audienceAngle || 'product value';
+  const layoutDensity = campaign.editorSettings?.layoutDensity || 'balanced';
+  const title = campaign.name || 'Campaign launch';
+  const subject = campaign.subject || 'New launch update';
+  const preheader = campaign.preheader || 'Bring the audience from promise to action.';
+
+  const presets = {
+    launch_story: [
+      {
+        type: 'hero',
+        stylePreset: 'hero',
+        sectionName: 'Launch hero',
+        eyebrow: tone === 'editorial' ? 'EDITOR NOTE' : 'NEW LAUNCH',
+        title: heroStyle === 'story-led' ? `${title} starts with the audience problem` : subject,
+        body: `${preheader} Lead with a ${audienceAngle} angle and keep the first scroll focused on one promise.`,
+        alignment: 'left',
+        backgroundColor: '#fff4cc',
+        padding: layoutDensity === 'dense' ? '22px' : '28px'
+      },
+      {
+        type: 'text',
+        stylePreset: 'feature',
+        sectionName: 'Why it matters',
+        eyebrow: 'VALUE',
+        title: 'Show the audience what changes after they click',
+        body: `Use a ${audienceAngle} narrative with concrete proof, one standout benefit, and a shorter supporting paragraph.`,
+        alignment: 'left',
+        backgroundColor: '#ffffff',
+        padding: '20px'
+      },
+      {
+        type: 'button',
+        stylePreset: 'promo',
+        sectionName: 'Primary CTA',
+        eyebrow: 'NEXT STEP',
+        title: 'Ask for one action while momentum is high',
+        body: 'Keep the CTA visible, concrete, and emotionally consistent with the promise above.',
+        buttonLabel: 'Review the launch',
+        buttonUrl: 'https://example.test/launch',
+        buttonStyle: 'primary',
+        alignment: 'center',
+        backgroundColor: '#eef4ff',
+        textColor: '#18212f',
+        padding: '24px'
+      },
+      {
+        type: 'text',
+        stylePreset: 'footer',
+        sectionName: 'Support footer',
+        title: 'Questions, preferences, and next contact point',
+        body: 'Close with support context, expectation-setting, and a lighter retention CTA for readers who are not ready yet.',
+        alignment: 'left',
+        backgroundColor: '#10254d',
+        textColor: '#ffffff',
+        padding: '20px'
+      }
+    ],
+    product_digest: [
+      {
+        type: 'hero',
+        stylePreset: 'hero',
+        sectionName: 'Digest opener',
+        eyebrow: 'THIS WEEK',
+        title: `${title} in one quick read`,
+        body: 'Open with the single most important update, then stack supporting blocks in a scannable rhythm.',
+        alignment: 'left',
+        backgroundColor: '#f4f7ff',
+        padding: '24px'
+      },
+      {
+        type: 'text',
+        stylePreset: 'feature',
+        sectionName: 'Highlights',
+        eyebrow: 'HIGHLIGHTS',
+        title: 'Three short proof points beat one dense paragraph',
+        body: 'Summarize the product, customer, or program wins with one idea per block or bullet group.',
+        alignment: 'left',
+        backgroundColor: '#ffffff',
+        padding: '20px'
+      },
+      {
+        type: 'button',
+        stylePreset: 'promo',
+        sectionName: 'Read more CTA',
+        eyebrow: 'DEEPER DIVE',
+        title: 'Give engaged readers the next click',
+        body: 'Use this CTA for the full release note, webinar, or product story.',
+        buttonLabel: 'Read the update',
+        buttonUrl: 'https://example.test/update',
+        buttonStyle: 'secondary',
+        alignment: 'center',
+        backgroundColor: '#eef4ff',
+        textColor: '#18212f',
+        padding: '24px'
+      },
+      {
+        type: 'text',
+        stylePreset: 'footer',
+        sectionName: 'Digest footer',
+        title: 'Stay in the loop',
+        body: 'Reinforce cadence, subscription preferences, and support contact points.',
+        alignment: 'left',
+        backgroundColor: '#10254d',
+        textColor: '#ffffff',
+        padding: '20px'
+      }
+    ]
+  };
+
+  return (presets[preset] || presets.launch_story).map((block) => ({ ...block }));
+}
+
 export function createCampaign(state, actor, name) {
   const campaign = { id: createId('camp'), workspaceId: actor.workspace.id, name, subject: '', preheader: '', fromName: actor.workspace.settings.senderName || actor.user.name, replyTo: actor.workspace.settings.replyTo || actor.workspace.settings.senderEmail || '', audienceId: '', segmentId: '', templateId: '', blocks: [], status: 'draft', setupComplete: false, recipientsComplete: false, report: { opens: 0, clicks: 0, bounces: 0, unsubscribes: 0, history: [], funnel: { landingPages: 0, landingViews: 0, landingSubmissions: 0, linkedForms: 0, formSubmissions: 0, attributedAutomationRuns: 0, attributedAutomationGoals: 0 } }, createdAt: nowIso(), updatedAt: nowIso() };
   state.db.campaigns.unshift(campaign);

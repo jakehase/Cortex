@@ -73,7 +73,7 @@
           "/campaigns/:id/test-send"
         ]
       },
-      "notes": "Real workflow logic for setup, editor, review, queueing, and campaign send state."
+      "notes": "Real workflow logic for setup, editor, review, queueing, send state, guided editor layouts, and editor readiness diagnostics."
     },
     "packages/app/routes/automations.mjs": {
       "label": "Automation overview and journey builder routes",
@@ -169,17 +169,19 @@
       "evidence": {
         "tests": [
           "tests/campaign-pipeline.test.mjs",
-          "tests/browser-realism.test.mjs"
+          "tests/browser-realism.test.mjs",
+          "tests/campaign-editor-depth.test.mjs"
         ],
         "routes": [
           "/campaigns",
           "/campaigns/:id/setup",
           "/campaigns/:id/recipients",
           "/campaigns/:id/editor",
+          "/campaigns/:id/editor/apply-layout",
           "/campaigns/:id/review"
         ]
       },
-      "notes": "Owns the campaign wizard, editor, review, and immediate send path."
+      "notes": "Owns the campaign wizard, guided editor layouts, readiness diagnostics, review, and immediate send path."
     },
     "packages/app/routes/public.mjs": {
       "label": "Public marketing route surface",
