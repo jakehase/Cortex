@@ -239,3 +239,61 @@ export function recordWebsiteView(state, website, page, { referrer = '', cta = f
   recordEvent(state, { workspaceId: website.workspaceId, type: 'website-view', message: `${website.name} page viewed`, meta: { websiteId: website.id, pageId: page.id, referrer } });
   saveDb(state.db);
 }
+
+export function websiteExperienceSummary(state, website) {
+  const pages = websitePages(state, website.id);
+  const validationErrors = websiteValidation(state, website);
+  const analytics = website.analytics || { views: 0, signups: 0, ctaClicks: 0, byPage: {} };
+  const topPages = pages
+    .map((page) => ({
+      id: page.id,
+      name: page.name,
+      slug: page.slug,
+      views: Number(page.analytics?.views || 0),
+      signups: Number(page.analytics?.signups || 0),
+      ctaClicks: Number(page.analytics?.ctaClicks || 0)
+    }))
+    .sort((left, right) => right.views - left.views)
+    .slice(0, 5);
+  return {
+    websiteId: website.id,
+    status: website.status,
+    pageCount: pages.length,
+    published: Boolean(website.publishedAt),
+    validationErrors,
+    topPages,
+    totals: {
+      views: Number(analytics.views || 0),
+      signups: Number(analytics.signups || 0),
+      ctaClicks: Number(analytics.ctaClicks || 0)
+    },
+    navigation: pages.filter((page) => page.showInNav).map((page) => ({ id: page.id, name: page.name, order: page.order || 0 }))
+  };
+}
+
+export function buildWebsitePublishingChecklist(state, website) {
+  const summary = websiteExperienceSummary(state, website);
+  return {
+    websiteId: website.id,
+    ready: summary.validationErrors.length === 0,
+    items: [
+      { id: 'pages_present', ok: summary.pageCount > 0, detail: `${summary.pageCount} page(s)` },
+      { id: 'seo_title', ok: Boolean(website.seoTitle), detail: website.seoTitle || 'Missing site title' },
+      { id: 'seo_description', ok: Boolean(website.seoDescription), detail: website.seoDescription || 'Missing site description' },
+      { id: 'navigation', ok: summary.navigation.length > 0, detail: `${summary.navigation.length} navigation item(s)` },
+      { id: 'analytics_enabled', ok: website.analyticsEnabled !== false, detail: website.analyticsEnabled === false ? 'Analytics disabled' : 'Analytics enabled' }
+    ],
+    validationErrors: summary.validationErrors
+  };
+}
+
+export function websiteRevisionSummary(website) {
+  const undo = Array.isArray(website.revisions?.undo) ? website.revisions.undo : [];
+  const redo = Array.isArray(website.revisions?.redo) ? website.revisions.redo : [];
+  return {
+    undoDepth: undo.length,
+    redoDepth: redo.length,
+    latestUndo: undo[0] || null,
+    latestRedo: redo[0] || null
+  };
+}

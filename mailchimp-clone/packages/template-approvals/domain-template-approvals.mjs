@@ -51,3 +51,25 @@ export function createTemplateApprovalsNarratives(workspace = createTemplateAppr
   }));
 }
 
+export function createTemplateApprovalLoadboard(workspace = createTemplateApprovalsWorkspace()) {
+  return workspace.programs.map((program, index) => ({
+    id: `${program.id}-loadboard`,
+    lane: program.lane,
+    reviewer: program.owner,
+    templatesWaiting: 3 + index,
+    targetSlaHours: 4 + (index * 2),
+    risk: index === 0 ? 'normal' : index === 1 ? 'watch' : index === 2 ? 'priority' : 'archive',
+    notes: `${workspace.name} keeps ${program.lane} approvals flowing with explicit ownership and SLA tracking.`
+  }));
+}
+
+export function summarizeApprovalCoverage(workspace = createTemplateApprovalsWorkspace()) {
+  const loadboard = createTemplateApprovalLoadboard(workspace);
+  return {
+    workspaceId: workspace.id,
+    reviewers: loadboard.map((entry) => entry.reviewer),
+    totalTemplatesWaiting: loadboard.reduce((sum, entry) => sum + entry.templatesWaiting, 0),
+    priorityLanes: loadboard.filter((entry) => entry.risk === 'priority').map((entry) => entry.lane),
+    averageSlaHours: Number((loadboard.reduce((sum, entry) => sum + entry.targetSlaHours, 0) / loadboard.length).toFixed(2))
+  };
+}

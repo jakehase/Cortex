@@ -134,3 +134,95 @@ export function processCsvImport(state, job) {
   }
   return { imported, updated };
 }
+
+export function audienceLifecycleSummary(state, audience) {
+  const contacts = contactsForAudience(state, audience.id);
+  const summary = {
+    totalContacts: contacts.length,
+    subscribed: 0,
+    cleaned: 0,
+    transactionalOnly: 0,
+    withPhone: 0,
+    engagedLast7Days: 0,
+    engagedLast30Days: 0,
+    topTags: [],
+    topInterests: [],
+    topGroups: []
+  };
+  const tagCounts = new Map();
+  const interestCounts = new Map();
+  const groupCounts = new Map();
+  const now = Date.now();
+  for (const contact of contacts) {
+    const status = String(contact.status || 'subscribed').toLowerCase();
+    if (status === 'subscribed') summary.subscribed += 1;
+    if (status === 'cleaned') summary.cleaned += 1;
+    if (status === 'transactional') summary.transactionalOnly += 1;
+    if (contact.phone) summary.withPhone += 1;
+    let latestActivityAt = 0;
+    for (const entry of Array.isArray(contact.activity) ? contact.activity : []) {
+      const timestamp = Date.parse(entry?.at || '');
+      if (Number.isFinite(timestamp) && timestamp > latestActivityAt) latestActivityAt = timestamp;
+    }
+    if (latestActivityAt) {
+      const ageDays = (now - latestActivityAt) / (1000 * 60 * 60 * 24);
+      if (ageDays <= 7) summary.engagedLast7Days += 1;
+      if (ageDays <= 30) summary.engagedLast30Days += 1;
+    }
+    for (const tag of contact.tags || []) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+    for (const interest of contact.interests || []) interestCounts.set(interest, (interestCounts.get(interest) || 0) + 1);
+    for (const [group, option] of Object.entries(contact.groups || {})) {
+      const key = `${group}:${option}`;
+      groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+    }
+  }
+  const toTopList = (map) => [...map.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 5)
+    .map(([value, count]) => ({ value, count }));
+  summary.topTags = toTopList(tagCounts);
+  summary.topInterests = toTopList(interestCounts);
+  summary.topGroups = toTopList(groupCounts);
+  return summary;
+}
+
+export function buildAudienceSegmentRecommendations(state, audience) {
+  const contacts = contactsForAudience(state, audience.id);
+  const lifecycle = audienceLifecycleSummary(state, audience);
+  const recommendations = [];
+  if (lifecycle.engagedLast30Days > 0) {
+    recommendations.push({
+      id: 'recent-engagers',
+      label: 'Recent engagers',
+      logic: 'all',
+      rules: [{ field: 'status', operator: 'equals', value: 'subscribed' }],
+      reason: 'Targets the audience most likely to respond to current sends.'
+    });
+  }
+  if (lifecycle.withPhone > 0) {
+    recommendations.push({
+      id: 'multichannel-ready',
+      label: 'Multichannel ready contacts',
+      logic: 'all',
+      rules: [{ field: 'status', operator: 'equals', value: 'subscribed' }],
+      reason: 'Contacts with phone numbers can move into SMS or assisted journeys.'
+    });
+  }
+  const dominantTag = lifecycle.topTags[0]?.value || null;
+  if (dominantTag) {
+    recommendations.push({
+      id: 'dominant-tag-' + dominantTag.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      label: `${dominantTag} cohort`,
+      logic: 'all',
+      rules: [{ field: 'tag', operator: 'contains', value: dominantTag }],
+      reason: `The ${dominantTag} tag is currently the strongest reusable audience signal.`
+    });
+  }
+  return {
+    audienceId: audience.id,
+    audienceName: audience.name,
+    generatedAt: nowIso(),
+    totalContacts: contacts.length,
+    recommendations
+  };
+}

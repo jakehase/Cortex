@@ -50,3 +50,76 @@ export function buildWebsiteCopyRecommendation(website = {}, body = {}) {
     rationale: 'Uses clear promise + proof + action structure for homepage and landing copy.'
   };
 }
+
+export function scoreRecommendationSet(items = []) {
+  const normalized = items.map((item) => Number(item?.score || 0)).filter((value) => Number.isFinite(value));
+  if (!normalized.length) return { average: 0, strongest: null, weakest: null };
+  const average = normalized.reduce((sum, value) => sum + value, 0) / normalized.length;
+  const strongest = items.reduce((best, item) => (!best || Number(item?.score || 0) > Number(best?.score || 0) ? item : best), null);
+  const weakest = items.reduce((worst, item) => (!worst || Number(item?.score || 0) < Number(worst?.score || 0) ? item : worst), null);
+  return {
+    average: Number(average.toFixed(2)),
+    strongest,
+    weakest
+  };
+}
+
+export function buildCampaignOptimizationBrief(campaign = {}, body = {}) {
+  const goal = body.goal || 'engagement';
+  const tone = body.tone || 'confident';
+  const subjects = buildCampaignSubjectVariants(campaign, tone, goal);
+  const preheaders = buildCampaignPreheaderVariants(campaign, 'helpful');
+  const blocks = buildCampaignBlockVariants({
+    title: campaign.name || 'Campaign headline',
+    body: campaign.preheader || 'Clarify the message hierarchy before send.',
+    buttonLabel: body.ctaLabel || 'Review campaign'
+  }, 'direct', goal);
+  return {
+    goal,
+    tone,
+    subjectSummary: scoreRecommendationSet(subjects),
+    preheaderSummary: scoreRecommendationSet(preheaders),
+    blockSummary: scoreRecommendationSet(blocks),
+    recommendedSequence: [subjects[0], preheaders[0], blocks[0]].filter(Boolean)
+  };
+}
+
+export function buildJourneyChannelMix(automation = {}, body = {}) {
+  const recommendation = buildJourneyRecommendation(automation, body);
+  const mix = recommendation.nodes.reduce((acc, node) => {
+    acc[node.type] = (acc[node.type] || 0) + 1;
+    return acc;
+  }, {});
+  return {
+    goal: body.goal || automation.goal || 'engagement',
+    mix,
+    trustSignals: recommendation.trustSignals,
+    primaryChannel: Object.entries(mix).sort((left, right) => right[1] - left[1])[0]?.[0] || 'email'
+  };
+}
+
+export function buildWebsiteExperimentCopyPack(website = {}, body = {}) {
+  const base = buildWebsiteCopyRecommendation(website, body);
+  return {
+    control: {
+      headline: base.headline,
+      body: base.body,
+      ctaLabel: base.ctaLabel
+    },
+    variants: [
+      {
+        id: 'benefit-led',
+        headline: `${website.name || 'Your brand'} turns attention into ${body.goal || 'lead capture'}`,
+        body: 'Lead with the concrete outcome, add one proof point, and keep the CTA friction-light.',
+        ctaLabel: body.ctaLabel || 'See how'
+      },
+      {
+        id: 'proof-led',
+        headline: `${website.name || 'Your brand'} gives visitors a faster reason to act`,
+        body: 'Open with proof, name the audience problem, and point directly at the next step.',
+        ctaLabel: body.ctaLabel || 'Get the guide'
+      }
+    ],
+    rationale: 'Creates a lightweight website-copy experiment pack aligned to current product parity surfaces.'
+  };
+}

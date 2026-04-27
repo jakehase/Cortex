@@ -146,3 +146,71 @@ export function markCampaignDelivered(state, campaign) {
   saveDb(state.db);
   return createNotification(state, { workspaceId: campaign.workspaceId, type: 'campaign-send', payload: { campaignId: campaign.id, recipients: recipientTotal, subject: campaign.subject, automationRuns: automationRuns.length } });
 }
+
+export function campaignLaunchChecklist(state, campaign, workspace) {
+  const blockers = preflightCampaign(state, campaign, workspace);
+  const runtime = campaignAutomationRuntimeSummary(state, campaign);
+  const recipients = recipientCount(state, campaign);
+  return {
+    campaignId: campaign.id,
+    nextStep: campaignNextStep(campaign),
+    blockers,
+    ready: blockers.length === 0,
+    recipients,
+    automationsLinked: runtime.linkedAutomations,
+    liveAutomations: runtime.liveAutomations,
+    recentAutomationRuns: runtime.recentRuns,
+    setup: {
+      setupComplete: Boolean(campaign.setupComplete),
+      recipientsComplete: Boolean(campaign.recipientsComplete),
+      hasTemplate: Boolean(campaign.templateId),
+      hasSubject: Boolean(campaign.subject),
+      hasPreheader: Boolean(campaign.preheader),
+      blockCount: (campaign.blocks || []).length
+    }
+  };
+}
+
+export function campaignPerformanceSnapshot(state, campaign) {
+  const report = campaign.report || {};
+  const recipients = Math.max(1, recipientCount(state, campaign));
+  const opens = Number(report.opens || 0);
+  const clicks = Number(report.clicks || 0);
+  const bounces = Number(report.bounces || 0);
+  const unsubscribes = Number(report.unsubscribes || 0);
+  return {
+    campaignId: campaign.id,
+    recipients,
+    openRate: Number((opens / recipients).toFixed(3)),
+    clickRate: Number((clicks / recipients).toFixed(3)),
+    bounceRate: Number((bounces / recipients).toFixed(3)),
+    unsubscribeRate: Number((unsubscribes / recipients).toFixed(3)),
+    automationRuns: Number(report.funnel?.attributedAutomationRuns || 0),
+    formSubmissions: Number(report.funnel?.formSubmissions || 0),
+    landingSubmissions: Number(report.funnel?.landingSubmissions || 0),
+    history: Array.isArray(report.history) ? report.history.slice(0, 5) : []
+  };
+}
+
+export function buildCampaignFollowupPlan(state, campaign) {
+  const snapshot = campaignPerformanceSnapshot(state, campaign);
+  const plan = [];
+  if (snapshot.openRate < 0.3) {
+    plan.push({ action: 'refresh_subject_and_preheader', reason: 'Open rate is below the healthy threshold for this audience.' });
+  }
+  if (snapshot.clickRate < 0.12) {
+    plan.push({ action: 'tighten_cta_blocks', reason: 'Click rate suggests the body or CTA hierarchy is underperforming.' });
+  }
+  if ((campaign.blocks || []).length < 3) {
+    plan.push({ action: 'expand_editor_depth', reason: 'Campaign is still too shallow for richer narrative progression.' });
+  }
+  if (snapshot.automationRuns === 0) {
+    plan.push({ action: 'attach_followup_journey', reason: 'No triggered journey is extending campaign value after send.' });
+  }
+  return {
+    campaignId: campaign.id,
+    generatedAt: nowIso(),
+    plan,
+    summary: snapshot
+  };
+}

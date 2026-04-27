@@ -33,10 +33,27 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/current-product-parity.test.mjs"
+          "tests/current-product-parity.test.mjs",
+          "tests/parity-expansion-real-surface.test.mjs"
         ]
       },
-      "notes": "Provider-backed subject, preheader, content, journey, and site-copy suggestion builders."
+      "notes": "Provider-backed subject, preheader, content, journey, and site-copy suggestion builders plus optimization briefs and experiment copy packs."
+    },
+    "packages/app/domain-audience.mjs": {
+      "label": "Audience CRM and lifecycle domain",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/audience-core.test.mjs",
+          "tests/parity-expansion-real-surface.test.mjs"
+        ],
+        "routes": [
+          "/audiences",
+          "/contacts",
+          "/segments"
+        ]
+      },
+      "notes": "Real audience lifecycle summaries, CRM segmentation, import handling, and contact management used by current product surfaces."
     },
     "packages/app/domain-campaigns.mjs": {
       "label": "Campaign pipeline and delivery domain",
@@ -46,7 +63,8 @@
           "tests/campaign-pipeline.test.mjs",
           "tests/automation-journeys.test.mjs",
           "tests/campaign-editor-depth.test.mjs",
-          "tests/browser-realism.test.mjs"
+          "tests/browser-realism.test.mjs",
+          "tests/parity-expansion-real-surface.test.mjs"
         ],
         "routes": [
           "/campaigns",
@@ -369,6 +387,22 @@
       },
       "notes": "Carries parity progress across iterations, records structured no-progress audits, and stops persistent runs after repeated proven no-progress iterations."
     },
+    "packages/app/domain-website-builder.mjs": {
+      "label": "Website builder domain runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/parity-expansion-real-surface.test.mjs"
+        ],
+        "routes": [
+          "/websites",
+          "/websites/:id",
+          "/website-builder"
+        ]
+      },
+      "notes": "Real website creation, publishing, analytics, revision, and publishing-checklist logic for current product parity surfaces."
+    },
     "packages/app/domain-commerce-revenue.mjs": {
       "label": "Commerce revenue attribution and reporting domain",
       "status": "real",
@@ -384,6 +418,30 @@
         ]
       },
       "notes": "Real revenue attribution, commerce sync, and reporting summary logic used by commerce and reports surfaces."
+    },
+    "packages/template-variants/domain-template-variants.mjs": {
+      "label": "Template variants domain workspace",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/template-variants-routes.test.mjs",
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/parity-expansion-real-surface.test.mjs"
+        ]
+      },
+      "notes": "Real template-variant catalogs, experiment matrices, and promotion summaries used by campaign-editor parity work."
+    },
+    "packages/template-approvals/domain-template-approvals.mjs": {
+      "label": "Template approvals domain workspace",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/template-approvals-routes.test.mjs",
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/parity-expansion-real-surface.test.mjs"
+        ]
+      },
+      "notes": "Real template-approval loadboard and coverage summaries used by campaign-editor governance parity work."
     },
     "packages/app/domain-template-assets.mjs": {
       "label": "Template Assets Domain",
