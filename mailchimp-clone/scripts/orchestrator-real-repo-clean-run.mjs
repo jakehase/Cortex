@@ -28,7 +28,8 @@ import {
   PRODUCT_ONLY_MODE,
   tierRunDir,
   readJson,
-  writeJson
+  writeJson,
+  extractVerifiedFocusIdsFromPatchQueue
 } from './lib/orchestrator-real-repo-clean-plan.mjs';
 
 function resetQualificationArtifacts() {
@@ -542,9 +543,7 @@ const liveExecutionOk = Boolean(selectedRun) && selectedRun.metrics.stateLossEve
 const stagedLadderOk = highestPassingTier !== null && scaleQualification.realRepoLive.attemptedTiers[0] === 8;
 
 if (PRODUCT_ONLY_MODE) {
-  const mergedFocusIds = Array.from(new Set((runForArtifacts?.patchQueue?.merged || [])
-    .map((entry) => String(entry?.taskId || ''))
-    .filter((id) => id.startsWith('focus.'))));
+  const mergedFocusIds = extractVerifiedFocusIdsFromPatchQueue(runForArtifacts?.patchQueue || { merged: [] });
   for (const issue of issueDefinitions()) {
     graph = setIssueStatus(
       graph,

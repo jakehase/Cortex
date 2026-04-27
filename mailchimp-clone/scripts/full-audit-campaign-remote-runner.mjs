@@ -159,9 +159,17 @@ function creditableFocusIdsForIteration({
   selectedTierHadLiveWork = false,
   blocker = null,
   patchQueueFocusIds = [],
-  targetedTestVerifiedFocusIds = []
+  targetedTestVerifiedFocusIds = [],
+  liveExecutionSummary = null
 } = {}) {
   if (!selectedTierHadLiveWork) return [];
+  const metrics = liveExecutionSummary?.metrics || {};
+  const continuityFailures = Array.isArray(metrics?.continuityFailures) ? metrics.continuityFailures : [];
+  const stateLossEvents = Number(metrics?.stateLossEvents || 0);
+  const unstableExecution = stateLossEvents > 0 || continuityFailures.length > 0;
+  if (unstableExecution) {
+    return Array.from(new Set(targetedTestVerifiedFocusIds));
+  }
   if (isNoParityReductionBlocker(blocker)) {
     return Array.from(new Set(targetedTestVerifiedFocusIds));
   }
@@ -397,20 +405,24 @@ function accumulateBenchmarkMetrics({
     }
   }
 
+  let promotedChangedLines = 0;
   if (hasAcceptedProductWork) {
     const promotedLoc = promotedProductLocFromAccounting(locAccounting, readJson(BENCHMARK_CONTRACT_DEST_PATH, null));
     for (const filePath of promotedLoc.files) productFiles.add(filePath);
     next.productDiffChangedLines += promotedLoc.changedLines;
+    promotedChangedLines = promotedLoc.changedLines;
   }
 
   const blockerLabel = blockerText(blocker).trim();
-  if (blockerLabel) {
+  const benchmarkFreshProgressDetected = freshProgressDetected || promotedChangedLines > 0 || productFiles.size > next.productFiles.length;
+  const progressContinuationBlocker = /partial parity-surface reduction was proven|remaining red surfaces are still open/i.test(blockerLabel);
+  if (blockerLabel && !(benchmarkFreshProgressDetected && progressContinuationBlocker)) {
     next.blockerEventCount += 1;
-    if (next.previousBlockerText && next.previousBlockerText === blockerLabel && !freshProgressDetected) {
+    if (next.previousBlockerText && next.previousBlockerText === blockerLabel && !benchmarkFreshProgressDetected) {
       next.repeatBlockerCount += 1;
     }
     next.previousBlockerText = blockerLabel;
-  } else if (freshProgressDetected) {
+  } else if (benchmarkFreshProgressDetected || !blockerLabel) {
     next.previousBlockerText = null;
   }
 
@@ -1236,9 +1248,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
   const patchQueueReport = readJson(path.join(ARTIFACT_ROOT, 'patch_queue_report.json'), { merged: [] });
   const selectedTierHadLiveWork = hasSelectedTierLiveWork(liveExecutionSummary);
   const patchQueueFocusIds = extractMergedFocusIds(patchQueueReport);
+  const trustedPatchQueueFocusIds = extractVerifiedFocusIdsFromPatchQueue(patchQueueReport);
   const targetedTestCandidateFocusIds = selectedTierHadLiveWork
     && /no parity-surface reduction was proven by this iteration|partial parity-surface reduction was proven/i.test(blockerText(blocker))
-    ? patchQueueFocusIds.filter((focusId) => !progressState.completedFocusIds.includes(focusId))
+    ? trustedPatchQueueFocusIds.filter((focusId) => !progressState.completedFocusIds.includes(focusId))
     : [];
   const targetedTestVerifiedFocusIds = targetedTestCandidateFocusIds.length > 0
     ? verifyFocusIdsByTargetedTests(targetedTestCandidateFocusIds)
@@ -1246,8 +1259,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
   const mergedFocusIds = creditableFocusIdsForIteration({
     selectedTierHadLiveWork,
     blocker,
-    patchQueueFocusIds,
-    targetedTestVerifiedFocusIds
+    patchQueueFocusIds: trustedPatchQueueFocusIds,
+    targetedTestVerifiedFocusIds,
+    liveExecutionSummary
   });
   const progressDelta = selectedTierHadLiveWork
     ? mergedFocusIds.filter((id) => !progressState.completedFocusIds.includes(id))

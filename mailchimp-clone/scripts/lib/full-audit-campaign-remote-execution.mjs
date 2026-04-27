@@ -6,6 +6,7 @@ import { shouldFinalizeRemoteExecutionMonitor, writeJson } from '../../../large-
 import { buildExecutionBoundaryBlocker } from './full-audit-campaign-architecture.mjs';
 import { buildDetachedRemoteLaunchCommand, buildRemoteRuntimeCandidates, selectRemoteRuntimeCandidate } from './full-audit-campaign-remote-contract.mjs';
 import { deriveCanonicalStatuses, isArtifactFreshForRun, resolveCampaignBlocker } from './full-audit-campaign-state.mjs';
+import { buildRepoWideSyncPathspecs, parsePorcelainStatus, statusRepresentsDeletion } from './full-audit-campaign-sync-pathspecs.mjs';
 
 const REMOTE_CONTROL_FILE_MANIFEST = [
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'artifacts/full_audit_campaign/strict_1to1_gap_inventory.json' },
@@ -30,6 +31,8 @@ const REMOTE_CONTROL_FILE_MANIFEST = [
   { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/multi-agent-orchestrator/index.mjs' }
 ];
 
+const LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS = buildRepoWideSyncPathspecs();
+
 function resolveControlSyncRoots(repoRoot, remoteExecution) {
   const localRoots = {
     'mailchimp-clone': repoRoot,
@@ -48,7 +51,7 @@ function relative(repoRoot, target) { return target ? path.relative(repoRoot, ta
 function parseJson(text) { try { return JSON.parse(text); } catch { return null; } }
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function requiredRemoteFields(remoteExecution = {}) { return ['host', 'user', 'workdir'].filter((field) => !remoteExecution?.[field]); }
-function sha256Text(text) { return crypto.createHash('sha256').update(text).digest('hex'); }
+function sha256Bytes(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
 
 function sshBaseArgs(remoteExecution = {}) {
   const args = [];
@@ -100,6 +103,96 @@ function writeRemoteFile(remoteExecution, filePath, content, { timeoutMs = 60_00
   });
 }
 
+function removeRemotePath(remoteExecution, filePath, { timeoutMs = 60_000 } = {}) {
+  const pythonSource = [
+    'from pathlib import Path',
+    'import shutil',
+    'import sys',
+    'p = Path(sys.argv[1])',
+    'if p.is_dir() and not p.is_symlink():',
+    '    shutil.rmtree(p, ignore_errors=True)',
+    'else:',
+    '    p.unlink(missing_ok=True)'
+  ].join('\n');
+  const remoteCommand = `python3 -c ${shellQuote(pythonSource)} ${shellQuote(filePath)}`;
+  return spawnSync('ssh', buildSshArgs(remoteExecution, remoteCommand), {
+    encoding: 'utf8',
+    timeout: timeoutMs,
+    maxBuffer: 1024 * 1024 * 20
+  });
+}
+
+function collectLocalRepoOverlayRecords(repoRoot) {
+  const result = spawnSync('git', ['-C', repoRoot, 'status', '--porcelain', '-uall', '--', ...LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS], {
+    encoding: 'utf8',
+    timeout: 120_000,
+    maxBuffer: 1024 * 1024 * 50
+  });
+  if (result.status !== 0 || result.error) {
+    const errorText = `${result.stdout || ''}${result.stderr || ''}${result.error ? `\n[spawn-error] ${String(result.error.message || result.error)}` : ''}`.trim();
+    throw new Error(`Failed to collect local overlay status: ${errorText}`);
+  }
+  return parsePorcelainStatus(String(result.stdout || ''));
+}
+
+function syncLocalRepoOverlayFiles({ repoRoot, remoteExecution, remoteRepoRoot }) {
+  const records = collectLocalRepoOverlayRecords(repoRoot);
+  const synced = [];
+  const skipped = [];
+  const deleted = [];
+  for (const record of records) {
+    if (!record?.path) continue;
+    const remotePath = path.join(remoteRepoRoot, record.path);
+    if (record.fromPath && record.fromPath !== record.path) {
+      const priorRemotePath = path.join(remoteRepoRoot, record.fromPath);
+      const removePrior = removeRemotePath(remoteExecution, priorRemotePath, { timeoutMs: 60_000 });
+      if (removePrior.status !== 0 || removePrior.error) {
+        const errorText = `${removePrior.stdout || ''}${removePrior.stderr || ''}${removePrior.error ? `\n[spawn-error] ${String(removePrior.error.message || removePrior.error)}` : ''}`.trim();
+        throw new Error(`Failed to remove renamed remote path ${record.fromPath}: ${errorText}`);
+      }
+      deleted.push({ path: record.fromPath, via: 'rename_source' });
+    }
+    if (statusRepresentsDeletion(record.status)) {
+      const removeResult = removeRemotePath(remoteExecution, remotePath, { timeoutMs: 60_000 });
+      if (removeResult.status !== 0 || removeResult.error) {
+        const errorText = `${removeResult.stdout || ''}${removeResult.stderr || ''}${removeResult.error ? `\n[spawn-error] ${String(removeResult.error.message || removeResult.error)}` : ''}`.trim();
+        throw new Error(`Failed to remove remote overlay path ${record.path}: ${errorText}`);
+      }
+      deleted.push({ path: record.path, status: record.status });
+      continue;
+    }
+    const localPath = path.join(repoRoot, record.path);
+    if (!fs.existsSync(localPath)) {
+      skipped.push({ path: record.path, status: record.status, reason: 'missing_local_source' });
+      continue;
+    }
+    const localBytes = fs.readFileSync(localPath);
+    const localSha = sha256Bytes(localBytes);
+    const remoteSha = readRemoteSha(remoteExecution, remotePath, { timeoutMs: 20_000 });
+    if (remoteSha === localSha) {
+      skipped.push({ path: record.path, status: record.status, sha256: localSha, reason: 'sha_match' });
+      continue;
+    }
+    const writeResult = writeRemoteFile(remoteExecution, remotePath, localBytes, { timeoutMs: 60_000 });
+    if (writeResult.status !== 0 || writeResult.error) {
+      const errorText = `${writeResult.stdout || ''}${writeResult.stderr || ''}${writeResult.error ? `\n[spawn-error] ${String(writeResult.error.message || writeResult.error)}` : ''}`.trim();
+      throw new Error(`Failed to sync remote overlay file ${record.path}: ${errorText}`);
+    }
+    const verifiedRemoteSha = readRemoteSha(remoteExecution, remotePath, { timeoutMs: 20_000 });
+    if (verifiedRemoteSha !== localSha) {
+      throw new Error(`Failed to verify remote overlay file ${record.path}: expected ${localSha}, got ${verifiedRemoteSha || 'missing'}`);
+    }
+    synced.push({ path: record.path, status: record.status, sha256: localSha });
+  }
+  return {
+    pathspecs: LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS,
+    changedRecordCount: records.length,
+    synced,
+    skipped,
+    deleted
+  };
+}
+
 function syncRemoteControlFiles({ repoRoot, remoteExecution }) {
   const synced = [];
   const skipped = [];
@@ -113,14 +206,14 @@ function syncRemoteControlFiles({ repoRoot, remoteExecution }) {
     const localPath = path.join(localBase, entry.relativeFile);
     if (!fs.existsSync(localPath)) continue;
     const remotePath = path.join(remoteBase, entry.relativeFile);
-    const localText = fs.readFileSync(localPath, 'utf8');
-    const localSha = sha256Text(localText);
+    const localBytes = fs.readFileSync(localPath);
+    const localSha = sha256Bytes(localBytes);
     const remoteSha = readRemoteSha(remoteExecution, remotePath, { timeoutMs: 20_000 });
     if (remoteSha === localSha) {
       skipped.push({ root: entry.remoteRoot, path: entry.relativeFile, sha256: localSha });
       continue;
     }
-    const writeResult = writeRemoteFile(remoteExecution, remotePath, localText, { timeoutMs: 60_000 });
+    const writeResult = writeRemoteFile(remoteExecution, remotePath, localBytes, { timeoutMs: 60_000 });
     if (writeResult.status !== 0 || writeResult.error) {
       const errorText = `${writeResult.stdout || ''}${writeResult.stderr || ''}${writeResult.error ? `\n[spawn-error] ${String(writeResult.error.message || writeResult.error)}` : ''}`.trim();
       throw new Error(`Failed to sync remote control file ${entry.remoteRoot}/${entry.relativeFile}: ${errorText}`);
@@ -131,9 +224,15 @@ function syncRemoteControlFiles({ repoRoot, remoteExecution }) {
     }
     synced.push({ root: entry.remoteRoot, path: entry.relativeFile, sha256: localSha });
   }
+  const repoOverlay = syncLocalRepoOverlayFiles({
+    repoRoot,
+    remoteExecution,
+    remoteRepoRoot: remoteRoots['mailchimp-clone']
+  });
   return {
     synced,
     skipped,
+    repoOverlay,
     remoteRepoRoot: remoteRoots['mailchimp-clone'],
     remoteStackRepoRoot: remoteRoots['large-project-capability-stack']
   };

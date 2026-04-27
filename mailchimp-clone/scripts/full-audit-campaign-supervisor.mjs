@@ -255,6 +255,22 @@ function campaignIterationRunIds(currentRun = null, canonicalSummary = null) {
     .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
 }
 
+function isProgressContinuationBlockerText(value) {
+  const text = String(value || '').toLowerCase();
+  return text.includes('partial parity-surface reduction was proven')
+    || text.includes('remaining red surfaces are still open');
+}
+
+function shouldCountRepeatBlocker({ blockerText = null, hasPromotedProductWork = false } = {}) {
+  const text = String(blockerText || '').trim();
+  if (!text) return false;
+  // A partial-progress message is a continuation status while useful product work
+  // is being accepted. Counting it as a repeated blocker turns successful long
+  // runs into false threshold failures.
+  if (hasPromotedProductWork && isProgressContinuationBlockerText(text)) return false;
+  return true;
+}
+
 function aggregateBenchmarkObserved({ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null } = {}) {
   const runIds = campaignIterationRunIds(currentRun, canonicalSummary);
   const productFiles = new Set();
@@ -301,7 +317,10 @@ function aggregateBenchmarkObserved({ contract = null, currentRun = null, canoni
       const observedChangedLines = Number(benchmarkObserved.productDiffChangedLines || 0);
       const observedProductFiles = Number(benchmarkObserved.productDiffFiles || (Array.isArray(benchmarkObserved.productFiles) ? benchmarkObserved.productFiles.length : 0) || 0);
       if (observedChangedLines > promotedLoc.changedLines || observedProductFiles > promotedLoc.files.length) {
-        truthIntegrityContradictions += 1;
+        // benchmark_progress is candidate/worker telemetry. The scored product
+        // diff above is intentionally derived from promoted loc_accounting, so
+        // extra candidate lines are discarded evidence, not a truth-layer
+        // contradiction by themselves.
         candidateProgressDiscardedLines += Math.max(0, observedChangedLines - promotedLoc.changedLines);
         candidateProgressDiscardedFiles += Math.max(0, observedProductFiles - promotedLoc.files.length);
       }
@@ -317,8 +336,11 @@ function aggregateBenchmarkObserved({ contract = null, currentRun = null, canoni
       shardOutputCount += Number(benchmarkObserved.shardOutputCount || 0);
       totalPatchCandidates += Number(benchmarkObserved.totalPatchCandidates || 0);
       noOpPatchCount += Number(benchmarkObserved.noOpPatchCount || 0);
-      repeatBlockerCount += Number(benchmarkObserved.repeatBlockerCount || 0);
-      blockerEventCount += Number(benchmarkObserved.blockerEventCount || 0);
+      const observedBlockerText = String(canonical?.blocker?.blocker || blockerReport?.blocker || benchmarkObserved.lastBlockerText || '').trim();
+      if (shouldCountRepeatBlocker({ blockerText: observedBlockerText, hasPromotedProductWork: promotedLoc.changedLines > 0 || promotedLoc.files.length > 0 })) {
+        repeatBlockerCount += Number(benchmarkObserved.repeatBlockerCount || 0);
+        blockerEventCount += Number(benchmarkObserved.blockerEventCount || 0);
+      }
       verifiedMergedPatchCount += Number(benchmarkObserved.verifiedMergedPatchCount || 0);
       truthIntegrityContradictions += Number(benchmarkObserved.truthIntegrityContradictions || 0);
       continue;
@@ -343,9 +365,13 @@ function aggregateBenchmarkObserved({ contract = null, currentRun = null, canoni
     }
 
     const blockerText = String(canonical?.blocker?.blocker || blockerReport?.blocker || '').trim() || null;
-    if (blockerText) blockerEventCount += 1;
-    if (blockerText && blockerText === previousBlockerText) repeatBlockerCount += 1;
-    previousBlockerText = blockerText;
+    if (shouldCountRepeatBlocker({ blockerText, hasPromotedProductWork: promotedLoc.changedLines > 0 || promotedLoc.files.length > 0 })) {
+      blockerEventCount += 1;
+      if (blockerText === previousBlockerText) repeatBlockerCount += 1;
+      previousBlockerText = blockerText;
+    } else if (promotedLoc.changedLines > 0 || promotedLoc.files.length > 0 || !blockerText) {
+      previousBlockerText = null;
+    }
     if (canonical?.supervisorStatus === 'green' && (canonical?.blocker || (Array.isArray(canonical?.nextFocus) && canonical.nextFocus.length > 0))) {
       truthIntegrityContradictions += 1;
     }

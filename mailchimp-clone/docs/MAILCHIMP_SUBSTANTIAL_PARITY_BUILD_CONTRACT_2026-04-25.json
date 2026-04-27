@@ -58,11 +58,21 @@
     "requireRealFileContracts": true,
     "requireRemoteExecution": true
   },
+  "goThresholds": {
+    "minimumProductDiffChangedLines": 500,
+    "minimumProductDiffFiles": 15,
+    "minimumNetProductAddedLines": 250,
+    "minimumNetProductFiles": 15,
+    "minimumDistinctFocusLanes": 5,
+    "maximumNoOpRate": 0.02,
+    "minimumVerificationIntegrity": 0.95,
+    "truthIntegrityContradictions": 0
+  },
   "substantialProgressScoring": {
     "passRequires": [
       "supervisor green or structured blocker",
       "explicit LOC accounting for surviving product code",
-      "manual post-run honesty check for substantial product LOC and changed product files",
+      "mechanical threshold pass on direct product diff across multiple strict-gap architecture surfaces",
       "no claim of full Mailchimp 1:1 completion unless strict 1:1 ceiling is separately green"
     ],
     "substantialProgressTarget": {
@@ -70,7 +80,7 @@
       "minimumChangedProductFiles": 15,
       "minimumCompletedStrictGapSurfaces": 5
     },
-    "note": "The current supervisor does not mechanically enforce the substantial LOC target; Cortex must report the post-run target as pass/fail from artifacts."
+    "note": "This contract now carries explicit goThresholds so the architecture-expansion gate is mechanically scored instead of relying on a chat-only post-run honesty check."
   },
   "launchCommand": "MAILCHIMP_ONE_PASS_CONTRACT_PATH=docs/MAILCHIMP_SUBSTANTIAL_PARITY_BUILD_CONTRACT_2026-04-25.json node scripts/full-audit-campaign-launch.mjs"
 }

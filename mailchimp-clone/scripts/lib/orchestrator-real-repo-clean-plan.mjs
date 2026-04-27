@@ -370,13 +370,14 @@ function hasTrustworthyProductSurfaceChange(entry) {
   for (const candidate of [entry?.filePaths, entry?.modifiedFiles, entry?.paths, entry?.metadata?.implementation?.modifiedFiles]) {
     if (Array.isArray(candidate)) filePaths.push(...candidate);
   }
-  const hasProductSurfaceDiff = filePaths
+  const normalizedProductSurfacePaths = filePaths
     .map((value) => String(value || '').trim())
     .filter(Boolean)
-    .some((filePath) => !PRODUCT_SURFACE_PROGRESS_EXCLUDES.some((prefix) => filePath.startsWith(prefix)));
+    .filter((filePath) => !PRODUCT_SURFACE_PROGRESS_EXCLUDES.some((prefix) => filePath.startsWith(prefix)));
+  if (normalizedProductSurfacePaths.length === 0) return false;
   const verifierResults = collectVerifierResults(entry);
-  const hasPassingTestsEvidence = verifierResults.some((result) => result?.verifier === 'tests' && result?.ok === true && result?.skipped !== true);
-  return hasProductSurfaceDiff || hasPassingTestsEvidence;
+  const hasExplicitVerifierFailure = verifierResults.some((result) => result?.ok === false && result?.skipped !== true);
+  return !hasExplicitVerifierFailure;
 }
 
 export function extractVerifiedFocusIdsFromPatchQueue(patchQueue) {

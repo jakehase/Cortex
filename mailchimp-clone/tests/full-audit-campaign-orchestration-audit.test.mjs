@@ -382,15 +382,21 @@ test('remote runner continues when supervisor goes green without fresh product p
   assert.match(source, /function creditableFocusIdsForIteration\(/);
   assert.match(source, /const selectedTierHadLiveWork = hasSelectedTierLiveWork\(liveExecutionSummary\);/);
   assert.match(source, /const patchQueueFocusIds = extractMergedFocusIds\(patchQueueReport\);/);
+  assert.match(source, /const trustedPatchQueueFocusIds = extractVerifiedFocusIdsFromPatchQueue\(patchQueueReport\);/);
   assert.match(source, /const targetedTestCandidateFocusIds = selectedTierHadLiveWork/);
-  assert.match(source, /\? patchQueueFocusIds\.filter\(\(focusId\) => !progressState\.completedFocusIds\.includes\(focusId\)\)/);
+  assert.match(source, /\? trustedPatchQueueFocusIds\.filter\(\(focusId\) => !progressState\.completedFocusIds\.includes\(focusId\)\)/);
   assert.match(source, /filter\(\(focusId\) => !progressState\.completedFocusIds\.includes\(focusId\)\)/);
   assert.match(source, /const targetedTestVerifiedFocusIds = targetedTestCandidateFocusIds.length > 0/);
   assert.match(source, /verifyFocusIdsByTargetedTests\(targetedTestCandidateFocusIds\)/);
+  assert.match(source, /const continuityFailures = Array\.isArray\(metrics\?\.continuityFailures\) \? metrics\.continuityFailures : \[\];/);
+  assert.match(source, /const unstableExecution = stateLossEvents > 0 \|\| continuityFailures.length > 0;/);
+  assert.match(source, /if \(unstableExecution\) \{/);
   assert.match(source, /if \(isNoParityReductionBlocker\(blocker\)\) \{/);
   assert.match(source, /return Array\.from\(new Set\(targetedTestVerifiedFocusIds\)\);/);
   assert.doesNotMatch(source, /summaryProvenFocusIds/);
   assert.match(source, /const mergedFocusIds = creditableFocusIdsForIteration\(\{/);
+  assert.match(source, /patchQueueFocusIds: trustedPatchQueueFocusIds,/);
+  assert.match(source, /liveExecutionSummary/);
   assert.match(source, /const progressDelta = selectedTierHadLiveWork/);
   assert.match(source, /const freshProgressDetected = Boolean\(workspaceDiff\.trim\(\)\)/);
   assert.match(source, /\|\| \(selectedTierHadLiveWork && progressDelta.length > 0\);/);
@@ -737,7 +743,7 @@ test('wrapper config centralizes reusable orchestration program wiring', () => {
 
 test('remote execution mirrors live execution and patch queue artifacts for control-plane freshness checks', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'lib', 'full-audit-campaign-remote-execution.mjs'), 'utf8');
-  const writeRemoteFileSource = source.match(/function writeRemoteFile\([\s\S]*?\n}\n\nfunction syncRemoteControlFiles/)?.[0] || '';
+  const writeRemoteFileSource = source.match(/function writeRemoteFile\([\s\S]*?\n}\n\nfunction removeRemotePath/)?.[0] || '';
   assert.match(source, /'artifacts\/full_audit_campaign\/one_pass_run_contract\.latest\.json'/);
   assert.match(source, /'scripts\/lib\/mailchimp-canonical-one-pass-plan-data\.mjs'/);
   assert.match(source, /'packages\/multi-agent-orchestrator\/index\.mjs'/);
@@ -761,6 +767,22 @@ test('remote execution mirrors live execution and patch queue artifacts for cont
   assert.match(source, /input: content/);
   assert.match(source, /const verifiedRemoteSha = readRemoteSha\(remoteExecution, remotePath, \{ timeoutMs: 20_000 \}\);/);
   assert.match(source, /if \(verifiedRemoteSha !== localSha\) \{/);
+});
+
+test('remote execution dynamically syncs local overlay files instead of pinning individual product files', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'lib', 'full-audit-campaign-remote-execution.mjs'), 'utf8');
+  assert.match(source, /const LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS = buildRepoWideSyncPathspecs\(\);/);
+  assert.match(source, /function collectLocalRepoOverlayRecords\(repoRoot\)/);
+  assert.match(source, /git', \['-C', repoRoot, 'status', '--porcelain', '-uall', '--', \.\.\.LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS\]/);
+  assert.match(source, /function syncLocalRepoOverlayFiles\(\{ repoRoot, remoteExecution, remoteRepoRoot \}\)/);
+  assert.match(source, /if \(record\.fromPath && record\.fromPath !== record\.path\)/);
+  assert.match(source, /if \(statusRepresentsDeletion\(record\.status\)\)/);
+  assert.match(source, /const localBytes = fs\.readFileSync\(localPath\);/);
+  assert.match(source, /const repoOverlay = syncLocalRepoOverlayFiles\(\{/);
+  assert.match(source, /repoOverlay,/);
+  assert.doesNotMatch(source, /packages\/app\/ai-provider\.mjs/);
+  assert.doesNotMatch(source, /packages\/app\/domain-audience\.mjs/);
+  assert.doesNotMatch(source, /packages\/template-approvals\/domain-template-approvals\.mjs/);
 });
 
 test('worker wrapper converts top-level remote submission crashes into explicit blocker artifacts', () => {
