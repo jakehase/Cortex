@@ -1,4 +1,5 @@
-import { saveDb } from './storage.mjs';
+import { persistState } from './storage.mjs';
+import { syncIntegrationProvider } from './integration-provider.mjs';
 import { createId, nowIso } from './utils.mjs';
 import { createNotification, recordAudit, recordEvent } from './domain-core.mjs';
 import { COMMERCE_PROVIDERS, connectStore, revenueSummary, syncCommerceStore, workspaceStores } from './domain-commerce-revenue.mjs';
@@ -19,6 +20,18 @@ export function workspaceIntegrationInstallations(state, workspaceId) {
   return state.db.integrationInstallations
     .filter((entry) => entry.workspaceId === workspaceId)
     .map((entry) => ({ ...entry, app: findApp(entry.appId) }));
+}
+
+export function integrationMarketplaceSurfaceSummary(state, workspaceId) {
+  const installations = workspaceIntegrationInstallations(state, workspaceId);
+  const syncRuns = state.db.integrationSyncRuns.filter((entry) => entry.workspaceId === workspaceId);
+  return {
+    installedApps: installations.length,
+    connectedApps: installations.filter((entry) => entry.status === 'installed').length,
+    authModes: Array.from(new Set(installations.map((entry) => entry.authMode || 'oauth'))),
+    appsNeedingSync: installations.filter((entry) => !entry.lastSyncedAt).length,
+    lastSyncAt: syncRuns[0]?.createdAt || null
+  };
 }
 
 export function workspaceIntegrationSummary(state, workspaceId) {
@@ -48,7 +61,7 @@ export function installMarketplaceApp(state, actor, appId) {
     lastSyncedAt: null
   };
   state.db.integrationInstallations.unshift(installation);
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'integration-install', detail: `Installed ${app.name}` });
   createNotification(state, { workspaceId: actor.workspace.id, type: 'integration-installed', payload: { appId: app.id, appName: app.name } });
   return installation;
@@ -66,7 +79,7 @@ function ensureCommerceLink(state, actor, installation) {
   });
 }
 
-export function syncMarketplaceInstallation(state, actor, installation) {
+export async function syncMarketplaceInstallation(state, actor, installation) {
   if (!installation) throw new Error('Installation is required');
   const app = findApp(installation.appId);
   let commerceResult = null;
@@ -74,20 +87,22 @@ export function syncMarketplaceInstallation(state, actor, installation) {
     const store = ensureCommerceLink(state, actor, installation);
     commerceResult = syncCommerceStore(state, actor, store);
   }
+  const providerResult = await syncIntegrationProvider(app, installation);
   const run = {
     id: createId('intsync'),
     workspaceId: actor.workspace.id,
     installationId: installation.id,
     appId: installation.appId,
     status: 'succeeded',
-    syncedContacts: app.category === 'crm' ? 12 : 0,
-    syncedOrders: commerceResult?.addedOrders || 0,
-    syncedRevenue: commerceResult?.revenueGenerated || 0,
+    syncedContacts: Number(providerResult?.syncedContacts || 0),
+    syncedOrders: Number(providerResult?.syncedOrders || commerceResult?.addedOrders || 0),
+    syncedRevenue: Number(providerResult?.syncedRevenue || commerceResult?.revenueGenerated || 0),
     createdAt: nowIso()
   };
   installation.lastSyncedAt = run.createdAt;
+  installation.scopes = providerResult?.refreshedScopes || installation.scopes;
   state.db.integrationSyncRuns.unshift(run);
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'integration-sync', detail: `Synced ${app.name}` });
   recordEvent(state, {
     workspaceId: actor.workspace.id,
@@ -98,6 +113,7 @@ export function syncMarketplaceInstallation(state, actor, installation) {
   return {
     run,
     revenue: revenueSummary(state, actor.workspace.id),
-    commerceResult
+    commerceResult,
+    providerResult
   };
 }

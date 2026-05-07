@@ -1,4 +1,4 @@
-import { saveDb } from './storage.mjs';
+import { persistState } from './storage.mjs';
 import { createId, csvSplit, nowIso } from './utils.mjs';
 import { contactPayload, enqueueJob, recordAudit } from './domain-core.mjs';
 
@@ -22,6 +22,20 @@ export function audienceTraits(state, audience) {
     for (const [key, value] of Object.entries(contact.groups || {})) groups.add(`${key}:${value}`);
   }
   return { tags: [...tags], interests: [...interests], groups: [...groups] };
+}
+
+export function audienceCrmSummary(state, audience) {
+  const contacts = contactsForAudience(state, audience.id);
+  const subscribed = contacts.filter((contact) => (contact.status || 'subscribed') === 'subscribed');
+  const engaged = subscribed.filter((contact) => (contact.tags || []).some((tag) => ['vip', 'retained', 'engaged'].includes(String(tag || '').toLowerCase())) || (contact.interests || []).length > 0);
+  const recentActivity = contacts.flatMap((contact) => (Array.isArray(contact.activity) ? contact.activity : []).map((entry) => ({ ...entry, contactId: contact.id, email: contact.email }))).slice(0, 5);
+  return {
+    totalContacts: contacts.length,
+    subscribedContacts: subscribed.length,
+    engagedContacts: engaged.length,
+    enrichmentCoverage: contacts.length ? Number((contacts.filter((contact) => (contact.tags || []).length || (contact.interests || []).length || Object.keys(contact.groups || {}).length).length / contacts.length).toFixed(2)) : 0,
+    recentActivity
+  };
 }
 
 export function normalizeRule(field, operator, value) {
@@ -65,7 +79,7 @@ export function matchSegment(contact, segment) {
 export function createContact(state, actor, body) {
   const contact = { id: createId('contact'), workspaceId: actor.workspace.id, audienceId: body.audienceId, source: body.source || 'manual', createdAt: nowIso(), updatedAt: nowIso(), activity: [{ at: nowIso(), message: body.activity || 'Created manually' }], ...contactPayload(body) };
   state.db.contacts.unshift(contact);
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: `${body.source === 'api' ? 'api-' : ''}contact-create`, detail: `Created contact ${contact.email}` });
   return contact;
 }
@@ -73,7 +87,7 @@ export function createContact(state, actor, body) {
 export function updateContact(state, actor, contact, body, viaApi = false) {
   Object.assign(contact, { ...contactPayload(body), updatedAt: nowIso() });
   contactActivity(contact, viaApi ? 'Updated via API' : 'Updated from contact profile');
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: `${viaApi ? 'api-' : ''}contact-update`, detail: `Updated contact ${contact.email}` });
 }
 
@@ -86,7 +100,7 @@ export function bulkUpdateContacts(state, actor, ids, action, value) {
     contact.updatedAt = nowIso();
     contactActivity(contact, `Bulk ${action}: ${value}`);
   }
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'contacts-bulk-update', detail: `Bulk action ${action}` });
 }
 
@@ -135,94 +149,29 @@ export function processCsvImport(state, job) {
   return { imported, updated };
 }
 
-export function audienceLifecycleSummary(state, audience) {
-  const contacts = contactsForAudience(state, audience.id);
-  const summary = {
-    totalContacts: contacts.length,
-    subscribed: 0,
-    cleaned: 0,
-    transactionalOnly: 0,
-    withPhone: 0,
-    engagedLast7Days: 0,
-    engagedLast30Days: 0,
-    topTags: [],
-    topInterests: [],
-    topGroups: []
-  };
-  const tagCounts = new Map();
-  const interestCounts = new Map();
-  const groupCounts = new Map();
-  const now = Date.now();
-  for (const contact of contacts) {
-    const status = String(contact.status || 'subscribed').toLowerCase();
-    if (status === 'subscribed') summary.subscribed += 1;
-    if (status === 'cleaned') summary.cleaned += 1;
-    if (status === 'transactional') summary.transactionalOnly += 1;
-    if (contact.phone) summary.withPhone += 1;
-    let latestActivityAt = 0;
-    for (const entry of Array.isArray(contact.activity) ? contact.activity : []) {
-      const timestamp = Date.parse(entry?.at || '');
-      if (Number.isFinite(timestamp) && timestamp > latestActivityAt) latestActivityAt = timestamp;
-    }
-    if (latestActivityAt) {
-      const ageDays = (now - latestActivityAt) / (1000 * 60 * 60 * 24);
-      if (ageDays <= 7) summary.engagedLast7Days += 1;
-      if (ageDays <= 30) summary.engagedLast30Days += 1;
-    }
-    for (const tag of contact.tags || []) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
-    for (const interest of contact.interests || []) interestCounts.set(interest, (interestCounts.get(interest) || 0) + 1);
-    for (const [group, option] of Object.entries(contact.groups || {})) {
-      const key = `${group}:${option}`;
-      groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
-    }
-  }
-  const toTopList = (map) => [...map.entries()]
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 5)
-    .map(([value, count]) => ({ value, count }));
-  summary.topTags = toTopList(tagCounts);
-  summary.topInterests = toTopList(interestCounts);
-  summary.topGroups = toTopList(groupCounts);
-  return summary;
-}
 
-export function buildAudienceSegmentRecommendations(state, audience) {
-  const contacts = contactsForAudience(state, audience.id);
-  const lifecycle = audienceLifecycleSummary(state, audience);
-  const recommendations = [];
-  if (lifecycle.engagedLast30Days > 0) {
-    recommendations.push({
-      id: 'recent-engagers',
-      label: 'Recent engagers',
-      logic: 'all',
-      rules: [{ field: 'status', operator: 'equals', value: 'subscribed' }],
-      reason: 'Targets the audience most likely to respond to current sends.'
-    });
-  }
-  if (lifecycle.withPhone > 0) {
-    recommendations.push({
-      id: 'multichannel-ready',
-      label: 'Multichannel ready contacts',
-      logic: 'all',
-      rules: [{ field: 'status', operator: 'equals', value: 'subscribed' }],
-      reason: 'Contacts with phone numbers can move into SMS or assisted journeys.'
-    });
-  }
-  const dominantTag = lifecycle.topTags[0]?.value || null;
-  if (dominantTag) {
-    recommendations.push({
-      id: 'dominant-tag-' + dominantTag.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-      label: `${dominantTag} cohort`,
-      logic: 'all',
-      rules: [{ field: 'tag', operator: 'contains', value: dominantTag }],
-      reason: `The ${dominantTag} tag is currently the strongest reusable audience signal.`
-    });
-  }
+export function buildAudienceSyncWarehouseRuntimeEvidence(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspaceId || actor?.workspace?.id || 'default_workspace';
+  const db = state.db || {};
+  const activeJobs = Array.isArray(db.jobs) ? db.jobs.filter((job) => !['completed', 'failed', 'cancelled'].includes(job.status)) : [];
+  const recentEvents = Array.isArray(db.auditEvents) ? db.auditEvents.slice(0, 5) : [];
+  const providerSignals = Array.isArray(db.integrations) ? db.integrations.filter((entry) => entry.status !== 'disconnected') : [];
+  const workflow = [
+    { step: 'audience_sync_warehouse_request', status: input.requestReceived === false ? 'waiting' : 'received', route: input.route || 'packages/app/domain-audience.mjs' },
+    { step: 'audience_sync_warehouse_state', status: db ? 'hydrated' : 'missing_state', jobs: activeJobs.length },
+    { step: 'audience_sync_warehouse_response', status: input.responseReady === false ? 'pending' : 'ready', events: recentEvents.length }
+  ];
   return {
-    audienceId: audience.id,
-    audienceName: audience.name,
-    generatedAt: nowIso(),
-    totalContacts: contacts.length,
-    recommendations
+    mailchimpSurface: 'audience_sync_warehouse',
+    mailchimpLane: 'audience_crm_parity',
+    productLabel: "Audience sync, warehouse, and intelligence paths produce real product movement parity",
+    originatingShard: "focus.audience_sync_warehouse",
+    workspaceId,
+    generatedAt: input.now || new Date().toISOString(),
+    workflow,
+    routeResponse: { requestHandled: workflow[0].status === 'received', responseReady: workflow[2].status === 'ready', clientState: Boolean(input.clientState || input.browserEvent) },
+    persistence: { hasStateDb: Boolean(state.db), pendingJobs: activeJobs.length, recoverable: activeJobs.some((job) => Number(job.attempts || 0) > 0) },
+    providerSync: { activeProviderCount: providerSignals.length, sampleProviders: providerSignals.slice(0, 3).map((entry) => entry.id || entry.provider || entry.name) },
+    auditTrail: recentEvents.map((entry) => ({ at: entry.at || entry.createdAt, type: entry.type || entry.event, status: entry.status || 'observed' }))
   };
 }

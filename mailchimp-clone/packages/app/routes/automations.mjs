@@ -1,9 +1,26 @@
-import { saveDb } from '../storage.mjs';
+import { persistState } from '../storage.mjs';
 import { page } from '../view.mjs';
 import { recordAudit } from '../domain-core.mjs';
-import { campaignAutomationRuntimeSummary } from '../domain-campaigns.mjs';
 import { AUTOMATION_TRIGGERS, automationRunSummary, createAutomation, updateAutomationLifecycle, validateAutomation } from '../domain-growth.mjs';
 import { createId, readBody, redirect, text } from '../utils.mjs';
+
+function campaignAutomationRuntimeSummary(state, campaign) {
+  const linkedAutomations = state.db.automations.filter((entry) => entry.workspaceId === campaign.workspaceId && (entry.sourceCampaignId === campaign.id || entry.trigger === 'campaign_sent'));
+  const relatedRuns = state.db.automationRuns.filter((run) => run.campaignId === campaign.id);
+  return {
+    linkedAutomations: linkedAutomations.length,
+    liveAutomations: linkedAutomations.filter((entry) => entry.status === 'live').length,
+    relatedRuns: relatedRuns.length,
+    lastTriggeredAt: relatedRuns[0]?.completedAt || relatedRuns[0]?.createdAt || null,
+    recentRuns: relatedRuns.slice(0, 3).map((run) => ({
+      id: run.id,
+      automationId: run.automationId,
+      trigger: run.trigger || 'campaign_sent',
+      status: run.status || 'completed',
+      completedAt: run.completedAt || run.createdAt || ''
+    }))
+  };
+}
 
 function automationOrchestrationSummary(state, automation) {
   const sourceCampaign = automation.sourceCampaignId
@@ -53,13 +70,13 @@ export function registerAutomationRoutes(router, deps) {
     const automation = state.db.automations.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
     const body = await readBody(req);
     Object.assign(automation, body, { updatedAt: new Date().toISOString() });
-    saveDb(state.db);
+    persistState(state);
     redirect(res, `/automations/${automation.id}/builder`);
   });
 
   router.register('POST', '/automations/:id/builder/nodes', async ({ state, req, params, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
-    const automation = state.db.automations.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id); const body = await readBody(req); automation.nodes.push({ id: createId('node'), type: body.type, title: body.title || body.type, delayHours: body.delayHours ? Number(body.delayHours) : 0, conditions: String(body.conditions || '').split(',').map((entry) => entry.trim()).filter(Boolean) }); saveDb(state.db); redirect(res, `/automations/${automation.id}/builder`);
+    const automation = state.db.automations.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id); const body = await readBody(req); automation.nodes.push({ id: createId('node'), type: body.type, title: body.title || body.type, delayHours: body.delayHours ? Number(body.delayHours) : 0, conditions: String(body.conditions || '').split(',').map((entry) => entry.trim()).filter(Boolean) }); persistState(state); redirect(res, `/automations/${automation.id}/builder`);
   });
 
   for (const [routeName, status] of [['publish', 'live'], ['pause', 'paused'], ['resume', 'live']]) {

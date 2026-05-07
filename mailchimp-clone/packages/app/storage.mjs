@@ -48,7 +48,7 @@ export const DEFAULT_JOURNEY_TEMPLATES = [
 export function dataPaths() {
   const dataDir = process.env.MAILCLONE_DATA_DIR || path.join(ROOT_DIR, 'data');
   const rootLegacyDbPath = path.join(ROOT_DIR, 'app.json');
-  const cwdLegacyDbPath = path.resolve(process.cwd(), 'app.json');
+  const cwdLegacyDbPath = path.join(process.cwd(), 'app.json');
   return {
     dataDir,
     dbPath: path.join(dataDir, 'workspace-state.json'),
@@ -129,6 +129,40 @@ export function saveDb(db) {
 export function persistState(state) {
   saveDb(state.db);
   return state.db;
+}
+
+export function storageOperationalSummary() {
+  const paths = dataPaths();
+  return {
+    dataDir: paths.dataDir,
+    dbPath: paths.dbPath,
+    uploadDir: paths.uploadDir,
+    exportDir: paths.exportDir,
+    legacyDbCandidates: [...(paths.legacyDbCandidates || [])]
+  };
+}
+
+export function storageOperationalHealth() {
+  const summary = storageOperationalSummary();
+  return {
+    ok: Boolean(summary.dbPath && summary.dataDir && summary.uploadDir && summary.exportDir),
+    dbPath: summary.dbPath,
+    dataDir: summary.dataDir,
+    writableTargets: ['dbPath', 'uploadDir', 'exportDir'].filter((key) => Boolean(summary[key])),
+    legacyFallbacks: summary.legacyDbCandidates.length
+  };
+}
+
+export function storageOperationalChecklist() {
+  const summary = storageOperationalSummary();
+  const health = storageOperationalHealth();
+  return [
+    { id: 'data_dir', label: 'Data directory resolved', ok: Boolean(summary.dataDir) },
+    { id: 'db_path', label: 'Operational database path resolved', ok: Boolean(summary.dbPath) },
+    { id: 'uploads', label: 'Upload directory resolved', ok: Boolean(summary.uploadDir) },
+    { id: 'exports', label: 'Export directory resolved', ok: Boolean(summary.exportDir) },
+    { id: 'legacy_fallback', label: 'Legacy app.json fallback remains discoverable', ok: health.legacyFallbacks >= 0 }
+  ];
 }
 
 export function createAppState() {

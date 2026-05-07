@@ -1,7 +1,7 @@
 import { createAudience, saveDb } from '../storage.mjs';
 import { page, requireActor, contactsTableRows } from '../view.mjs';
 import { getCurrentActor, hasFeature, recordAudit } from '../domain-core.mjs';
-import { audienceTraits, bulkUpdateContacts, contactsForAudience, createContact, generateImportPreview, matchSegment, parseSegmentRules, queueImport, updateContact } from '../domain-audience.mjs';
+import { audienceCrmSummary, audienceTraits, bulkUpdateContacts, contactsForAudience, createContact, generateImportPreview, matchSegment, parseSegmentRules, queueImport, updateContact } from '../domain-audience.mjs';
 import { createId, readBody, redirect, text } from '../utils.mjs';
 
 export function registerAudienceRoutes(router, deps) {
@@ -32,7 +32,8 @@ export function registerAudienceRoutes(router, deps) {
     const audience = state.db.audiences.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
     if (!audience) return text(res, 404, page('Audience not found', actor, '<div class="warn">Audience not found.</div>'));
     const traits = audienceTraits(state, audience);
-    text(res, 200, page(`Audience: ${audience.name}`, actor, `<div class="grid"><div class="card"><h3>Metrics</h3><p>${contactsForAudience(state, audience.id).length} contacts</p></div><div class="card"><h3>Classification</h3><p>Tags: ${traits.tags.join(', ') || 'none'}</p><p>Groups: ${traits.groups.join(', ') || 'none'}</p><p>Interests: ${traits.interests.join(', ') || 'none'}</p></div><div class="card"><h3>Open surfaces</h3><p><a href="/contacts?audienceId=${audience.id}">Contacts table</a></p><p><a href="/segments?audienceId=${audience.id}">Segments</a></p><p><a href="/audiences/${audience.id}/taxonomy">Tags / groups / interests</a></p></div></div>`));
+    const crmSummary = audienceCrmSummary(state, audience);
+    text(res, 200, page(`Audience: ${audience.name}`, actor, `<div class="grid"><div class="card"><h3>Metrics</h3><p>${contactsForAudience(state, audience.id).length} contacts</p></div><div class="card"><h3>Classification</h3><p>Tags: ${traits.tags.join(', ') || 'none'}</p><p>Groups: ${traits.groups.join(', ') || 'none'}</p><p>Interests: ${traits.interests.join(', ') || 'none'}</p></div><div class="card"><h3>CRM health</h3><p>Subscribed: ${crmSummary.subscribedContacts}</p><p>Engaged: ${crmSummary.engagedContacts}</p><p>Enrichment coverage: ${Math.round(crmSummary.enrichmentCoverage * 100)}%</p></div><div class="card"><h3>Open surfaces</h3><p><a href="/contacts?audienceId=${audience.id}">Contacts table</a></p><p><a href="/segments?audienceId=${audience.id}">Segments</a></p><p><a href="/audiences/${audience.id}/taxonomy">Tags / groups / interests</a></p></div></div>`));
   });
 
   router.register('GET', '/audiences/:id/taxonomy', async ({ state, req, params, res }) => {

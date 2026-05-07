@@ -51,29 +51,15 @@ export function createTemplateVariantsNarratives(workspace = createTemplateVaria
   }));
 }
 
-export function createTemplateVariantExperimentMatrix(workspace = createTemplateVariantsWorkspace()) {
-  return workspace.programs.map((program, index) => ({
-    id: `${program.id}-experiment`,
-    lane: program.lane,
-    cohort: index % 2 === 0 ? 'high_intent' : 'broad_reach',
-    hypothesis: `${workspace.name} can improve ${workspace.metrics[index % workspace.metrics.length]} by promoting ${program.lane} variants.`,
-    confidence: 0.68 + (index * 0.05),
-    rollout: index === 0 ? 'pilot' : index === 1 ? 'review' : index === 2 ? 'expand' : 'archive',
-    proofPoints: [
-      `${program.lane} ownership is explicit`,
-      `${workspace.metrics[index % workspace.metrics.length]} is measurable`,
-      'Template reuse can be compared across cohorts'
-    ]
-  }));
-}
 
-export function summarizeVariantPromotionQueue(workspace = createTemplateVariantsWorkspace()) {
-  const experiments = createTemplateVariantExperimentMatrix(workspace);
-  return {
-    workspaceId: workspace.id,
-    activeExperiments: experiments.filter((entry) => entry.rollout !== 'archive').length,
-    pilotCount: experiments.filter((entry) => entry.rollout === 'pilot').length,
-    expansionCount: experiments.filter((entry) => entry.rollout === 'expand').length,
-    topHypotheses: experiments.slice(0, 3).map((entry) => entry.hypothesis)
-  };
+export function createCampaignEditorVariantCatalog(workspace = createTemplateVariantsWorkspace()) {
+  return workspace.programs.map((program, index) => ({
+    id: program.id + '-editor-variant',
+    lane: program.lane,
+    layout: index % 2 === 0 ? 'story' : 'promo',
+    dropZone: index === 0 ? 'hero' : index === 1 ? 'body' : index === 2 ? 'cta' : 'footer',
+    approvalState: index < 2 ? 'ready_for_review' : 'draft',
+    recommendedBlocks: ['headline', 'image', 'body', 'button'].slice(0, 2 + (index % 3)),
+    narrative: workspace.name + ' variant ' + (index + 1) + ' keeps the campaign editor stocked with reusable layouts.'
+  }));
 }

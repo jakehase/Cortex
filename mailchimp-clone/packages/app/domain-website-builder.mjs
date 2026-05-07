@@ -1,4 +1,5 @@
-import { saveDb } from './storage.mjs';
+import { persistState } from './storage.mjs';
+import { rebuildWebsiteAnalytics, recordAnalyticsEvent } from './analytics-events.mjs';
 import { createId, nowIso } from './utils.mjs';
 import { createNotification, recordAudit, recordEvent } from './domain-core.mjs';
 
@@ -32,6 +33,53 @@ export function ensureCurrentProductState(state) {
   ensureArray(state, 'assetSnippets');
   ensureArray(state, 'contentVersions');
   return state;
+}
+
+function snapshotWebsitePage(page) {
+  return {
+    id: page.id,
+    name: page.name,
+    slug: page.slug,
+    headline: page.headline,
+    body: page.body,
+    sectionStyle: page.sectionStyle,
+    ctaLabel: page.ctaLabel,
+    ctaUrl: page.ctaUrl,
+    showInNav: page.showInNav,
+    seoTitle: page.seoTitle,
+    seoDescription: page.seoDescription
+  };
+}
+
+function recordWebsiteRevision(website, page, reason = 'update') {
+  website.revisions ||= { undo: [], redo: [] };
+  website.revisions.undo.unshift({ at: nowIso(), reason, pageId: page.id, snapshot: snapshotWebsitePage(page) });
+  website.revisions.undo = website.revisions.undo.slice(0, 20);
+  website.revisions.redo = [];
+}
+
+export function undoWebsiteRevision(state, website) {
+  const revision = website.revisions?.undo?.shift();
+  if (!revision) return null;
+  const page = state.db.websitePages.find((entry) => entry.id === revision.pageId);
+  if (!page) return null;
+  website.revisions.redo.unshift({ at: nowIso(), reason: 'undo', pageId: page.id, snapshot: snapshotWebsitePage(page) });
+  Object.assign(page, revision.snapshot, { updatedAt: nowIso() });
+  website.updatedAt = nowIso();
+  persistState(state);
+  return page;
+}
+
+export function redoWebsiteRevision(state, website) {
+  const revision = website.revisions?.redo?.shift();
+  if (!revision) return null;
+  const page = state.db.websitePages.find((entry) => entry.id === revision.pageId);
+  if (!page) return null;
+  website.revisions.undo.unshift({ at: nowIso(), reason: 'redo', pageId: page.id, snapshot: snapshotWebsitePage(page) });
+  Object.assign(page, revision.snapshot, { updatedAt: nowIso() });
+  website.updatedAt = nowIso();
+  persistState(state);
+  return page;
 }
 
 export function websitePages(state, websiteId) {
@@ -82,7 +130,19 @@ export function createWebsite(state, actor, body) {
     publishedAt: null,
     createdAt: nowIso(),
     updatedAt: nowIso(),
-    analytics: { views: 0, signups: 0, ctaClicks: 0, lastReferrer: '', byPage: {} }
+    analytics: { views: 0, signups: 0, ctaClicks: 0, lastReferrer: '', byPage: {} },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] }
   };
   state.db.websites.unshift(website);
   const page = createWebsitePage(state, actor, website, {
@@ -96,7 +156,7 @@ export function createWebsite(state, actor, body) {
     ctaUrl: '/forms'
   }, true);
   website.homePageId = page.id;
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'website-create', detail: `Created website ${website.name}` });
   return website;
 }
@@ -131,7 +191,7 @@ export function createWebsitePage(state, actor, website, body, skipSave = false)
   state.db.websitePages.unshift(page);
   if (!skipSave) {
     website.updatedAt = nowIso();
-    saveDb(state.db);
+    persistState(state);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'website-page-create', detail: `Created page ${page.name} on ${website.name}` });
   }
   return page;
@@ -158,13 +218,25 @@ export function updateWebsite(state, actor, website, body) {
     analyticsEnabled: body.analyticsEnabled === 'off' ? false : body.analyticsEnabled === 'on' ? true : website.analyticsEnabled,
     updatedAt: nowIso()
   });
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'website-update', detail: `Updated website ${website.name}` });
   return website;
 }
 
 export function updateWebsitePage(state, actor, website, page, body) {
   const others = websitePages(state, website.id).filter((entry) => entry.id !== page.id);
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
   Object.assign(page, {
     name: body.name || page.name,
     slug: body.slug === '' || body.pageType === 'home' ? '' : uniqueSlug(others, body.slug || page.slug || body.name || 'page', 'page'),
@@ -182,7 +254,7 @@ export function updateWebsitePage(state, actor, website, page, body) {
     updatedAt: nowIso()
   });
   website.updatedAt = nowIso();
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'website-page-update', detail: `Updated page ${page.name} on ${website.name}` });
   return page;
 }
@@ -198,7 +270,7 @@ export function reorderWebsiteNavigation(state, actor, website, orderedPageIds =
     page.order = ordered.length + index + 1;
   });
   website.updatedAt = nowIso();
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'website-navigation-update', detail: `Updated navigation for ${website.name}` });
 }
 
@@ -210,90 +282,21 @@ export function publishWebsite(state, actor, website) {
   website.updatedAt = website.publishedAt;
   for (const page of websitePages(state, website.id)) page.status = 'published';
   state.db.websitePublishes.unshift({ id: createId('wpub'), websiteId: website.id, workspaceId: website.workspaceId, domain: website.defaultDomain, pageCount: websitePages(state, website.id).length, publishedAt: website.publishedAt, summary: `${website.name} published to ${website.defaultDomain}` });
-  saveDb(state.db);
+  persistState(state);
   createNotification(state, { workspaceId: website.workspaceId, type: 'website-published', payload: { websiteId: website.id, domain: website.defaultDomain } });
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'website-publish', detail: `Published website ${website.name}` });
   return { ok: true, website };
 }
 
 export function recordWebsiteView(state, website, page, { referrer = '', cta = false, signup = false } = {}) {
-  website.analytics ||= { views: 0, signups: 0, ctaClicks: 0, lastReferrer: '', byPage: {} };
-  page.analytics ||= { views: 0, signups: 0, ctaClicks: 0 };
-  website.analytics.views += 1;
-  page.analytics.views += 1;
-  website.analytics.lastReferrer = referrer || website.analytics.lastReferrer || '';
-  website.analytics.byPage[page.id] ||= { views: 0, signups: 0, ctaClicks: 0 };
-  website.analytics.byPage[page.id].views += 1;
-  if (cta) {
-    website.analytics.ctaClicks += 1;
-    page.analytics.ctaClicks += 1;
-    website.analytics.byPage[page.id].ctaClicks += 1;
-  }
-  if (signup) {
-    website.analytics.signups += 1;
-    page.analytics.signups += 1;
-    website.analytics.byPage[page.id].signups += 1;
-  }
+  recordAnalyticsEvent(state, { type: 'website_view', workspaceId: website.workspaceId, websiteId: website.id, pageId: page.id, referrer });
+  if (cta) recordAnalyticsEvent(state, { type: 'website_cta', workspaceId: website.workspaceId, websiteId: website.id, pageId: page.id, referrer });
+  if (signup) recordAnalyticsEvent(state, { type: 'website_signup', workspaceId: website.workspaceId, websiteId: website.id, pageId: page.id, referrer });
+  const analytics = rebuildWebsiteAnalytics(state, website.id, page.id);
+  website.analytics = analytics.website;
+  page.analytics = analytics.page;
   page.updatedAt = nowIso();
   website.updatedAt = nowIso();
   recordEvent(state, { workspaceId: website.workspaceId, type: 'website-view', message: `${website.name} page viewed`, meta: { websiteId: website.id, pageId: page.id, referrer } });
-  saveDb(state.db);
-}
-
-export function websiteExperienceSummary(state, website) {
-  const pages = websitePages(state, website.id);
-  const validationErrors = websiteValidation(state, website);
-  const analytics = website.analytics || { views: 0, signups: 0, ctaClicks: 0, byPage: {} };
-  const topPages = pages
-    .map((page) => ({
-      id: page.id,
-      name: page.name,
-      slug: page.slug,
-      views: Number(page.analytics?.views || 0),
-      signups: Number(page.analytics?.signups || 0),
-      ctaClicks: Number(page.analytics?.ctaClicks || 0)
-    }))
-    .sort((left, right) => right.views - left.views)
-    .slice(0, 5);
-  return {
-    websiteId: website.id,
-    status: website.status,
-    pageCount: pages.length,
-    published: Boolean(website.publishedAt),
-    validationErrors,
-    topPages,
-    totals: {
-      views: Number(analytics.views || 0),
-      signups: Number(analytics.signups || 0),
-      ctaClicks: Number(analytics.ctaClicks || 0)
-    },
-    navigation: pages.filter((page) => page.showInNav).map((page) => ({ id: page.id, name: page.name, order: page.order || 0 }))
-  };
-}
-
-export function buildWebsitePublishingChecklist(state, website) {
-  const summary = websiteExperienceSummary(state, website);
-  return {
-    websiteId: website.id,
-    ready: summary.validationErrors.length === 0,
-    items: [
-      { id: 'pages_present', ok: summary.pageCount > 0, detail: `${summary.pageCount} page(s)` },
-      { id: 'seo_title', ok: Boolean(website.seoTitle), detail: website.seoTitle || 'Missing site title' },
-      { id: 'seo_description', ok: Boolean(website.seoDescription), detail: website.seoDescription || 'Missing site description' },
-      { id: 'navigation', ok: summary.navigation.length > 0, detail: `${summary.navigation.length} navigation item(s)` },
-      { id: 'analytics_enabled', ok: website.analyticsEnabled !== false, detail: website.analyticsEnabled === false ? 'Analytics disabled' : 'Analytics enabled' }
-    ],
-    validationErrors: summary.validationErrors
-  };
-}
-
-export function websiteRevisionSummary(website) {
-  const undo = Array.isArray(website.revisions?.undo) ? website.revisions.undo : [];
-  const redo = Array.isArray(website.revisions?.redo) ? website.revisions.redo : [];
-  return {
-    undoDepth: undo.length,
-    redoDepth: redo.length,
-    latestUndo: undo[0] || null,
-    latestRedo: redo[0] || null
-  };
+  persistState(state);
 }

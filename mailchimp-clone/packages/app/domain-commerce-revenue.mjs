@@ -1,4 +1,4 @@
-import { saveDb } from './storage.mjs';
+import { persistState } from './storage.mjs';
 import { createId, nowIso } from './utils.mjs';
 import { recordAudit, recordEvent } from './domain-core.mjs';
 
@@ -40,7 +40,7 @@ export function connectStore(state, actor, body) {
     updatedAt: nowIso()
   };
   state.db.commerceStores.unshift(store);
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'commerce-store-connect', detail: `Connected ${store.provider} store ${store.name}` });
   return store;
 }
@@ -116,7 +116,7 @@ export function syncCommerceStore(state, actor, store) {
   store.syncStatus = 'synced';
   store.lastSyncedAt = nowIso();
   store.updatedAt = nowIso();
-  saveDb(state.db);
+  persistState(state);
   recordEvent(state, {
     workspaceId: store.workspaceId,
     type: 'commerce-sync',
