@@ -89,6 +89,57 @@ export function campaignReviewState(state, campaign, workspace) {
   };
 }
 
+export function summarizeCampaignEditorReadiness(campaign = {}) {
+  const blocks = Array.isArray(campaign.blocks) ? campaign.blocks : [];
+  const sectionNames = new Set(blocks.map((block) => block.sectionName || block.type || 'section'));
+  const hasHero = blocks.some((block) => block.stylePreset === 'hero' || block.type === 'hero');
+  const hasCta = blocks.some((block) => block.type === 'button' || block.buttonLabel || block.buttonUrl);
+  const hasImage = blocks.some((block) => block.type === 'image' || block.assetId);
+  const warnings = [];
+  if (!blocks.length) warnings.push('Add content blocks before review.');
+  if (!hasHero) warnings.push('Add a hero or lead section.');
+  if (!hasCta) warnings.push('Add a clear CTA.');
+  const strengths = [];
+  if (hasHero) strengths.push('hero-ready');
+  if (hasImage) strengths.push('visual-support');
+  if (hasCta) strengths.push('cta-ready');
+  if (sectionNames.size >= 3) strengths.push('multi-section-flow');
+  return {
+    score: Math.max(0, Math.min(100, 35 + strengths.length * 15 + Math.min(blocks.length, 6) * 4 - warnings.length * 8)),
+    blockCount: blocks.length,
+    sectionCount: sectionNames.size,
+    strengths,
+    warnings
+  };
+}
+
+export function buildCampaignEditorNarrativeOutline(campaign = {}) {
+  return (campaign.blocks || []).map((block, index) => ({
+    index,
+    sectionName: block.sectionName || block.type || `Section ${index + 1}`,
+    intent: block.eyebrow || block.stylePreset || (index === 0 ? 'lead' : index === (campaign.blocks || []).length - 1 ? 'close' : 'support'),
+    title: block.title || '',
+    ctaLabel: block.buttonLabel || ''
+  }));
+}
+
+export function buildCampaignEditorLayoutPreset(campaign = {}, { preset = 'launch_story' } = {}) {
+  const tone = campaign.editorSettings?.brandTone || 'confident';
+  if (preset === 'product_digest') {
+    return [
+      { type: 'hero', stylePreset: 'hero', sectionName: 'Digest lead', eyebrow: tone, title: campaign.subject || campaign.name || 'Product update', body: campaign.preheader || 'A concise roundup of what matters this week.' },
+      { type: 'text', stylePreset: 'feature', sectionName: 'Highlights', title: 'What changed', body: 'Summarize the top updates, customer value, and next steps in a scannable block.' },
+      { type: 'button', stylePreset: 'promo', sectionName: 'Action', title: 'Keep exploring', body: 'Point readers to the highest-value destination.', buttonLabel: 'View the update', buttonUrl: '#' }
+    ];
+  }
+  return [
+    { type: 'hero', stylePreset: 'hero', sectionName: 'Promise', eyebrow: tone, title: campaign.subject || campaign.name || 'Launch story', body: campaign.preheader || 'Lead with the clearest customer outcome.' },
+    { type: 'text', stylePreset: 'feature', sectionName: 'Proof', title: 'Why it matters', body: 'Add proof points, objections handled, and the reason to act now.' },
+    { type: 'button', stylePreset: 'promo', sectionName: 'CTA', title: 'Take the next step', body: 'Close with a single clear action.', buttonLabel: 'Get started', buttonUrl: '#' },
+    { type: 'text', stylePreset: 'footer', sectionName: 'Footer', title: 'You are in control', body: 'Mention preferences, support, and brand reassurance.' }
+  ];
+}
+
 export function createCampaign(state, actor, name) {
   const campaign = { id: createId('camp'), workspaceId: actor.workspace.id, name, subject: '', preheader: '', fromName: actor.workspace.settings.senderName || actor.user.name, replyTo: actor.workspace.settings.replyTo || actor.workspace.settings.senderEmail || '', audienceId: '', segmentId: '', templateId: '', blocks: [], status: 'draft', setupComplete: false, recipientsComplete: false, report: { opens: 0, clicks: 0, bounces: 0, unsubscribes: 0, history: [], funnel: { landingPages: 0, landingViews: 0, landingSubmissions: 0, linkedForms: 0, formSubmissions: 0, attributedAutomationRuns: 0, attributedAutomationGoals: 0 } }, createdAt: nowIso(), updatedAt: nowIso() };
   state.db.campaigns.unshift(campaign);
