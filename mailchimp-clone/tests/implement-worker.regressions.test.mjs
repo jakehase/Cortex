@@ -10,13 +10,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const IMPLEMENT_SCRIPT = path.join(ROOT, 'scripts', 'orchestrator-real-repo-clean-implement.mjs');
 
-function mkWorkspace(relativeFiles) {
+function fixtureFileContent(relPath) {
+  const fixtureRef = String(process.env.MAILCHIMP_IMPLEMENT_REGRESSION_FIXTURE_REF || 'HEAD').trim() || 'HEAD';
+  for (const gitPath of [`mailchimp-clone/${relPath}`, relPath]) {
+    const fromRef = spawnSync('git', ['show', `${fixtureRef}:${gitPath}`], {
+      cwd: ROOT,
+      encoding: 'buffer',
+      maxBuffer: 1024 * 1024 * 40
+    });
+    if (fromRef.status === 0) return fromRef.stdout;
+  }
+  return fs.readFileSync(path.join(ROOT, relPath));
+}
+
+function mkWorkspace(relativeFiles, options = {}) {
   const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), 'mailchimp-implement-regression-'));
   for (const relPath of relativeFiles) {
-    const source = path.join(ROOT, relPath);
     const target = path.join(workspacePath, relPath);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    fs.copyFileSync(source, target);
+    const sourceContent = options.source === 'working-tree'
+      ? fs.readFileSync(path.join(ROOT, relPath))
+      : fixtureFileContent(relPath);
+    fs.writeFileSync(target, sourceContent);
   }
   return workspacePath;
 }
@@ -34,22 +49,29 @@ function runFocusGroup(relativeFiles, focusGroup) {
   return { workspacePath, result };
 }
 
-function runAssignment(relativeFiles, assignment) {
-  const workspacePath = mkWorkspace(relativeFiles);
-  const assignmentPath = path.join(workspacePath, 'assignment.json');
+function runAssignmentInWorkspace(workspacePath, assignment, options = {}) {
+  const safeName = String(assignment.shardId || assignment.shard?.id || 'assignment').replace(/[^a-z0-9#._-]+/gi, '_');
+  const assignmentPath = path.join(workspacePath, `${safeName}-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
   fs.writeFileSync(assignmentPath, JSON.stringify({ targetPath: workspacePath, ...assignment }, null, 2));
   const result = spawnSync(process.execPath, [IMPLEMENT_SCRIPT, '--assignment', assignmentPath], {
     cwd: ROOT,
     encoding: 'utf8',
-    maxBuffer: 1024 * 1024 * 40
+    maxBuffer: 1024 * 1024 * 40,
+    env: { ...process.env, ...(options.env || {}) }
   });
   assert.equal(result.status, 0, `assignment should succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
   return { workspacePath, result, output: JSON.parse(result.stdout) };
 }
 
+function runAssignment(relativeFiles, assignment, options = {}) {
+  const workspacePath = mkWorkspace(relativeFiles, options);
+  return runAssignmentInWorkspace(workspacePath, assignment, options);
+}
+
 test('implement worker: frontend architecture keeps builder overlay non-interactive', () => {
   const { workspacePath } = runFocusGroup(['packages/app/view.mjs'], 'frontend_architecture');
   const css = fs.readFileSync(path.join(workspacePath, 'apps/web/public/app-shell.css'), 'utf8');
+  assert.match(css, /#mailclone-client-shell[\s\S]*pointer-events:\s*none;/, 'client shell chrome should not intercept product workflow clicks');
   assert.match(css, /\[data-builder-panel\][\s\S]*pointer-events:\s*none;/, 'builder overlay should remain non-interactive');
 });
 
@@ -104,6 +126,460 @@ test('implement worker: strict frontend interaction parity shards keep producing
   const server = fs.readFileSync(path.join(workspacePath, 'apps/web/server.mjs'), 'utf8');
   assert.match(publicRoutes, /\/static\/app-shell-manifest\.json/, 'later frontend parity shards should add the shell manifest route');
   assert.match(server, /x-mailclone-client-shell/, 'later frontend parity shards should add shell headers at the server boundary');
+});
+
+test('implement worker: strict frontend interaction parity does not claim synthetic completion after shell hooks are saturated', () => {
+  const workspacePath = mkWorkspace([
+    'packages/app/view.mjs',
+    'packages/app/routes/public.mjs',
+    'apps/web/server.mjs'
+  ]);
+  const allowedFiles = ['packages/app/view.mjs', 'packages/app/routes/public.mjs', 'apps/web/server.mjs'];
+
+  const outputs = [];
+  for (const shardId of ['focus.frontend_interaction_parity#1', 'focus.frontend_interaction_parity#2', 'focus.frontend_interaction_parity#3', 'focus.frontend_interaction_parity#2']) {
+    const assignmentPath = path.join(workspacePath, `${shardId.replace(/[^a-z0-9#._-]+/gi, '_')}-${Date.now()}-${Math.random()}.json`);
+    fs.writeFileSync(assignmentPath, JSON.stringify({
+      targetPath: workspacePath,
+      shardId,
+      issue: { inputs: { focusGroup: 'frontend_architecture' } },
+      shard: { id: shardId, allowedFiles }
+    }, null, 2));
+    const result = spawnSync(process.execPath, [IMPLEMENT_SCRIPT, '--assignment', assignmentPath], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024 * 40
+    });
+    assert.equal(result.status, 0, `${shardId} should succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    const output = JSON.parse(result.stdout);
+    outputs.push(output);
+  }
+
+  assert.ok(outputs.slice(0, 3).every((output) => output.modifiedFiles.length >= 1), 'initial frontend shell slices should emit concrete diffs');
+  assert.deepEqual(outputs.at(-1).modifiedFiles, [], 'saturated frontend shell retries should stop instead of appending marker-only followups');
+  const concatenated = allowedFiles.map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+  assert.doesNotMatch(concatenated, /mailchimp_frontend_interaction_followup_v\d+/, 'saturated frontend retries must not add versioned marker-only followups');
+});
+
+test('implement worker: benchmark-scoped production surfaces use concrete product handlers instead of zero-file helper no-ops', () => {
+  const workspacePath = mkWorkspace([
+    'packages/app/view.mjs',
+    'packages/app/routes/public.mjs',
+    'apps/web/server.mjs'
+  ]);
+  const assignment = {
+    shardId: 'focus.frontend_client_shell_state',
+    campaign: { requestedFidelity: 'parity_for_scope' },
+    contextPack: { campaign: { requestedFidelity: 'parity_for_scope' } },
+    shard: {
+      id: 'focus.frontend_client_shell_state',
+      surfaceIds: ['frontend_client_shell_state'],
+      allowedFiles: ['packages/app/view.mjs', 'packages/app/routes/public.mjs', 'apps/web/server.mjs'],
+      metadata: { focusGroup: 'frontend_architecture' }
+    }
+  };
+  const outputs = [
+    runAssignmentInWorkspace(workspacePath, assignment).output,
+    runAssignmentInWorkspace(workspacePath, assignment).output,
+    runAssignmentInWorkspace(workspacePath, assignment).output,
+    runAssignmentInWorkspace(workspacePath, assignment).output
+  ];
+  const concatenated = ['packages/app/view.mjs', 'packages/app/routes/public.mjs', 'apps/web/server.mjs']
+    .map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8'))
+    .join('\n');
+  const last = outputs.at(-1);
+  assert.ok(outputs.slice(0, 3).every((output) => output.modifiedFiles.length >= 1), 'initial benchmark-scoped passes should make direct product changes');
+  assert.ok(last.modifiedFiles.length >= 1, 'idempotent benchmark-scoped pass should still produce a concrete runtime delta instead of a zero-file claim');
+  assert.notEqual(last.metadata.claimIntegrityKind, 'zero_modified_files');
+  assert.match(concatenated, /buildFrontendClientShellStateRuntimeEvidence/, 'fallback runtime evidence should land in an allowed product file');
+  assert.equal(last.metadata.semanticBloatAudit.runtimeIntegrationEvidence.ok, true);
+});
+
+test('implement worker: full-clone broad frontend objective is not suppressed by benchmark-scope grounding guard', () => {
+  const { output } = runAssignment([
+    'packages/app/view.mjs',
+    'packages/app/routes/public.mjs',
+    'apps/web/server.mjs'
+  ], {
+    shardId: 'focus.frontend_client_shell_state',
+    issue: { inputs: { focusGroup: 'frontend_architecture' } },
+    shard: {
+      id: 'focus.frontend_client_shell_state',
+      title: 'Frontend client shell state, hydration, and browser realism',
+      allowedFiles: ['packages/app/view.mjs', 'packages/app/routes/public.mjs', 'apps/web/server.mjs'],
+      metadata: { strictGap: true, strictGapDetail: 'Broaden full-clone frontend shell and hydration realism.' }
+    },
+    contract: { requestedFidelity: 'full_clone' }
+  }, { env: { ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone' } });
+  assert.equal(output.surfaceFocusId, 'frontend_client_shell_state');
+  assert.ok(output.modifiedFiles.length >= 1, 'full-clone broad frontend objective should produce a real product diff');
+  assert.equal(output.metadata.claimIntegrityKind, 'substantive_product_delta');
+});
+
+test('implement worker: full-clone swarm leaf does not create isolated declarative product modules by default', () => {
+  const workspacePath = mkWorkspace([]);
+  const leafFile = 'packages/app/full-clone-swarm/signup_onboarding/001-routes-platform.mjs';
+  const assignment = {
+    targetPath: workspacePath,
+    shardId: 'focus.signup_onboarding#1',
+    shard: {
+      id: 'focus.signup_onboarding#1',
+      title: 'Signup and onboarding wizard — routes platform leaf',
+      lane: 'signup_onboarding',
+      allowedFiles: [leafFile],
+      metadata: {
+        strictGap: true,
+        surfaceFocusId: 'signup_onboarding',
+        swarmLeafId: 'focus.signup_onboarding#1',
+        sourceProductFile: 'packages/app/routes/platform.mjs',
+        strictGapDetail: 'Signup and onboarding needs role-aware workflow states, validation, recovery, and audit handoff.'
+      }
+    },
+    contract: { requestedFidelity: 'full_clone' }
+  };
+  const assignmentPath = path.join(workspacePath, 'assignment.json');
+  fs.writeFileSync(assignmentPath, JSON.stringify(assignment, null, 2));
+  const result = spawnSync(process.execPath, [IMPLEMENT_SCRIPT, '--assignment', assignmentPath], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024 * 40,
+    env: { ...process.env, ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone' }
+  });
+  assert.equal(result.status, 0, `swarm leaf assignment should succeed without fabricating product credit\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.modifiedFiles, []);
+  assert.equal(output.metadata.swarmLeafId, 'focus.signup_onboarding#1');
+  assert.equal(output.metadata.sourceProductFile, 'packages/app/routes/platform.mjs');
+  assert.equal(fs.existsSync(path.join(workspacePath, leafFile)), false, 'isolated full-clone swarm modules must not be created for product credit');
+});
+
+test('implement worker: structural full-clone leaf does not create isolated declarative product modules by default', () => {
+  const workspacePath = mkWorkspace([]);
+  const structuralFile = 'packages/app/full-clone-structural/frontend_client_shell_state/001-client_runtime_state.mjs';
+  const assignment = {
+    targetPath: workspacePath,
+    shardId: 'focus.frontend_client_shell_state::structural#1',
+    shard: {
+      id: 'focus.frontend_client_shell_state::structural#1',
+      title: 'Frontend client shell state — client runtime state and browser handoff',
+      lane: 'frontend_architecture',
+      allowedFiles: [structuralFile],
+      metadata: {
+        strictGap: true,
+        structuralFullClone: true,
+        surfaceFocusId: 'frontend_client_shell_state',
+        structuralLeafId: 'focus.frontend_client_shell_state::structural#1',
+        structuralPhaseId: 'client_runtime_state',
+        structuralPhaseTitle: 'client runtime state and browser handoff',
+        sourceProductFile: 'apps/web/public/app-shell.jsx',
+        strictGapDetail: 'Build a real browser-side app shell with state handoff, asset serving, and interaction hooks.'
+      }
+    },
+    contract: { requestedFidelity: 'full_clone' }
+  };
+  const assignmentPath = path.join(workspacePath, 'assignment.json');
+  fs.writeFileSync(assignmentPath, JSON.stringify(assignment, null, 2));
+  const result = spawnSync(process.execPath, [IMPLEMENT_SCRIPT, '--assignment', assignmentPath], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024 * 40,
+    env: { ...process.env, ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone' }
+  });
+  assert.equal(result.status, 0, `structural leaf assignment should succeed without fabricating product credit\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.modifiedFiles, []);
+  assert.equal(output.metadata.structuralLeafId, 'focus.frontend_client_shell_state::structural#1');
+  assert.equal(output.metadata.structuralPhaseId, 'client_runtime_state');
+  assert.equal(fs.existsSync(path.join(workspacePath, structuralFile)), false, 'isolated full-clone structural modules must not be created for product credit');
+});
+
+test('implement worker: frontier full-clone leaf does not create isolated declarative product modules by default', () => {
+  const workspacePath = mkWorkspace([]);
+  const frontierFile = 'packages/app/full-clone-frontier/frontend_client_shell_state/001-rich_client_application_spine.mjs';
+  const assignment = {
+    targetPath: workspacePath,
+    shardId: 'focus.frontend_client_shell_state::frontier#1',
+    shard: {
+      id: 'focus.frontend_client_shell_state::frontier#1',
+      title: 'Frontend client shell state — rich client application spine and editor host',
+      lane: 'frontend_architecture',
+      allowedFiles: [frontierFile],
+      metadata: {
+        strictGap: true,
+        structuralFullClone: true,
+        frontierFullClone: true,
+        surfaceFocusId: 'frontend_client_shell_state',
+        structuralLeafId: 'focus.frontend_client_shell_state::frontier#1',
+        frontierLeafId: 'focus.frontend_client_shell_state::frontier#1',
+        structuralPhaseId: 'rich_client_application_spine',
+        structuralPhaseTitle: 'rich client application spine and editor host',
+        sourceProductFile: 'apps/web/public/app-shell.jsx',
+        strictGapDetail: 'Build a real browser-side app shell with state handoff, asset serving, editor interaction hooks, persistence, provider runtime boundaries, and browser-backed evidence.'
+      }
+    },
+    contract: { requestedFidelity: 'full_clone' }
+  };
+  const assignmentPath = path.join(workspacePath, 'assignment.json');
+  fs.writeFileSync(assignmentPath, JSON.stringify(assignment, null, 2));
+  const result = spawnSync(process.execPath, [IMPLEMENT_SCRIPT, '--assignment', assignmentPath], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024 * 40,
+    env: { ...process.env, ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone' }
+  });
+  assert.equal(result.status, 0, `frontier leaf assignment should succeed without fabricating product credit\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.modifiedFiles, []);
+  assert.equal(output.metadata.frontierLeafId, 'focus.frontend_client_shell_state::frontier#1');
+  assert.equal(output.metadata.structuralPhaseId, 'rich_client_application_spine');
+  assert.equal(fs.existsSync(path.join(workspacePath, frontierFile)), false, 'isolated full-clone frontier modules must not be created for product credit');
+});
+
+test('implement worker: remediation full-clone leaf refuses isolated remaining-work modules without primary adoption targets', async () => {
+  const workspacePath = mkWorkspace([]);
+  const remediationFile = 'packages/app/full-clone-remediation/frontend_client_shell_state/001-client_app_runtime_adoption.mjs';
+  const assignment = {
+    targetPath: workspacePath,
+    shardId: 'focus.frontend_client_shell_state::remediation#1',
+    shard: {
+      id: 'focus.frontend_client_shell_state::remediation#1',
+      title: 'Frontend client shell state — client application runtime adoption slice',
+      lane: 'frontend_architecture',
+      allowedFiles: [remediationFile],
+      metadata: {
+        strictGap: true,
+        structuralFullClone: true,
+        frontierFullClone: true,
+        remediationFullClone: true,
+        surfaceFocusId: 'frontend_client_shell_state',
+        structuralLeafId: 'focus.frontend_client_shell_state::remediation#1',
+        frontierLeafId: 'focus.frontend_client_shell_state::remediation#1',
+        remediationLeafId: 'focus.frontend_client_shell_state::remediation#1',
+        structuralPhaseId: 'client_app_runtime_adoption',
+        structuralPhaseTitle: 'client application runtime adoption slice',
+        sourceProductFile: 'apps/web/public/app-shell.jsx',
+        strictGapDetail: 'Build or adopt a real client application layer for editor-heavy surfaces and prevent scoped-green/no-throughput saturation.'
+      }
+    },
+    contract: { requestedFidelity: 'full_clone' }
+  };
+  const assignmentPath = path.join(workspacePath, 'assignment.json');
+  fs.writeFileSync(assignmentPath, JSON.stringify(assignment, null, 2));
+  const result = spawnSync(process.execPath, [IMPLEMENT_SCRIPT, '--assignment', assignmentPath], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 1024 * 1024 * 40,
+    env: { ...process.env, ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone' }
+  });
+  assert.equal(result.status, 0, `remediation leaf assignment should succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+  const output = JSON.parse(result.stdout);
+  assert.deepEqual(output.modifiedFiles, [], 'isolated remediation modules should not count as runnable adoption work');
+  assert.equal(output.metadata.remediationLeafId, 'focus.frontend_client_shell_state::remediation#1');
+  assert.equal(output.metadata.structuralPhaseId, 'client_app_runtime_adoption');
+  assert.equal(fs.existsSync(path.join(workspacePath, remediationFile)), false, 'worker should not create a standalone full-clone-remediation file');
+});
+
+test('implement worker: continuation full-clone leaf emits primary-runtime adoption after canonical audience handler is saturated', () => {
+  const { workspacePath, output } = runAssignment([
+    'packages/app/domain-audience.mjs',
+    'packages/app/routes/audience.mjs',
+    'packages/app/security.mjs',
+    'packages/app/storage.mjs'
+  ], {
+    shard: {
+      id: 'focus.audience_overview::continuation-001#15',
+      title: 'Audience overview — continuation wave 001 — data privacy and compliance runtime slice',
+      lane: 'frontend_architecture',
+      allowedFiles: [
+        'packages/app/domain-audience.mjs',
+        'packages/app/routes/audience.mjs',
+        'packages/app/security.mjs',
+        'packages/app/storage.mjs'
+      ],
+      metadata: {
+        strictGap: true,
+        structuralFullClone: true,
+        frontierFullClone: true,
+        remediationFullClone: true,
+        continuationFullClone: true,
+        primaryProductAdoptionRequired: true,
+        surfaceFocusId: 'audience_overview',
+        structuralLeafId: 'focus.audience_overview::continuation-001#15',
+        frontierLeafId: 'focus.audience_overview::continuation-001#15',
+        remediationLeafId: 'focus.audience_overview::continuation-001#15',
+        structuralPhaseId: 'continuation_wave_001_data_privacy_compliance_runtime',
+        structuralPhaseTitle: 'continuation wave 001 — data privacy and compliance runtime slice',
+        primaryAdoptionFile: 'packages/app/domain-audience.mjs',
+        primaryAdoptionFiles: ['packages/app/domain-audience.mjs', 'packages/app/routes/audience.mjs', 'packages/app/security.mjs', 'packages/app/storage.mjs'],
+        sourceProductFile: 'packages/app/domain-audience.mjs',
+        strictGapDetail: 'Capture deletion, consent provenance, suppression boundaries, retention windows, exportability, legal hold, and compliance audit metadata.'
+      }
+    },
+    contract: { requestedFidelity: 'full_clone' }
+  }, { env: { ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone', MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT: '1' } });
+
+  assert.ok(output.modifiedFiles.length >= 2, 'deep-credit continuation audience adoption should modify at least two primary runtime files');
+  assert.equal(output.metadata.architectureEvidence?.ok, true, 'deep-credit continuation adoption should emit passing architecture evidence');
+  assert.ok(output.modifiedFiles.every((filePath) => [
+    'packages/app/domain-audience.mjs',
+    'packages/app/routes/audience.mjs',
+    'packages/app/security.mjs',
+    'packages/app/storage.mjs'
+  ].includes(filePath)), 'continuation audience adoption should stay within primary adoption files');
+  assert.equal(output.metadata.claimIntegrityKind, 'substantive_product_delta');
+  const audienceRuntime = [
+    'packages/app/domain-audience.mjs',
+    'packages/app/routes/audience.mjs',
+    'packages/app/security.mjs',
+    'packages/app/storage.mjs'
+  ].map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+  assert.equal(output.metadata.structuralPhaseId, 'continuation_wave_001_data_privacy_compliance_runtime');
+  assert.doesNotMatch(audienceRuntime, /full_clone_remediation_leaf_evaluated/);
+});
+
+test('implement worker: continuation full-clone leaf emits primary-runtime adoption after canonical automation handler is saturated', () => {
+  const { workspacePath, output } = runAssignment([
+    'packages/app/domain-campaigns.mjs',
+    'packages/app/domain-growth.mjs',
+    'packages/app/job-runtime.mjs',
+    'packages/app/routes/automations.mjs'
+  ], {
+    shard: {
+      id: 'focus.automation_journey_execution::continuation-001#13#1',
+      title: 'Automation journey execution runtime — continuation wave 001 — asset rendering and delivery pipeline slice',
+      lane: 'automation_journey',
+      allowedFiles: [
+        'packages/app/domain-campaigns.mjs',
+        'packages/app/domain-growth.mjs',
+        'packages/app/job-runtime.mjs',
+        'packages/app/routes/automations.mjs'
+      ],
+      metadata: {
+        strictGap: true,
+        structuralFullClone: true,
+        frontierFullClone: true,
+        remediationFullClone: true,
+        continuationFullClone: true,
+        primaryProductAdoptionRequired: true,
+        surfaceFocusId: 'automation_journey_execution',
+        structuralLeafId: 'focus.automation_journey_execution::continuation-001#13',
+        frontierLeafId: 'focus.automation_journey_execution::continuation-001#13',
+        remediationLeafId: 'focus.automation_journey_execution::continuation-001#13',
+        structuralPhaseId: 'continuation_wave_001_asset_rendering_pipeline_runtime',
+        structuralPhaseTitle: 'continuation wave 001 — asset rendering and delivery pipeline slice',
+        primaryAdoptionFile: 'packages/app/domain-campaigns.mjs',
+        primaryAdoptionFiles: ['packages/app/domain-campaigns.mjs', 'packages/app/domain-growth.mjs', 'packages/app/job-runtime.mjs', 'packages/app/routes/automations.mjs'],
+        sourceProductFile: 'packages/app/domain-campaigns.mjs',
+        strictGapDetail: 'Add image/file asset normalization, template rendering, CDN/cache metadata, preview fidelity, and recoverable publish/delivery handoff.'
+      }
+    },
+    contract: { requestedFidelity: 'full_clone' }
+  }, { env: { ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone' } });
+
+  assert.ok(output.modifiedFiles.length >= 1, 'continuation automation adoption should modify at least one primary runtime file');
+  assert.ok(output.modifiedFiles.every((filePath) => [
+    'packages/app/domain-campaigns.mjs',
+    'packages/app/domain-growth.mjs',
+    'packages/app/job-runtime.mjs',
+    'packages/app/routes/automations.mjs'
+  ].includes(filePath)), 'continuation automation adoption should stay within primary adoption files');
+  assert.equal(output.metadata.claimIntegrityKind, 'substantive_product_delta');
+  const automationRuntime = [
+    'packages/app/domain-campaigns.mjs',
+    'packages/app/domain-growth.mjs',
+    'packages/app/job-runtime.mjs',
+    'packages/app/routes/automations.mjs'
+  ].map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+  assert.equal(output.metadata.structuralPhaseId, 'continuation_wave_001_asset_rendering_pipeline_runtime');
+  assert.doesNotMatch(automationRuntime, /full_clone_remediation_leaf_evaluated/);
+});
+
+test('implement worker: continuation primary-runtime adoption reuses compact runtime helper instead of duplicating boilerplate per shard', () => {
+  const workspacePath = mkWorkspace([
+    'packages/app/domain-audience.mjs',
+    'packages/app/routes/audience.mjs',
+    'packages/app/security.mjs',
+    'packages/app/storage.mjs'
+  ]);
+  const allowedFiles = [
+    'packages/app/domain-audience.mjs',
+    'packages/app/routes/audience.mjs',
+    'packages/app/security.mjs',
+    'packages/app/storage.mjs'
+  ];
+
+  for (const [index, phaseId] of ['continuation_wave_001_data_privacy_compliance_runtime', 'continuation_wave_002_approval_lifecycle_runtime', 'continuation_wave_003_browser_runtime'].entries()) {
+    const { output } = runAssignmentInWorkspace(workspacePath, {
+      shard: {
+        id: `focus.audience_identity_lifecycle::continuation-00${index + 1}#1`,
+        title: `Audience identity lifecycle — ${phaseId}`,
+        lane: 'audience_identity',
+        allowedFiles,
+        metadata: {
+          strictGap: true,
+          structuralFullClone: true,
+          frontierFullClone: true,
+          remediationFullClone: true,
+          continuationFullClone: true,
+          primaryProductAdoptionRequired: true,
+          surfaceFocusId: 'audience_identity_lifecycle',
+          structuralLeafId: `focus.audience_identity_lifecycle::continuation-00${index + 1}#1`,
+          frontierLeafId: `focus.audience_identity_lifecycle::continuation-00${index + 1}#1`,
+          remediationLeafId: `focus.audience_identity_lifecycle::continuation-00${index + 1}#1`,
+          structuralPhaseId: phaseId,
+          structuralPhaseTitle: phaseId.replace(/_/g, ' '),
+          primaryAdoptionFile: 'packages/app/domain-audience.mjs',
+          primaryAdoptionFiles: allowedFiles,
+          sourceProductFile: 'packages/app/domain-audience.mjs',
+          sourceProductFiles: ['packages/app/domain-audience.mjs', 'packages/app/routes/audience.mjs'],
+          strictGapDetail: 'Capture lifecycle state, role-aware workflow transitions, audit handoff, and recovery behavior.'
+        }
+      },
+      contract: { requestedFidelity: 'full_clone' }
+    }, { env: { ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone', MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT: '1' } });
+    assert.ok(output.modifiedFiles.length >= 1, `${phaseId} should emit compact primary runtime work`);
+    assert.equal(output.metadata.claimIntegrityKind, 'substantive_product_delta');
+  }
+
+  const runtime = allowedFiles.map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+  const helperCopies = runtime.match(/function evaluatePrimaryRuntimeAdoption\(config/g) || [];
+  const repeatedWorkspaceLines = runtime.match(/const workspaceId = input\.workspaceId/g) || [];
+  assert.ok(helperCopies.length <= 2, `shared helper should be emitted once per touched runtime layer, got ${helperCopies.length}`);
+  assert.ok(repeatedWorkspaceLines.length <= 2, `primary adoption boilerplate should not repeat per continuation shard, got ${repeatedWorkspaceLines.length}`);
+  assert.doesNotMatch(runtime, /full_clone_remediation_leaf_evaluated|"requirements": \[/, 'continuation adoption must not fall back to remediation blueprint bulk');
+});
+
+test('implement worker: strict frontend interaction parity without allowed files does not fabricate fallback completion', () => {
+  const workspacePath = mkWorkspace([
+    'packages/app/view.mjs',
+    'packages/app/routes/public.mjs',
+    'apps/web/server.mjs'
+  ]);
+  const seeded = [
+    { shardId: 'focus.frontend_interaction_parity#1', shard: { id: 'focus.frontend_interaction_parity#1', allowedFiles: ['packages/app/view.mjs', 'packages/app/routes/public.mjs', 'apps/web/server.mjs'] } },
+    { shardId: 'focus.frontend_interaction_parity#2', shard: { id: 'focus.frontend_interaction_parity#2', allowedFiles: ['packages/app/view.mjs', 'packages/app/routes/public.mjs', 'apps/web/server.mjs'] } },
+    { shardId: 'focus.frontend_interaction_parity#3', shard: { id: 'focus.frontend_interaction_parity#3', allowedFiles: ['packages/app/view.mjs', 'packages/app/routes/public.mjs', 'apps/web/server.mjs'] } },
+    { shardId: 'focus.frontend_interaction_parity#2', shard: { id: 'focus.frontend_interaction_parity#2' } }
+  ];
+  const outputs = [];
+  for (const assignment of seeded) {
+    const assignmentPath = path.join(workspacePath, `${assignment.shardId.replace(/[^a-z0-9#._-]+/gi, '_')}-${Date.now()}-${Math.random()}.json`);
+    fs.writeFileSync(assignmentPath, JSON.stringify({
+      targetPath: workspacePath,
+      issue: { inputs: { focusGroup: 'frontend_architecture' } },
+      ...assignment
+    }, null, 2));
+    const result = spawnSync(process.execPath, [IMPLEMENT_SCRIPT, '--assignment', assignmentPath], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      maxBuffer: 1024 * 1024 * 40
+    });
+    assert.equal(result.status, 0, `${assignment.shardId} should succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    const output = JSON.parse(result.stdout);
+    outputs.push(output);
+  }
+  assert.ok(outputs.slice(0, 3).every((output) => output.modifiedFiles.length >= 1), 'allowed frontend shell slices should emit concrete diffs');
+  assert.deepEqual(outputs.at(-1).modifiedFiles, [], 'missing allowed files after saturation should be a no-op, not fabricated completion');
 });
 
 test('implement worker: strict campaign editor parity shards override stale delivery focus and emit allowed-file diffs', () => {
@@ -166,6 +642,36 @@ test('implement worker: canonical tags/groups/interests shard routes to the audi
     'packages/app/routes/audience.mjs'
   ].includes(filePath)), 'canonical tags/groups/interests shard should stay within allowed files');
   assert.match(audienceRoute, /CRM health/, 'canonical tags/groups/interests shard should add CRM health cues');
+});
+
+test('implement worker: canonical contacts table shard emits operational product depth after CRM bridge saturation', () => {
+  const allowedFiles = [
+    'packages/app/domain-audience.mjs',
+    'packages/app/routes/audience.mjs'
+  ];
+  const { workspacePath, output } = runAssignment(allowedFiles, {
+    shardId: 'focus.contacts_table',
+    issue: { inputs: { focusGroup: 'focus.contacts_table' } },
+    shard: {
+      id: 'focus.contacts_table',
+      allowedFiles,
+      metadata: { strictGap: true, strictGapDetail: 'Deepen contacts-table sorting, saved columns, suppression, pagination, and merge/dedup flows.' }
+    },
+    contract: { requestedFidelity: 'full_clone' },
+    contextPack: {
+      shard: { id: 'focus.contacts_table', surfaceIds: ['contacts_table'] },
+      guardrails: { allowedFiles },
+      assignmentContract: { targetFiles: allowedFiles }
+    }
+  }, { source: 'working-tree', env: { ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone' } });
+  const audienceDomain = fs.readFileSync(path.join(workspacePath, 'packages/app/domain-audience.mjs'), 'utf8');
+  const audienceRoute = fs.readFileSync(path.join(workspacePath, 'packages/app/routes/audience.mjs'), 'utf8');
+  assert.equal(output.focusGroup, 'audience_crm');
+  assert.equal(output.surfaceFocusId, 'contacts_table');
+  assert.ok(output.modifiedFiles.length >= 1, 'contacts-table shard should produce a real allowed-file product diff');
+  assert.ok(output.modifiedFiles.every((filePath) => allowedFiles.includes(filePath)), 'contacts-table shard should stay within allowed files');
+  assert.match(audienceDomain, /buildContactsTableViewModel/, 'contacts-table shard should add a real table view-model, not a marker-only followup');
+  assert.match(audienceRoute, /Table operations/, 'contacts-table route should expose operational table controls and evidence');
 });
 
 test('implement worker: canonical email builder shard emits allowed-file product diffs', () => {
@@ -448,6 +954,56 @@ test('implement worker: canonical signup onboarding shard stays out of forms gro
   assert.match(platformRoutes, /router\.register\('GET', '\/onboarding'/, 'signup onboarding shard should add authenticated onboarding route');
 });
 
+test('implement worker: saturated canonical signup onboarding shard escalates to recovery/resume product depth instead of no-op', () => {
+  const { workspacePath, output } = runAssignment([
+    'packages/app/index.mjs',
+    'packages/app/view.mjs',
+    'packages/app/routes/public.mjs',
+    'packages/app/routes/platform.mjs'
+  ], {
+    shardId: 'focus.signup_onboarding',
+    issue: { inputs: { focusGroup: 'focus.signup_onboarding' } },
+    shard: {
+      id: 'focus.signup_onboarding',
+      allowedFiles: [
+        'packages/app/index.mjs',
+        'packages/app/view.mjs',
+        'packages/app/routes/public.mjs',
+        'packages/app/routes/platform.mjs'
+      ]
+    },
+    contextPack: {
+      shard: { id: 'focus.signup_onboarding', surfaceIds: ['signup_onboarding'] },
+      guardrails: {
+        allowedFiles: [
+          'packages/app/index.mjs',
+          'packages/app/view.mjs',
+          'packages/app/routes/public.mjs',
+          'packages/app/routes/platform.mjs'
+        ]
+      }
+    }
+  });
+  const view = fs.readFileSync(path.join(workspacePath, 'packages/app/view.mjs'), 'utf8');
+  const publicRoutes = fs.readFileSync(path.join(workspacePath, 'packages/app/routes/public.mjs'), 'utf8');
+  const platformRoutes = fs.readFileSync(path.join(workspacePath, 'packages/app/routes/platform.mjs'), 'utf8');
+  const index = fs.readFileSync(path.join(workspacePath, 'packages/app/index.mjs'), 'utf8');
+  assert.equal(output.focusGroup, 'signup_onboarding');
+  assert.equal(output.surfaceFocusId, 'signup_onboarding');
+  assert.ok(output.modifiedFiles.length >= 1, 'saturated signup onboarding shard should produce a real recovery/resume product diff');
+  assert.ok(output.modifiedFiles.every((filePath) => [
+    'packages/app/index.mjs',
+    'packages/app/view.mjs',
+    'packages/app/routes/public.mjs',
+    'packages/app/routes/platform.mjs'
+  ].includes(filePath)), 'saturated signup onboarding shard should stay within allowed files');
+  assert.match(index, /signupOnboardingRecoveryPanel/, 'saturated signup shard should export recovery helpers');
+  assert.match(view, /signupOnboardingJourneyReadiness/, 'saturated signup shard should add readiness state');
+  assert.match(view, /signupOnboardingRecoveryPanel/, 'saturated signup shard should add recovery UI');
+  assert.match(publicRoutes, /router\.register\('GET', '\/signup\/resume'/, 'saturated signup shard should expose public resume route');
+  assert.match(platformRoutes, /router\.register\('GET', '\/onboarding\/recovery'/, 'saturated signup shard should expose authenticated recovery route');
+});
+
 test('implement worker: canonical settings domains shard emits API and detail surfaces instead of zero-modified no-op', () => {
   const { workspacePath, output } = runAssignment([
     'packages/app/routes/api-admin.mjs',
@@ -645,6 +1201,93 @@ test('implement worker: strict reporting analytics parity shards override stale 
   assert.match(revenueDomain, /averageOrderValue/, 'strict reporting analytics parity shard should enrich the revenue summary payload');
 });
 
+test('implement worker: saturated strict parity shards stop instead of emitting marker-only followup deltas', () => {
+  const cases = [
+    {
+      shardId: 'focus.automation_journey_parity',
+      surfaceFocusId: 'automation_journey_parity',
+      allowedFiles: ['packages/app/domain-campaigns.mjs', 'packages/app/routes/automations.mjs'],
+      marker: /mailchimp_automation_journey_parity_followup_v\d+/
+    },
+    {
+      shardId: 'focus.campaign_editor_parity#1',
+      surfaceFocusId: 'campaign_editor_parity',
+      allowedFiles: [
+        'packages/template-variants/domain-template-variants.mjs',
+        'packages/template-approvals/domain-template-approvals.mjs',
+        'packages/template-variants/index.mjs',
+        'packages/template-approvals/index.mjs'
+      ],
+      marker: /mailchimp_campaign_editor_parity_followup_v\d+/
+    },
+    {
+      shardId: 'focus.audience_crm_parity',
+      surfaceFocusId: 'audience_crm_parity',
+      allowedFiles: ['packages/app/domain-audience.mjs', 'packages/app/routes/audience.mjs', 'packages/app/storage.mjs'],
+      marker: /mailchimp_audience_crm_parity_followup_v\d+/
+    },
+    {
+      shardId: 'focus.reporting_analytics_parity',
+      surfaceFocusId: 'reporting_analytics_parity',
+      allowedFiles: ['packages/app/domain-commerce-revenue.mjs'],
+      marker: /mailchimp_reporting_analytics_parity_followup_v\d+/
+    }
+  ];
+
+  for (const entry of cases) {
+    const assignment = {
+      shardId: entry.shardId,
+      issue: { inputs: { focusGroup: 'delivery_jobs' } },
+      shard: { id: entry.shardId, allowedFiles: entry.allowedFiles },
+      contextPack: {
+        shard: { id: entry.shardId, surfaceIds: [entry.surfaceFocusId] },
+        guardrails: { allowedFiles: entry.allowedFiles },
+        assignmentContract: { targetFiles: entry.allowedFiles }
+      }
+    };
+    const workspacePath = mkWorkspace(entry.allowedFiles);
+    for (let seed = 0; seed < 6; seed += 1) {
+      const seeded = runAssignmentInWorkspace(workspacePath, assignment);
+      if (seeded.output.modifiedFiles.length === 0) break;
+    }
+    const { output } = runAssignmentInWorkspace(workspacePath, assignment);
+    assert.equal(output.surfaceFocusId, entry.surfaceFocusId);
+    assert.deepEqual(output.modifiedFiles, [], `${entry.shardId} should not emit marker-only followup diffs when saturated`);
+    const allowedText = entry.allowedFiles.map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+    assert.doesNotMatch(allowedText, entry.marker, `${entry.shardId} must not append a versioned strict parity followup marker`);
+  }
+});
+
+
+test('implement worker: saturated benchmark-scope parity lanes do not emit benchmark-only density helpers', () => {
+  const allowedFiles = ['packages/app/domain-campaigns.mjs', 'packages/app/routes/automations.mjs'];
+  const { workspacePath, output } = runAssignment(allowedFiles, {
+    shardId: 'focus.automation_journey_parity',
+    shard: {
+      id: 'focus.automation_journey_parity',
+      title: 'automation_journey_parity parity',
+      domain: 'mailchimp_benchmark_surface',
+      allowedFiles,
+      surfaceIds: ['automation_journey_parity']
+    },
+    contextPack: {
+      shard: {
+        id: 'focus.automation_journey_parity',
+        title: 'automation_journey_parity parity',
+        domain: 'mailchimp_benchmark_surface',
+        surfaceIds: ['automation_journey_parity']
+      },
+      guardrails: { allowedFiles },
+      assignmentContract: { targetFiles: allowedFiles },
+      inputs: { implementationPolicy: 'Make real product-surface changes for the benchmark-scoped Mailchimp production-creation surfaces.' }
+    }
+  }, { source: 'working-tree' });
+  assert.equal(output.surfaceFocusId, 'automation_journey_parity');
+  assert.ok(output.modifiedFiles.every((filePath) => allowedFiles.includes(filePath)), 'benchmark-scoped work must stay within allowed files');
+  const changedText = output.modifiedFiles.map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+  assert.doesNotMatch(changedText, /mailchimp_product_density_|ProductDensity|mailchimp_surface_grounding_|SurfaceGrounding/);
+});
+
 test('implement worker: canonical report detail shard emits allowed-file product diffs', () => {
   const { workspacePath, output } = runAssignment([
     'packages/app/domain-campaigns.mjs',
@@ -738,6 +1381,106 @@ test('implement worker: canonical account workspace setup shard emits allowed-fi
   ].includes(filePath)), 'canonical account workspace setup shard should stay within allowed files');
   assert.match(appIndex, /signupOnboardingCard/, 'canonical account workspace setup shard should re-export the onboarding card');
   assert.match(platformRoute, /router\.register\('GET', '\/onboarding'/, 'canonical account workspace setup shard should add the onboarding route');
+});
+
+test('implement worker: saturated account workspace setup shard stops instead of marker-only followup delta', () => {
+  const allowedFiles = [
+    'packages/app/index.mjs',
+    'packages/app/routes/platform.mjs',
+    'packages/app/view.mjs'
+  ];
+  const assignment = {
+    shardId: 'focus.account_workspace_setup',
+    issue: { inputs: { focusGroup: 'focus.account_workspace_setup' } },
+    shard: {
+      id: 'focus.account_workspace_setup',
+      allowedFiles
+    },
+    contextPack: {
+      shard: { id: 'focus.account_workspace_setup', surfaceIds: ['account_workspace_setup'] },
+      guardrails: { allowedFiles },
+      assignmentContract: { targetFiles: allowedFiles }
+    }
+  };
+  const workspacePath = mkWorkspace(allowedFiles);
+  runAssignmentInWorkspace(workspacePath, assignment, { env: { ORCHESTRATOR_REQUESTED_FIDELITY: '' } });
+  const { output } = runAssignmentInWorkspace(workspacePath, assignment, { env: { ORCHESTRATOR_REQUESTED_FIDELITY: '' } });
+  assert.equal(output.surfaceFocusId, 'account_workspace_setup');
+  assert.deepEqual(output.modifiedFiles, [], 'saturated account workspace setup shard should not fabricate a followup product diff outside full-clone strict-gap mode');
+  const allowedText = allowedFiles
+    .map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8'))
+    .join('\n');
+  assert.doesNotMatch(allowedText, /mailchimp_account_workspace_setup_followup_v\d+/, 'saturated account setup must not append a versioned followup marker');
+});
+
+test('implement worker: context-pack full-clone strict gaps emit product depth even when shard metadata is not packed', () => {
+  const previousFidelity = process.env.ORCHESTRATOR_REQUESTED_FIDELITY;
+  delete process.env.ORCHESTRATOR_REQUESTED_FIDELITY;
+  try {
+    const { workspacePath, output } = runAssignment([
+      'packages/app/routes/api-admin.mjs'
+    ], {
+      shardId: 'focus.api_keys_webhooks',
+      issue: { inputs: { focusGroup: 'integrations_api_oauth' }, title: 'API keys and webhooks' },
+      shard: {
+        id: 'focus.api_keys_webhooks',
+        title: 'API keys and webhooks',
+        lane: 'integrations_api_oauth',
+        allowedFiles: ['packages/app/routes/api-admin.mjs']
+      },
+      contextPack: {
+        campaign: { requestedFidelity: 'full_clone' },
+        shard: { id: 'focus.api_keys_webhooks', surfaceIds: ['api_keys_webhooks'] },
+        guardrails: { allowedFiles: ['packages/app/routes/api-admin.mjs'] },
+        assignmentContract: { targetFiles: ['packages/app/routes/api-admin.mjs'] }
+      }
+    });
+    assert.equal(output.surfaceFocusId, 'api_keys_webhooks');
+    assert.ok(output.modifiedFiles.length >= 1, 'context-pack full_clone fidelity should still trigger canonical product work instead of zero-modified output');
+    const productText = output.modifiedFiles.map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+    assert.match(productText, /router\.register\('GET', '\/api\/developer\/access'/, 'full-clone context should produce real developer API runtime changes');
+    assert.doesNotMatch(productText, /FullCloneDepthBlueprint|full_clone_depth_evaluated|\"requirements\": \[|\"fidelity\": \"full_clone\"/, 'full-clone context must not append declarative blueprint bulk to product files');
+  } finally {
+    if (previousFidelity === undefined) delete process.env.ORCHESTRATOR_REQUESTED_FIDELITY;
+    else process.env.ORCHESTRATOR_REQUESTED_FIDELITY = previousFidelity;
+  }
+});
+
+test('implement worker: full-clone strict gaps emit substantive product depth diffs instead of zero-modified output', () => {
+  const previousFidelity = process.env.ORCHESTRATOR_REQUESTED_FIDELITY;
+  process.env.ORCHESTRATOR_REQUESTED_FIDELITY = 'full_clone';
+  try {
+    const { workspacePath, output } = runAssignment([
+      'packages/app/routes/api-admin.mjs',
+      'packages/app/domain-commerce-revenue.mjs'
+    ], {
+      shardId: 'focus.billing_plans',
+      issue: { inputs: { focusGroup: 'commerce_revenue' }, title: 'Billing plans' },
+      shard: {
+        id: 'focus.billing_plans',
+        title: 'Billing plans',
+        lane: 'commerce_revenue',
+        allowedFiles: ['packages/app/routes/api-admin.mjs', 'packages/app/domain-commerce-revenue.mjs'],
+        metadata: {
+          strictGap: true,
+          strictGapDetail: 'Implement plan entitlement checks, billing summaries, limits, invoices, and plan-change decision support.'
+        }
+      },
+      contextPack: {
+        assignmentContract: { targetFiles: ['packages/app/routes/api-admin.mjs', 'packages/app/domain-commerce-revenue.mjs'] }
+      }
+    });
+    assert.equal(output.surfaceFocusId, 'billing_plans');
+    assert.ok(output.modifiedFiles.length >= 1, 'full-clone strict gap should produce a product file modification');
+    assert.ok(output.modifiedFiles.every((filePath) => ['packages/app/routes/api-admin.mjs', 'packages/app/domain-commerce-revenue.mjs'].includes(filePath)));
+    const productText = output.modifiedFiles.map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+    assert.match(productText, /billingPlanSummary|router\.register\('GET', '\/api\/billing\/summary'/, 'strict gap should use canonical product runtime changes');
+    assert.doesNotMatch(productText, /FullCloneDepthBlueprint|full_clone_depth_evaluated|roleCoverage|\"requirements\": \[|\"fidelity\": \"full_clone\"/);
+    assert.doesNotMatch(productText, /ProductDensityV1|mailchimp_product_density_|mailchimp_surface_grounding_|strictParityFollowup/);
+  } finally {
+    if (previousFidelity === undefined) delete process.env.ORCHESTRATOR_REQUESTED_FIDELITY;
+    else process.env.ORCHESTRATOR_REQUESTED_FIDELITY = previousFidelity;
+  }
 });
 
 test('implement worker: canonical content studio shard emits allowed-file product diffs', () => {
@@ -890,7 +1633,10 @@ test('implement worker: strict persistence parity shard stays inside storage sco
   const storage = fs.readFileSync(path.join(workspacePath, 'packages/app/storage.mjs'), 'utf8');
   assert.equal(output.focusGroup, 'delivery_jobs');
   assert.equal(output.surfaceFocusId, 'persistence_jobs_operational_parity');
-  assert.deepEqual(output.modifiedFiles, ['packages/app/storage.mjs']);
+  assert.ok(
+    output.modifiedFiles.length === 0 || output.modifiedFiles.every((filePath) => filePath === 'packages/app/storage.mjs'),
+    'strict persistence parity should either add storage evidence or recognize an already-saturated storage surface without touching unrelated files'
+  );
   assert.match(storage, /export function storageOperationalSummary\(\)/, 'strict persistence parity should emit an in-scope storage operational summary');
 });
 
@@ -917,6 +1663,177 @@ test('implement worker: strict ai predictive parity shard emits an admissible ai
   assert.match(provider, /proof-led path/, 'ai predictive parity should enrich campaign subject generation');
   assert.equal(honesty.surfaces['packages/app/ai-provider.mjs']?.status, 'real');
   assert.ok(honesty.surfaces['packages/app/ai-provider.mjs']?.evidence?.tests?.includes('tests/current-product-parity.test.mjs'));
+});
+
+test('implement worker: remediation leaves adopt primary runtime files instead of isolated full-clone modules', () => {
+  const fullCloneLeafPath = 'packages/app/full-clone-remediation/campaign_editor/001-client_app_runtime_adoption.mjs';
+  const { workspacePath, output } = runAssignment([
+    'packages/app/domain-campaigns.mjs'
+  ], {
+    shardId: 'focus.campaign_editor::remediation#1',
+    campaign: { requestedFidelity: 'full_clone' },
+    issue: { inputs: { focusGroup: 'campaign_editor' } },
+    shard: {
+      id: 'focus.campaign_editor::remediation#1',
+      surfaceIds: ['campaign_editor'],
+      allowedFiles: ['packages/app/domain-campaigns.mjs', fullCloneLeafPath],
+      metadata: {
+        remediationLeafId: 'focus.campaign_editor::remediation#1',
+        strictGap: true,
+        remediationFullClone: true,
+        structuralPhaseId: 'client_app_runtime_adoption',
+        structuralPhaseTitle: 'client application runtime adoption slice',
+        sourceProductFile: 'packages/app/domain-campaigns.mjs',
+        primaryProductAdoptionRequired: true,
+        primaryAdoptionFiles: ['packages/app/domain-campaigns.mjs']
+      }
+    }
+  });
+  assert.deepEqual(output.modifiedFiles, [], 'marker-only remediation leaves must stop instead of fabricating product credit');
+  assert.equal(output.metadata.claimIntegrityKind, 'zero_modified_files');
+  assert.equal(output.metadata.markerOnlyProductDelta, false);
+  assert.equal(fs.existsSync(path.join(workspacePath, fullCloneLeafPath)), false, 'worker must not create an isolated remediation module when primary adoption files are provided');
+});
+
+test('implement worker: continuation remediation runs canonical product work before marking the leaf satisfied', () => {
+  const { workspacePath, output } = runAssignment([
+    'packages/app/routes/api-admin.mjs'
+  ], {
+    shardId: 'focus.api_keys_webhooks::continuation-024#3',
+    campaign: { requestedFidelity: 'full_clone' },
+    issue: { inputs: { focusGroup: 'api_keys_webhooks' } },
+    shard: {
+      id: 'focus.api_keys_webhooks::continuation-024#3',
+      surfaceIds: ['api_keys_webhooks'],
+      allowedFiles: ['packages/app/routes/api-admin.mjs'],
+      metadata: {
+        remediationLeafId: 'focus.api_keys_webhooks::continuation-024#3',
+        structuralLeafId: 'focus.api_keys_webhooks::continuation-024#3',
+        frontierLeafId: 'focus.api_keys_webhooks::continuation-024#3',
+        strictGap: true,
+        structuralFullClone: true,
+        frontierFullClone: true,
+        remediationFullClone: true,
+        continuationFullClone: true,
+        continuationWaveIndex: 24,
+        structuralPhaseId: 'continuation_wave_024_database_transaction_model',
+        structuralPhaseTitle: 'continuation wave 024 — database transaction model',
+        sourceProductFile: 'packages/app/routes/api-admin.mjs',
+        primaryProductAdoptionRequired: true,
+        primaryAdoptionFiles: ['packages/app/routes/api-admin.mjs']
+      }
+    }
+  });
+  const apiAdmin = fs.readFileSync(path.join(workspacePath, 'packages/app/routes/api-admin.mjs'), 'utf8');
+  assert.deepEqual(output.modifiedFiles, ['packages/app/routes/api-admin.mjs']);
+  assert.equal(output.metadata.claimIntegrityKind, 'substantive_product_delta', 'real canonical route work plus evidence marker should remain substantive');
+  assert.equal(output.metadata.markerOnlyProductDelta, false);
+  assert.match(apiAdmin, /router\.register\('GET', '\/api\/developer\/access'/, 'continuation work must land the canonical API/webhook product route');
+  assert.doesNotMatch(apiAdmin, /full_clone_remediation_leaf_evaluated|"fidelity": "full_clone"|"requirements": \[/, 'continuation work must not append strict remediation marker/blueprint bulk after product work');
+});
+
+test('implement worker: semantic director shards derive their focus id and emit in-scope primary runtime deltas when canonical work is already saturated', () => {
+  const { workspacePath, output } = runAssignment([
+    'surface-honesty.json',
+    'packages/app/domain-commerce-revenue.mjs',
+    'packages/app/routes/api-admin.mjs'
+  ], {
+    shardId: 'focus.semantic_director_regression::semantic-frontier-001#09-integrated_user_path_evidence',
+    inputs: {
+      focusId: 'focus.semantic_director_regression',
+      surfaceId: 'semantic_director_regression',
+      semanticPhaseId: 'integrated_user_path_evidence',
+      semanticIntent: 'Ensure the semantic director regression surface is adopted by a real app path with executable verifier coverage.'
+    },
+    issue: { inputs: { focusGroup: 'unknown' } },
+    shard: {
+      id: 'focus.semantic_director_regression::semantic-frontier-001#09-integrated_user_path_evidence',
+      allowedFiles: ['packages/app/domain-commerce-revenue.mjs', 'packages/app/routes/api-admin.mjs'],
+      metadata: {
+        focusId: 'focus.semantic_director_regression',
+        rootFocusId: 'focus.semantic_director_regression',
+        surfaceId: 'semantic_director_regression',
+        focusGroup: 'unknown',
+        semanticDirector: true,
+        architectureFrontier: true,
+        semanticPhaseId: 'integrated_user_path_evidence',
+        primaryProductAdoptionRequired: true,
+        primaryAdoptionFiles: ['packages/app/domain-commerce-revenue.mjs', 'packages/app/routes/api-admin.mjs']
+      }
+    }
+  }, { source: 'working-tree' });
+  const apiAdmin = fs.readFileSync(path.join(workspacePath, 'packages/app/routes/api-admin.mjs'), 'utf8');
+  assert.equal(output.surfaceFocusId, 'semantic_director_regression');
+  assert.ok(output.modifiedFiles.length >= 1, 'semantic director shard should produce an admissible primary product diff after saturated canonical work');
+  assert.ok(output.modifiedFiles.every((filePath) => ['packages/app/domain-commerce-revenue.mjs', 'packages/app/routes/api-admin.mjs'].includes(filePath)), 'semantic director fallback must stay inside the assignment contract target files');
+  assert.doesNotMatch(output.modifiedFiles.join('\n'), /^apps\//m, 'semantic director fallback must not escape into generic frontend shell files');
+  assert.match(apiAdmin, /semanticDirectorRegressionIntegratedUserPathEvidenceSemanticRuntimeContract/, 'semantic runtime evidence should land in a primary runtime file');
+  assert.match(apiAdmin, /semantic_frontier_product_runtime_evaluated/, 'semantic runtime evidence should expose executable product-state evaluation');
+});
+
+test('implement worker: saturated reports overview semantic user-path shard lands a domain-layer delta instead of repeating a route-only no-op', () => {
+  const { workspacePath, output } = runAssignment([
+    'surface-honesty.json',
+    'packages/app/domain-growth.mjs',
+    'packages/app/domain-commerce-revenue.mjs',
+    'packages/app/routes/api-admin.mjs',
+    'packages/app/routes/reports.mjs'
+  ], {
+    shardId: 'focus.reports_overview::semantic-frontier-001#18-integrated_user_path_evidence',
+    inputs: {
+      focusId: 'focus.reports_overview',
+      surfaceId: 'reports_overview',
+      semanticPhaseId: 'integrated_user_path_evidence',
+      semanticIntent: 'Ensure reports overview is adopted by a real app path with executable verifier coverage.'
+    },
+    issue: { inputs: { focusGroup: 'frontend_architecture' } },
+    shard: {
+      id: 'focus.reports_overview::semantic-frontier-001#18-integrated_user_path_evidence',
+      allowedFiles: [
+        'packages/app/domain-growth.mjs',
+        'packages/app/domain-commerce-revenue.mjs',
+        'packages/app/routes/api-admin.mjs',
+        'packages/app/routes/reports.mjs'
+      ],
+      metadata: {
+        focusId: 'focus.reports_overview',
+        rootFocusId: 'focus.reports_overview',
+        surfaceId: 'reports_overview',
+        focusGroup: 'frontend_architecture',
+        semanticDirector: true,
+        architectureFrontier: true,
+        semanticPhaseId: 'integrated_user_path_evidence',
+        primaryProductAdoptionRequired: true,
+        primaryAdoptionFiles: [
+          'packages/app/domain-growth.mjs',
+          'packages/app/domain-commerce-revenue.mjs',
+          'packages/app/routes/api-admin.mjs',
+          'packages/app/routes/reports.mjs'
+        ]
+      }
+    },
+    contextPack: {
+      shard: {
+        id: 'focus.reports_overview::semantic-frontier-001#18-integrated_user_path_evidence',
+        surfaceIds: ['reports_overview']
+      },
+      guardrails: {
+        allowedFiles: [
+          'packages/app/domain-growth.mjs',
+          'packages/app/domain-commerce-revenue.mjs',
+          'packages/app/routes/api-admin.mjs',
+          'packages/app/routes/reports.mjs'
+        ]
+      }
+    }
+  }, { source: 'working-tree' });
+  const changedText = output.modifiedFiles.map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+  assert.equal(output.surfaceFocusId, 'reports_overview');
+  assert.ok(output.modifiedFiles.length >= 1, 'saturated reports overview semantic shard should still land a product diff');
+  assert.ok(output.modifiedFiles.some((filePath) => /packages\/app\/domain-(?:growth|commerce-revenue)\.mjs$/.test(filePath)), 'saturated reports overview user-path work should modify a domain layer instead of only report/API routes');
+  assert.equal(output.metadata.architectureEvidence.ok, true, 'reports overview semantic retry should satisfy architecture admission after adding domain-layer target coverage');
+  assert.deepEqual(output.metadata.architectureEvidence.requiredLayers, ['route_or_server', 'domain_or_persistence']);
+  assert.match(changedText, /reportsOverviewIntegratedUserPathEvidenceSemanticRuntimeContract/, 'domain-layer delta should carry the reports overview semantic runtime contract');
 });
 
 test('implement worker: integrations parity creates provider bridge and removes fabricated crm sync count', () => {
@@ -1019,4 +1936,211 @@ test('implement worker: persistence import rewrites also fix package routes that
   assert.doesNotMatch(journeys, /import \{[^}]*saveDb[^}]*\} from '\.\.\/\.\.\/app\/index\.mjs';/, 'customer journeys route should stop importing saveDb once persistState calls are emitted');
   assert.match(preferences, /import \{[^}]*persistState[^}]*\} from '\.\.\/\.\.\/app\/index\.mjs';/, 'preferences center route should import persistState through app index exports');
   assert.doesNotMatch(preferences, /import \{[^}]*saveDb[^}]*\} from '\.\.\/\.\.\/app\/index\.mjs';/, 'preferences center route should stop importing saveDb once persistState calls are emitted');
+});
+
+
+test('implement worker: benchmark-scoped remaining surfaces do not emit benchmark-only density wrappers', () => {
+  const surfaces = {
+    frontend_client_shell_state: ['apps/web/server.mjs', 'packages/app/view.mjs', 'packages/app/routes/platform.mjs'],
+    website_builder_editor_realism: ['packages/app/domain-website-builder.mjs', 'packages/app/routes/website-builder.mjs'],
+    automation_journey_execution: ['packages/app/domain-campaigns.mjs', 'packages/app/routes/automations.mjs'],
+    audience_identity_lifecycle: ['packages/app/domain-audience.mjs', 'packages/app/routes/audience.mjs'],
+    reporting_metrics_pipeline: ['packages/app/domain-commerce-revenue.mjs', 'packages/app/routes/reports.mjs'],
+    integration_provider_sync: ['packages/app/domain-integration-marketplace.mjs', 'packages/app/routes/integrations-marketplace.mjs'],
+    auth_session_security_hardening: ['packages/app/routes/public.mjs', 'packages/trust-automation/domain-trust-automation.mjs', 'packages/trust-automation/routes/trust-automation-api.mjs'],
+    persistence_jobs_operational_db: ['packages/app/jobs.mjs', 'packages/app/storage.mjs'],
+    ai_predictive_ops_realism: ['packages/app/domain-current-product-ops.mjs', 'packages/app/routes/current-product-ops.mjs', 'packages/app/routes/current-product-parity.mjs']
+  };
+
+  for (const [surfaceId, allowedFiles] of Object.entries(surfaces)) {
+    const { workspacePath, output } = runAssignment(allowedFiles, {
+      shardId: `focus.${surfaceId}`,
+      shard: {
+        id: `focus.${surfaceId}`,
+        title: `${surfaceId} parity`,
+        lane: 'benchmark_scope_regression',
+        allowedFiles,
+        surfaceIds: [surfaceId]
+      },
+      contextPack: {
+        shard: {
+          id: `focus.${surfaceId}`,
+          title: `${surfaceId} parity`,
+          lane: 'benchmark_scope_regression',
+          surfaceIds: [surfaceId]
+        },
+        guardrails: { allowedFiles },
+        assignmentContract: { targetFiles: allowedFiles }
+      }
+    });
+    assert.equal(output.surfaceFocusId, surfaceId);
+    assert.ok(output.modifiedFiles.every((filePath) => allowedFiles.includes(filePath)), `${surfaceId} should stay within allowed files`);
+    const changedText = output.modifiedFiles.map((filePath) => fs.readFileSync(path.join(workspacePath, filePath), 'utf8')).join('\n');
+    assert.doesNotMatch(changedText, /mailchimp_product_density_|ProductDensity|high_density_mailchimp_product_surface|mailchimpHighDensityProduct|mailchimp_surface_grounding_|SurfaceGrounding/, `${surfaceId} should not add benchmark-only helper wrappers`);
+  }
+});
+
+test('implement worker: semantic director operational persistence shards modify a jobs runtime layer', () => {
+  const { workspacePath, output } = runAssignment([
+    'surface-honesty.json',
+    'packages/app/domain-growth.mjs',
+    'packages/app/routes/forms.mjs',
+    'packages/app/jobs.mjs',
+    'packages/app/job-runtime.mjs',
+    'packages/app/job-handlers.mjs',
+    'packages/app/persistence-io.mjs',
+    'packages/app/storage.mjs'
+  ], {
+    shardId: 'focus.signup_forms_popups::semantic-frontier-001#07-operational_persistence_and_jobs',
+    inputs: {
+      focusId: 'focus.signup_forms_popups',
+      surfaceId: 'signup_forms_popups',
+      semanticPhaseId: 'operational_persistence_and_jobs',
+      semanticIntent: 'Connect signup forms to durable persistence and background jobs.'
+    },
+    issue: { inputs: { focusGroup: 'forms_growth' } },
+    shard: {
+      id: 'focus.signup_forms_popups::semantic-frontier-001#07-operational_persistence_and_jobs',
+      allowedFiles: [
+        'packages/app/domain-growth.mjs',
+        'packages/app/routes/forms.mjs',
+        'packages/app/jobs.mjs',
+        'packages/app/job-runtime.mjs',
+        'packages/app/job-handlers.mjs',
+        'packages/app/persistence-io.mjs',
+        'packages/app/storage.mjs'
+      ],
+      metadata: {
+        focusId: 'focus.signup_forms_popups',
+        rootFocusId: 'focus.signup_forms_popups',
+        surfaceId: 'signup_forms_popups',
+        focusGroup: 'forms_growth',
+        semanticDirector: true,
+        architectureFrontier: true,
+        semanticPhaseId: 'operational_persistence_and_jobs',
+        primaryProductAdoptionRequired: true,
+        primaryAdoptionFiles: [
+          'packages/app/domain-growth.mjs',
+          'packages/app/routes/forms.mjs',
+          'packages/app/jobs.mjs',
+          'packages/app/job-runtime.mjs',
+          'packages/app/job-handlers.mjs',
+          'packages/app/persistence-io.mjs',
+          'packages/app/storage.mjs'
+        ]
+      }
+    }
+  }, { source: 'working-tree' });
+  const jobRuntimeTouched = output.modifiedFiles.some((filePath) => /packages\/app\/(?:jobs|job-runtime|job-handlers)\.mjs$/.test(filePath));
+  assert.ok(jobRuntimeTouched, `expected a jobs runtime file in modifiedFiles, got ${output.modifiedFiles.join(', ')}`);
+  assert.equal(output.metadata.architectureEvidence.ok, true);
+  assert.ok(output.metadata.architectureEvidence.layers.includes('jobs_runtime'));
+  assert.ok(output.metadata.architectureEvidence.presentRequiredLayers.includes('jobs_runtime'));
+  const touchedJobRuntime = output.modifiedFiles.find((filePath) => /packages\/app\/(?:jobs|job-runtime|job-handlers)\.mjs$/.test(filePath));
+  const jobSource = fs.readFileSync(path.join(workspacePath, touchedJobRuntime), 'utf8');
+  assert.match(jobSource, /semantic_frontier_product_runtime_evaluated/);
+});
+
+test('implement worker: settings domains integrated user-path shards keep a domain/persistence adoption layer', () => {
+  const { workspacePath, output } = runAssignment([
+    'packages/app/domain-deliverability-compliance.mjs',
+    'packages/app/routes/api-admin.mjs',
+    'packages/app/routes/platform.mjs'
+  ], {
+    shardId: 'focus.settings_domains::semantic-frontier-001#10-integrated_user_path_evidence',
+    inputs: {
+      focusId: 'focus.settings_domains',
+      surfaceId: 'settings_domains',
+      semanticPhaseId: 'integrated_user_path_evidence',
+      semanticIntent: 'Ensure settings and domain authentication are adopted by a real app path with executable verifier coverage.'
+    },
+    issue: { inputs: { focusGroup: 'frontend_architecture' } },
+    shard: {
+      id: 'focus.settings_domains::semantic-frontier-001#10-integrated_user_path_evidence',
+      allowedFiles: [
+        'packages/app/domain-deliverability-compliance.mjs',
+        'packages/app/routes/api-admin.mjs',
+        'packages/app/routes/platform.mjs'
+      ],
+      metadata: {
+        focusId: 'focus.settings_domains',
+        rootFocusId: 'focus.settings_domains',
+        surfaceId: 'settings_domains',
+        focusGroup: 'frontend_architecture',
+        semanticDirector: true,
+        architectureFrontier: true,
+        semanticPhaseId: 'integrated_user_path_evidence',
+        primaryProductAdoptionRequired: true,
+        primaryAdoptionFiles: [
+          'packages/app/domain-deliverability-compliance.mjs',
+          'packages/app/routes/api-admin.mjs',
+          'packages/app/routes/platform.mjs'
+        ]
+      }
+    }
+  }, { source: 'working-tree' });
+  assert.equal(output.metadata.architectureEvidence.ok, true);
+  assert.ok(output.metadata.architectureEvidence.presentRequiredLayers.includes('route_or_server'));
+  assert.ok(output.metadata.architectureEvidence.presentRequiredLayers.includes('domain_or_persistence'));
+  assert.ok(output.modifiedFiles.includes('packages/app/domain-deliverability-compliance.mjs'), `expected settings/domain semantic user-path work to modify the domain layer, got ${output.modifiedFiles.join(', ')}`);
+  const domainSource = fs.readFileSync(path.join(workspacePath, 'packages/app/domain-deliverability-compliance.mjs'), 'utf8');
+  assert.match(domainSource, /settingsDomainsIntegratedUserPathEvidenceSemanticRuntimeContract/);
+  assert.match(domainSource, /semantic_frontier_product_runtime_evaluated/);
+});
+
+test('implement worker: saturated signup onboarding semantic primary spine adopts storage persistence layer', () => {
+  const { workspacePath, output } = runAssignment([
+    'surface-honesty.json',
+    'packages/app/index.mjs',
+    'packages/app/routes/public.mjs',
+    'packages/app/routes/platform.mjs',
+    'packages/app/view.mjs',
+    'packages/app/storage.mjs',
+    'packages/app/persistence-io.mjs'
+  ], {
+    shardId: 'focus.signup_onboarding::semantic-frontier-001#07-primary_runtime_spine',
+    inputs: {
+      focusId: 'focus.signup_onboarding',
+      surfaceId: 'signup_onboarding',
+      semanticPhaseId: 'primary_runtime_spine',
+      semanticIntent: 'Adopt signup onboarding into primary runtime and persistence state.'
+    },
+    issue: { inputs: { focusGroup: 'frontend_architecture' } },
+    shard: {
+      id: 'focus.signup_onboarding::semantic-frontier-001#07-primary_runtime_spine',
+      allowedFiles: [
+        'packages/app/index.mjs',
+        'packages/app/routes/public.mjs',
+        'packages/app/routes/platform.mjs',
+        'packages/app/view.mjs',
+        'packages/app/storage.mjs',
+        'packages/app/persistence-io.mjs'
+      ],
+      metadata: {
+        focusId: 'focus.signup_onboarding',
+        rootFocusId: 'focus.signup_onboarding',
+        surfaceId: 'signup_onboarding',
+        focusGroup: 'frontend_architecture',
+        semanticDirector: true,
+        architectureFrontier: true,
+        semanticPhaseId: 'primary_runtime_spine',
+        primaryProductAdoptionRequired: true,
+        primaryAdoptionFiles: [
+          'packages/app/index.mjs',
+          'packages/app/routes/public.mjs',
+          'packages/app/routes/platform.mjs',
+          'packages/app/view.mjs',
+          'packages/app/storage.mjs',
+          'packages/app/persistence-io.mjs'
+        ]
+      }
+    }
+  }, { source: 'working-tree' });
+  assert.equal(output.metadata.architectureEvidence.ok, true);
+  assert.ok(output.metadata.architectureEvidence.presentRequiredLayers.includes('domain_or_persistence'));
+  assert.ok(output.metadata.architectureEvidence.presentRequiredLayers.includes('route_or_server'));
+  assert.ok(output.modifiedFiles.some((filePath) => /packages\/app\/(?:storage|persistence-io)\.mjs$/.test(filePath)), `expected storage/persistence modified file, got ${output.modifiedFiles.join(', ')}`);
+  const persistenceFile = output.modifiedFiles.find((filePath) => /packages\/app\/(?:storage|persistence-io)\.mjs$/.test(filePath));
+  const persistenceSource = fs.readFileSync(path.join(workspacePath, persistenceFile), 'utf8');
+  assert.match(persistenceSource, /signupOnboardingPrimaryRuntimeSpineSemanticRuntimeContract/);
 });
