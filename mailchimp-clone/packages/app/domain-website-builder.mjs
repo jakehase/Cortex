@@ -3,6 +3,26 @@ import { rebuildWebsiteAnalytics, recordAnalyticsEvent } from './analytics-event
 import { createId, nowIso } from './utils.mjs';
 import { createNotification, recordAudit, recordEvent } from './domain-core.mjs';
 
+export const WEBSITE_BUILDER_PUBLISH_RUNTIME_CONTRACT = Object.freeze({
+  surfaceId: 'website_builder_publish_runtime_layer',
+  label: 'Website builder publish/runtime layer',
+  controls: [
+    'durable_publish_readiness_snapshot',
+    'seo_audit_ledger',
+    'domain_robot_canonical_checks',
+    'page_experiment_variant_ledger',
+    'analytics_goal_mapping',
+    'website_runtime_api'
+  ],
+  evidenceContract: [
+    'publish_readiness_checklist',
+    'seo_score_per_page',
+    'domain_and_robot_state',
+    'experiment_variant_payload',
+    'normal_website_builder_route_adoption'
+  ]
+});
+
 function slugify(value = '') {
   return String(value || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item';
 }
@@ -27,12 +47,178 @@ export function ensureCurrentProductState(state) {
   ensureArray(state, 'websites');
   ensureArray(state, 'websitePages');
   ensureArray(state, 'websitePublishes');
+  ensureArray(state, 'websiteRuntimeSnapshots');
+  ensureArray(state, 'websiteSeoAudits');
+  ensureArray(state, 'websiteExperiments');
+  ensureArray(state, 'websiteDomainChecks');
   ensureArray(state, 'generatedSuggestions');
   ensureArray(state, 'campaignExperiments');
   ensureArray(state, 'channelPrograms');
+  ensureArray(state, 'smsRuntimeSnapshots');
+  ensureArray(state, 'smsConsentEvents');
+  ensureArray(state, 'smsComplianceEvents');
+  ensureArray(state, 'smsDeliveryAttempts');
+  ensureArray(state, 'smsLinkTrackingEvents');
+  ensureArray(state, 'socialRuntimeSnapshots');
+  ensureArray(state, 'socialApprovalEvents');
+  ensureArray(state, 'socialScheduledPosts');
+  ensureArray(state, 'socialProviderHandoffs');
+  ensureArray(state, 'socialEngagementEvents');
+  ensureArray(state, 'adsRuntimeSnapshots');
+  ensureArray(state, 'adsRetargetingAudiences');
+  ensureArray(state, 'adsBudgetPacingEvents');
+  ensureArray(state, 'adsProviderSyncEvents');
+  ensureArray(state, 'adsConversionAttributionEvents');
   ensureArray(state, 'assetSnippets');
   ensureArray(state, 'contentVersions');
+  ensureArray(state, 'aiRecommendationRuns');
+  ensureArray(state, 'predictiveRecommendationSnapshots');
+  ensureArray(state, 'aiFeedbackEvents');
   return state;
+}
+
+function websitePublicUrl(website, page = {}) {
+  const base = website.canonicalBaseUrl || `https://${website.defaultDomain || `${website.slug}.mailclone.test`}`;
+  const trimmed = String(base || '').replace(/\/$/, '');
+  return page.slug ? `${trimmed}/${page.slug}` : trimmed;
+}
+
+function seoIssuesForPage(website, page) {
+  const issues = [];
+  const title = page.seoTitle || website.seoTitle || page.name || '';
+  const description = page.seoDescription || website.seoDescription || '';
+  if (title.length < 10) issues.push('seo_title_too_short');
+  if (title.length > 65) issues.push('seo_title_too_long');
+  if (description.length < 35) issues.push('seo_description_too_short');
+  if (description.length > 160) issues.push('seo_description_too_long');
+  if (!page.headline) issues.push('missing_h1_headline');
+  if (!page.showInNav && page.pageType === 'home') issues.push('home_hidden_from_navigation');
+  if (page.noindex && website.robotsIndex) issues.push('page_noindex_overrides_site_index');
+  return issues;
+}
+
+function publishChecklistForWebsite(state, website, pages) {
+  const pageSeo = pages.map((page) => ({ pageId: page.id, issues: seoIssuesForPage(website, page) }));
+  return [
+    { id: 'valid_site_settings', label: 'Site settings validate', ok: websiteValidation(state, website).length === 0 },
+    { id: 'home_page', label: 'Home page exists', ok: pages.some((page) => page.id === website.homePageId || page.pageType === 'home' || page.slug === '') },
+    { id: 'navigation', label: 'Navigation has visible pages', ok: pages.some((page) => page.showInNav) },
+    { id: 'seo_ready', label: 'SEO metadata is ready', ok: pageSeo.every((entry) => entry.issues.length === 0), details: pageSeo },
+    { id: 'domain_ready', label: 'Domain and canonical base are set', ok: Boolean(website.defaultDomain && website.canonicalBaseUrl) },
+    { id: 'analytics_ready', label: 'Analytics is enabled with page goals', ok: website.analyticsEnabled !== false && pages.every((page) => Boolean(page.analyticsGoal || page.ctaUrl || page.linkedFormId)) }
+  ];
+}
+
+export function buildWebsitePublishRuntimeSnapshot(state, website, workspaceId = website?.workspaceId) {
+  ensureCurrentProductState(state);
+  const pages = websitePages(state, website.id);
+  const checklist = publishChecklistForWebsite(state, website, pages);
+  const seoPages = pages.map((page) => {
+    const issues = seoIssuesForPage(website, page);
+    return {
+      pageId: page.id,
+      name: page.name,
+      slug: page.slug,
+      publicUrl: websitePublicUrl(website, page),
+      titleLength: String(page.seoTitle || website.seoTitle || '').length,
+      descriptionLength: String(page.seoDescription || website.seoDescription || '').length,
+      issues,
+      score: Math.max(0, 100 - (issues.length * 15)),
+      analyticsGoal: page.analyticsGoal || (page.linkedFormId ? 'signup' : page.ctaUrl ? 'cta_click' : 'view')
+    };
+  });
+  const experiments = state.db.websiteExperiments.filter((entry) => entry.websiteId === website.id).slice(0, 10);
+  return {
+    ...WEBSITE_BUILDER_PUBLISH_RUNTIME_CONTRACT,
+    generatedAt: nowIso(),
+    websiteId: website.id,
+    workspaceId,
+    status: website.status,
+    publishReady: checklist.every((entry) => entry.ok),
+    checklist,
+    pageCount: pages.length,
+    seoScore: seoPages.length ? Math.round(seoPages.reduce((sum, page) => sum + page.score, 0) / seoPages.length) : 0,
+    domain: {
+      defaultDomain: website.defaultDomain,
+      canonicalBaseUrl: website.canonicalBaseUrl,
+      robotsIndex: website.robotsIndex !== false,
+      sitemapUrl: `${website.canonicalBaseUrl || `https://${website.defaultDomain}`}/sitemap.xml`
+    },
+    pages: seoPages,
+    experiments,
+    experimentCount: experiments.length,
+    publishHistoryCount: state.db.websitePublishes.filter((entry) => entry.websiteId === website.id).length,
+    recentSeoAudits: state.db.websiteSeoAudits.filter((entry) => entry.websiteId === website.id).slice(0, 5),
+    analytics: website.analytics || { views: 0, signups: 0, ctaClicks: 0 }
+  };
+}
+
+function recordRuntimeSnapshot(state, actor, website, reason = 'runtime_snapshot') {
+  const snapshot = buildWebsitePublishRuntimeSnapshot(state, website, website.workspaceId);
+  const entry = { id: createId('wruntime'), reason, recordedAt: nowIso(), userId: actor?.user?.id || '', ...snapshot };
+  state.db.websiteRuntimeSnapshots.unshift(entry);
+  state.db.websiteRuntimeSnapshots = state.db.websiteRuntimeSnapshots.slice(0, 100);
+  website.websiteRuntime = { ...(website.websiteRuntime || {}), lastSnapshotId: entry.id, lastSnapshotAt: entry.recordedAt, publishReady: snapshot.publishReady, seoScore: snapshot.seoScore };
+  return entry;
+}
+
+export function persistWebsiteRuntimeSnapshot(state, actor, website, reason = 'manual_runtime_snapshot') {
+  ensureCurrentProductState(state);
+  const entry = recordRuntimeSnapshot(state, actor, website, reason);
+  persistState(state);
+  recordAudit(state, { workspaceId: website.workspaceId, userId: actor.user.id, action: 'website-runtime-snapshot', detail: `Captured website runtime snapshot for ${website.name}` });
+  return entry;
+}
+
+export function recordWebsiteSeoAudit(state, actor, website) {
+  ensureCurrentProductState(state);
+  const snapshot = buildWebsitePublishRuntimeSnapshot(state, website, website.workspaceId);
+  const audit = {
+    id: createId('wseo'),
+    websiteId: website.id,
+    workspaceId: website.workspaceId,
+    generatedAt: nowIso(),
+    seoScore: snapshot.seoScore,
+    issueCount: snapshot.pages.reduce((sum, page) => sum + page.issues.length, 0),
+    pages: snapshot.pages.map((page) => ({ pageId: page.pageId, score: page.score, issues: page.issues, publicUrl: page.publicUrl })),
+    checklist: snapshot.checklist
+  };
+  state.db.websiteSeoAudits.unshift(audit);
+  state.db.websiteSeoAudits = state.db.websiteSeoAudits.slice(0, 100);
+  recordRuntimeSnapshot(state, actor, website, 'seo_audit');
+  persistState(state);
+  recordAudit(state, { workspaceId: website.workspaceId, userId: actor.user.id, action: 'website-seo-audit', detail: `Audited SEO for ${website.name}` });
+  return audit;
+}
+
+export function createWebsiteExperimentVariant(state, actor, website, body = {}) {
+  ensureCurrentProductState(state);
+  const pages = websitePages(state, website.id);
+  const page = pages.find((entry) => entry.id === body.pageId) || pages[0];
+  if (!page) return null;
+  const experiment = {
+    id: createId('wexp'),
+    websiteId: website.id,
+    workspaceId: website.workspaceId,
+    pageId: page.id,
+    status: 'draft',
+    name: body.name || `${page.name} variant`,
+    hypothesis: body.hypothesis || 'Improve website conversion with alternate page copy',
+    trafficSplit: Number(body.trafficSplit || 50),
+    variant: {
+      headline: body.headline || page.headline,
+      body: body.body || page.body,
+      ctaLabel: body.ctaLabel || page.ctaLabel,
+      sectionStyle: body.sectionStyle || page.sectionStyle
+    },
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  };
+  state.db.websiteExperiments.unshift(experiment);
+  recordRuntimeSnapshot(state, actor, website, 'experiment_variant');
+  persistState(state);
+  recordAudit(state, { workspaceId: website.workspaceId, userId: actor.user.id, action: 'website-experiment-create', detail: `Created website experiment ${experiment.name}` });
+  return experiment;
 }
 
 function snapshotWebsitePage(page) {
@@ -142,6 +328,11 @@ export function createWebsite(state, actor, body) {
     revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] }
   };
   state.db.websites.unshift(website);
@@ -237,6 +428,11 @@ export function updateWebsitePage(state, actor, website, page, body) {
   recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
   Object.assign(page, {
     name: body.name || page.name,
     slug: body.slug === '' || body.pageType === 'home' ? '' : uniqueSlug(others, body.slug || page.slug || body.name || 'page', 'page'),
@@ -282,6 +478,7 @@ export function publishWebsite(state, actor, website) {
   website.updatedAt = website.publishedAt;
   for (const page of websitePages(state, website.id)) page.status = 'published';
   state.db.websitePublishes.unshift({ id: createId('wpub'), websiteId: website.id, workspaceId: website.workspaceId, domain: website.defaultDomain, pageCount: websitePages(state, website.id).length, publishedAt: website.publishedAt, summary: `${website.name} published to ${website.defaultDomain}` });
+  recordRuntimeSnapshot(state, actor, website, 'publish');
   persistState(state);
   createNotification(state, { workspaceId: website.workspaceId, type: 'website-published', payload: { websiteId: website.id, domain: website.defaultDomain } });
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'website-publish', detail: `Published website ${website.name}` });

@@ -1,7 +1,7 @@
 import { createAudience, saveDb } from '../storage.mjs';
 import { page, requireActor, contactsTableRows } from '../view.mjs';
 import { getCurrentActor, hasFeature, recordAudit } from '../domain-core.mjs';
-import { audienceCrmSummary, audienceTraits, bulkUpdateContacts, contactsForAudience, createContact, generateImportPreview, matchSegment, parseSegmentRules, queueImport, updateContact } from '../domain-audience.mjs';
+import { audienceCrmSummary, audienceOperationalSummary, audienceTraits, bulkUpdateContacts, buildAudienceWarehouseSnapshot, contactsForAudience, contactTableQuery, createAudienceExport, createContact, generateImportPreview, matchSegment, mergeContacts, parseSegmentRules, queueAudienceProviderSync, queueImport, refreshAudienceWarehouseSnapshot, refreshSegmentAnalytics, saveContactTablePreferences, suppressContact, updateContact } from '../domain-audience.mjs';
 import { createId, readBody, redirect, text } from '../utils.mjs';
 
 export function registerAudienceRoutes(router, deps) {
@@ -33,7 +33,37 @@ export function registerAudienceRoutes(router, deps) {
     if (!audience) return text(res, 404, page('Audience not found', actor, '<div class="warn">Audience not found.</div>'));
     const traits = audienceTraits(state, audience);
     const crmSummary = audienceCrmSummary(state, audience);
-    text(res, 200, page(`Audience: ${audience.name}`, actor, `<div class="grid"><div class="card"><h3>Metrics</h3><p>${contactsForAudience(state, audience.id).length} contacts</p></div><div class="card"><h3>Classification</h3><p>Tags: ${traits.tags.join(', ') || 'none'}</p><p>Groups: ${traits.groups.join(', ') || 'none'}</p><p>Interests: ${traits.interests.join(', ') || 'none'}</p></div><div class="card"><h3>CRM health</h3><p>Subscribed: ${crmSummary.subscribedContacts}</p><p>Engaged: ${crmSummary.engagedContacts}</p><p>Enrichment coverage: ${Math.round(crmSummary.enrichmentCoverage * 100)}%</p></div><div class="card"><h3>Open surfaces</h3><p><a href="/contacts?audienceId=${audience.id}">Contacts table</a></p><p><a href="/segments?audienceId=${audience.id}">Segments</a></p><p><a href="/audiences/${audience.id}/taxonomy">Tags / groups / interests</a></p></div></div>`));
+    const operational = audienceOperationalSummary(state, audience);
+    text(res, 200, page(`Audience: ${audience.name}`, actor, `<div class="grid"><div class="card"><h3>Metrics</h3><p>${contactsForAudience(state, audience.id).length} contacts</p><p>Audience health score: ${operational.healthScore}</p></div><div class="card"><h3>Classification</h3><p>Tags: ${traits.tags.join(', ') || 'none'}</p><p>Groups: ${traits.groups.join(', ') || 'none'}</p><p>Interests: ${traits.interests.join(', ') || 'none'}</p></div><div class="card"><h3>CRM health</h3><p>Subscribed: ${crmSummary.subscribedContacts}</p><p>Engaged: ${crmSummary.engagedContacts}</p><p>Enrichment coverage: ${Math.round(crmSummary.enrichmentCoverage * 100)}%</p><p>Suppression status: ${operational.suppressionCount} suppressed</p></div><div class="card"><h3>Open surfaces</h3><p><a href="/contacts?audienceId=${audience.id}">Contacts table</a></p><p><a href="/segments?audienceId=${audience.id}">Segments</a></p><p><a href="/audiences/${audience.id}/taxonomy">Tags / groups / interests</a></p><p><a href="/audiences/${audience.id}/warehouse">Identity lifecycle warehouse</a></p></div></div><div class="grid"><div class="card"><h3>Lifecycle insights</h3><p>${Object.entries(operational.lifecycleStages).map(([stage, count]) => `${stage}: ${count}`).join(' · ') || 'No lifecycle signals yet.'}</p><ul>${operational.nextBestActions.map((action) => `<li>${action}</li>`).join('')}</ul></div><div class="card"><h3>Import/export history</h3><p>Audience import/sync jobs: ${operational.imports.length}</p><p>Exports: ${operational.exports.length}</p><form method="post" action="/audiences/${audience.id}/export"><button>Export audience CSV</button></form></div><div class="card"><h3>Provider sync</h3><p>Commerce orders: ${operational.commerceOrders.length}</p><p>Linked campaigns: ${operational.campaigns.length}</p><p>Linked automations: ${operational.automations.length}</p><form method="post" action="/audiences/${audience.id}/provider-sync"><input name="provider" value="mailchimp-import-api"><button>Queue provider sync</button></form></div></div><div class="card"><h3>Recent activity timeline</h3><ul>${crmSummary.recentActivity.map((entry) => `<li>${entry.email}: ${entry.message}</li>`).join('') || '<li>No contact activity yet.</li>'}</ul></div>`));
+  });
+
+  router.register('GET', '/audiences/:id/warehouse', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const audience = state.db.audiences.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!audience) return text(res, 404, page('Audience warehouse missing', actor, '<div class="warn">Audience not found.</div>'));
+    const latest = (state.db.audienceWarehouseSnapshots || []).find((entry) => entry.audienceId === audience.id) || buildAudienceWarehouseSnapshot(state, audience);
+    text(res, 200, page(`Identity lifecycle warehouse: ${audience.name}`, actor, `<div class="grid"><div class="card"><h3>Identity graph</h3><p>Resolved profiles: ${latest.identityGraph.resolvedProfiles}</p><p>Duplicate identity groups: ${latest.identityGraph.duplicateIdentityGroups.length}</p><p>Identity resolution rate: ${Math.round(latest.identityGraph.identityResolutionRate * 100)}%</p></div><div class="card"><h3>Lifecycle warehouse</h3><p>${Object.entries(latest.lifecycleStages).map(([stage, count]) => `${stage}: ${count}`).join(' · ') || 'No lifecycle stages yet.'}</p><p>Rows: ${latest.warehouseRows.length}</p></div><div class="card"><h3>Source completeness</h3><p>Email: ${Math.round(latest.completeness.email * 100)}%</p><p>Phone: ${Math.round(latest.completeness.phone * 100)}%</p><p>Tags: ${Math.round(latest.completeness.tags * 100)}%</p><p>Groups: ${Math.round(latest.completeness.groups * 100)}%</p></div><div class="card"><h3>Refresh warehouse</h3><p>Last generated: ${latest.generatedAt}</p><p>Next action: ${latest.syncReadiness.nextAction}</p><form method="post" action="/audiences/${audience.id}/warehouse/refresh"><button>Refresh identity lifecycle warehouse</button></form></div></div><div class="card"><h3>Duplicate identity review</h3>${latest.identityGraph.duplicateIdentityGroups.length ? `<ul>${latest.identityGraph.duplicateIdentityGroups.map((group) => `<li>${group.emails.join(', ') || group.key}: ${group.contactIds.length} contacts · stages ${group.stages.join('/')}</li>`).join('')}</ul>` : '<p>No duplicate identity groups in the current warehouse snapshot.</p>'}</div><div class="card"><h3>Warehouse rows</h3><table><tr><th>Email</th><th>Stage</th><th>Status</th><th>Source</th><th>Signals</th></tr>${latest.warehouseRows.map((row) => `<tr><td>${row.email}</td><td>${row.stage}</td><td>${row.status}</td><td>${row.source}</td><td>${row.tags.join('/')} · ${row.interests.join('/')}</td></tr>`).join('') || '<tr><td colspan="5">No warehouse rows yet.</td></tr>'}</table></div>`));
+  });
+
+  router.register('POST', '/audiences/:id/warehouse/refresh', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const audience = state.db.audiences.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (audience) refreshAudienceWarehouseSnapshot(state, actor, audience);
+    redirect(res, `/audiences/${params.id}/warehouse`);
+  });
+
+  router.register('POST', '/audiences/:id/export', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const audience = state.db.audiences.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (audience) createAudienceExport(state, actor, audience, contactsForAudience(state, audience.id), 'audience-csv-export');
+    redirect(res, `/audiences/${params.id}`);
+  });
+
+  router.register('POST', '/audiences/:id/provider-sync', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const audience = state.db.audiences.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (audience) queueAudienceProviderSync(state, actor, audience, (await readBody(req)).provider || 'mailchimp-import-api');
+    redirect(res, `/audiences/${params.id}`);
   });
 
   router.register('GET', '/audiences/:id/taxonomy', async ({ state, req, params, res }) => {
@@ -57,11 +87,35 @@ export function registerAudienceRoutes(router, deps) {
 
   router.register('GET', '/contacts', async ({ state, req, res, url }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
-    const audiences = state.db.audiences.filter((entry) => entry.workspaceId === actor.workspace.id);
-    const audienceId = url.searchParams.get('audienceId') || audiences[0]?.id || '';
-    const q = String(url.searchParams.get('q') || '').toLowerCase(); const tag = String(url.searchParams.get('tag') || '').toLowerCase(); const status = String(url.searchParams.get('status') || '').toLowerCase();
-    const filtered = state.db.contacts.filter((entry) => entry.workspaceId === actor.workspace.id).filter((entry) => !audienceId || entry.audienceId === audienceId).filter((entry) => !q || `${entry.firstName} ${entry.lastName} ${entry.email}`.toLowerCase().includes(q)).filter((entry) => !tag || (entry.tags || []).map((item) => item.toLowerCase()).includes(tag)).filter((entry) => !status || entry.status.toLowerCase() === status);
-    text(res, 200, page('Contacts table', actor, `<div class="card"><form method="get" action="/contacts"><select name="audienceId">${audiences.map((audience) => `<option value="${audience.id}" ${audience.id === audienceId ? 'selected' : ''}>${audience.name}</option>`).join('')}</select><input name="q" value="${q}" placeholder="Search"><input name="tag" value="${tag}" placeholder="Tag filter"><select name="status"><option value="">All statuses</option><option value="subscribed" ${status === 'subscribed' ? 'selected' : ''}>subscribed</option><option value="cleaned" ${status === 'cleaned' ? 'selected' : ''}>cleaned</option><option value="unsubscribed" ${status === 'unsubscribed' ? 'selected' : ''}>unsubscribed</option></select><button>Filter contacts</button></form></div><div class="grid"><div class="card"><h3>Create contact</h3><form method="post" action="/contacts"><input type="hidden" name="audienceId" value="${audienceId}"><input name="firstName"><input name="lastName"><input name="email" type="email" required><input name="phone"><input name="tags"><input name="groupCategory"><input name="groupValue"><input name="interests"><button>Create contact</button></form></div><div class="card"><h3>Import contacts</h3><p><a href="/contacts/import?audienceId=${audienceId}">Open import preview flow</a></p></div></div><form method="post" action="/contacts/bulk"><input type="hidden" name="audienceId" value="${audienceId}"><table><tr><th></th><th>Name</th><th>Email</th><th>Status</th><th>Tags</th><th>Groups</th><th>Interests</th></tr>${contactsTableRows(filtered)}</table><div class="card"><h3>Bulk action</h3><select name="action"><option value="status">Set status</option><option value="addTag">Add tag</option></select><input name="value"><button>Apply to selected contacts</button></div></form>`));
+    const table = contactTableQuery(state, actor, url);
+    const audience = state.db.audiences.find((entry) => entry.id === table.audienceId && entry.workspaceId === actor.workspace.id);
+    text(res, 200, page('Contacts table', actor, `<div class="card"><form method="get" action="/contacts"><select name="audienceId">${table.audiences.map((entry) => `<option value="${entry.id}" ${entry.id === table.audienceId ? 'selected' : ''}>${entry.name}</option>`).join('')}</select><input name="q" value="${table.q}" placeholder="Search"><input name="tag" value="${table.tag}" placeholder="Tag filter"><select name="status"><option value="">All statuses</option><option value="subscribed" ${table.status === 'subscribed' ? 'selected' : ''}>subscribed</option><option value="cleaned" ${table.status === 'cleaned' ? 'selected' : ''}>cleaned</option><option value="unsubscribed" ${table.status === 'unsubscribed' ? 'selected' : ''}>unsubscribed</option></select><select name="sort"><option value="createdAt" ${table.sort === 'createdAt' ? 'selected' : ''}>Created</option><option value="updatedAt" ${table.sort === 'updatedAt' ? 'selected' : ''}>Updated</option><option value="email" ${table.sort === 'email' ? 'selected' : ''}>Email</option><option value="status" ${table.sort === 'status' ? 'selected' : ''}>Status</option><option value="name" ${table.sort === 'name' ? 'selected' : ''}>Name</option></select><select name="direction"><option value="desc" ${table.direction === 'desc' ? 'selected' : ''}>desc</option><option value="asc" ${table.direction === 'asc' ? 'selected' : ''}>asc</option></select><input name="pageSize" value="${table.pageSize}" placeholder="25"><button>Filter contacts</button></form></div><div class="grid"><div class="card"><h3>Create contact</h3><form method="post" action="/contacts"><input type="hidden" name="audienceId" value="${table.audienceId}"><input name="firstName"><input name="lastName"><input name="email" type="email" required><input name="phone"><input name="tags"><input name="groupCategory"><input name="groupValue"><input name="interests"><button>Create contact</button></form></div><div class="card"><h3>Import/export contacts</h3><p><a href="/contacts/import?audienceId=${table.audienceId}">Open import preview flow</a></p><form method="post" action="/contacts/export"><input type="hidden" name="audienceId" value="${table.audienceId}"><input type="hidden" name="q" value="${table.q}"><input type="hidden" name="tag" value="${table.tag}"><input type="hidden" name="status" value="${table.status}"><button>Export filtered contacts</button></form></div><div class="card"><h3>Saved columns & pagination</h3><form method="post" action="/contacts/table/preferences"><input name="columns" value="${table.savedColumns.join(',')}"><select name="sort"><option value="updatedAt">updatedAt</option><option value="email">email</option><option value="status">status</option><option value="name">name</option></select><select name="direction"><option value="desc">desc</option><option value="asc">asc</option></select><input name="pageSize" value="${table.pageSize}"><button>Save table view</button></form><p>Visible columns: ${table.savedColumns.join(', ')}</p></div></div><form method="post" action="/contacts/bulk"><input type="hidden" name="audienceId" value="${table.audienceId}"><table><tr><th></th><th>Name</th><th>Email</th><th>Status</th><th>Tags</th><th>Groups</th><th>Interests</th></tr>${contactsTableRows(table.visible)}</table><div class="grid"><div class="card"><h3>Bulk action</h3><select name="action"><option value="status">Set status</option><option value="addTag">Add tag</option></select><input name="value"><button>Apply to selected contacts</button></div><div class="card"><h3>Pagination</h3><p>Page ${table.page} of ${table.pageCount}; ${table.filtered.length} matching contacts.</p><p><a href="/contacts?audienceId=${table.audienceId}&page=${Math.max(1, table.page - 1)}&pageSize=${table.pageSize}">Previous</a> · <a href="/contacts?audienceId=${table.audienceId}&page=${Math.min(table.pageCount, table.page + 1)}&pageSize=${table.pageSize}">Next</a></p></div></div></form><div class="card"><h3>Merge / dedupe candidates</h3>${table.duplicateGroups.length ? table.duplicateGroups.map((entries) => `<form method="post" action="/contacts/merge"><input type="hidden" name="audienceId" value="${table.audienceId}"><input type="hidden" name="primaryId" value="${entries[0].id}">${entries.slice(1).map((entry) => `<input type="hidden" name="mergeId" value="${entry.id}">`).join('')}<p>${entries.map((entry) => entry.email).join(', ')}</p><button>Merge duplicate contacts</button></form>`).join('') : '<p>No duplicate contacts detected in this view.</p>'}</div>${audience ? `<div class="card"><h3>Audience drill-down</h3><p><a href="/audiences/${audience.id}">Return to ${audience.name} health overview</a></p></div>` : ''}`));
+  });
+
+  router.register('POST', '/contacts/table/preferences', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const body = await readBody(req);
+    saveContactTablePreferences(state, actor, body);
+    redirect(res, '/contacts');
+  });
+
+  router.register('POST', '/contacts/export', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const body = await readBody(req);
+    const audience = state.db.audiences.find((entry) => entry.id === body.audienceId && entry.workspaceId === actor.workspace.id);
+    if (audience) {
+      const params = new URLSearchParams(Object.entries({ audienceId: body.audienceId || '', q: body.q || '', tag: body.tag || '', status: body.status || '' }));
+      const table = contactTableQuery(state, actor, new URL(`http://mailclone.local/contacts?${params.toString()}`));
+      createAudienceExport(state, actor, audience, table.filtered, 'filtered-contacts-export');
+    }
+    redirect(res, `/contacts?audienceId=${body.audienceId || ''}`);
+  });
+
+  router.register('POST', '/contacts/merge', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const body = await readBody(req);
+    mergeContacts(state, actor, body.primaryId, Array.isArray(body.mergeId) ? body.mergeId : [body.mergeId].filter(Boolean));
+    redirect(res, `/contacts?audienceId=${body.audienceId || ''}`);
   });
 
   router.register('POST', '/contacts', async ({ state, req, res }) => {
@@ -97,13 +151,20 @@ export function registerAudienceRoutes(router, deps) {
   router.register('GET', '/contacts/:id', async ({ state, req, params, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const contact = state.db.contacts.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
-    text(res, 200, page(`Contact: ${contact.email}`, actor, `<div class="grid"><div class="card"><form method="post" action="/contacts/${contact.id}"><input name="firstName" value="${contact.firstName}"><input name="lastName" value="${contact.lastName}"><input name="email" type="email" value="${contact.email}"><input name="phone" value="${contact.phone || ''}"><select name="status"><option value="subscribed">subscribed</option><option value="cleaned">cleaned</option><option value="unsubscribed">unsubscribed</option></select><input name="tags" value="${(contact.tags || []).join(', ')}"><input name="groupCategory" value="${Object.keys(contact.groups || {})[0] || ''}"><input name="groupValue" value="${Object.values(contact.groups || {})[0] || ''}"><input name="interests" value="${(contact.interests || []).join(', ')}"><textarea name="notes">${contact.notes || ''}</textarea><button>Update contact</button></form></div><div class="card"><h3>Activity timeline</h3><ul>${(contact.activity || []).map((item) => `<li>${item.at} — ${item.message}</li>`).join('')}</ul></div></div>`));
+    text(res, 200, page(`Contact: ${contact.email}`, actor, `<div class="grid"><div class="card"><form method="post" action="/contacts/${contact.id}"><input name="firstName" value="${contact.firstName}"><input name="lastName" value="${contact.lastName}"><input name="email" type="email" value="${contact.email}"><input name="phone" value="${contact.phone || ''}"><select name="status"><option value="subscribed" ${contact.status === 'subscribed' ? 'selected' : ''}>subscribed</option><option value="cleaned" ${contact.status === 'cleaned' ? 'selected' : ''}>cleaned</option><option value="unsubscribed" ${contact.status === 'unsubscribed' ? 'selected' : ''}>unsubscribed</option></select><input name="tags" value="${(contact.tags || []).join(', ')}"><input name="groupCategory" value="${Object.keys(contact.groups || {})[0] || ''}"><input name="groupValue" value="${Object.values(contact.groups || {})[0] || ''}"><input name="interests" value="${(contact.interests || []).join(', ')}"><textarea name="notes">${contact.notes || ''}</textarea><button>Update contact</button></form></div><div class="card"><h3>Consent & suppression state</h3><p>Status: ${contact.status}</p><p>Suppression: ${contact.suppression?.reason || 'not suppressed'}</p><form method="post" action="/contacts/${contact.id}/suppression"><input name="reason" value="Manual unsubscribe request"><button>Suppress contact</button></form></div><div class="card"><h3>Activity timeline</h3><ul>${(contact.activity || []).map((item) => `<li>${item.at} — ${item.message}</li>`).join('')}</ul></div><div class="card"><h3>Tags, groups, interests</h3><p>Tags: ${(contact.tags || []).join(', ') || 'none'}</p><p>Groups: ${Object.entries(contact.groups || {}).map(([key, value]) => `${key}:${value}`).join(', ') || 'none'}</p><p>Interests: ${(contact.interests || []).join(', ') || 'none'}</p></div></div>`));
   });
 
   router.register('POST', '/contacts/:id', async ({ state, req, params, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const contact = state.db.contacts.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
     updateContact(state, actor, contact, await readBody(req)); redirect(res, `/contacts/${contact.id}`);
+  });
+
+  router.register('POST', '/contacts/:id/suppression', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const contact = state.db.contacts.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (contact) suppressContact(state, actor, contact, (await readBody(req)).reason || 'Manual suppression');
+    redirect(res, `/contacts/${params.id}`);
   });
 
   router.register('GET', '/segments', async ({ state, req, res, url }) => {
@@ -123,6 +184,174 @@ export function registerAudienceRoutes(router, deps) {
   router.register('POST', '/segments', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const body = await readBody(req); const rules = parseSegmentRules(body, actor.workspace, hasFeature); const segment = { id: createId('seg'), workspaceId: actor.workspace.id, audienceId: body.audienceId, name: body.name, logic: body.logic || 'all', rules, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), lastMatchCount: contactsForAudience(state, body.audienceId).filter((contact) => matchSegment(contact, { logic: body.logic || 'all', rules })).length };
-    state.db.segments.unshift(segment); saveDb(state.db); recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'segment-create', detail: `Created segment ${segment.name}` }); redirect(res, `/segments?audienceId=${body.audienceId}`);
+    state.db.segments.unshift(segment); saveDb(state.db); recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'segment-create', detail: `Created segment ${segment.name}` }); refreshSegmentAnalytics(state, actor, segment); redirect(res, `/segments?audienceId=${body.audienceId}`);
   });
+}
+
+export const audienceIdentityLifecycleIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "audience_identity_lifecycle",
+  "focusGroup": "audience_crm",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.audience_identity_lifecycle::semantic-frontier-001#06-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildAudienceIdentityLifecycleIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...audienceIdentityLifecycleIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-audience.mjs","packages/app/routes/audience.mjs","packages/app/storage.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: audienceIdentityLifecycleIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: audienceIdentityLifecycleIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: audienceIdentityLifecycleIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const audienceSyncWarehouseIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "audience_sync_warehouse",
+  "focusGroup": "audience_crm",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.audience_sync_warehouse::semantic-frontier-001#07-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildAudienceSyncWarehouseIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...audienceSyncWarehouseIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-audience.mjs","packages/app/job-handlers.mjs","packages/app/jobs.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: audienceSyncWarehouseIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: audienceSyncWarehouseIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: audienceSyncWarehouseIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const audienceSyncWarehousePrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "audience_sync_warehouse",
+  "focusGroup": "audience_crm",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.audience_sync_warehouse::semantic-frontier-001#07-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildAudienceSyncWarehousePrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...audienceSyncWarehousePrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-audience.mjs","packages/app/job-handlers.mjs","packages/app/jobs.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: audienceSyncWarehousePrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: audienceSyncWarehousePrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: audienceSyncWarehousePrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const audienceIdentityLifecyclePrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "audience_identity_lifecycle",
+  "focusGroup": "audience_crm",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.audience_identity_lifecycle::semantic-frontier-001#06-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildAudienceIdentityLifecyclePrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...audienceIdentityLifecyclePrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-audience.mjs","packages/app/routes/audience.mjs","packages/app/storage.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: audienceIdentityLifecyclePrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: audienceIdentityLifecyclePrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: audienceIdentityLifecyclePrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
 }

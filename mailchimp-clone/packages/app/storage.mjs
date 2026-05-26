@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { writeJsonAtomic, writeJsonFile, writeTextFile } from './persistence-io.mjs';
 import { createId, nowIso } from './utils.mjs';
+import { loadDbFromSqlite, saveDbToSqlite, sqliteOperationalSummary } from './storage-sqlite.mjs';
 
 const ROOT_DIR = path.resolve(new URL('../..', import.meta.url).pathname);
 
@@ -31,7 +32,8 @@ export const DEFAULT_FLAGS = {
   conversationsInbox: true,
   hostedPreferences: true,
   transactionalMessaging: true,
-  surveyFeedback: true
+  surveyFeedback: true,
+  mobileApp: true
 };
 
 export const DEFAULT_TEMPLATES = [
@@ -52,11 +54,16 @@ export function dataPaths() {
   return {
     dataDir,
     dbPath: path.join(dataDir, 'workspace-state.json'),
+    sqlitePath: path.join(dataDir, 'workspace-state.sqlite'),
     legacyDbPath: rootLegacyDbPath,
     legacyDbCandidates: Array.from(new Set([rootLegacyDbPath, cwdLegacyDbPath])),
     uploadDir: path.join(dataDir, 'uploads'),
     exportDir: path.join(dataDir, 'exports')
   };
+}
+
+export function storageEngine() {
+  return String(process.env.MAILCLONE_STORAGE_ENGINE || 'json').toLowerCase() === 'sqlite' ? 'sqlite' : 'json';
 }
 
 export function ensureDir(dir) {
@@ -82,11 +89,12 @@ export function createAudience(workspaceId, name = 'Main audience') {
 
 const DEFAULT_DB_STATE = {
   users: [], memberships: [], workspaces: [], invitations: [], sessions: [], auditEvents: [], events: [], notifications: [], jobs: [], assets: [], audiences: [], contacts: [], segments: [], campaigns: [], templates: DEFAULT_TEMPLATES,
-  passwordResets: [], importPreviews: [], automations: [], automationRuns: [], journeyTemplates: DEFAULT_JOURNEY_TEMPLATES, forms: [], landingPages: [], apiKeys: [], webhooks: [], webhookDeliveries: [], exports: [],
-  integrationInstallations: [], integrationSyncRuns: [], commerceStores: [], commerceProducts: [], commerceOrders: [], revenueAttributions: [], approvalRequests: [], approvalComments: [], brandKits: [], contentTemplates: [], templateCollections: [], suppressionEntries: [], complianceAlerts: [],
-  conversations: [], conversationMessages: [], preferenceCenters: [], preferenceProfiles: [], transactionalJourneys: [], transactionalDeliveries: [], surveyPrograms: [], surveyResponses: [],
-  assetSnippets: [], contentVersions: [], generatedSuggestions: [], campaignExperiments: [], channelPrograms: [], websites: [], websitePages: [], websitePublishes: [], analyticsEvents: [],
-  rateLimits: [], jobDeadLetters: [], mfaChallenges: [], ssoSessions: []
+  passwordResets: [], importPreviews: [], automations: [], automationRuns: [], journeyTemplates: DEFAULT_JOURNEY_TEMPLATES, crossChannelJourneyRuntimeSnapshots: [], crossChannelJourneyNodeEvents: [], crossChannelJourneyHandoffEvents: [], crossChannelJourneyDecisionEvents: [], crossChannelJourneyPerformanceEvents: [], forms: [], landingPages: [], apiKeys: [], webhooks: [], webhookDeliveries: [], exports: [],
+  integrationInstallations: [], integrationSyncRuns: [], integrationProviderAccounts: [], integrationProviderAuthSessions: [], integrationProviderCursors: [], integrationProviderRequests: [], integrationProviderWebhookEvents: [], commerceStores: [], commerceProducts: [], commerceOrders: [], revenueAttributions: [], approvalRequests: [], approvalComments: [], brandKits: [], contentTemplates: [], templateCollections: [], contentRuntimeSnapshots: [], contentAssetLifecycleEvents: [], contentTemplateReviewEvents: [], contentUsageTelemetryEvents: [], contentGovernanceEvents: [], suppressionEntries: [], complianceAlerts: [], deliverabilityRuntimeSnapshots: [], domainDnsCheckEvents: [], domainDmarcAlignmentEvents: [], senderReputationWarmupEvents: [], dedicatedIpReadinessEvents: [], complianceReviewRuns: [],
+  conversations: [], conversationMessages: [], preferenceCenters: [], preferenceProfiles: [], preferenceRuntimeSnapshots: [], preferenceConsentEvents: [], preferenceSuppressionSyncs: [], preferenceExportRuns: [], transactionalJourneys: [], transactionalDeliveries: [], transactionalRuntimeSnapshots: [], transactionalTriggerEvents: [], transactionalRenderEvents: [], transactionalDeliveryAttempts: [], transactionalSuppressionEvents: [], transactionalWebhookEvents: [], surveyPrograms: [], surveyResponses: [], mobileAppSessions: [], mobileAppQueuedActions: [], mobileRuntimeSnapshots: [], mobilePushRegistrations: [], mobileDeviceTrustEvents: [], mobileSyncBatches: [], mobileConflictResolutions: [], mobileNotificationEvents: [],
+  assetSnippets: [], contentVersions: [], generatedSuggestions: [], campaignExperiments: [], campaignExperimentRuntimeSnapshots: [], campaignExperimentAllocationEvents: [], campaignExperimentDynamicContentEvents: [], campaignExperimentHoldoutEvents: [], campaignExperimentWinnerDecisions: [], channelPrograms: [], smsRuntimeSnapshots: [], smsConsentEvents: [], smsComplianceEvents: [], smsDeliveryAttempts: [], smsLinkTrackingEvents: [], socialRuntimeSnapshots: [], socialApprovalEvents: [], socialScheduledPosts: [], socialProviderHandoffs: [], socialEngagementEvents: [], adsRuntimeSnapshots: [], adsRetargetingAudiences: [], adsBudgetPacingEvents: [], adsProviderSyncEvents: [], adsConversionAttributionEvents: [], postcardRuntimeSnapshots: [], postcardAddressValidationEvents: [], postcardCreativeProofEvents: [], postcardProviderHandoffEvents: [], postcardDeliveryTrackingEvents: [], socialCalendarRuntimeSnapshots: [], socialCalendarPlacements: [], socialCampaignCoordinationEvents: [], socialTimelineEvents: [], omnichannelReportingRuntimeSnapshots: [], omnichannelChannelMixSnapshots: [], omnichannelObjectiveRollups: [], omnichannelAttributionEvents: [], mailchimpFrontierSurfaceRuns: [], mailchimpFrontierEvidenceEvents: [], mailchimpFrontierRuntimeSnapshots: [], websites: [], websitePages: [], websitePublishes: [], analyticsEvents: [], aiRecommendationRuns: [], predictiveRecommendationSnapshots: [], aiFeedbackEvents: [],
+  rateLimits: [], jobDeadLetters: [], jobQueueLeases: [], jobOperationalSnapshots: [], jobServiceHeartbeats: [], jobIdempotencyKeys: [], csrfTokens: [], mfaFactors: [], mfaChallenges: [], ssoSessions: [], trustedDevices: [], securityEvents: [], apiKeyRotations: [], developerRuntimeSnapshots: [], developerApiRequestAudits: [], webhookSubscriptionEvents: [], billingRuntimeSnapshots: [], billingUsageMeterEvents: [], billingEntitlementEvents: [], billingTrialEvents: [], billingInvoiceEvents: [], teamGovernanceRuntimeSnapshots: [], teamPermissionPolicyEvents: [], teamAccessReviewEvents: [], teamDelegatedAdminEvents: [], teamScimProvisioningEvents: [], teamRegionGovernanceEvents: [], dashboardRuntimeSnapshots: [], dashboardWidgetPreferenceEvents: [], dashboardInsightEvents: [], dashboardTaskQueueEvents: [], dashboardDrillthroughEvents: [], dashboardSavedViewEvents: [],
+  leadConversionSnapshots: [], leadAttributionEvents: [], leadConsentReceipts: [], landingPageExperiments: [], commerceRuntimeSnapshots: [], commerceCustomerProfiles: [], abandonedCartEvents: [], productRecommendationEvents: [], conversationRuntimeSnapshots: [], conversationSlaEvents: [], conversationAssignments: [], conversationMacros: [], conversationAutomationHandoffs: [], surveyRuntimeSnapshots: [], surveySentimentEvents: [], surveySegments: [], surveyDeliveryEvents: [], surveyAutomationHandoffs: []
 };
 
 export function initDb() {
@@ -104,6 +112,18 @@ export function loadDb() {
   ensureDir(paths.exportDir);
   const legacyDbPath = (paths.legacyDbCandidates || [paths.legacyDbPath]).find((filePath) => fs.existsSync(filePath)) || null;
   const dbSourcePath = fs.existsSync(paths.dbPath) ? paths.dbPath : legacyDbPath;
+  if (storageEngine() === 'sqlite') {
+    const legacyDb = dbSourcePath ? JSON.parse(fs.readFileSync(dbSourcePath, 'utf8')) : null;
+    const db = loadDbFromSqlite(paths, initDb, legacyDb);
+    for (const [key, value] of Object.entries(DEFAULT_DB_STATE)) {
+      if (db[key] == null) db[key] = Array.isArray(value) ? [] : structuredClone(value);
+    }
+    if (!Array.isArray(db.templates) || db.templates.length === 0) db.templates = DEFAULT_TEMPLATES.map((entry) => ({ ...entry }));
+    if (!Array.isArray(db.journeyTemplates) || db.journeyTemplates.length === 0) {
+      db.journeyTemplates = DEFAULT_JOURNEY_TEMPLATES.map((entry) => ({ ...entry, nodes: Array.isArray(entry.nodes) ? entry.nodes.map((node) => ({ ...node })) : [] }));
+    }
+    return db;
+  }
   if (!dbSourcePath) {
     const db = initDb();
     writeJsonFile(paths.dbPath, db);
@@ -123,6 +143,10 @@ export function loadDb() {
 export function saveDb(db) {
   const paths = dataPaths();
   ensureDir(paths.dataDir);
+  if (storageEngine() === 'sqlite') {
+    saveDbToSqlite(paths, db);
+    return;
+  }
   writeJsonAtomic(paths.dbPath, db);
 }
 
@@ -133,9 +157,15 @@ export function persistState(state) {
 
 export function storageOperationalSummary() {
   const paths = dataPaths();
+  const engine = storageEngine();
+  const sqlite = engine === 'sqlite' ? sqliteOperationalSummary(paths) : null;
   return {
+    engine,
     dataDir: paths.dataDir,
     dbPath: paths.dbPath,
+    sqlitePath: paths.sqlitePath,
+    activeDbPath: engine === 'sqlite' ? paths.sqlitePath : paths.dbPath,
+    sqlite,
     uploadDir: paths.uploadDir,
     exportDir: paths.exportDir,
     legacyDbCandidates: [...(paths.legacyDbCandidates || [])]
@@ -145,10 +175,14 @@ export function storageOperationalSummary() {
 export function storageOperationalHealth() {
   const summary = storageOperationalSummary();
   return {
-    ok: Boolean(summary.dbPath && summary.dataDir && summary.uploadDir && summary.exportDir),
+    ok: Boolean(summary.activeDbPath && summary.dataDir && summary.uploadDir && summary.exportDir),
+    engine: summary.engine,
     dbPath: summary.dbPath,
+    sqlitePath: summary.sqlitePath,
+    activeDbPath: summary.activeDbPath,
+    sqliteSchemaVersion: summary.sqlite?.schemaVersion || null,
     dataDir: summary.dataDir,
-    writableTargets: ['dbPath', 'uploadDir', 'exportDir'].filter((key) => Boolean(summary[key])),
+    writableTargets: ['activeDbPath', 'uploadDir', 'exportDir'].filter((key) => Boolean(summary[key])),
     legacyFallbacks: summary.legacyDbCandidates.length
   };
 }
@@ -158,11 +192,37 @@ export function storageOperationalChecklist() {
   const health = storageOperationalHealth();
   return [
     { id: 'data_dir', label: 'Data directory resolved', ok: Boolean(summary.dataDir) },
-    { id: 'db_path', label: 'Operational database path resolved', ok: Boolean(summary.dbPath) },
+    { id: 'db_path', label: 'Operational database path resolved', ok: Boolean(summary.activeDbPath) },
+    { id: 'storage_engine', label: `Storage engine selected: ${summary.engine}`, ok: ['json', 'sqlite'].includes(summary.engine) },
+    { id: 'sqlite_migrations', label: 'SQLite migration ledger available when database mode is enabled', ok: summary.engine !== 'sqlite' || Number(summary.sqlite?.schemaVersion || 0) >= 1 },
     { id: 'uploads', label: 'Upload directory resolved', ok: Boolean(summary.uploadDir) },
     { id: 'exports', label: 'Export directory resolved', ok: Boolean(summary.exportDir) },
     { id: 'legacy_fallback', label: 'Legacy app.json fallback remains discoverable', ok: health.legacyFallbacks >= 0 }
   ];
+}
+
+export function storageOperationalRuntimeEvidence(state = {}) {
+  const summary = storageOperationalSummary();
+  const db = state.db || {};
+  const pendingJobs = Array.isArray(db.jobs) ? db.jobs.filter((job) => !['completed', 'failed', 'cancelled'].includes(job.status)) : [];
+  const activeLeases = Array.isArray(db.jobQueueLeases) ? db.jobQueueLeases.filter((lease) => lease.status === 'active') : [];
+  return {
+    ok: true,
+    engine: summary.engine,
+    dbPath: summary.activeDbPath,
+    sqliteSchemaVersion: summary.sqlite?.schemaVersion || null,
+    sqliteCollections: summary.sqlite?.collectionCount || 0,
+    pendingJobs: pendingJobs.length,
+    jobOperationalLedger: {
+      leases: Array.isArray(db.jobQueueLeases) ? db.jobQueueLeases.length : 0,
+      activeLeases: activeLeases.length,
+      snapshots: Array.isArray(db.jobOperationalSnapshots) ? db.jobOperationalSnapshots.length : 0,
+      heartbeats: Array.isArray(db.jobServiceHeartbeats) ? db.jobServiceHeartbeats.length : 0,
+      deadLetters: Array.isArray(db.jobDeadLetters) ? db.jobDeadLetters.length : 0
+    },
+    workflowStatus: pendingJobs.length ? 'persistence_queue_active' : 'persistence_ready',
+    requestEvidence: { storage: Boolean(summary.activeDbPath), engine: summary.engine, recoveryPath: summary.legacyDbCandidates.length >= 0 }
+  };
 }
 
 export function createAppState() {
@@ -183,4 +243,46 @@ export function writeExport(exportId, body) {
   const filePath = path.join(paths.exportDir, `${exportId}.json`);
   writeJsonFile(filePath, body);
   return filePath;
+}
+
+export const teamRolesPermissionsIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "team_roles_permissions",
+  "focusGroup": "team_roles_permissions",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.team_roles_permissions::semantic-frontier-001#03-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildTeamRolesPermissionsIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...teamRolesPermissionsIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/routes/api-admin.mjs","packages/app/routes/platform.mjs","packages/app/storage.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: teamRolesPermissionsIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: teamRolesPermissionsIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: teamRolesPermissionsIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
 }

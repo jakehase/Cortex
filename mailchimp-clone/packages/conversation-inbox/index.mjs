@@ -1,2 +1,2 @@
 export { registerConversationInboxRoutes } from './routes/conversation-inbox.mjs';
-export { summarizeInbox, createConversation, replyToConversation, updateConversationStatus, conversationMessages } from './domain-conversation-inbox.mjs';
+export { CONVERSATION_INBOX_RUNTIME_CONTRACT, assignConversation, applyConversationMacro, buildConversationRuntimeSnapshot, createConversation, createConversationAutomationHandoff, conversationMessages, persistConversationRuntimeSnapshot, recordConversationSlaEvent, replyToConversation, summarizeInbox, updateConversationStatus } from './domain-conversation-inbox.mjs';

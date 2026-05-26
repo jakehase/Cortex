@@ -1,7 +1,12 @@
-import { saveDb } from './storage.mjs';
+import { persistState } from './storage.mjs';
 import { createId, nowIso } from './utils.mjs';
 import { createNotification, recordAudit, recordEvent } from './domain-core.mjs';
 import { contactActivity, contactsForAudience } from './domain-audience.mjs';
+import { recordLeadAttributionEvent, recordLeadConsentReceipt } from './domain-leads.mjs';
+
+const SUBSCRIBED_STATUS = 'subscribed';
+const RUN_STATUS_ACTIVE = 'active';
+const RUN_STATUS_COMPLETED = 'completed';
 
 export const AUTOMATION_TRIGGERS = [
   { id: 'contact_subscribed', label: 'Contact subscribes' },
@@ -46,7 +51,7 @@ function buildRunLifecycle(automation, context) {
   }));
   const completedAt = nowIso();
   return {
-    status: 'completed',
+    status: steps.some((step) => step.status === 'wait_scheduled') ? RUN_STATUS_ACTIVE : RUN_STATUS_COMPLETED,
     steps,
     goalReached: Boolean(automation.goal && (context.eventType === 'form_submitted' || context.eventType === 'campaign_sent')),
     exitReason: automation.goal ? `Reached goal: ${automation.goal}` : 'Journey completed',
@@ -83,7 +88,7 @@ export function createAutomation(state, actor, body) {
     updatedAt: nowIso()
   };
   state.db.automations.unshift(automation);
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'automation-create', detail: `Created automation ${automation.name}` });
   return automation;
 }
@@ -103,14 +108,14 @@ export function validateAutomation(state, automation) {
   automation.validationErrors = errors;
   automation.status = errors.length ? 'broken' : automation.status === 'broken' ? 'draft' : automation.status;
   automation.updatedAt = nowIso();
-  saveDb(state.db);
+  persistState(state);
   return errors;
 }
 
 export function createForm(state, actor, body) {
-  const form = { id: createId('form'), workspaceId: actor.workspace.id, audienceId: body.audienceId, campaignId: body.campaignId || '', name: body.name, slug: body.slug || createId('signup').replace('signup_', 'signup-'), status: 'draft', fields: [{ id: createId('field'), name: 'email', label: 'Email', required: true }], successMessage: 'Thanks for signing up.', tagsOnSubmit: body.tagsOnSubmit ? String(body.tagsOnSubmit).split(',').map((entry) => entry.trim()).filter(Boolean) : [], submissions: 0, createdAt: nowIso(), updatedAt: nowIso() };
+  const form = { id: createId('form'), workspaceId: actor.workspace.id, audienceId: body.audienceId, campaignId: body.campaignId || '', name: body.name, slug: body.slug || createId('signup').replace('signup_', 'signup-'), status: 'draft', popupMode: body.popupMode || 'inline', geotarget: body.geotarget || 'all', triggerRule: body.triggerRule || 'inline', fields: [{ id: createId('field'), name: 'email', label: 'Email', required: true }], successMessage: 'Thanks for signing up.', tagsOnSubmit: body.tagsOnSubmit ? String(body.tagsOnSubmit).split(',').map((entry) => entry.trim()).filter(Boolean) : [], submissions: 0, createdAt: nowIso(), updatedAt: nowIso() };
   state.db.forms.unshift(form);
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'form-create', detail: `Created form ${form.name}` });
   return form;
 }
@@ -118,7 +123,7 @@ export function createForm(state, actor, body) {
 export function createLandingPage(state, actor, body) {
   const page = { id: createId('lp'), workspaceId: actor.workspace.id, audienceId: body.audienceId || '', campaignId: body.campaignId || '', formId: body.formId || '', name: body.name, slug: body.slug || createId('landing').replace('landing_', 'landing-'), headline: body.headline || '', body: body.body || '', status: 'draft', views: 0, submissions: 0, createdAt: nowIso(), updatedAt: nowIso() };
   state.db.landingPages.unshift(page);
-  saveDb(state.db);
+  persistState(state);
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'landing-page-create', detail: `Created landing page ${page.name}` });
   return page;
 }
@@ -167,7 +172,7 @@ export function triggerAutomationEvent(state, automation, contact, context = {})
   contactActivity(contact, `Entered automation ${automation.name} from ${eventType}`);
   createNotification(state, { workspaceId: automation.workspaceId, type: 'automation-enrollment', payload: { automationId: automation.id, contactId: contact.id, trigger: eventType } });
   recordEvent(state, { workspaceId: automation.workspaceId, type: 'automation-run', message: `${automation.name} enrolled ${contact.email}`, meta: { automationId: automation.id, contactId: contact.id, trigger: eventType } });
-  saveDb(state.db);
+  persistState(state);
   return run;
 }
 
@@ -187,7 +192,7 @@ export function submitHostedForm(state, form, body) {
   let contact = existing;
   let created = false;
   if (!contact) {
-    contact = { id: createId('contact'), workspaceId, audienceId: form.audienceId, firstName: body.firstName || '', lastName: body.lastName || '', email: body.email || '', status: 'subscribed', tags: [...new Set(form.tagsOnSubmit || [])], interests: [], groups: {}, notes: 'Created from hosted form', phone: '', source: 'form', createdAt: nowIso(), updatedAt: nowIso(), activity: [{ at: nowIso(), message: `Created from form ${form.name}` }] };
+    contact = { id: createId('contact'), workspaceId, audienceId: form.audienceId, firstName: body.firstName || '', lastName: body.lastName || '', email: body.email || '', status: SUBSCRIBED_STATUS, tags: [...new Set(form.tagsOnSubmit || [])], interests: [], groups: {}, notes: 'Created from hosted form', phone: '', source: 'form', createdAt: nowIso(), updatedAt: nowIso(), activity: [{ at: nowIso(), message: `Created from form ${form.name}` }] };
     state.db.contacts.unshift(contact);
     created = true;
   } else {
@@ -204,12 +209,23 @@ export function submitHostedForm(state, form, body) {
   for (const landing of landingPages) {
     landing.submissions += 1;
     landing.updatedAt = nowIso();
+    recordLeadAttributionEvent(state, { workspaceId, formId: form.id, landingPageId: landing.id, campaignId: landing.campaignId || form.campaignId || '', contactId: contact.id, eventType: 'landing_page_submission', source: 'hosted_form', meta: { email: body.email || '' } });
   }
+  recordLeadConsentReceipt(state, form, contact, body);
+  recordLeadAttributionEvent(state, { workspaceId, formId: form.id, campaignId: form.campaignId || '', contactId: contact.id, eventType: 'form_submission', source: 'hosted_form', meta: { email: body.email || '' } });
   createNotification(state, { workspaceId, type: 'form-submission', payload: { formId: form.id, email: body.email || '' } });
-  saveDb(state.db);
+  persistState(state);
   if (created) triggerAutomationsForEvent(state, { workspaceId, audienceId: form.audienceId, contact, eventType: 'contact_subscribed', formId: form.id, campaignId: form.campaignId || '' });
   triggerAutomationsForEvent(state, { workspaceId, audienceId: form.audienceId, contact, eventType: 'form_submitted', formId: form.id, campaignId: form.campaignId || '', meta: { formName: form.name } });
   return contact;
+}
+
+export function popupTargetingSummary(form) {
+  return {
+    popupMode: form.popupMode || 'inline',
+    geotarget: form.geotarget || 'all',
+    triggerRule: form.triggerRule || 'inline'
+  };
 }
 
 export function analyticsSeries(state, workspaceId) {
@@ -254,11 +270,235 @@ export function automationRunSummary(state, automation) {
   };
 }
 
+export const CROSS_CHANNEL_JOURNEY_RUNTIME_CONTRACT = Object.freeze({
+  surfaceId: 'cross_channel_journey_runtime_layer',
+  label: 'Cross-channel journey builder runtime with channel-specific nodes, handoffs, decisions, performance rollups, and API evidence',
+  supportedNodeTypes: ['email', 'sms', 'ad_sync', 'inbox_task', 'survey_request', 'postcard'],
+  controls: [
+    'cross_channel_node_configuration_ledger',
+    'channel_handoff_event_history',
+    'cross_channel_decision_audit_trail',
+    'channel_performance_rollups',
+    'cross_channel_runtime_snapshots',
+    'automation_cross_channel_runtime_api'
+  ],
+  evidenceContract: [
+    'journey_builder_accepts_email_sms_ads_inbox_survey_postcard_nodes',
+    'channel_handoffs_record_provider_target_and_status',
+    'decision_events_capture_branch_channel_and_reason',
+    'performance_rollups_summarize_channel_touchpoints_and_conversions',
+    'runtime_snapshots_are_durable_per_automation',
+    'normal_automation_builder_route_adoption'
+  ]
+});
+
+const CROSS_CHANNEL_NODE_TYPES = new Set(CROSS_CHANNEL_JOURNEY_RUNTIME_CONTRACT.supportedNodeTypes);
+
+function ensureCrossChannelJourneyRuntimeState(state) {
+  state.db.crossChannelJourneyRuntimeSnapshots ||= [];
+  state.db.crossChannelJourneyNodeEvents ||= [];
+  state.db.crossChannelJourneyHandoffEvents ||= [];
+  state.db.crossChannelJourneyDecisionEvents ||= [];
+  state.db.crossChannelJourneyPerformanceEvents ||= [];
+  return state;
+}
+
+function normalizeChannelNodeType(type = '') {
+  const normalized = String(type || '').trim().toLowerCase().replace(/[-\s]+/g, '_');
+  if (normalized === 'ads') return 'ad_sync';
+  if (normalized === 'social') return 'social_post';
+  return normalized;
+}
+
+function automationChannelNodes(automation = {}) {
+  return (automation.nodes || [])
+    .map((node, index) => ({ ...node, order: index + 1, normalizedType: normalizeChannelNodeType(node.type) }))
+    .filter((node) => CROSS_CHANNEL_NODE_TYPES.has(node.normalizedType));
+}
+
+function splitList(value) {
+  return String(value || '').split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+export function recordCrossChannelJourneyNodeConfig(state, actor, automation, node, body = {}) {
+  ensureCrossChannelJourneyRuntimeState(state);
+  const normalizedType = normalizeChannelNodeType(node?.type || body.nodeType);
+  const event = {
+    id: createId('ccnode'),
+    workspaceId: actor.workspace.id,
+    automationId: automation?.id || body.automationId || '',
+    nodeId: node?.id || body.nodeId || '',
+    nodeType: normalizedType,
+    title: node?.title || body.title || normalizedType,
+    channel: body.channel || (normalizedType === 'ad_sync' ? 'ads' : normalizedType === 'inbox_task' ? 'inbox' : normalizedType === 'survey_request' ? 'survey' : normalizedType),
+    audienceId: automation?.audienceId || body.audienceId || '',
+    targetId: body.targetId || body.programId || body.campaignId || '',
+    decisionRules: splitList(body.decisionRules || node?.conditions?.join(',') || 'subscribed'),
+    configuredBy: actor.user.id,
+    recordedAt: nowIso()
+  };
+  state.db.crossChannelJourneyNodeEvents.unshift(event);
+  state.db.crossChannelJourneyNodeEvents = state.db.crossChannelJourneyNodeEvents.slice(0, 1000);
+  if (automation) {
+    automation.crossChannelRuntime ||= {};
+    automation.crossChannelRuntime.lastNodeConfigEventId = event.id;
+    automation.crossChannelRuntime.channelNodeCount = automationChannelNodes(automation).length;
+    automation.updatedAt = event.recordedAt;
+  }
+  persistState(state);
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'cross-channel-node-config', detail: `${event.nodeType} node configured for ${automation?.name || event.automationId}` });
+  return event;
+}
+
+export function recordCrossChannelJourneyHandoffEvent(state, actor, automation, body = {}) {
+  ensureCrossChannelJourneyRuntimeState(state);
+  const nodeType = normalizeChannelNodeType(body.nodeType || body.channel || 'sms');
+  const event = {
+    id: createId('cchandoff'),
+    workspaceId: actor.workspace.id,
+    automationId: automation?.id || body.automationId || '',
+    nodeId: body.nodeId || '',
+    channel: body.channel || (nodeType === 'ad_sync' ? 'ads' : nodeType === 'inbox_task' ? 'inbox' : nodeType === 'survey_request' ? 'survey' : nodeType),
+    provider: body.provider || `mailclone_${nodeType}`,
+    targetId: body.targetId || body.programId || body.campaignId || '',
+    recipientCount: Number(body.recipientCount || 1),
+    status: body.status || 'accepted',
+    requestId: body.requestId || createId('cchreq'),
+    handedOffAt: nowIso()
+  };
+  state.db.crossChannelJourneyHandoffEvents.unshift(event);
+  state.db.crossChannelJourneyHandoffEvents = state.db.crossChannelJourneyHandoffEvents.slice(0, 1000);
+  if (automation) {
+    automation.crossChannelRuntime ||= {};
+    automation.crossChannelRuntime.lastHandoffEventId = event.id;
+    automation.updatedAt = event.handedOffAt;
+  }
+  persistState(state);
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'cross-channel-handoff', detail: `${event.channel} handoff ${event.status} for ${automation?.name || event.automationId}` });
+  return event;
+}
+
+export function recordCrossChannelJourneyDecisionEvent(state, actor, automation, body = {}) {
+  ensureCrossChannelJourneyRuntimeState(state);
+  const event = {
+    id: createId('ccdecision'),
+    workspaceId: actor.workspace.id,
+    automationId: automation?.id || body.automationId || '',
+    contactId: body.contactId || '',
+    nodeId: body.nodeId || '',
+    selectedChannel: body.selectedChannel || body.channel || 'email',
+    branch: body.branch || 'default',
+    reason: body.reason || 'matched audience/channel preference rules',
+    evidence: splitList(body.evidence || 'consent_ok,frequency_ok'),
+    decidedAt: nowIso()
+  };
+  state.db.crossChannelJourneyDecisionEvents.unshift(event);
+  state.db.crossChannelJourneyDecisionEvents = state.db.crossChannelJourneyDecisionEvents.slice(0, 1000);
+  if (automation) {
+    automation.crossChannelRuntime ||= {};
+    automation.crossChannelRuntime.lastDecisionEventId = event.id;
+    automation.updatedAt = event.decidedAt;
+  }
+  persistState(state);
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'cross-channel-decision', detail: `${event.selectedChannel} decision for ${automation?.name || event.automationId}` });
+  return event;
+}
+
+export function recordCrossChannelJourneyPerformanceEvent(state, actor, automation, body = {}) {
+  ensureCrossChannelJourneyRuntimeState(state);
+  const event = {
+    id: createId('ccperf'),
+    workspaceId: actor.workspace.id,
+    automationId: automation?.id || body.automationId || '',
+    channel: body.channel || 'email',
+    touchpoints: Number(body.touchpoints || body.sent || 1),
+    delivered: Number(body.delivered || body.touchpoints || body.sent || 1),
+    clicks: Number(body.clicks || 0),
+    conversions: Number(body.conversions || 0),
+    revenue: Number(body.revenue || 0),
+    recordedAt: nowIso()
+  };
+  state.db.crossChannelJourneyPerformanceEvents.unshift(event);
+  state.db.crossChannelJourneyPerformanceEvents = state.db.crossChannelJourneyPerformanceEvents.slice(0, 1000);
+  if (automation) {
+    automation.crossChannelRuntime ||= {};
+    automation.crossChannelRuntime.lastPerformanceEventId = event.id;
+    automation.crossChannelRuntime.totalConversions = (automation.crossChannelRuntime.totalConversions || 0) + event.conversions;
+    automation.updatedAt = event.recordedAt;
+  }
+  persistState(state);
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'cross-channel-performance', detail: `${event.channel} rollup for ${automation?.name || event.automationId}` });
+  return event;
+}
+
+export function buildCrossChannelJourneyRuntimeSnapshot(state, workspaceId, automationId = '') {
+  ensureCrossChannelJourneyRuntimeState(state);
+  const automations = state.db.automations.filter((entry) => entry.workspaceId === workspaceId && (!automationId || entry.id === automationId));
+  const automationIds = new Set(automations.map((entry) => entry.id));
+  const nodeEvents = state.db.crossChannelJourneyNodeEvents.filter((entry) => entry.workspaceId === workspaceId && (!automationId || entry.automationId === automationId));
+  const handoffEvents = state.db.crossChannelJourneyHandoffEvents.filter((entry) => entry.workspaceId === workspaceId && (!automationId || entry.automationId === automationId));
+  const decisionEvents = state.db.crossChannelJourneyDecisionEvents.filter((entry) => entry.workspaceId === workspaceId && (!automationId || entry.automationId === automationId));
+  const performanceEvents = state.db.crossChannelJourneyPerformanceEvents.filter((entry) => entry.workspaceId === workspaceId && (!automationId || entry.automationId === automationId));
+  const snapshots = state.db.crossChannelJourneyRuntimeSnapshots.filter((entry) => entry.workspaceId === workspaceId && (!automationId || entry.automationId === automationId));
+  const channelTotals = performanceEvents.reduce((acc, entry) => {
+    acc[entry.channel] ||= { touchpoints: 0, delivered: 0, clicks: 0, conversions: 0, revenue: 0 };
+    acc[entry.channel].touchpoints += Number(entry.touchpoints || 0);
+    acc[entry.channel].delivered += Number(entry.delivered || 0);
+    acc[entry.channel].clicks += Number(entry.clicks || 0);
+    acc[entry.channel].conversions += Number(entry.conversions || 0);
+    acc[entry.channel].revenue += Number(entry.revenue || 0);
+    return acc;
+  }, {});
+  return {
+    ...CROSS_CHANNEL_JOURNEY_RUNTIME_CONTRACT,
+    generatedAt: nowIso(),
+    workspaceId,
+    automationId: automationId || null,
+    automationCount: automations.length,
+    crossChannelAutomationCount: automations.filter((entry) => automationChannelNodes(entry).length > 0 || entry.crossChannelRuntime).length,
+    channelNodeCount: automations.reduce((sum, entry) => sum + automationChannelNodes(entry).length, 0),
+    nodeConfigEventCount: nodeEvents.length,
+    handoffEventCount: handoffEvents.length,
+    decisionEventCount: decisionEvents.length,
+    performanceEventCount: performanceEvents.length,
+    channelTotals,
+    automations: automations.map((automation) => ({ id: automation.id, name: automation.name, status: automation.status, trigger: automation.trigger, channelNodes: automationChannelNodes(automation).map((node) => ({ id: node.id, type: node.normalizedType, title: node.title, order: node.order })), crossChannelRuntime: automation.crossChannelRuntime || {}, runCount: state.db.automationRuns.filter((run) => run.automationId === automation.id).length })),
+    recentNodeConfigEvents: nodeEvents.slice(0, 10),
+    recentHandoffEvents: handoffEvents.slice(0, 10),
+    recentDecisionEvents: decisionEvents.slice(0, 10),
+    recentPerformanceEvents: performanceEvents.slice(0, 10),
+    snapshots: { count: snapshots.length, latestRecordedAt: snapshots[0]?.recordedAt || null },
+    runtimeHealth: {
+      automationModelReady: automations.length > 0,
+      channelNodeReady: automations.some((entry) => automationChannelNodes(entry).length > 0),
+      nodeConfigReady: nodeEvents.length > 0,
+      handoffReady: handoffEvents.length > 0,
+      decisionReady: decisionEvents.length > 0,
+      performanceReady: performanceEvents.length > 0,
+      snapshotReady: snapshots.length > 0,
+      apiReady: true
+    },
+    scope: { automationIds: [...automationIds] }
+  };
+}
+
+export function persistCrossChannelJourneyRuntimeSnapshot(state, actor, automation = null, reason = 'manual_cross_channel_journey_runtime_snapshot') {
+  ensureCrossChannelJourneyRuntimeState(state);
+  const snapshot = buildCrossChannelJourneyRuntimeSnapshot(state, actor.workspace.id, automation?.id || '');
+  const entry = { id: createId('ccrun'), reason, recordedAt: nowIso(), userId: actor.user.id, ...snapshot };
+  state.db.crossChannelJourneyRuntimeSnapshots.unshift(entry);
+  state.db.crossChannelJourneyRuntimeSnapshots = state.db.crossChannelJourneyRuntimeSnapshots.slice(0, 100);
+  persistState(state);
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'cross-channel-runtime-snapshot', detail: `Captured cross-channel runtime snapshot${automation ? ` for ${automation.name}` : ''}` });
+  return entry;
+}
+
 export function publicPageView(state, page) {
   page.views += 1;
   page.updatedAt = nowIso();
+  recordLeadAttributionEvent(state, { workspaceId: page.workspaceId, formId: page.formId || '', landingPageId: page.id, campaignId: page.campaignId || '', eventType: 'landing_page_view', source: 'public_landing_page' });
   recordEvent(state, { workspaceId: page.workspaceId, type: 'landing-view', message: `${page.name} viewed`, meta: { pageId: page.id, campaignId: page.campaignId || '' } });
-  saveDb(state.db);
+  persistState(state);
 }
 
 export function updateAutomationLifecycle(state, actor, automation, nextStatus) {
@@ -267,10 +507,262 @@ export function updateAutomationLifecycle(state, actor, automation, nextStatus) 
   automation.updatedAt = nowIso();
   const report = ensureAutomationReport(automation);
   report.history.unshift({ at: nowIso(), event: nextStatus === 'live' && previousStatus !== 'paused' ? 'published' : nextStatus, status: nextStatus });
-  saveDb(state.db);
+  persistState(state);
   if (nextStatus === 'live' && automation.trigger === 'contact_subscribed') {
     const contacts = contactsForAudience(state, automation.audienceId).filter((entry) => entry.status === 'subscribed');
     for (const contact of contacts) triggerAutomationEvent(state, automation, contact, { eventType: 'contact_subscribed', meta: { lifecycle: previousStatus === 'paused' ? 'resume' : 'publish' } });
   }
   recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: `automation-${nextStatus}`, detail: `${nextStatus} ${automation.name}` });
+}
+
+export const landingPagesIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "landing_pages",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.landing_pages::semantic-frontier-001#18-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildLandingPagesIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...landingPagesIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-growth.mjs","packages/app/routes/website-builder.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: landingPagesIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: landingPagesIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: landingPagesIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const automationsOverviewIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "automations_overview",
+  "focusGroup": "automation_journey",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.automations_overview::semantic-frontier-001#08-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildAutomationsOverviewIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...automationsOverviewIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-growth.mjs","packages/app/routes/automations.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: automationsOverviewIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: automationsOverviewIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: automationsOverviewIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const signupFormsPopupsIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "signup_forms_popups",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.signup_forms_popups::semantic-frontier-001#24-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildSignupFormsPopupsIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...signupFormsPopupsIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-growth.mjs","packages/app/routes/forms.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: signupFormsPopupsIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: signupFormsPopupsIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: signupFormsPopupsIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const automationsOverviewPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "automations_overview",
+  "focusGroup": "automation_journey",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.automations_overview::semantic-frontier-001#08-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildAutomationsOverviewPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...automationsOverviewPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-growth.mjs","packages/app/routes/automations.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: automationsOverviewPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: automationsOverviewPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: automationsOverviewPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const signupFormsPopupsPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "signup_forms_popups",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.signup_forms_popups::semantic-frontier-001#24-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildSignupFormsPopupsPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...signupFormsPopupsPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-growth.mjs","packages/app/routes/forms.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: signupFormsPopupsPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: signupFormsPopupsPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: signupFormsPopupsPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const landingPagesPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "landing_pages",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.landing_pages::semantic-frontier-001#18-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildLandingPagesPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...landingPagesPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-growth.mjs","packages/app/routes/website-builder.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: landingPagesPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: landingPagesPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: landingPagesPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
 }

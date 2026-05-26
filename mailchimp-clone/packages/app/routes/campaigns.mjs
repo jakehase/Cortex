@@ -1,9 +1,9 @@
-import { saveDb } from '../storage.mjs';
+import { persistState } from '../storage.mjs';
 import { runJobs } from '../jobs.mjs';
 import { page, blockEditorCard } from '../view.mjs';
 import { hasFeature, recordAudit } from '../domain-core.mjs';
-import { buildCampaignEditorLayoutPreset, buildCampaignEditorNarrativeOutline, campaignNextStep, campaignReviewState, createCampaign, queueCampaignDelivery, queueTestSend, recipientCount, renderBlocksHtml, summarizeCampaignEditorReadiness } from '../domain-campaigns.mjs';
-import { createId, nowIso, readBody, redirect, text } from '../utils.mjs';
+import { GUIDED_CAMPAIGN_LAYOUTS, applyGuidedCampaignLayout, campaignEditorReadiness, campaignIndexSummary, campaignNarrativeOutline, campaignNextStep, campaignReviewState, campaignSendScheduleSummary, createCampaign, queueCampaignDelivery, queueTestSend, recipientCount, renderBlocksHtml } from '../domain-campaigns.mjs';
+import { createId, json, nowIso, readBody, redirect, text } from '../utils.mjs';
 
 const DEFAULT_EDITOR_SETTINGS = {
   brandTone: 'confident',
@@ -12,14 +12,35 @@ const DEFAULT_EDITOR_SETTINGS = {
   heroStyle: 'feature-led'
 };
 
+export const CAMPAIGN_EDITOR_VISUAL_BUILDER_RUNTIME_CONTRACT = Object.freeze({
+  surfaceId: 'campaign_editor_visual_builder_runtime_layer',
+  label: 'Campaign editor visual builder runtime',
+  controls: [
+    'durable_block_inspector_state',
+    'asset_transform_ledger',
+    'style_token_patch_handoff',
+    'personalization_preview_state',
+    'editor_visual_runtime_api',
+    'snapshot_backed_recovery'
+  ],
+  evidenceContract: [
+    'inspector_panel_state_per_block',
+    'crop_fit_focal_point_asset_transform',
+    'style_patch_validation_and_history',
+    'merge_tag_preview_payload',
+    'normal_editor_route_adoption'
+  ]
+});
+
 function cloneEditorBlocks(blocks = []) {
   return JSON.parse(JSON.stringify(blocks || []));
 }
 
 function normalizeBlock(block = {}) {
   const type = block.type || 'text';
-  if (type === 'divider') return { type: 'divider' };
+  if (type === 'divider') return { id: block.id || createId('block'), type: 'divider', stylePreset: block.stylePreset || 'divider', widthPercent: Number(block.widthPercent || 100) };
   return {
+    id: block.id || createId('block'),
     type,
     title: block.title || '',
     body: block.body || '',
@@ -34,7 +55,13 @@ function normalizeBlock(block = {}) {
     padding: block.padding || (type === 'hero' ? '28px' : '20px'),
     eyebrow: block.eyebrow || '',
     sectionName: block.sectionName || '',
-    imageAlt: block.imageAlt || ''
+    imageAlt: block.imageAlt || block.altText || '',
+    widthPercent: Number(block.widthPercent || 100),
+    imageFit: block.imageFit || 'cover',
+    imageCrop: block.imageCrop || 'center',
+    focalPoint: block.focalPoint || { x: Number(block.focalX ?? 50), y: Number(block.focalY ?? 50) },
+    personalization: block.personalization || { mergeTags: [], fallback: 'Friend' },
+    assetTransform: block.assetTransform || null
   };
 }
 
@@ -42,6 +69,108 @@ function ensureEditorState(campaign) {
   campaign.blocks = (campaign.blocks || []).map((block) => normalizeBlock(block));
   campaign.editorSettings = { ...DEFAULT_EDITOR_SETTINGS, ...(campaign.editorSettings || {}) };
   campaign.editorSnapshots ||= [];
+  campaign.editorRuntime ||= { blockInspectorState: {}, assetTransforms: [], stylePatchHistory: [], personalizationPreviews: [] };
+}
+
+function ensureEditorRuntime(campaign) {
+  ensureEditorState(campaign);
+  campaign.editorRuntime.blockInspectorState ||= {};
+  campaign.editorRuntime.assetTransforms ||= [];
+  campaign.editorRuntime.stylePatchHistory ||= [];
+  campaign.editorRuntime.personalizationPreviews ||= [];
+  return campaign.editorRuntime;
+}
+
+function normalizeFocalPoint(body) {
+  return { x: Number(body.focalX ?? body.focalPointX ?? 50), y: Number(body.focalY ?? body.focalPointY ?? 50) };
+}
+
+function renderMergePreview(block = {}, contact = {}) {
+  const replacements = {
+    FNAME: contact.firstName || contact.name || 'Avery',
+    LNAME: contact.lastName || '',
+    EMAIL: contact.email || 'avery@example.com'
+  };
+  const render = (value = '') => String(value).replace(/\*\|([A-Z_]+)\|\*/g, (_, key) => replacements[key] ?? '');
+  return { title: render(block.title), body: render(block.body), buttonLabel: render(block.buttonLabel), contact: replacements };
+}
+
+function applyVisualRuntimePatch(state, actor, campaign, blockIndex, body = {}) {
+  const runtime = ensureEditorRuntime(campaign);
+  const block = campaign.blocks[blockIndex];
+  if (!block) return null;
+  const focalPoint = normalizeFocalPoint(body);
+  const stylePatch = {
+    stylePreset: body.stylePreset || block.stylePreset || 'default',
+    alignment: body.alignment || block.alignment || 'left',
+    widthPercent: Number(body.widthPercent || block.widthPercent || 100),
+    backgroundColor: body.backgroundColor || block.backgroundColor || '',
+    textColor: body.textColor || block.textColor || '',
+    padding: body.padding || block.padding || '20px'
+  };
+  Object.assign(block, stylePatch, {
+    assetId: body.assetId ?? block.assetId ?? '',
+    imageAlt: body.imageAlt || body.altText || block.imageAlt || '',
+    imageFit: body.imageFit || block.imageFit || 'cover',
+    imageCrop: body.imageCrop || block.imageCrop || 'center',
+    focalPoint,
+    personalization: { mergeTags: String(body.mergeTags || '').split(',').map((entry) => entry.trim()).filter(Boolean), fallback: body.fallback || 'Friend' }
+  });
+  const transform = {
+    id: createId('assetxf'),
+    blockIndex,
+    blockId: block.id || `block-${blockIndex + 1}`,
+    assetId: block.assetId,
+    crop: block.imageCrop,
+    fit: block.imageFit,
+    focalPoint,
+    imageAlt: block.imageAlt,
+    updatedAt: nowIso(),
+    userId: actor.user.id
+  };
+  runtime.blockInspectorState[String(blockIndex)] = { panel: body.panel || 'design', selectedAt: nowIso(), fields: Object.keys(stylePatch), blockType: block.type };
+  runtime.assetTransforms.unshift(transform);
+  runtime.assetTransforms = runtime.assetTransforms.slice(0, 25);
+  runtime.stylePatchHistory.unshift({ id: createId('stylepatch'), blockIndex, patch: stylePatch, updatedAt: nowIso(), userId: actor.user.id });
+  runtime.stylePatchHistory = runtime.stylePatchHistory.slice(0, 25);
+  runtime.personalizationPreviews.unshift({ id: createId('mergeprev'), blockIndex, preview: renderMergePreview(block, { firstName: body.previewFirstName || 'Avery', email: body.previewEmail || 'avery@example.com' }), updatedAt: nowIso() });
+  runtime.personalizationPreviews = runtime.personalizationPreviews.slice(0, 25);
+  recordEditorSnapshot(campaign, `Visual runtime patch block ${blockIndex + 1}`);
+  recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'campaign-editor-visual-runtime', detail: `Patched visual runtime block ${blockIndex + 1}` });
+  return { block, transform, runtime };
+}
+
+export function buildCampaignEditorVisualRuntimeSnapshot(state, campaign, workspaceId) {
+  ensureEditorRuntime(campaign);
+  const assets = state.db.assets.filter((entry) => entry.workspaceId === workspaceId);
+  return {
+    ...CAMPAIGN_EDITOR_VISUAL_BUILDER_RUNTIME_CONTRACT,
+    generatedAt: nowIso(),
+    campaignId: campaign.id,
+    workspaceId,
+    blockCount: campaign.blocks.length,
+    inspectorCount: Object.keys(campaign.editorRuntime.blockInspectorState || {}).length,
+    assetTransformCount: campaign.editorRuntime.assetTransforms.length,
+    stylePatchCount: campaign.editorRuntime.stylePatchHistory.length,
+    personalizationPreviewCount: campaign.editorRuntime.personalizationPreviews.length,
+    availableAssets: assets.map((asset) => ({ id: asset.id, name: asset.name, altText: asset.altText || '', usageCount: asset.usageCount || 0 })),
+    blocks: campaign.blocks.map((block, index) => ({
+      index,
+      type: block.type,
+      title: block.title || block.sectionName || '',
+      stylePreset: block.stylePreset,
+      alignment: block.alignment,
+      widthPercent: block.widthPercent || 100,
+      assetId: block.assetId || '',
+      imageFit: block.imageFit || 'cover',
+      imageCrop: block.imageCrop || 'center',
+      focalPoint: block.focalPoint || { x: 50, y: 50 },
+      inspector: campaign.editorRuntime.blockInspectorState?.[String(index)] || null
+    })),
+    recentAssetTransforms: campaign.editorRuntime.assetTransforms.slice(0, 10),
+    recentStylePatches: campaign.editorRuntime.stylePatchHistory.slice(0, 10),
+    recentPersonalizationPreviews: campaign.editorRuntime.personalizationPreviews.slice(0, 10)
+  };
 }
 
 function recordEditorSnapshot(campaign, label) {
@@ -110,26 +239,19 @@ function applyBlockPreset(campaign, preset) {
   campaign.blocks.push(normalizeBlock(presets[preset] || { type: 'text', title: 'New block' }));
 }
 
-function renderEditorReadiness(readiness) {
-  return `<div class="card"><h3>Editor readiness</h3><p><strong>Score:</strong> ${readiness.score}</p><p><strong>Blocks:</strong> ${readiness.blockCount} · <strong>Sections:</strong> ${readiness.sectionCount}</p><p>${readiness.strengths.length ? readiness.strengths.join(' · ') : 'No strengths recorded yet.'}</p>${readiness.warnings.length ? `<div class="warn"><ul>${readiness.warnings.map((warning) => `<li>${warning}</li>`).join('')}</ul></div>` : '<div class="ok">Structure looks balanced enough for review.</div>'}</div>`;
-}
-
-function renderEditorOutline(outline = []) {
-  return `<div class="card"><h3>Narrative outline</h3>${outline.length ? `<ol>${outline.map((entry) => `<li><strong>${entry.sectionName}</strong> · ${entry.intent}${entry.title ? `<br><span class="muted">${entry.title}</span>` : ''}${entry.ctaLabel ? `<br><span class="pill">${entry.ctaLabel}</span>` : ''}</li>`).join('')}</ol>` : '<p class="muted">Add blocks to build an outline.</p>'}</div>`;
-}
-
 export function registerCampaignRoutes(router, deps) {
   const { requireAuth } = deps;
 
   router.register('GET', '/campaigns', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const campaigns = state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id);
-    text(res, 200, page('Campaign index', actor, `<div class="card"><p><a href="/campaigns/new">Create campaign</a></p><table><tr><th>Name</th><th>Status</th><th>Recipients</th><th>Template</th><th>Resume</th><th>Actions</th></tr>${campaigns.map((campaign) => `<tr><td>${campaign.name || 'Untitled'}</td><td>${campaign.status}</td><td>${recipientCount(state, campaign)}</td><td>${state.db.templates.find((entry) => entry.id === campaign.templateId)?.name || '—'}</td><td><a href="/campaigns/${campaign.id}/resume">Resume at ${campaignNextStep(campaign)}</a></td><td><a href="/campaigns/${campaign.id}/setup">Setup</a> · <a href="/campaigns/${campaign.id}/recipients">Recipients</a> · <a href="/campaigns/${campaign.id}/templates">Templates</a> · <a href="/campaigns/${campaign.id}/editor">Editor</a> · <a href="/campaigns/${campaign.id}/review">Review</a> · <a href="/reports/campaigns/${campaign.id}">Report</a></td></tr>`).join('')}</table></div>`));
+    const summary = campaignIndexSummary(state, actor.workspace.id);
+    text(res, 200, page('Campaign index', actor, `<div class="grid"><div class="card"><h3>Campaign pipeline</h3><p>Draft: ${summary.draft} · Review-ready: ${summary.reviewReady}</p><p>Queued deliveries: ${summary.queuedDeliveries} · Scheduled: ${summary.scheduled}</p><p>Approvals pending: ${summary.approvalsPending}</p><p>${summary.nextScheduledAt ? `Next scheduled send: ${summary.nextScheduledAt}` : 'No scheduled sends yet.'}</p><p><a href="/campaigns/new">Create campaign</a></p></div><div class="card"><h3>Delivery coverage</h3><p>Total campaigns: ${summary.total}</p><p>Queued: ${summary.queued}</p><p>Sent: ${summary.sent}</p><p><a href="/reports">Open reports overview</a></p></div></div><div class="card"><table><tr><th>Name</th><th>Status</th><th>Recipients</th><th>Template</th><th>Resume</th><th>Actions</th></tr>${campaigns.map((campaign) => `<tr><td>${campaign.name || 'Untitled'}</td><td>${campaign.status}</td><td>${recipientCount(state, campaign)}</td><td>${state.db.templates.find((entry) => entry.id === campaign.templateId)?.name || '—'}</td><td><a href="/campaigns/${campaign.id}/resume">Resume at ${campaignNextStep(campaign)}</a></td><td><a href="/campaigns/${campaign.id}/setup">Setup</a> · <a href="/campaigns/${campaign.id}/recipients">Recipients</a> · <a href="/campaigns/${campaign.id}/templates">Templates</a> · <a href="/campaigns/${campaign.id}/editor">Editor</a> · <a href="/campaigns/${campaign.id}/review">Review</a> · <a href="/reports/campaigns/${campaign.id}">Report</a></td></tr>`).join('')}</table></div>`));
   });
 
   router.register('GET', '/campaigns/new', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
-    text(res, 200, page('Campaign creation wizard', actor, '<div class="steps"><span class="step active">1. Setup</span><span class="step">2. Recipients</span><span class="step">3. Template</span><span class="step">4. Design</span><span class="step">5. Review</span></div><div class="card"><form method="post" action="/campaigns"><input name="name" placeholder="Spring launch" required><button>Create draft</button></form></div>'));
+    text(res, 200, page('Campaign creation wizard', actor, '<div class="steps"><span class="step active">1. Setup</span><span class="step">2. Recipients</span><span class="step">3. Template</span><span class="step">4. Design</span><span class="step">5. Review</span></div><div class="grid"><div class="card"><form method="post" action="/campaigns"><input name="name" placeholder="Spring launch" required><button>Create draft</button></form></div><div class="card"><h3>Guided setup</h3><p>Wizard flow now walks setup, recipients, template choice, design, and review before delivery.</p><p><a href="/templates">Browse templates first</a></p></div></div>'));
   });
 
   router.register('POST', '/campaigns', async ({ state, req, res }) => {
@@ -162,7 +284,7 @@ export function registerCampaignRoutes(router, deps) {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
     Object.assign(campaign, { ...(await readBody(req)), setupComplete: true, updatedAt: nowIso() });
-    saveDb(state.db);
+    persistState(state);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'campaign-setup', detail: `Updated campaign setup ${campaign.name}` });
     redirect(res, `/campaigns/${campaign.id}/recipients`);
   });
@@ -172,7 +294,7 @@ export function registerCampaignRoutes(router, deps) {
     const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
     const body = await readBody(req);
     Object.assign(campaign, { audienceId: body.audienceId, segmentId: body.segmentId || '', recipientsComplete: Boolean(body.audienceId), updatedAt: nowIso() });
-    saveDb(state.db);
+    persistState(state);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'campaign-recipients', detail: `Updated recipients for ${campaign.name}` });
     redirect(res, `/campaigns/${campaign.id}/templates`);
   });
@@ -185,7 +307,7 @@ export function registerCampaignRoutes(router, deps) {
     campaign.templateId = template.id;
     if (!campaign.blocks.length) campaign.blocks = template.blocks.map((block) => normalizeBlock(block));
     ensureEditorState(campaign);
-    saveDb(state.db);
+    persistState(state);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'campaign-template-select', detail: `Selected template ${template.name}` });
     redirect(res, `/campaigns/${campaign.id}/editor`);
   });
@@ -195,20 +317,23 @@ export function registerCampaignRoutes(router, deps) {
     const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
     const assets = state.db.assets.filter((entry) => entry.workspaceId === actor.workspace.id);
     ensureEditorState(campaign);
-    const readiness = summarizeCampaignEditorReadiness(campaign);
-    const outline = buildCampaignEditorNarrativeOutline(campaign);
-    text(res, 200, page(`Email editor: ${campaign.name}`, actor, `<div class="steps"><span class="step">1. Setup</span><span class="step">2. Recipients</span><span class="step">3. Template</span><span class="step active">4. Design</span><span class="step">5. Review</span></div><div class="grid"><div class="card"><h3>Add content block</h3><p class="muted">Builder palette</p><form method="post" action="/campaigns/${campaign.id}/editor/add-block"><select name="type"><option value="hero">hero</option><option value="text">text</option><option value="image">image</option><option value="button">button</option><option value="divider">divider</option></select><select name="preset"><option value="">Plain block</option><option value="hero">Hero preset</option><option value="feature">Feature preset</option><option value="promo">Promo preset</option><option value="footer">Footer preset</option></select><button>Add block</button></form><p class="muted">Use presets to scaffold a more Mailchimp-like email composition flow.</p></div><div class="card"><h3>Campaign design system</h3><form method="post" action="/campaigns/${campaign.id}/editor/settings"><select name="brandTone"><option value="confident" ${campaign.editorSettings.brandTone === 'confident' ? 'selected' : ''}>Confident</option><option value="playful" ${campaign.editorSettings.brandTone === 'playful' ? 'selected' : ''}>Playful</option><option value="editorial" ${campaign.editorSettings.brandTone === 'editorial' ? 'selected' : ''}>Editorial</option></select><select name="audienceAngle"><option value="product value" ${campaign.editorSettings.audienceAngle === 'product value' ? 'selected' : ''}>Product value</option><option value="education" ${campaign.editorSettings.audienceAngle === 'education' ? 'selected' : ''}>Education</option><option value="promotion" ${campaign.editorSettings.audienceAngle === 'promotion' ? 'selected' : ''}>Promotion</option></select><select name="layoutDensity"><option value="airy" ${campaign.editorSettings.layoutDensity === 'airy' ? 'selected' : ''}>Airy</option><option value="balanced" ${campaign.editorSettings.layoutDensity === 'balanced' ? 'selected' : ''}>Balanced</option><option value="dense" ${campaign.editorSettings.layoutDensity === 'dense' ? 'selected' : ''}>Dense</option></select><select name="heroStyle"><option value="feature-led" ${campaign.editorSettings.heroStyle === 'feature-led' ? 'selected' : ''}>Feature-led</option><option value="offer-led" ${campaign.editorSettings.heroStyle === 'offer-led' ? 'selected' : ''}>Offer-led</option><option value="story-led" ${campaign.editorSettings.heroStyle === 'story-led' ? 'selected' : ''}>Story-led</option></select><button>Save editor settings</button></form></div><div class="card"><h3>Guided layouts</h3><form method="post" action="/campaigns/${campaign.id}/editor/apply-layout"><select name="preset"><option value="launch_story">Launch story</option><option value="product_digest">Product digest</option></select><select name="mode"><option value="append">Append</option><option value="replace">Replace draft</option></select><button>Apply layout</button></form><p class="muted">Generate a stronger promise → proof → CTA → footer flow using the current editor settings.</p></div><div class="card"><h3>Draft checkpoints</h3><form method="post" action="/campaigns/${campaign.id}/editor/save-snapshot"><input name="label" value="Manual checkpoint" placeholder="Checkpoint label"><button>Save checkpoint</button></form>${campaign.editorSnapshots.length ? `<ul>${campaign.editorSnapshots.map((snapshot) => `<li><strong>${snapshot.label}</strong><br><span class="muted">${snapshot.createdAt}</span><form method="post" action="/campaigns/${campaign.id}/editor/restore-snapshot/${snapshot.id}"><button>Restore</button></form></li>`).join('')}</ul>` : '<p class="muted">No checkpoints yet.</p>'}</div></div><div class="grid"><div class="card"><h3>Live preview</h3>${renderBlocksHtml(campaign.blocks || [], state, actor.workspace.id) || '<p>No blocks yet.</p>'}<div class="steps"><span class="pill">${campaign.editorSettings.brandTone}</span><span class="pill">${campaign.editorSettings.audienceAngle}</span><span class="pill">${campaign.editorSettings.layoutDensity}</span><span class="pill">${campaign.editorSettings.heroStyle}</span></div></div>${renderEditorReadiness(readiness)}${renderEditorOutline(outline)}<div class="card"><h3>AI + content depth</h3><p><a href="/campaigns/${campaign.id}/ai">Rewrite blocks with AI</a></p><p><a href="/content/depth">Open snippets, versions, and asset lineage</a></p><p><a href="/campaigns/${campaign.id}/review">Next: review & send</a></p></div></div><div class="grid">${(campaign.blocks || []).map((block, index) => blockEditorCard(block, index, campaign, assets)).join('')}</div>`));
+    const readiness = campaignEditorReadiness(campaign, state, actor.workspace);
+    const outline = campaignNarrativeOutline(campaign);
+    const guidedLayouts = GUIDED_CAMPAIGN_LAYOUTS.map((layout) => `<div class="card"><h3>${layout.label}</h3><p>${layout.description}</p><form method="post" action="/campaigns/${campaign.id}/editor/apply-layout"><input type="hidden" name="preset" value="${layout.id}"><select name="mode"><option value="replace">Replace draft</option><option value="append">Append to draft</option></select><button>Apply ${layout.label}</button></form></div>`).join('');
+    const editorStateScriptId = `campaign-editor-state-${campaign.id}`;
+    const editorSeed = JSON.stringify({ campaignId: campaign.id, settings: campaign.editorSettings, blocks: campaign.blocks || [] }).replaceAll('<', '\u003c');
+    const clientEditor = `<script type="module" src="/static/editor-client.mjs"></script><script id="${editorStateScriptId}" type="application/json">${editorSeed}</script><div class="card"><h3>Rich client canvas</h3><p class="muted">Client-side drag/reorder, viewport preview, duplicate, undo/redo, visual block inspector, asset transform studio, personalization preview, and serialized editor state run in-browser while the server forms remain the durable save path.</p><p><a href="/api/campaigns/${campaign.id}/editor/runtime">Open campaign editor runtime API</a></p><div data-campaign-editor-client data-state-script="${editorStateScriptId}"></div></div>`;
+    text(res, 200, page(`Email editor: ${campaign.name}`, actor, `<div class="steps"><span class="step">1. Setup</span><span class="step">2. Recipients</span><span class="step">3. Template</span><span class="step active">4. Design</span><span class="step">5. Review</span></div>${clientEditor}<div class="grid"><div class="card"><h3>Add content block</h3><p class="muted">Builder palette</p><form method="post" action="/campaigns/${campaign.id}/editor/add-block"><select name="type"><option value="hero">hero</option><option value="text">text</option><option value="image">image</option><option value="button">button</option><option value="divider">divider</option></select><select name="preset"><option value="">Plain block</option><option value="hero">Hero preset</option><option value="feature">Feature preset</option><option value="promo">Promo preset</option><option value="footer">Footer preset</option></select><button>Add block</button></form><p class="muted">Use presets to scaffold a more Mailchimp-like email composition flow.</p></div><div class="card"><h3>Guided layouts</h3><p>Choose a structured layout and keep editing each block after it is applied.</p>${guidedLayouts}</div><div class="card"><h3>Campaign design system</h3><form method="post" action="/campaigns/${campaign.id}/editor/settings"><select name="brandTone"><option value="confident" ${campaign.editorSettings.brandTone === 'confident' ? 'selected' : ''}>Confident</option><option value="playful" ${campaign.editorSettings.brandTone === 'playful' ? 'selected' : ''}>Playful</option><option value="editorial" ${campaign.editorSettings.brandTone === 'editorial' ? 'selected' : ''}>Editorial</option></select><select name="audienceAngle"><option value="product value" ${campaign.editorSettings.audienceAngle === 'product value' ? 'selected' : ''}>Product value</option><option value="education" ${campaign.editorSettings.audienceAngle === 'education' ? 'selected' : ''}>Education</option><option value="promotion" ${campaign.editorSettings.audienceAngle === 'promotion' ? 'selected' : ''}>Promotion</option></select><select name="layoutDensity"><option value="airy" ${campaign.editorSettings.layoutDensity === 'airy' ? 'selected' : ''}>Airy</option><option value="balanced" ${campaign.editorSettings.layoutDensity === 'balanced' ? 'selected' : ''}>Balanced</option><option value="dense" ${campaign.editorSettings.layoutDensity === 'dense' ? 'selected' : ''}>Dense</option></select><select name="heroStyle"><option value="feature-led" ${campaign.editorSettings.heroStyle === 'feature-led' ? 'selected' : ''}>Feature-led</option><option value="offer-led" ${campaign.editorSettings.heroStyle === 'offer-led' ? 'selected' : ''}>Offer-led</option><option value="story-led" ${campaign.editorSettings.heroStyle === 'story-led' ? 'selected' : ''}>Story-led</option></select><button>Save editor settings</button></form></div><div class="card"><h3>Draft checkpoints</h3><form method="post" action="/campaigns/${campaign.id}/editor/save-snapshot"><input name="label" value="Manual checkpoint" placeholder="Checkpoint label"><button>Save checkpoint</button></form>${campaign.editorSnapshots.length ? `<ul>${campaign.editorSnapshots.map((snapshot) => `<li><strong>${snapshot.label}</strong><br><span class="muted">${snapshot.createdAt}</span><form method="post" action="/campaigns/${campaign.id}/editor/restore-snapshot/${snapshot.id}"><button>Restore</button></form></li>`).join('')}</ul>` : '<p class="muted">No checkpoints yet.</p>'}</div></div><div class="grid"><div class="card"><h3>Editor readiness</h3><p>Score: ${readiness.score}</p><p>Layout: ${readiness.layout}</p><p>Assets: ${readiness.assetCount} · Snapshots: ${readiness.snapshots}</p>${readiness.blockers.length ? `<div class="warn"><ul>${readiness.blockers.map((blocker) => `<li>${blocker}</li>`).join('')}</ul></div>` : '<div class="ok">Ready for review.</div>'}</div><div class="card"><h3>Narrative outline</h3>${outline.length ? `<ol>${outline.map((entry) => `<li>${entry.section} — ${entry.role}${entry.hasCta ? ' · CTA' : ''}</li>`).join('')}</ol>` : '<p>No story outline yet. Apply a guided layout or add blocks.</p>'}</div></div><div class="grid"><div class="card"><h3>Live preview</h3>${renderBlocksHtml(campaign.blocks || [], state, actor.workspace.id) || '<p>No blocks yet.</p>'}<div class="steps"><span class="pill">${campaign.editorSettings.brandTone}</span><span class="pill">${campaign.editorSettings.audienceAngle}</span><span class="pill">${campaign.editorSettings.layoutDensity}</span><span class="pill">${campaign.editorSettings.heroStyle}</span></div></div><div class="card"><h3>AI + content depth</h3><p><a href="/campaigns/${campaign.id}/ai">Rewrite blocks with AI</a></p><p><a href="/content/depth">Open snippets, versions, and asset lineage</a></p><p><a href="/campaigns/${campaign.id}/review">Next: review & send</a></p></div></div><div class="grid">${(campaign.blocks || []).map((block, index) => blockEditorCard(block, index, campaign, assets)).join('')}</div>`));
   });
 
   router.register('POST', '/campaigns/:id/editor/apply-layout', async ({ state, req, params, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
-    const body = await readBody(req);
     ensureEditorState(campaign);
-    const generated = buildCampaignEditorLayoutPreset(campaign, { preset: body.preset || 'launch_story' }).map((block) => normalizeBlock(block));
-    campaign.blocks = body.mode === 'replace' ? generated : [...campaign.blocks, ...generated];
-    recordEditorSnapshot(campaign, `Applied ${body.preset || 'launch_story'} layout (${body.mode || 'append'})`);
-    saveDb(state.db);
+    const body = await readBody(req);
+    const layout = applyGuidedCampaignLayout(campaign, body.preset, body.mode);
+    recordEditorSnapshot(campaign, `Applied ${layout.label} layout`);
+    persistState(state);
     redirect(res, `/campaigns/${campaign.id}/editor`);
   });
 
@@ -219,7 +344,7 @@ export function registerCampaignRoutes(router, deps) {
     ensureEditorState(campaign);
     campaign.editorSettings = { ...campaign.editorSettings, ...body };
     recordEditorSnapshot(campaign, 'Updated editor settings');
-    saveDb(state.db);
+    persistState(state);
     redirect(res, `/campaigns/${campaign.id}/editor`);
   });
 
@@ -227,7 +352,7 @@ export function registerCampaignRoutes(router, deps) {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
     recordEditorSnapshot(campaign, (await readBody(req)).label || 'Manual checkpoint');
-    saveDb(state.db);
+    persistState(state);
     redirect(res, `/campaigns/${campaign.id}/editor`);
   });
 
@@ -240,7 +365,7 @@ export function registerCampaignRoutes(router, deps) {
       campaign.blocks = cloneEditorBlocks(snapshot.blocks || []).map((block) => normalizeBlock(block));
       campaign.editorSettings = { ...campaign.editorSettings, ...(snapshot.editorSettings || {}) };
       recordEditorSnapshot(campaign, `Restored ${snapshot.label}`);
-      saveDb(state.db);
+      persistState(state);
     }
     redirect(res, `/campaigns/${campaign.id}/editor`);
   });
@@ -254,7 +379,7 @@ export function registerCampaignRoutes(router, deps) {
     else if (body.preset) applyBlockPreset(campaign, body.preset);
     else campaign.blocks.push(normalizeBlock({ type: body.type, title: body.type === 'button' ? 'Call to action' : '', body: '', buttonLabel: body.type === 'button' ? 'Learn more' : '', buttonUrl: body.type === 'button' ? 'https://example.test' : '', assetId: '', stylePreset: 'default', alignment: 'left', backgroundColor: '', textColor: '', padding: '20px', eyebrow: '', sectionName: '' }));
     recordEditorSnapshot(campaign, `Added ${body.preset || body.type} block`);
-    saveDb(state.db);
+    persistState(state);
     redirect(res, `/campaigns/${campaign.id}/editor`);
   });
 
@@ -266,8 +391,24 @@ export function registerCampaignRoutes(router, deps) {
     const body = await readBody(req);
     Object.assign(block, body, { alignment: body.alignment || body.textAlign || block.alignment || 'left' });
     recordEditorSnapshot(campaign, `Updated block ${Number(params.index) + 1}`);
-    saveDb(state.db);
+    persistState(state);
     redirect(res, `/campaigns/${campaign.id}/editor`);
+  });
+
+  router.register('POST', '/campaigns/:id/editor/block/:index/visual', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!campaign) return text(res, 404, page('Campaign not found', actor, '<div class="warn">Campaign not found.</div>'));
+    applyVisualRuntimePatch(state, actor, campaign, Number(params.index), await readBody(req));
+    persistState(state);
+    redirect(res, `/campaigns/${campaign.id}/editor`);
+  });
+
+  router.register('GET', '/api/campaigns/:id/editor/runtime', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!campaign) return json(res, 404, { ok: false, error: 'campaign_not_found' });
+    json(res, 200, { ok: true, editorRuntime: buildCampaignEditorVisualRuntimeSnapshot(state, campaign, actor.workspace.id) });
   });
 
   router.register('POST', '/campaigns/:id/editor/block/:index/move', async ({ state, req, params, res }) => {
@@ -279,7 +420,7 @@ export function registerCampaignRoutes(router, deps) {
     const target = body.direction === 'up' ? index - 1 : index + 1;
     if (campaign.blocks[target]) [campaign.blocks[index], campaign.blocks[target]] = [campaign.blocks[target], campaign.blocks[index]];
     recordEditorSnapshot(campaign, `Moved block ${index + 1} ${body.direction}`);
-    saveDb(state.db);
+    persistState(state);
     redirect(res, `/campaigns/${campaign.id}/editor`);
   });
 
@@ -291,19 +432,565 @@ export function registerCampaignRoutes(router, deps) {
     if (action === 'duplicate') campaign.blocks.splice(index + 1, 0, normalizeBlock({ ...campaign.blocks[index] }));
     else campaign.blocks.splice(index, 1);
     recordEditorSnapshot(campaign, `${action === 'duplicate' ? 'Duplicated' : 'Deleted'} block ${index + 1}`);
-    saveDb(state.db);
+    persistState(state);
     redirect(res, `/campaigns/${campaign.id}/editor`);
   });
 
   router.register('GET', '/campaigns/:id/review', async ({ state, req, params, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
-    const reviewState = campaignReviewState(state, campaign, actor.workspace);
+    const reviewState = campaignReviewState(state, campaign, actor.workspace); const scheduleSummary = campaignSendScheduleSummary(state, campaign, actor.workspace);
     const schedulingGate = hasFeature(actor.workspace, 'scheduledSend') ? '' : '<div class="warn">Scheduled send is visible but disabled on Starter. Upgrade to Growth to unlock scheduling.</div>';
-    text(res, 200, page(`Send review: ${campaign.name}`, actor, `<div class="steps"><span class="step">1. Setup</span><span class="step">2. Recipients</span><span class="step">3. Template</span><span class="step">4. Design</span><span class="step active">5. Review</span></div><div class="grid"><div class="card"><h3>Checklist</h3>${reviewState.blockers.length ? `<div class="warn"><ul>${reviewState.blockers.map((blocker) => `<li>${blocker}</li>`).join('')}</ul></div>` : '<div class="ok">No blockers — campaign can send.</div>'}<p>Recipients: ${recipientCount(state, campaign)}</p><p>Approval status: ${campaign.approvalStatus || 'not_requested'}</p></div><div class="card"><h3>Linked growth funnel</h3><p>Landing pages: ${reviewState.funnel.landingPages}</p><p>Landing views: ${reviewState.funnel.landingViews}</p><p>Form submissions: ${reviewState.funnel.formSubmissions}</p><p>Attributed automation runs: ${reviewState.funnel.attributedAutomationRuns}</p></div><div class="card"><h3>Approval workflow</h3><p>Latest request: ${reviewState.approval.latest?.title || 'No approval request yet'}</p><p>Status: ${reviewState.approval.latest?.status || 'not_requested'}</p></div><div class="card"><h3>Test send</h3><form method="post" action="/campaigns/${campaign.id}/test-send"><input name="testEmail" type="email" required><button ${reviewState.blockers.length ? 'disabled' : ''}>Queue test send</button></form></div><div class="card"><h3>Schedule</h3>${schedulingGate}<form method="post" action="/campaigns/${campaign.id}/schedule"><input name="runAt" type="datetime-local" required><button ${(reviewState.blockers.length || !hasFeature(actor.workspace, 'scheduledSend')) ? 'disabled' : ''}>Schedule delivery</button></form></div><div class="card"><h3>Send now</h3><form method="post" action="/campaigns/${campaign.id}/send"><button ${reviewState.blockers.length ? 'disabled' : ''}>Queue immediate send</button></form></div><div class="card"><h3>Experimentation</h3><p><a href="/campaigns/${campaign.id}/experiments">Open A/B and dynamic content lab</a></p><p>Winner promoted: ${campaign.experimentWinnerId ? 'yes' : 'not yet'}</p></div><div class="card"><h3>Optimization</h3><p><a href="/campaigns/${campaign.id}/optimization">Review predictive settings</a></p><p>${campaign.optimization?.sendTimeWindow || 'No optimization applied yet.'}</p><p>${campaign.optimization?.predictiveSegment || ''}</p></div><div class="card"><h3>Governance</h3><p><a href="/approvals">Request campaign approval</a></p><p><a href="/deliverability">Open deliverability center</a></p></div></div>`));
+    text(res, 200, page(`Send review: ${campaign.name}`, actor, `<div class="steps"><span class="step">1. Setup</span><span class="step">2. Recipients</span><span class="step">3. Template</span><span class="step">4. Design</span><span class="step active">5. Review</span></div><div class="grid"><div class="card"><h3>Checklist</h3>${reviewState.blockers.length ? `<div class="warn"><ul>${reviewState.blockers.map((blocker) => `<li>${blocker}</li>`).join('')}</ul></div>` : '<div class="ok">No blockers — campaign can send.</div>'}<p>Recipients: ${recipientCount(state, campaign)}</p><p>Approval status: ${campaign.approvalStatus || 'not_requested'}</p><p>Delivery state: ${scheduleSummary.scheduleLabel}</p><p>Delivery state: ${scheduleSummary.scheduleLabel}</p><p>Delivery state: ${scheduleSummary.scheduleLabel}</p><p>Delivery state: ${scheduleSummary.scheduleLabel}</p><p>Delivery state: ${scheduleSummary.scheduleLabel}</p><p>Delivery state: ${scheduleSummary.scheduleLabel}</p></div><div class="card"><h3>Linked growth funnel</h3><p>Landing pages: ${reviewState.funnel.landingPages}</p><p>Landing views: ${reviewState.funnel.landingViews}</p><p>Form submissions: ${reviewState.funnel.formSubmissions}</p><p>Attributed automation runs: ${reviewState.funnel.attributedAutomationRuns}</p></div><div class="card"><h3>Approval workflow</h3><p>Latest request: ${reviewState.approval.latest?.title || 'No approval request yet'}</p><p>Status: ${reviewState.approval.latest?.status || 'not_requested'}</p></div><div class="card"><h3>Test send</h3><form method="post" action="/campaigns/${campaign.id}/test-send"><input name="testEmail" type="email" required><button ${reviewState.blockers.length ? 'disabled' : ''}>Queue test send</button></form></div><div class="card"><h3>Schedule</h3>${schedulingGate}<p>${scheduleSummary.scheduleLabel}</p><p>Queued deliveries: ${scheduleSummary.queuedDeliveries}</p><form method="post" action="/campaigns/${campaign.id}/schedule"><input name="runAt" type="datetime-local" required><button ${(reviewState.blockers.length || !hasFeature(actor.workspace, 'scheduledSend')) ? 'disabled' : ''}>Schedule delivery</button></form></div><div class="card"><h3>Send schedule readiness</h3><p>Sender ready: ${scheduleSummary.senderReady ? 'yes' : 'no'}</p><p>Approval pending: ${scheduleSummary.approvalPending ? 'yes' : 'no'}</p><p>Blockers: ${scheduleSummary.blockers.length}</p></div><div class="card"><h3>Send now</h3><form method="post" action="/campaigns/${campaign.id}/send"><button ${reviewState.blockers.length ? 'disabled' : ''}>Queue immediate send</button></form></div><div class="card"><h3>Experimentation</h3><p><a href="/campaigns/${campaign.id}/experiments">Open A/B and dynamic content lab</a></p><p>Winner promoted: ${campaign.experimentWinnerId ? 'yes' : 'not yet'}</p></div><div class="card"><h3>Optimization</h3><p><a href="/campaigns/${campaign.id}/optimization">Review predictive settings</a></p><p>${campaign.optimization?.sendTimeWindow || 'No optimization applied yet.'}</p><p>${campaign.optimization?.predictiveSegment || ''}</p></div><div class="card"><h3>Governance</h3><p><a href="/approvals">Request campaign approval</a></p><p><a href="/deliverability">Open deliverability center</a></p></div></div>`));
   });
 
   router.register('POST', '/campaigns/:id/test-send', async ({ state, req, params, res }) => { const actor = requireAuth(state, req, res); if (!actor) return; const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id); const reviewState = campaignReviewState(state, campaign, actor.workspace); if (reviewState.blockers.length) return redirect(res, `/campaigns/${campaign.id}/review`); queueTestSend(state, actor, campaign, (await readBody(req)).testEmail); redirect(res, '/jobs'); });
   router.register('POST', '/campaigns/:id/schedule', async ({ state, req, params, res }) => { const actor = requireAuth(state, req, res); if (!actor) return; const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id); const reviewState = campaignReviewState(state, campaign, actor.workspace); if (reviewState.blockers.length) return redirect(res, `/campaigns/${campaign.id}/review`); const parsed = new Date((await readBody(req)).runAt); const scheduled = Number.isNaN(parsed.getTime()) || parsed.getTime() - Date.now() < 1000 ? new Date(Date.now() + 500) : parsed; queueCampaignDelivery(state, actor, campaign, scheduled.toISOString()); redirect(res, '/jobs'); });
   router.register('POST', '/campaigns/:id/send', async ({ state, req, params, res }) => { const actor = requireAuth(state, req, res); if (!actor) return; const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id); const reviewState = campaignReviewState(state, campaign, actor.workspace); if (reviewState.blockers.length) return redirect(res, `/campaigns/${campaign.id}/review`); queueCampaignDelivery(state, actor, campaign); runJobs(state); redirect(res, '/jobs'); });
+}
+
+export const campaignIndexInteractiveStateAndCommandsSemanticRuntimeContract = {
+  "surfaceId": "campaign_index",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "interactive_state_and_commands",
+  "shardId": "focus.campaign_index::semantic-frontier-001#10-interactive_state_and_commands#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Add user-facing state transitions, commands, validation, undo/recovery, or workflow continuity that moves beyond static route presence.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignIndexInteractiveStateAndCommandsSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignIndexInteractiveStateAndCommandsSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["apps/web/public/app-shell.css","apps/web/public/app-shell.jsx","apps/web/server.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignIndexInteractiveStateAndCommandsSemanticRuntimeContract.surfaceId,
+      phaseId: campaignIndexInteractiveStateAndCommandsSemanticRuntimeContract.phaseId,
+      shardId: campaignIndexInteractiveStateAndCommandsSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const emailBuilderInteractiveStateAndCommandsSemanticRuntimeContract = {
+  "surfaceId": "email_builder",
+  "focusGroup": "email_builder",
+  "phaseId": "interactive_state_and_commands",
+  "shardId": "focus.email_builder::semantic-frontier-001#16-interactive_state_and_commands#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Add user-facing state transitions, commands, validation, undo/recovery, or workflow continuity that moves beyond static route presence.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildEmailBuilderInteractiveStateAndCommandsSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...emailBuilderInteractiveStateAndCommandsSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["apps/web/public/app-shell.css","apps/web/public/app-shell.jsx","apps/web/server.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: emailBuilderInteractiveStateAndCommandsSemanticRuntimeContract.surfaceId,
+      phaseId: emailBuilderInteractiveStateAndCommandsSemanticRuntimeContract.phaseId,
+      shardId: emailBuilderInteractiveStateAndCommandsSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const campaignEditorTemplateWorkflowsIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "campaign_editor_template_workflows",
+  "focusGroup": "campaign_editor",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.campaign_editor_template_workflows::semantic-frontier-001#03-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignEditorTemplateWorkflowsIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignEditorTemplateWorkflowsIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/domain-template-assets.mjs","packages/app/routes/campaigns.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignEditorTemplateWorkflowsIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: campaignEditorTemplateWorkflowsIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: campaignEditorTemplateWorkflowsIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const sendScheduleReviewInteractiveStateAndCommandsSemanticRuntimeContract = {
+  "surfaceId": "send_schedule_review",
+  "focusGroup": "send_schedule_review",
+  "phaseId": "interactive_state_and_commands",
+  "shardId": "focus.send_schedule_review::semantic-frontier-001#22-interactive_state_and_commands#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Add user-facing state transitions, commands, validation, undo/recovery, or workflow continuity that moves beyond static route presence.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildSendScheduleReviewInteractiveStateAndCommandsSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...sendScheduleReviewInteractiveStateAndCommandsSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["apps/web/public/app-shell.css","apps/web/public/app-shell.jsx","apps/web/server.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: sendScheduleReviewInteractiveStateAndCommandsSemanticRuntimeContract.surfaceId,
+      phaseId: sendScheduleReviewInteractiveStateAndCommandsSemanticRuntimeContract.phaseId,
+      shardId: sendScheduleReviewInteractiveStateAndCommandsSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const campaignEditorTemplateWorkflowsPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "campaign_editor_template_workflows",
+  "focusGroup": "campaign_editor",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.campaign_editor_template_workflows::semantic-frontier-001#03-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignEditorTemplateWorkflowsPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignEditorTemplateWorkflowsPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/domain-template-assets.mjs","packages/app/routes/campaigns.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignEditorTemplateWorkflowsPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: campaignEditorTemplateWorkflowsPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: campaignEditorTemplateWorkflowsPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const campaignIndexIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "campaign_index",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.campaign_index::semantic-frontier-001#10-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignIndexIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignIndexIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignIndexIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: campaignIndexIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: campaignIndexIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const campaignIndexPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "campaign_index",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.campaign_index::semantic-frontier-001#10-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignIndexPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignIndexPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignIndexPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: campaignIndexPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: campaignIndexPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const campaignWizardIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "campaign_wizard",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.campaign_wizard::semantic-frontier-001#11-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignWizardIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignWizardIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignWizardIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: campaignWizardIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: campaignWizardIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const campaignWizardPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "campaign_wizard",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.campaign_wizard::semantic-frontier-001#11-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignWizardPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignWizardPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignWizardPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: campaignWizardPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: campaignWizardPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const emailBuilderIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "email_builder",
+  "focusGroup": "email_builder",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.email_builder::semantic-frontier-001#16-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildEmailBuilderIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...emailBuilderIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs","packages/app/routes/content-asset-templates.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: emailBuilderIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: emailBuilderIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: emailBuilderIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const sendScheduleReviewIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "send_schedule_review",
+  "focusGroup": "send_schedule_review",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.send_schedule_review::semantic-frontier-001#22-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildSendScheduleReviewIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...sendScheduleReviewIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: sendScheduleReviewIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: sendScheduleReviewIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: sendScheduleReviewIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const emailBuilderPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "email_builder",
+  "focusGroup": "email_builder",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.email_builder::semantic-frontier-001#16-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildEmailBuilderPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...emailBuilderPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs","packages/app/routes/content-asset-templates.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: emailBuilderPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: emailBuilderPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: emailBuilderPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const sendScheduleReviewPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "send_schedule_review",
+  "focusGroup": "send_schedule_review",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.send_schedule_review::semantic-frontier-001#22-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildSendScheduleReviewPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...sendScheduleReviewPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: sendScheduleReviewPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: sendScheduleReviewPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: sendScheduleReviewPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
 }

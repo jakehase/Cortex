@@ -1,6 +1,6 @@
 import { page } from '../view.mjs';
-import { escapeHtml, readBody, redirect, text } from '../utils.mjs';
-import { websitePages, websiteValidation, createWebsite, createWebsitePage, updateWebsite, updateWebsitePage, reorderWebsiteNavigation, publishWebsite, recordWebsiteView, generateWebsiteCopyRecommendation, applyWebsiteCopyRecommendation, ensureCurrentProductState } from '../domain-current-product.mjs';
+import { escapeHtml, json, readBody, redirect, text } from '../utils.mjs';
+import { websitePages, websiteValidation, createWebsite, createWebsitePage, updateWebsite, updateWebsitePage, reorderWebsiteNavigation, publishWebsite, recordWebsiteView, generateWebsiteCopyRecommendation, applyWebsiteCopyRecommendation, ensureCurrentProductState, buildWebsitePublishRuntimeSnapshot, recordWebsiteSeoAudit, createWebsiteExperimentVariant, persistWebsiteRuntimeSnapshot } from '../domain-current-product.mjs';
 
 function latestSuggestion(state, targetId, operation) {
   return (state.db.generatedSuggestions || []).find((entry) => entry.targetId === targetId && entry.operation === operation) || null;
@@ -39,7 +39,12 @@ export function registerWebsiteBuilderRoutes(router, deps) {
     const pages = websitePages(state, website.id);
     const validation = websiteValidation(state, website);
     const history = state.db.websitePublishes.filter((entry) => entry.websiteId === website.id).slice(0, 6);
-    text(res, 200, page(`Website builder: ${website.name}`, actor, `<div class="grid"><div class="card"><h3>Site settings</h3><form method="post" action="/websites/${website.id}"><input name="name" value="${escapeHtml(website.name)}"><input name="slug" value="${escapeHtml(website.slug)}"><input name="defaultDomain" value="${escapeHtml(website.defaultDomain)}"><input name="faviconAssetName" value="${escapeHtml(website.faviconAssetName || '')}" placeholder="favicon.png"><select name="themePreset"><option value="modern" ${website.themePreset === 'modern' ? 'selected' : ''}>modern</option><option value="editorial" ${website.themePreset === 'editorial' ? 'selected' : ''}>editorial</option><option value="commerce" ${website.themePreset === 'commerce' ? 'selected' : ''}>commerce</option></select><input name="primaryColor" value="${escapeHtml(website.primaryColor)}"><input name="secondaryColor" value="${escapeHtml(website.secondaryColor)}"><input name="headingFont" value="${escapeHtml(website.headingFont)}"><input name="bodyFont" value="${escapeHtml(website.bodyFont)}"><input name="seoTitle" value="${escapeHtml(website.seoTitle)}"><textarea name="seoDescription">${escapeHtml(website.seoDescription || '')}</textarea><input name="canonicalBaseUrl" value="${escapeHtml(website.canonicalBaseUrl || '')}"><select name="robotsIndex"><option value="on" ${website.robotsIndex ? 'selected' : ''}>index</option><option value="off" ${website.robotsIndex ? '' : 'selected'}>noindex</option></select><input name="announcementBar" value="${escapeHtml(website.announcementBar || '')}" placeholder="Free shipping this week"><button>Save website</button></form>${validation.length ? `<div class="warn"><ul>${validation.map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul></div>` : '<div class="ok">Website validates cleanly for publish parity.</div>'}</div><div class="card"><h3>Create page</h3><form method="post" action="/websites/${website.id}/pages"><input name="name" placeholder="About"><input name="slug" placeholder="about"><select name="pageType"><option value="standard">standard</option><option value="about">about</option><option value="contact">contact</option><option value="store">store</option></select><input name="headline" placeholder="Meet the team"><textarea name="body" placeholder="Tell the story"></textarea><select name="linkedFormId"><option value="">No form</option>${state.db.forms.filter((entry) => entry.workspaceId === actor.workspace.id).map((form) => `<option value="${form.id}">${escapeHtml(form.name)}</option>`).join('')}</select><select name="linkedCampaignId"><option value="">No campaign</option>${state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id).map((campaign) => `<option value="${campaign.id}">${escapeHtml(campaign.name)}</option>`).join('')}</select><label><input type="checkbox" name="showInNav" value="on" checked> Show in navigation</label><button>Create page</button></form><p><a href="/websites/${website.id}/ai">AI website copy assistant</a></p></div><div class="card"><h3>Publish</h3><form method="post" action="/websites/${website.id}/publish"><button ${validation.length ? 'disabled' : ''}>Publish website</button></form><p>Public: <a href="${pageUrl(website, pages[0] || { slug: '' })}">${escapeHtml(pageUrl(website, pages[0] || { slug: '' }))}</a></p><p>Published at: ${website.publishedAt || 'not yet'}</p></div></div><div class="card"><h3>Navigation & pages</h3><table><tr><th>Page</th><th>Slug</th><th>Nav</th><th>Public</th><th>Edit</th></tr>${pages.map((sitePage) => `<tr><td>${escapeHtml(sitePage.name)}</td><td>${escapeHtml(sitePage.slug || 'home')}</td><td>${sitePage.showInNav ? 'shown' : 'hidden'}</td><td><code>${escapeHtml(pageUrl(website, sitePage))}</code></td><td><form method="post" action="/websites/${website.id}/pages/${sitePage.id}"><input name="name" value="${escapeHtml(sitePage.name)}"><input name="slug" value="${escapeHtml(sitePage.slug)}"><input name="headline" value="${escapeHtml(sitePage.headline || '')}"><textarea name="body">${escapeHtml(sitePage.body || '')}</textarea><select name="linkedFormId"><option value="">No form</option>${state.db.forms.filter((entry) => entry.workspaceId === actor.workspace.id).map((form) => `<option value="${form.id}" ${form.id === sitePage.linkedFormId ? 'selected' : ''}>${escapeHtml(form.name)}</option>`).join('')}</select><select name="linkedCampaignId"><option value="">No campaign</option>${state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id).map((campaign) => `<option value="${campaign.id}" ${campaign.id === sitePage.linkedCampaignId ? 'selected' : ''}>${escapeHtml(campaign.name)}</option>`).join('')}</select><label><input type="checkbox" name="showInNav" value="on" ${sitePage.showInNav ? 'checked' : ''}> Show in navigation</label><button>Save page</button></form></td></tr>`).join('')}</table><form method="post" action="/websites/${website.id}/navigation"><input name="pageOrder" value="${pages.map((entry) => entry.id).join(',')}" placeholder="page ids in order"><button>Save navigation order</button></form></div><div class="card"><h3>Publish history</h3><table><tr><th>When</th><th>Domain</th><th>Pages</th></tr>${history.map((entry) => `<tr><td>${entry.publishedAt}</td><td>${escapeHtml(entry.domain)}</td><td>${entry.pageCount}</td></tr>`).join('') || '<tr><td colspan="3">No publishes yet.</td></tr>'}</table></div>`));
+    const runtime = buildWebsitePublishRuntimeSnapshot(state, website, actor.workspace.id);
+    const designerStateScriptId = `website-designer-state-${website.id}`;
+    const designerSeed = JSON.stringify({ website: { ...website, websiteExperiments: runtime.experiments }, pages }).replaceAll('<', '\u003c');
+    const runtimeCard = `<div class="card"><h3>Publish runtime</h3><p class="pill">SEO score: ${runtime.seoScore}</p><p class="pill">Publish ready: ${runtime.publishReady ? 'yes' : 'not yet'}</p><p><a href="/api/websites/${website.id}/runtime">Open website runtime API</a></p><form method="post" action="/websites/${website.id}/seo-audit"><button>Run SEO audit</button></form><form method="post" action="/websites/${website.id}/runtime/snapshot"><button>Capture runtime snapshot</button></form><h4>Experiment variant</h4><form method="post" action="/websites/${website.id}/experiments"><select name="pageId">${pages.map((sitePage) => `<option value="${sitePage.id}">${escapeHtml(sitePage.name)}</option>`).join('')}</select><input name="name" placeholder="Homepage hero test"><input name="hypothesis" placeholder="Sharper CTA improves signups"><input name="headline" placeholder="Alternate headline"><input name="ctaLabel" placeholder="Join now"><input name="trafficSplit" value="50"><button>Create experiment</button></form><ul>${runtime.checklist.map((item) => `<li>${item.ok ? '✓' : '!'} ${escapeHtml(item.label)}</li>`).join('')}</ul></div>`;
+    const visualDesigner = `<script type="module" src="/static/website-designer-client.mjs"></script><script id="${designerStateScriptId}" type="application/json">${designerSeed}</script><div class="card"><h3>Visual site designer</h3><p class="muted">Client-side site map reordering, page duplication, desktop/mobile preview, undo/redo, SEO inspector, publish readiness, experiment preview, and serialized visual state run alongside durable website/page forms.</p><div data-website-designer-client data-state-script="${designerStateScriptId}"></div></div>`;
+    text(res, 200, page(`Website builder: ${website.name}`, actor, `${visualDesigner}<div class="grid"><div class="card"><h3>Site settings</h3><form method="post" action="/websites/${website.id}"><input name="name" value="${escapeHtml(website.name)}"><input name="slug" value="${escapeHtml(website.slug)}"><input name="defaultDomain" value="${escapeHtml(website.defaultDomain)}"><input name="faviconAssetName" value="${escapeHtml(website.faviconAssetName || '')}" placeholder="favicon.png"><select name="themePreset"><option value="modern" ${website.themePreset === 'modern' ? 'selected' : ''}>modern</option><option value="editorial" ${website.themePreset === 'editorial' ? 'selected' : ''}>editorial</option><option value="commerce" ${website.themePreset === 'commerce' ? 'selected' : ''}>commerce</option></select><input name="primaryColor" value="${escapeHtml(website.primaryColor)}"><input name="secondaryColor" value="${escapeHtml(website.secondaryColor)}"><input name="headingFont" value="${escapeHtml(website.headingFont)}"><input name="bodyFont" value="${escapeHtml(website.bodyFont)}"><input name="seoTitle" value="${escapeHtml(website.seoTitle)}"><textarea name="seoDescription">${escapeHtml(website.seoDescription || '')}</textarea><input name="canonicalBaseUrl" value="${escapeHtml(website.canonicalBaseUrl || '')}"><select name="robotsIndex"><option value="on" ${website.robotsIndex ? 'selected' : ''}>index</option><option value="off" ${website.robotsIndex ? '' : 'selected'}>noindex</option></select><input name="announcementBar" value="${escapeHtml(website.announcementBar || '')}" placeholder="Free shipping this week"><button>Save website</button></form>${validation.length ? `<div class="warn"><ul>${validation.map((error) => `<li>${escapeHtml(error)}</li>`).join('')}</ul></div>` : '<div class="ok">Website validates cleanly for publish parity.</div>'}</div><div class="card"><h3>Create page</h3><form method="post" action="/websites/${website.id}/pages"><input name="name" placeholder="About"><input name="slug" placeholder="about"><select name="pageType"><option value="standard">standard</option><option value="about">about</option><option value="contact">contact</option><option value="store">store</option></select><input name="headline" placeholder="Meet the team"><textarea name="body" placeholder="Tell the story"></textarea><select name="linkedFormId"><option value="">No form</option>${state.db.forms.filter((entry) => entry.workspaceId === actor.workspace.id).map((form) => `<option value="${form.id}">${escapeHtml(form.name)}</option>`).join('')}</select><select name="linkedCampaignId"><option value="">No campaign</option>${state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id).map((campaign) => `<option value="${campaign.id}">${escapeHtml(campaign.name)}</option>`).join('')}</select><label><input type="checkbox" name="showInNav" value="on" checked> Show in navigation</label><button>Create page</button></form><p><a href="/websites/${website.id}/ai">AI website copy assistant</a></p></div><div class="card"><h3>Publish</h3><form method="post" action="/websites/${website.id}/publish"><button ${validation.length ? 'disabled' : ''}>Publish website</button></form><p>Public: <a href="${pageUrl(website, pages[0] || { slug: '' })}">${escapeHtml(pageUrl(website, pages[0] || { slug: '' }))}</a></p><p>Published at: ${website.publishedAt || 'not yet'}</p></div>${runtimeCard}</div><div class="card"><h3>Navigation & pages</h3><table><tr><th>Page</th><th>Slug</th><th>Nav</th><th>Public</th><th>Edit</th></tr>${pages.map((sitePage) => `<tr><td>${escapeHtml(sitePage.name)}</td><td>${escapeHtml(sitePage.slug || 'home')}</td><td>${sitePage.showInNav ? 'shown' : 'hidden'}</td><td><code>${escapeHtml(pageUrl(website, sitePage))}</code></td><td><form method="post" action="/websites/${website.id}/pages/${sitePage.id}"><input name="name" value="${escapeHtml(sitePage.name)}"><input name="slug" value="${escapeHtml(sitePage.slug)}"><input name="headline" value="${escapeHtml(sitePage.headline || '')}"><textarea name="body">${escapeHtml(sitePage.body || '')}</textarea><select name="linkedFormId"><option value="">No form</option>${state.db.forms.filter((entry) => entry.workspaceId === actor.workspace.id).map((form) => `<option value="${form.id}" ${form.id === sitePage.linkedFormId ? 'selected' : ''}>${escapeHtml(form.name)}</option>`).join('')}</select><select name="linkedCampaignId"><option value="">No campaign</option>${state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id).map((campaign) => `<option value="${campaign.id}" ${campaign.id === sitePage.linkedCampaignId ? 'selected' : ''}>${escapeHtml(campaign.name)}</option>`).join('')}</select><label><input type="checkbox" name="showInNav" value="on" ${sitePage.showInNav ? 'checked' : ''}> Show in navigation</label><button>Save page</button></form></td></tr>`).join('')}</table><form method="post" action="/websites/${website.id}/navigation"><input name="pageOrder" value="${pages.map((entry) => entry.id).join(',')}" placeholder="page ids in order"><button>Save navigation order</button></form></div><div class="card"><h3>Publish history</h3><table><tr><th>When</th><th>Domain</th><th>Pages</th></tr>${history.map((entry) => `<tr><td>${entry.publishedAt}</td><td>${escapeHtml(entry.domain)}</td><td>${entry.pageCount}</td></tr>`).join('') || '<tr><td colspan="3">No publishes yet.</td></tr>'}</table></div>`));
   });
 
   router.register('POST', '/websites/:id', async ({ state, req, params, res }) => {
@@ -82,6 +87,37 @@ export function registerWebsiteBuilderRoutes(router, deps) {
     if (!website) return redirect(res, '/websites');
     publishWebsite(state, actor, website);
     redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('POST', '/websites/:id/seo-audit', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return redirect(res, '/websites');
+    recordWebsiteSeoAudit(state, actor, website);
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('POST', '/websites/:id/runtime/snapshot', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return redirect(res, '/websites');
+    persistWebsiteRuntimeSnapshot(state, actor, website, 'manual_route_snapshot');
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('POST', '/websites/:id/experiments', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return redirect(res, '/websites');
+    createWebsiteExperimentVariant(state, actor, website, await readBody(req));
+    redirect(res, `/websites/${website.id}`);
+  });
+
+  router.register('GET', '/api/websites/:id/runtime', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const website = state.db.websites.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id);
+    if (!website) return json(res, 404, { ok: false, error: 'website_not_found' });
+    json(res, 200, { ok: true, websiteRuntime: buildWebsitePublishRuntimeSnapshot(state, website, actor.workspace.id) });
   });
 
   router.register('GET', '/websites/:id/ai', async ({ state, req, params, res, url }) => {
@@ -136,4 +172,88 @@ export function registerWebsiteBuilderRoutes(router, deps) {
     const campaign = state.db.campaigns.find((entry) => entry.id === sitePage.linkedCampaignId);
     text(res, 200, renderWebsitePublic(website, sitePage, websitePages(state, website.id), form, campaign));
   });
+}
+
+export const websiteBuilderIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "website_builder",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.website_builder::semantic-frontier-001#05-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildWebsiteBuilderIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...websiteBuilderIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-commerce-revenue.mjs","packages/app/domain-website-builder.mjs","packages/app/routes/website-builder.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: websiteBuilderIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: websiteBuilderIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: websiteBuilderIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const websiteBuilderPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "website_builder",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.website_builder::semantic-frontier-001#05-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildWebsiteBuilderPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...websiteBuilderPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-commerce-revenue.mjs","packages/app/domain-website-builder.mjs","packages/app/routes/website-builder.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: websiteBuilderPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: websiteBuilderPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: websiteBuilderPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
 }

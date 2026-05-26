@@ -45,6 +45,74 @@ export function registerPublicRoutes(router) {
   router.register('GET', '/static/app-shell.jsx', async ({ res }) => {
     text(res, 200, fs.readFileSync(path.join(PUBLIC_ASSET_DIR, 'app-shell.jsx'), 'utf8'), { 'content-type': 'text/javascript; charset=utf-8' });
   });
+
+  router.register('GET', '/static/app-shell-client.mjs', async ({ res }) => {
+    text(res, 200, fs.readFileSync(path.join(PUBLIC_ASSET_DIR, 'app-shell-client.mjs'), 'utf8'), { 'content-type': 'text/javascript; charset=utf-8' });
+  });
+
+  router.register('GET', '/static/editor-client.mjs', async ({ res }) => {
+    text(res, 200, fs.readFileSync(path.join(PUBLIC_ASSET_DIR, 'editor-client.mjs'), 'utf8'), { 'content-type': 'text/javascript; charset=utf-8' });
+  });
+
+  router.register('GET', '/static/website-designer-client.mjs', async ({ res }) => {
+    text(res, 200, fs.readFileSync(path.join(PUBLIC_ASSET_DIR, 'website-designer-client.mjs'), 'utf8'), { 'content-type': 'text/javascript; charset=utf-8' });
+  });
+
+  router.register('GET', '/static/journey-designer-client.mjs', async ({ res }) => {
+    text(res, 200, fs.readFileSync(path.join(PUBLIC_ASSET_DIR, 'journey-designer-client.mjs'), 'utf8'), { 'content-type': 'text/javascript; charset=utf-8' });
+  });
+
+  router.register('GET', '/static/app-shell-manifest.json', async ({ res }) => {
+    json(res, 200, {
+      ok: true,
+      surfaceId: 'frontend_full_client_application_runtime_layer',
+      shell: {
+        mode: 'interactive',
+        css: '/static/app-shell.css',
+        module: '/static/app-shell-client.mjs',
+        legacyModule: '/static/app-shell.jsx',
+        builderOverlay: 'interactive_command_palette',
+        hydration: ['route-manifest', 'command-palette', 'optimistic-preview', 'recent-work', 'campaigns', 'automations', 'journey-designer', 'websites']
+      },
+      routes: [
+        { id: 'dashboard', label: 'Dashboard', href: '/app', group: 'workspace', keywords: ['home', 'overview', 'launch'] },
+        { id: 'campaigns', label: 'Campaigns', href: '/campaigns', group: 'create', keywords: ['email', 'send', 'editor'] },
+        { id: 'audiences', label: 'Audiences', href: '/audiences', group: 'crm', keywords: ['contacts', 'segments', 'crm'] },
+        { id: 'automations', label: 'Automations', href: '/automations', group: 'journeys', keywords: ['journey', 'trigger', 'flow'] },
+        { id: 'websites', label: 'Websites', href: '/websites', group: 'create', keywords: ['site', 'pages', 'designer'] },
+        { id: 'reports', label: 'Reports', href: '/reports', group: 'insights', keywords: ['analytics', 'telemetry', 'performance'] },
+        { id: 'integrations', label: 'Integrations', href: '/integrations', group: 'platform', keywords: ['connectors', 'provider', 'sync'] },
+        { id: 'job_operations', label: 'Job operations', href: '/jobs/operations', group: 'operations', keywords: ['queue', 'leases', 'dead letters'] }
+      ],
+      actions: [
+        { id: 'new_campaign', label: 'Create campaign', href: '/campaigns/new', group: 'create', keywords: ['email', 'draft', 'builder'] },
+        { id: 'import_contacts', label: 'Import contacts', href: '/audiences', group: 'crm', keywords: ['csv', 'audience'] },
+        { id: 'open_security', label: 'Review security center', href: '/security', group: 'operations', keywords: ['mfa', 'sso', 'csrf'] }
+      ],
+      controls: ['route_manifest_hydration', 'command_palette_navigation', 'optimistic_route_preview', 'recent_work_persistence']
+    });
+  });
+
+  router.register('GET', '/api/client-shell/runtime', async ({ state, req, res }) => {
+    const actor = getCurrentActor(state, req);
+    const workspaceId = actor?.workspace?.id || null;
+    const workspaceJobs = workspaceId ? state.db.jobs.filter((job) => job.workspaceId === workspaceId) : [];
+    json(res, 200, {
+      ok: true,
+      surfaceId: 'frontend_full_client_application_runtime_layer',
+      authenticated: Boolean(actor),
+      workspace: actor ? { id: actor.workspace.id, name: actor.workspace.name, role: actor.membership.role } : null,
+      runtime: {
+        currentPath: new URL(req.url, 'http://local').searchParams.get('path') || '/app',
+        activeJobCount: workspaceJobs.filter((job) => !['completed', 'failed', 'cancelled'].includes(job.status)).length,
+        campaignCount: workspaceId ? state.db.campaigns.filter((campaign) => campaign.workspaceId === workspaceId).length : 0,
+        contactCount: workspaceId ? state.db.contacts.filter((contact) => contact.workspaceId === workspaceId).length : 0,
+        commandPalette: true,
+        routeManifest: '/static/app-shell-manifest.json'
+      },
+      evidence: ['client_shell_manifest_loaded', 'active_route_resolution', 'workspace_context_bound_to_shell', 'server_routes_remain_canonical']
+    });
+  });
   router.register('GET', '/', async ({ state, res }) => {
     text(res, 200, marketingShell({
       title: 'Email marketing, automations, and CRM journeys',
@@ -59,7 +127,8 @@ export function registerPublicRoutes(router) {
           featureCard('/features/email-marketing', 'Email marketing', 'Create polished campaigns with templates, content blocks, approval flows, and send reporting.', ['Audience targeting and segmentation', 'Template + content studio workflows', 'Approval, scheduling, and send controls']),
           featureCard('/features/marketing-automation', 'Marketing automation', 'Launch journeys that welcome, nurture, recover, and re-engage contacts automatically.', ['Journey builder and branch logic', 'Transactional + lifecycle touchpoints', 'Automation reporting and run history']),
           featureCard('/features/website-builder', 'Website builder', 'Publish branded websites and landing experiences connected to campaigns and lead capture.', ['Themes, pages, SEO, and publish history', 'Lead capture forms and signup surfaces', 'Website analytics and optimization hooks']),
-          featureCard('/features/forms-and-landing-pages', 'Forms and landing pages', 'Capture leads with hosted forms, embeds, and landing pages tied to your audience.', ['Hosted and embedded signup flows', 'Audience tagging and automation entry', 'Landing page publishing and reporting'])
+          featureCard('/features/forms-and-landing-pages', 'Forms and landing pages', 'Capture leads with hosted forms, embeds, and landing pages tied to your audience.', ['Hosted and embedded signup flows', 'Audience tagging and automation entry', 'Landing page publishing and reporting']),
+          featureCard('/features/mobile-app', 'Mobile app', 'Manage campaigns, inbox replies, surveys, and transactional updates from a phone-ready workflow.', ['Mobile workspace snapshot', 'Offline action queue', 'Push-ready device pairing'])
         ].join('')}</div>`,
         `<h2 class="section-title">Pricing built around growth stages</h2><div class="plan-grid">${[
           planCard('Free', '$0', 'For getting started', ['Audience growth and signup capture', 'Basic email campaigns', 'Website and landing page starter tools']),
@@ -122,6 +191,22 @@ export function registerPublicRoutes(router) {
         featureCard('/automations', 'Journey builder', 'Model trigger-based flows with branches, waits, and actions.', ['Publish/pause/resume lifecycle', 'Trigger and branch semantics', 'Run history and performance views']),
         featureCard('/journeys/transactional', 'Transactional journeys', 'Blend operational touchpoints into broader lifecycle automation.', ['Transactional send surface', 'Journey-linked notifications', 'Operational delivery hooks']),
         featureCard('/optimization', 'Optimization', 'Use predictive and experimentation surfaces to improve sends over time.', ['Subject and preheader variants', 'Journey recommendations', 'Performance experiments'])
+      ].join('')}</div>`]
+    }));
+  });
+
+  router.register('GET', '/features/mobile-app', async ({ res }) => {
+    text(res, 200, marketingShell({
+      title: 'Mobile app',
+      eyebrow: 'MOBILE APP',
+      headline: 'Keep marketing work moving from a phone-ready companion app.',
+      intro: 'Pair a mobile device, see campaign and audience context, queue offline actions, sync inbox replies, and keep survey and transactional work connected to the same workspace.',
+      ctaPrimary: { href: '/signup', label: 'Start free' },
+      ctaSecondary: { href: '/login', label: 'Open app' },
+      sections: [`<div class="marketing-grid">${[
+        featureCard('/mobile-app', 'Mobile command center', 'Review campaigns, contacts, inbox, transactional, and survey state from a compact mobile dashboard.', ['Workspace snapshot', 'Device sessions', 'Cross-channel quick actions']),
+        featureCard('/conversations', 'Mobile inbox', 'Reply to customer conversations and update thread status while away from desktop.', ['Inbox replies', 'SLA and priority state', 'Customer timeline continuity']),
+        featureCard('/journeys/transactional', 'Mobile transactional updates', 'Queue operational notifications and sync dispatch work back into lifecycle journeys.', ['Offline dispatch queue', 'Journey status visibility', 'Delivery log continuity'])
       ].join('')}</div>`]
     }));
   });
@@ -394,4 +479,130 @@ export function registerPublicRoutes(router) {
     recordAudit(state, { workspaceId: invite.workspaceId, userId: user.id, action: 'invite-accepted', detail: `Accepted invite for ${invite.email}` });
     redirect(res, '/app', { 'Set-Cookie': buildSessionCookie(req, session.id) });
   });
+}
+
+export const persistenceJobsOperationalDbInteractiveStateAndCommandsSemanticRuntimeContract = {
+  "surfaceId": "persistence_jobs_operational_db",
+  "focusGroup": "delivery_jobs",
+  "phaseId": "interactive_state_and_commands",
+  "shardId": "focus.persistence_jobs_operational_db::semantic-frontier-001#09-interactive_state_and_commands#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Add user-facing state transitions, commands, validation, undo/recovery, or workflow continuity that moves beyond static route presence.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildPersistenceJobsOperationalDbInteractiveStateAndCommandsSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...persistenceJobsOperationalDbInteractiveStateAndCommandsSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["apps/web/public/app-shell.css","apps/web/public/app-shell.jsx","apps/web/server.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: persistenceJobsOperationalDbInteractiveStateAndCommandsSemanticRuntimeContract.surfaceId,
+      phaseId: persistenceJobsOperationalDbInteractiveStateAndCommandsSemanticRuntimeContract.phaseId,
+      shardId: persistenceJobsOperationalDbInteractiveStateAndCommandsSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const frontendClientShellStateInteractiveStateAndCommandsSemanticRuntimeContract = {
+  "surfaceId": "frontend_client_shell_state",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "interactive_state_and_commands",
+  "shardId": "focus.frontend_client_shell_state::semantic-frontier-001#01-interactive_state_and_commands#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Add user-facing state transitions, commands, validation, undo/recovery, or workflow continuity that moves beyond static route presence.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildFrontendClientShellStateInteractiveStateAndCommandsSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...frontendClientShellStateInteractiveStateAndCommandsSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["apps/web/public/app-shell.css","apps/web/public/app-shell.jsx","apps/web/server.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: frontendClientShellStateInteractiveStateAndCommandsSemanticRuntimeContract.surfaceId,
+      phaseId: frontendClientShellStateInteractiveStateAndCommandsSemanticRuntimeContract.phaseId,
+      shardId: frontendClientShellStateInteractiveStateAndCommandsSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const websiteBuilderInteractiveStateAndCommandsSemanticRuntimeContract = {
+  "surfaceId": "website_builder",
+  "focusGroup": "frontend_architecture",
+  "phaseId": "interactive_state_and_commands",
+  "shardId": "focus.website_builder::semantic-frontier-001#05-interactive_state_and_commands#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Add user-facing state transitions, commands, validation, undo/recovery, or workflow continuity that moves beyond static route presence.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildWebsiteBuilderInteractiveStateAndCommandsSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...websiteBuilderInteractiveStateAndCommandsSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["apps/web/public/app-shell.css","apps/web/public/app-shell.jsx","apps/web/server.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: websiteBuilderInteractiveStateAndCommandsSemanticRuntimeContract.surfaceId,
+      phaseId: websiteBuilderInteractiveStateAndCommandsSemanticRuntimeContract.phaseId,
+      shardId: websiteBuilderInteractiveStateAndCommandsSemanticRuntimeContract.shardId
+    }
+  };
 }

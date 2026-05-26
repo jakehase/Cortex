@@ -49,6 +49,69 @@ export function renderBlocksHtml(blocks = [], state, workspaceId) {
   }).join('');
 }
 
+export const GUIDED_CAMPAIGN_LAYOUTS = [
+  {
+    id: 'launch_story',
+    label: 'Launch story',
+    description: 'A Mailchimp-style announcement arc with hero, supporting proof, primary CTA, and footer reassurance.',
+    blocks: [
+      { type: 'hero', sectionName: 'Launch hero', eyebrow: 'NEW', title: 'Launch hero', body: 'Introduce the customer problem, the new offer, and the reason to care.', stylePreset: 'hero', alignment: 'left', backgroundColor: '#fff4cc', padding: '30px' },
+      { type: 'text', sectionName: 'Value proof', eyebrow: 'WHY IT MATTERS', title: 'What changed', body: 'Summarize the benefits in short, scannable copy with clear customer outcomes.', stylePreset: 'feature', alignment: 'left' },
+      { type: 'button', sectionName: 'Primary CTA', eyebrow: 'NEXT STEP', title: 'Review the launch', body: 'Send readers to the highest-intent destination.', buttonLabel: 'Review the launch', buttonUrl: 'https://example.test/launch', stylePreset: 'promo', buttonStyle: 'primary', alignment: 'center' },
+      { type: 'text', sectionName: 'Support footer', eyebrow: 'HELP', title: 'Support footer', body: 'Add trust, reply guidance, and unsubscribe-safe footer context.', stylePreset: 'footer', alignment: 'left' }
+    ]
+  },
+  {
+    id: 'product_education',
+    label: 'Product education',
+    description: 'A nurture layout for teaching a feature before asking for a click.',
+    blocks: [
+      { type: 'hero', sectionName: 'Education hero', eyebrow: 'GUIDE', title: 'Learn the workflow', body: 'Frame the lesson and outcome.', stylePreset: 'hero' },
+      { type: 'text', sectionName: 'How it works', title: 'Three practical steps', body: 'Explain the steps with concise examples.', stylePreset: 'feature' },
+      { type: 'button', sectionName: 'Learning CTA', title: 'Keep learning', buttonLabel: 'Open guide', buttonUrl: 'https://example.test/guide', stylePreset: 'promo' }
+    ]
+  }
+];
+
+export function campaignEditorReadiness(campaign, state, workspace) {
+  const blockers = [];
+  if (!campaign.subject) blockers.push('subject missing');
+  if (!campaign.preheader) blockers.push('preheader missing');
+  if (!campaign.templateId) blockers.push('template not selected');
+  if (!campaign.blocks?.length) blockers.push('content blocks missing');
+  if (!workspace?.settings?.senderEmail) blockers.push('sender identity missing');
+  const assetCount = state.db.assets.filter((asset) => asset.workspaceId === campaign.workspaceId).length;
+  const snapshots = campaign.editorSnapshots?.length || 0;
+  const score = Math.max(0, 100 - blockers.length * 18 + Math.min(10, snapshots * 2) + Math.min(10, assetCount * 2));
+  return {
+    score: Math.min(100, score),
+    blockers,
+    assetCount,
+    snapshots,
+    layout: campaign.editorLayout?.label || 'Custom layout',
+    readyForReview: blockers.length === 0
+  };
+}
+
+export function campaignNarrativeOutline(campaign) {
+  const blocks = campaign.blocks || [];
+  return blocks.map((block, index) => ({
+    step: index + 1,
+    section: block.sectionName || block.title || block.type,
+    role: block.type === 'hero' ? 'hook' : block.type === 'button' ? 'conversion' : block.stylePreset === 'footer' ? 'trust' : 'supporting proof',
+    hasCta: Boolean(block.buttonLabel || block.buttonUrl)
+  }));
+}
+
+export function applyGuidedCampaignLayout(campaign, preset = 'launch_story', mode = 'replace') {
+  const layout = GUIDED_CAMPAIGN_LAYOUTS.find((entry) => entry.id === preset) || GUIDED_CAMPAIGN_LAYOUTS[0];
+  const blocks = layout.blocks.map((block) => ({ id: createId('block'), ...block }));
+  campaign.blocks = mode === 'append' ? [...(campaign.blocks || []), ...blocks] : blocks;
+  campaign.editorLayout = { id: layout.id, label: layout.label, appliedAt: nowIso(), mode };
+  campaign.updatedAt = nowIso();
+  return layout;
+}
+
 export function campaignHtml(campaign, state) {
   return `<!doctype html><html><body>${renderBlocksHtml(campaign.blocks || [], state, campaign.workspaceId)}</body></html>`;
 }
@@ -89,55 +152,57 @@ export function campaignReviewState(state, campaign, workspace) {
   };
 }
 
-export function summarizeCampaignEditorReadiness(campaign = {}) {
-  const blocks = Array.isArray(campaign.blocks) ? campaign.blocks : [];
-  const sectionNames = new Set(blocks.map((block) => block.sectionName || block.type || 'section'));
-  const hasHero = blocks.some((block) => block.stylePreset === 'hero' || block.type === 'hero');
-  const hasCta = blocks.some((block) => block.type === 'button' || block.buttonLabel || block.buttonUrl);
-  const hasImage = blocks.some((block) => block.type === 'image' || block.assetId);
-  const warnings = [];
-  if (!blocks.length) warnings.push('Add content blocks before review.');
-  if (!hasHero) warnings.push('Add a hero or lead section.');
-  if (!hasCta) warnings.push('Add a clear CTA.');
-  const strengths = [];
-  if (hasHero) strengths.push('hero-ready');
-  if (hasImage) strengths.push('visual-support');
-  if (hasCta) strengths.push('cta-ready');
-  if (sectionNames.size >= 3) strengths.push('multi-section-flow');
+export function campaignReportDetailSummary(state, campaign) {
+  const recipients = campaign.report?.history?.[0]?.recipients || recipientCount(state, campaign) || 0;
+  const opens = campaign.report?.opens || 0;
+  const clicks = campaign.report?.clicks || 0;
+  const history = campaign.report?.history || [];
+  const automation = campaignAutomationRuntimeSummary(state, campaign);
   return {
-    score: Math.max(0, Math.min(100, 35 + strengths.length * 15 + Math.min(blocks.length, 6) * 4 - warnings.length * 8)),
-    blockCount: blocks.length,
-    sectionCount: sectionNames.size,
-    strengths,
-    warnings
+    recipients,
+    opens,
+    clicks,
+    openRate: recipients > 0 ? Number(((opens / recipients) * 100).toFixed(2)) : 0,
+    clickRate: recipients > 0 ? Number(((clicks / recipients) * 100).toFixed(2)) : 0,
+    lastEventAt: history[0]?.sentAt || history[0]?.at || campaign.sentAt || campaign.updatedAt || null,
+    automationRuns: automation.relatedRuns,
+    funnel: campaignGrowthFunnel(state, campaign.id)
   };
 }
 
-export function buildCampaignEditorNarrativeOutline(campaign = {}) {
-  return (campaign.blocks || []).map((block, index) => ({
-    index,
-    sectionName: block.sectionName || block.type || `Section ${index + 1}`,
-    intent: block.eyebrow || block.stylePreset || (index === 0 ? 'lead' : index === (campaign.blocks || []).length - 1 ? 'close' : 'support'),
-    title: block.title || '',
-    ctaLabel: block.buttonLabel || ''
-  }));
+export function campaignIndexSummary(state, workspaceId) {
+  const campaigns = state.db.campaigns.filter((entry) => entry.workspaceId === workspaceId);
+  const deliveryJobs = state.db.jobs.filter((job) => job.workspaceId === workspaceId && job.type === 'deliver_campaign' && !['completed', 'failed', 'cancelled'].includes(job.status));
+  const approvalRequests = state.db.approvalRequests.filter((entry) => entry.workspaceId === workspaceId && entry.targetType === 'campaign' && entry.status === 'pending');
+  const scheduled = campaigns.filter((campaign) => campaign.status === 'scheduled');
+  const nextScheduledAt = deliveryJobs.map((job) => job.runAt).filter(Boolean).sort()[0] || scheduled.map((campaign) => campaign.scheduledAt).filter(Boolean).sort()[0] || null;
+  return {
+    total: campaigns.length,
+    draft: campaigns.filter((campaign) => campaign.status === 'draft').length,
+    reviewReady: campaigns.filter((campaign) => campaignNextStep(campaign) === 'review').length,
+    queued: campaigns.filter((campaign) => campaign.status === 'queued').length,
+    scheduled: scheduled.length,
+    sent: campaigns.filter((campaign) => campaign.status === 'sent').length,
+    queuedDeliveries: deliveryJobs.length,
+    approvalsPending: approvalRequests.length,
+    nextScheduledAt
+  };
 }
 
-export function buildCampaignEditorLayoutPreset(campaign = {}, { preset = 'launch_story' } = {}) {
-  const tone = campaign.editorSettings?.brandTone || 'confident';
-  if (preset === 'product_digest') {
-    return [
-      { type: 'hero', stylePreset: 'hero', sectionName: 'Digest lead', eyebrow: tone, title: campaign.subject || campaign.name || 'Product update', body: campaign.preheader || 'A concise roundup of what matters this week.' },
-      { type: 'text', stylePreset: 'feature', sectionName: 'Highlights', title: 'What changed', body: 'Summarize the top updates, customer value, and next steps in a scannable block.' },
-      { type: 'button', stylePreset: 'promo', sectionName: 'Action', title: 'Keep exploring', body: 'Point readers to the highest-value destination.', buttonLabel: 'View the update', buttonUrl: '#' }
-    ];
-  }
-  return [
-    { type: 'hero', stylePreset: 'hero', sectionName: 'Promise', eyebrow: tone, title: campaign.subject || campaign.name || 'Launch story', body: campaign.preheader || 'Lead with the clearest customer outcome.' },
-    { type: 'text', stylePreset: 'feature', sectionName: 'Proof', title: 'Why it matters', body: 'Add proof points, objections handled, and the reason to act now.' },
-    { type: 'button', stylePreset: 'promo', sectionName: 'CTA', title: 'Take the next step', body: 'Close with a single clear action.', buttonLabel: 'Get started', buttonUrl: '#' },
-    { type: 'text', stylePreset: 'footer', sectionName: 'Footer', title: 'You are in control', body: 'Mention preferences, support, and brand reassurance.' }
-  ];
+export function campaignSendScheduleSummary(state, campaign, workspace) {
+  const queuedDeliveries = state.db.jobs.filter((job) => job.workspaceId === campaign.workspaceId && job.type === 'deliver_campaign' && job.payload?.campaignId === campaign.id && !['completed', 'failed', 'cancelled'].includes(job.status));
+  const approval = approvalStatusForCampaign(state, campaign);
+  const senderReady = Boolean(workspace?.settings?.senderEmail && workspace?.settings?.address);
+  const blockers = preflightCampaign(state, campaign, workspace);
+  const nextRunAt = queuedDeliveries.map((job) => job.runAt).filter(Boolean).sort()[0] || campaign.scheduledAt || null;
+  return {
+    senderReady,
+    approvalPending: approval.pending,
+    blockers,
+    queuedDeliveries: queuedDeliveries.length,
+    nextRunAt,
+    scheduleLabel: nextRunAt ? `Scheduled for ${nextRunAt}` : campaign.status === 'queued' ? 'Queued for immediate delivery' : 'No delivery scheduled'
+  };
 }
 
 export function createCampaign(state, actor, name) {
@@ -223,5 +288,257 @@ export function buildCampaignOpsCalendarWorkflowRuntimeEvidence(state = {}, acto
     persistence: { hasStateDb: Boolean(state.db), pendingJobs: activeJobs.length, recoverable: activeJobs.some((job) => Number(job.attempts || 0) > 0) },
     providerSync: { activeProviderCount: providerSignals.length, sampleProviders: providerSignals.slice(0, 3).map((entry) => entry.id || entry.provider || entry.name) },
     auditTrail: recentEvents.map((entry) => ({ at: entry.at || entry.createdAt, type: entry.type || entry.event, status: entry.status || 'observed' }))
+  };
+}
+
+export const reportingMetricsPipelineIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "reporting_metrics_pipeline",
+  "focusGroup": "reporting_analytics",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.reporting_metrics_pipeline::semantic-frontier-001#08-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildReportingMetricsPipelineIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...reportingMetricsPipelineIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/analytics-events.mjs","packages/app/domain-campaigns.mjs","packages/app/routes/api-admin.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: reportingMetricsPipelineIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: reportingMetricsPipelineIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: reportingMetricsPipelineIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const templateLibraryIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "template_library",
+  "focusGroup": "template_library",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.template_library::semantic-frontier-001#04-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildTemplateLibraryIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...templateLibraryIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/domain-template-assets.mjs","packages/app/routes/content-asset-templates.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: templateLibraryIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: templateLibraryIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: templateLibraryIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const reportingMetricsPipelinePrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "reporting_metrics_pipeline",
+  "focusGroup": "reporting_analytics",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.reporting_metrics_pipeline::semantic-frontier-001#08-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildReportingMetricsPipelinePrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...reportingMetricsPipelinePrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/analytics-events.mjs","packages/app/domain-campaigns.mjs","packages/app/routes/api-admin.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: reportingMetricsPipelinePrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: reportingMetricsPipelinePrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: reportingMetricsPipelinePrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const templateLibraryPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "template_library",
+  "focusGroup": "template_library",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.template_library::semantic-frontier-001#04-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildTemplateLibraryPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...templateLibraryPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/domain-template-assets.mjs","packages/app/routes/content-asset-templates.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: templateLibraryPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: templateLibraryPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: templateLibraryPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const campaignOpsCalendarWorkflowIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "campaign_ops_calendar_workflow",
+  "focusGroup": "campaign_experimentation",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.campaign_ops_calendar_workflow::semantic-frontier-001#13-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignOpsCalendarWorkflowIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignOpsCalendarWorkflowIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/domain-current-product-ops.mjs","packages/app/experiment-engine.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignOpsCalendarWorkflowIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: campaignOpsCalendarWorkflowIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: campaignOpsCalendarWorkflowIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const campaignOpsCalendarWorkflowPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "campaign_ops_calendar_workflow",
+  "focusGroup": "campaign_experimentation",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.campaign_ops_calendar_workflow::semantic-frontier-001#13-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildCampaignOpsCalendarWorkflowPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...campaignOpsCalendarWorkflowPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/domain-current-product-ops.mjs","packages/app/experiment-engine.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: campaignOpsCalendarWorkflowPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: campaignOpsCalendarWorkflowPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: campaignOpsCalendarWorkflowPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
   };
 }

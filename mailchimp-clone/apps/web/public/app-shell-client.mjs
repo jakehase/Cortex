@@ -1,0 +1,205 @@
+export const CLIENT_SHELL_RUNTIME_CONTRACT = Object.freeze({
+  surfaceId: 'frontend_full_client_application_runtime_layer',
+  label: 'Frontend full client application runtime shell',
+  controls: [
+    'route_manifest_hydration',
+    'command_palette_navigation',
+    'optimistic_route_preview',
+    'recent_work_persistence',
+    'active_route_and_workspace_context',
+    'progressive_enhancement_for_server_routes'
+  ],
+  evidenceContract: [
+    'client_shell_manifest_loaded',
+    'command_palette_state_changes',
+    'active_route_resolution',
+    'preview_and_commit_navigation_events',
+    'recent_work_serialization',
+    'server_rendered_routes_remain_available'
+  ]
+});
+
+const DEFAULT_ROUTES = [
+  { id: 'dashboard', label: 'Dashboard', href: '/app', group: 'workspace', keywords: ['home', 'overview', 'launch'] },
+  { id: 'campaigns', label: 'Campaigns', href: '/campaigns', group: 'create', keywords: ['email', 'send', 'editor'] },
+  { id: 'audiences', label: 'Audiences', href: '/audiences', group: 'crm', keywords: ['contacts', 'segments', 'crm'] },
+  { id: 'automations', label: 'Automations', href: '/automations', group: 'journeys', keywords: ['journey', 'trigger', 'flow'] },
+  { id: 'websites', label: 'Websites', href: '/websites', group: 'create', keywords: ['site', 'pages', 'designer'] },
+  { id: 'reports', label: 'Reports', href: '/reports', group: 'insights', keywords: ['analytics', 'telemetry', 'performance'] },
+  { id: 'integrations', label: 'Integrations', href: '/integrations', group: 'platform', keywords: ['connectors', 'provider', 'sync'] },
+  { id: 'admin', label: 'Admin', href: '/admin', group: 'operations', keywords: ['jobs', 'security', 'settings'] }
+];
+
+function uniq(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function routeScore(route, query) {
+  if (!query) return 1;
+  const haystack = [route.id, route.label, route.href, route.group, ...(route.keywords || [])].join(' ').toLowerCase();
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return tokens.reduce((score, token) => score + (haystack.includes(token) ? 1 : 0), 0);
+}
+
+export function normalizeRouteManifest(seed = {}) {
+  const sourceRoutes = Array.isArray(seed.routes) && seed.routes.length ? seed.routes : DEFAULT_ROUTES;
+  const routes = sourceRoutes.map((route, index) => ({
+    id: route.id || `route_${index + 1}`,
+    label: route.label || route.title || route.href || `Route ${index + 1}`,
+    href: route.href || '/',
+    group: route.group || 'workspace',
+    keywords: uniq([...(route.keywords || []), route.label, route.href, route.group].map((entry) => String(entry || '').toLowerCase()))
+  }));
+  const actions = Array.isArray(seed.actions) && seed.actions.length ? seed.actions : [
+    { id: 'new_campaign', label: 'Create campaign', href: '/campaigns/new', group: 'create', keywords: ['email', 'draft', 'builder'] },
+    { id: 'import_contacts', label: 'Import contacts', href: '/audiences', group: 'crm', keywords: ['csv', 'audience'] },
+    { id: 'open_job_operations', label: 'Open job operations', href: '/jobs/operations', group: 'operations', keywords: ['queue', 'leases', 'dead letters'] }
+  ];
+  return {
+    ...CLIENT_SHELL_RUNTIME_CONTRACT,
+    generatedAt: seed.generatedAt || new Date().toISOString(),
+    routes,
+    actions: actions.map((action, index) => ({ id: action.id || `action_${index + 1}`, label: action.label || action.href || `Action ${index + 1}`, href: action.href || '/', group: action.group || 'commands', keywords: action.keywords || [] })),
+    groups: uniq(routes.map((route) => route.group)),
+    hydration: seed.hydration || ['server-rendered-html', 'client-command-shell', 'progressive-navigation']
+  };
+}
+
+export function activeRouteForPath(routes = [], currentPath = '/') {
+  const normalizedPath = currentPath === '/' ? '/' : String(currentPath || '/').replace(/\/$/, '');
+  return routes
+    .filter((route) => normalizedPath === route.href || (route.href !== '/' && normalizedPath.startsWith(route.href)))
+    .sort((a, b) => b.href.length - a.href.length)[0] || routes[0] || null;
+}
+
+export function buildCommandPalette(state, query = '') {
+  const routeCommands = state.routeManifest.routes.map((route) => ({ kind: 'route', id: route.id, label: route.label, href: route.href, group: route.group, keywords: route.keywords }));
+  const actionCommands = state.routeManifest.actions.map((action) => ({ kind: 'action', id: action.id, label: action.label, href: action.href, group: action.group, keywords: action.keywords || [] }));
+  return [...routeCommands, ...actionCommands]
+    .map((command) => ({ ...command, score: routeScore(command, query) }))
+    .filter((command) => command.score > 0)
+    .sort((a, b) => b.score - a.score || a.label.localeCompare(b.label))
+    .slice(0, 12);
+}
+
+export function buildClientShellState(seed = {}) {
+  const routeManifest = normalizeRouteManifest(seed.manifest || seed);
+  const currentPath = seed.currentPath || (typeof location !== 'undefined' ? location.pathname : '/app');
+  const recentWork = Array.isArray(seed.recentWork) ? seed.recentWork : [];
+  const state = {
+    ...CLIENT_SHELL_RUNTIME_CONTRACT,
+    currentPath,
+    routeManifest,
+    activeRoute: activeRouteForPath(routeManifest.routes, currentPath),
+    paletteOpen: Boolean(seed.paletteOpen),
+    query: seed.query || '',
+    previewPath: seed.previewPath || null,
+    recentWork,
+    workspace: seed.workspace || null,
+    hydratedAt: seed.hydratedAt || new Date().toISOString()
+  };
+  return { ...state, commands: buildCommandPalette(state, state.query) };
+}
+
+export function setShellQuery(state, query) {
+  const next = { ...state, query: String(query || ''), paletteOpen: true };
+  return { ...next, commands: buildCommandPalette(next, next.query) };
+}
+
+export function previewShellRoute(state, href) {
+  return { ...state, previewPath: href, activeRoute: activeRouteForPath(state.routeManifest.routes, href) || state.activeRoute };
+}
+
+export function commitShellNavigation(state, command) {
+  const href = typeof command === 'string' ? command : command?.href;
+  const label = typeof command === 'string' ? command : command?.label;
+  if (!href) return state;
+  const recentEntry = { href, label: label || href, at: new Date().toISOString() };
+  return {
+    ...state,
+    currentPath: href,
+    previewPath: null,
+    paletteOpen: false,
+    query: '',
+    activeRoute: activeRouteForPath(state.routeManifest.routes, href) || state.activeRoute,
+    recentWork: [recentEntry, ...state.recentWork.filter((entry) => entry.href !== href)].slice(0, 8),
+    commands: buildCommandPalette(state, '')
+  };
+}
+
+export function serializeClientShellState(state) {
+  return JSON.stringify({
+    surfaceId: CLIENT_SHELL_RUNTIME_CONTRACT.surfaceId,
+    currentPath: state.currentPath,
+    activeRouteId: state.activeRoute?.id || null,
+    paletteOpen: state.paletteOpen,
+    query: state.query,
+    previewPath: state.previewPath,
+    recentWork: state.recentWork,
+    routeCount: state.routeManifest.routes.length,
+    commandCount: state.commands.length
+  });
+}
+
+export function readRecentWork(storage = globalThis.localStorage) {
+  try {
+    const parsed = JSON.parse(storage.getItem('mailclone.recentWork') || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeRecentWork(recentWork, storage = globalThis.localStorage) {
+  try {
+    storage.setItem('mailclone.recentWork', JSON.stringify((recentWork || []).slice(0, 8)));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function renderShell(root, state) {
+  root.innerHTML = `<div class="client-shell-bar"><strong>Mailclone client runtime</strong><span data-active-route>${state.activeRoute?.label || 'Workspace'}</span><button type="button" data-shell-action="open-palette">Command palette</button><span class="shell-status">${state.routeManifest.routes.length} routes hydrated · ${state.recentWork.length} recent</span></div><div class="client-shell-palette ${state.paletteOpen ? 'open' : ''}" data-command-palette><input data-command-query value="${state.query.replaceAll('"', '&quot;')}" placeholder="Search campaigns, contacts, journeys, reports"><ul>${state.commands.map((command) => `<li><a href="${command.href}" data-command-href="${command.href}">${command.label}<span>${command.group}</span></a></li>`).join('')}</ul></div><div class="client-shell-preview" data-route-preview>${state.previewPath ? `Previewing ${state.previewPath}` : 'Server routes stay available; client shell enhances navigation.'}</div><script type="application/json" data-client-shell-state>${serializeClientShellState(state)}</script>`;
+}
+
+export function attachMailcloneClientShell(documentRef = document, seed = {}) {
+  const documentBody = documentRef.body;
+  if (!documentBody || documentRef.getElementById('mailclone-client-shell')) return null;
+  documentBody.classList.add('mailclone-client-shell-ready');
+  const configScript = documentRef.getElementById('mailclone-client-shell-config');
+  let config = {};
+  try { config = configScript ? JSON.parse(configScript.textContent || '{}') : {}; } catch {}
+  let state = buildClientShellState({ ...config, ...seed, currentPath: seed.currentPath || documentRef.location?.pathname || location.pathname, recentWork: seed.recentWork || readRecentWork() });
+  const root = documentRef.createElement('section');
+  root.id = 'mailclone-client-shell';
+  root.setAttribute('data-client-shell-runtime', CLIENT_SHELL_RUNTIME_CONTRACT.surfaceId);
+  documentBody.prepend(root);
+  const update = (next) => {
+    state = next;
+    writeRecentWork(state.recentWork);
+    renderShell(root, state);
+    return state;
+  };
+  root.addEventListener('click', (event) => {
+    const action = event.target?.dataset?.shellAction;
+    if (action === 'open-palette') update({ ...state, paletteOpen: true, commands: buildCommandPalette(state, state.query) });
+    const href = event.target?.dataset?.commandHref;
+    if (href) update(commitShellNavigation(state, { href, label: event.target.textContent || href }));
+  });
+  root.addEventListener('input', (event) => {
+    if (event.target?.dataset?.commandQuery !== undefined) update(setShellQuery(state, event.target.value));
+  });
+  renderShell(root, state);
+  return {
+    getState: () => state,
+    query: (value) => update(setShellQuery(state, value)),
+    preview: (href) => update(previewShellRoute(state, href)),
+    commit: (command) => update(commitShellNavigation(state, command)),
+    serialize: () => serializeClientShellState(state)
+  };
+}
+
+if (typeof document !== 'undefined') {
+  attachMailcloneClientShell(document);
+}

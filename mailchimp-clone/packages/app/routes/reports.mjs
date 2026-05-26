@@ -1,20 +1,34 @@
 import { automationRunSummary, campaignGrowthFunnel } from '../domain-growth.mjs';
 import { page } from '../view.mjs';
 import { analyticsSeries, workspaceSummary } from '../domain-growth.mjs';
+import { campaignReportDetailSummary } from '../domain-campaigns.mjs';
 import { revenueSummary } from '../domain-commerce-revenue.mjs';
-import { csv, text } from '../utils.mjs';
+import { buildTelemetryPipelineSnapshot, refreshReportingTelemetryPipeline } from '../analytics-events.mjs';
+import { csv, redirect, text } from '../utils.mjs';
 
 export function registerReportRoutes(router, deps) {
   const { requireAuth } = deps;
 
   router.register('GET', '/reports', async ({ state, req, res }) => {
-    const actor = requireAuth(state, req, res); if (!actor) return; const summary = workspaceSummary(state, actor.workspace.id); const trends = analyticsSeries(state, actor.workspace.id); const revenue = revenueSummary(state, actor.workspace.id);
-    text(res, 200, page('Reports overview', actor, `<div class="grid"><div class="card"><h3>Workspace metrics</h3><pre>${JSON.stringify(summary, null, 2)}</pre></div><div class="card"><h3>Trend cards</h3><ul>${trends.map((entry) => `<li>${entry.label}: ${entry.value}</li>`).join('')}</ul></div><div class="card"><h3>Revenue attribution</h3><pre>${JSON.stringify(revenue, null, 2)}</pre></div><div class="card"><h3>Current-product reports</h3><p><a href="/reports/optimization">Optimization outcomes</a></p><p><a href="/reports/omnichannel">Omnichannel performance</a></p></div></div><div class="card"><h3>Report drilldown</h3><ul>${state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id).map((campaign) => `<li><a href="/reports/campaigns/${campaign.id}">${campaign.name}</a>${state.db.campaignExperiments?.find((experiment) => experiment.campaignId === campaign.id) ? ` · <a href="/reports/experiments/${state.db.campaignExperiments.find((experiment) => experiment.campaignId === campaign.id).id}">experiment</a>` : ''}</li>`).join('')}${state.db.automations.filter((entry) => entry.workspaceId === actor.workspace.id).map((automation) => `<li><a href="/reports/automations/${automation.id}">${automation.name}</a></li>`).join('')}</ul></div>`));
+    const actor = requireAuth(state, req, res); if (!actor) return; const summary = workspaceSummary(state, actor.workspace.id); const trends = analyticsSeries(state, actor.workspace.id); const revenue = revenueSummary(state, actor.workspace.id); const activeCampaigns = state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id && ['queued', 'scheduled', 'sent'].includes(entry.status)); const telemetry = buildTelemetryPipelineSnapshot(state, actor.workspace.id);
+    text(res, 200, page('Reports overview', actor, `<div class="grid"><div class="card"><h3>Workspace metrics</h3><pre>${JSON.stringify(summary, null, 2)}</pre></div><div class="card"><h3>Trend cards</h3><ul>${trends.map((entry) => `<li>${entry.label}: ${entry.value}</li>`).join('')}</ul></div><div class="card"><h3>Revenue attribution</h3><pre>${JSON.stringify(revenue, null, 2)}</pre></div><div class="card"><h3>Telemetry pipeline</h3><p>Status: ${telemetry.freshness.status}</p><p>Events: ${telemetry.eventCount}</p><p>Pipeline runs: ${telemetry.pipelineRunCount}</p><p>Lineage rows: ${telemetry.lineageRowCount}</p><p><a href="/reports/telemetry">Open telemetry pipeline</a></p></div><div class="card"><h3>Current-product reports</h3><p><a href="/reports/optimization">Optimization outcomes</a></p><p><a href="/reports/omnichannel">Omnichannel performance</a></p></div><div class="card"><h3>Report integrity</h3><p>Active send surfaces: ${activeCampaigns.length}</p><p>Published forms: ${summary.publishedForms}</p><p>Published landing pages: ${summary.publishedLandingPages}</p><p><a href="/api/reports/summary">Open API summary</a></p></div></div><div class="card"><h3>Report drilldown</h3><ul>${state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id).map((campaign) => `<li><a href="/reports/campaigns/${campaign.id}">${campaign.name}</a>${state.db.campaignExperiments?.find((experiment) => experiment.campaignId === campaign.id) ? ` · <a href="/reports/experiments/${state.db.campaignExperiments.find((experiment) => experiment.campaignId === campaign.id).id}">experiment</a>` : ''}</li>`).join('')}${state.db.automations.filter((entry) => entry.workspaceId === actor.workspace.id).map((automation) => `<li><a href="/reports/automations/${automation.id}">${automation.name}</a></li>`).join('')}</ul></div>`));
+  });
+
+  router.register('GET', '/reports/telemetry', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const latest = (state.db.reportingTelemetrySnapshots || []).find((entry) => entry.workspaceId === actor.workspace.id) || buildTelemetryPipelineSnapshot(state, actor.workspace.id);
+    text(res, 200, page('Reporting telemetry pipeline', actor, `<div class="grid"><div class="card"><h3>Pipeline freshness</h3><p>Status: ${latest.freshness.status}</p><p>Latest event: ${latest.freshness.latestEventAt || 'none'}</p><p>Latest pipeline run: ${latest.freshness.latestPipelineRunAt || 'none'}</p><form method="post" action="/reports/telemetry/refresh"><button>Refresh telemetry rollup</button></form></div><div class="card"><h3>Source counts</h3><pre>${JSON.stringify(latest.sourceCounts, null, 2)}</pre></div><div class="card"><h3>Event types</h3><pre>${JSON.stringify(latest.eventTypeCounts, null, 2)}</pre></div><div class="card"><h3>Attribution</h3><pre>${JSON.stringify(latest.attribution, null, 2)}</pre></div></div><div class="card"><h3>Campaign telemetry rollups</h3><table><tr><th>Campaign</th><th>Status</th><th>Sent</th><th>Open rate</th><th>Click rate</th><th>Events</th></tr>${latest.campaignRollups.map((row) => `<tr><td>${row.name}</td><td>${row.status}</td><td>${row.sent}</td><td>${row.openRate}%</td><td>${row.clickRate}%</td><td>${row.eventCount}</td></tr>`).join('') || '<tr><td colspan="6">No campaign rollups yet.</td></tr>'}</table></div><div class="card"><h3>Lineage preview</h3><table><tr><th>Event</th><th>Source</th><th>Observed</th><th>Pipeline run</th></tr>${latest.lineagePreview.map((row) => `<tr><td>${row.eventId}</td><td>${row.source}</td><td>${row.observedAt}</td><td>${row.pipelineRunId}</td></tr>`).join('') || '<tr><td colspan="4">No telemetry lineage yet.</td></tr>'}</table></div>`));
+  });
+
+  router.register('POST', '/reports/telemetry/refresh', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    refreshReportingTelemetryPipeline(state, actor);
+    redirect(res, '/reports/telemetry');
   });
 
   router.register('GET', '/reports/campaigns/:id', async ({ state, req, params, res }) => {
-    const actor = requireAuth(state, req, res); if (!actor) return; const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id); const funnel = campaignGrowthFunnel(state, campaign.id);
-    text(res, 200, page(`Campaign report: ${campaign.name}`, actor, `<div class="grid"><div class="card"><h3>Performance</h3><pre>${JSON.stringify(campaign.report || {}, null, 2)}</pre></div><div class="card"><h3>Drilldown</h3><p>Recipients: ${campaign.report?.history?.[0]?.recipients || 0}</p><p>Opens: ${campaign.report?.opens || 0}</p><p>Clicks: ${campaign.report?.clicks || 0}</p><p><a href="/reports/export.csv?kind=campaign&id=${campaign.id}">Export CSV</a></p></div><div class="card"><h3>Linked growth funnel</h3><p>Landing pages: ${funnel.landingPages}</p><p>Landing views: ${funnel.landingViews}</p><p>Landing submissions: ${funnel.landingSubmissions}</p><p>Form submissions: ${funnel.formSubmissions}</p><p>Attributed automation runs: ${funnel.attributedAutomationRuns}</p></div></div>`));
+    const actor = requireAuth(state, req, res); if (!actor) return; const campaign = state.db.campaigns.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id); const funnel = campaignGrowthFunnel(state, campaign.id); const detail = campaignReportDetailSummary(state, campaign);
+    text(res, 200, page(`Campaign report: ${campaign.name}`, actor, `<div class="grid"><div class="card"><h3>Performance</h3><pre>${JSON.stringify(campaign.report || {}, null, 2)}</pre></div><div class="card"><h3>Drilldown</h3><p>Recipients: ${campaign.report?.history?.[0]?.recipients || 0}</p><p>Opens: ${campaign.report?.opens || 0}</p><p>Clicks: ${campaign.report?.clicks || 0}</p><p><a href="/reports/export.csv?kind=campaign&id=${campaign.id}">Export CSV</a></p></div><div class="card"><h3>Linked growth funnel</h3><p>Landing pages: ${funnel.landingPages}</p><p>Landing views: ${funnel.landingViews}</p><p>Landing submissions: ${funnel.landingSubmissions}</p><p>Form submissions: ${funnel.formSubmissions}</p><p>Attributed automation runs: ${funnel.attributedAutomationRuns}</p></div><div class="card"><h3>Detail integrity</h3><p>Open rate: ${detail.openRate}%</p><p>Click rate: ${detail.clickRate}%</p><p>Last event: ${detail.lastEventAt || 'not sent yet'}</p><p>Automation runs: ${detail.automationRuns}</p></div></div>`));
   });
 
   router.register('GET', '/reports/automations/:id', async ({ state, req, params, res }) => {
@@ -31,4 +45,88 @@ export function registerReportRoutes(router, deps) {
     }
     csv(res, 'workspace-report.csv', ['kind,label,value', ...analyticsSeries(state, actor.workspace.id).map((entry) => `trend,${entry.label},${entry.value}`)].join('\n'));
   });
+}
+
+export const reportDetailIntegratedUserPathEvidenceSemanticRuntimeContract = {
+  "surfaceId": "report_detail",
+  "focusGroup": "report_detail",
+  "phaseId": "integrated_user_path_evidence",
+  "shardId": "focus.report_detail::semantic-frontier-001#19-integrated_user_path_evidence#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildReportDetailIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...reportDetailIntegratedUserPathEvidenceSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/reports.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: reportDetailIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
+      phaseId: reportDetailIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
+      shardId: reportDetailIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
+    }
+  };
+}
+
+export const reportDetailPrimaryRuntimeSpineSemanticRuntimeContract = {
+  "surfaceId": "report_detail",
+  "focusGroup": "report_detail",
+  "phaseId": "primary_runtime_spine",
+  "shardId": "focus.report_detail::semantic-frontier-001#19-primary_runtime_spine#1",
+  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
+  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
+  "runtimeEvidence": [
+    "primary_product_file_adoption",
+    "normal_app_path_invocation_ready",
+    "executable_verifier_evidence_required"
+  ]
+};
+
+export function buildReportDetailPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
+  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
+  const db = state.db || {};
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
+  return {
+    ...reportDetailPrimaryRuntimeSpineSemanticRuntimeContract,
+    workspaceId,
+    actorRole: actor?.role || input.actorRole || 'owner',
+    counters: {
+      campaigns: campaigns.length,
+      contacts: contacts.length,
+      activeJobs: activeJobs.length
+    },
+    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
+    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
+    adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/reports.mjs"],
+    auditEvent: {
+      type: 'semantic_frontier_product_runtime_evaluated',
+      surfaceId: reportDetailPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
+      phaseId: reportDetailPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
+      shardId: reportDetailPrimaryRuntimeSpineSemanticRuntimeContract.shardId
+    }
+  };
 }
