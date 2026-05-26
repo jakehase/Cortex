@@ -25,7 +25,8 @@ export const ORCHESTRATION_PROGRAM_SPEC = Object.freeze({
     supervisor: 'scripts/full-audit-campaign-supervisor.mjs',
     remoteRunner: 'scripts/full-audit-campaign-remote-runner.mjs',
     delegate: 'scripts/orchestrator-real-repo-clean-run.mjs',
-    implementation: 'scripts/orchestrator-real-repo-clean-implement.mjs'
+    implementation: 'scripts/orchestrator-real-repo-clean-implement.mjs',
+    fullCloneAutopilot: 'scripts/full-clone-autopilot.mjs'
   },
   session: {
     id: 'mailchimp-full-clone-100-agent',
@@ -39,6 +40,7 @@ export const ORCHESTRATION_PROGRAM_SPEC = Object.freeze({
     runId: 'MAILCHIMP_FULL_AUDIT_RUN_ID',
     campaignRunId: 'MAILCHIMP_CAMPAIGN_RUN_ID',
     completedFocusIds: 'MAILCHIMP_COMPLETED_FOCUS_IDS',
+    verifiedCompletedFocusIds: 'MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS',
     useBenchmarkScope: 'MAILCHIMP_USE_BENCHMARK_SCOPE',
     onePassContractPath: 'MAILCHIMP_ONE_PASS_CONTRACT_PATH',
     maxIterations: 'MAILCHIMP_PARITY_MAX_ITERATIONS',
@@ -52,7 +54,8 @@ export const ORCHESTRATION_PROGRAM_SPEC = Object.freeze({
     productOnly: 'MAILCHIMP_PRODUCT_ONLY',
     useStrictGapInventory: 'MAILCHIMP_USE_STRICT_GAP_INVENTORY',
     strictGapSequence: 'MAILCHIMP_STRICT_GAP_SEQUENCE',
-    allowHeavyLocalExecution: 'MAILCHIMP_ALLOW_HEAVY_LOCAL_EXECUTION'
+    allowHeavyLocalExecution: 'MAILCHIMP_ALLOW_HEAVY_LOCAL_EXECUTION',
+    requestedAgentCount: 'MAILCHIMP_REQUESTED_AGENT_COUNT'
   },
   defaults: {
     implementationProfile: 'mailchimp_parity_focus',
@@ -61,6 +64,7 @@ export const ORCHESTRATION_PROGRAM_SPEC = Object.freeze({
     strictGapSequence: '1',
     maxRuntimeHours: 6,
     noProgressIterationLimit: 5,
+    requestedAgentCount: 100,
     remoteHostRole: 'execution_plane'
   }
 });
@@ -121,6 +125,7 @@ export function buildProgramRemoteLaunchEnvironment({ effectiveRunId, remoteRuns
 
   if (env[spec.env.campaignRunId]) launchEnv[spec.env.campaignRunId] = String(env[spec.env.campaignRunId]);
   if (env[spec.env.completedFocusIds]) launchEnv[spec.env.completedFocusIds] = String(env[spec.env.completedFocusIds]);
+  if (env[spec.env.verifiedCompletedFocusIds]) launchEnv[spec.env.verifiedCompletedFocusIds] = String(env[spec.env.verifiedCompletedFocusIds]);
   if (env[spec.env.useBenchmarkScope]) launchEnv[spec.env.useBenchmarkScope] = String(env[spec.env.useBenchmarkScope]);
   if (env[spec.env.onePassContractPath]) {
     launchEnv[spec.env.onePassContractPath] = path.isAbsolute(String(env[spec.env.onePassContractPath]))
@@ -131,10 +136,39 @@ export function buildProgramRemoteLaunchEnvironment({ effectiveRunId, remoteRuns
   if (env[spec.env.maxRuntimeHours]) launchEnv[spec.env.maxRuntimeHours] = String(env[spec.env.maxRuntimeHours]);
   if (env[spec.env.soakFullRuntime]) launchEnv[spec.env.soakFullRuntime] = String(env[spec.env.soakFullRuntime]);
   if (env[spec.env.noProgressIterationLimit]) launchEnv[spec.env.noProgressIterationLimit] = String(env[spec.env.noProgressIterationLimit]);
+  launchEnv[spec.env.requestedAgentCount] = String(env[spec.env.requestedAgentCount] || spec.defaults.requestedAgentCount);
 
   if (env.ORCHESTRATOR_IMPLEMENTATION_PROFILE) launchEnv.ORCHESTRATOR_IMPLEMENTATION_PROFILE = env.ORCHESTRATOR_IMPLEMENTATION_PROFILE;
   if (env.ORCHESTRATOR_TIERS) launchEnv.ORCHESTRATOR_TIERS = env.ORCHESTRATOR_TIERS;
   if (env.ORCHESTRATOR_REQUESTED_FIDELITY) launchEnv.ORCHESTRATOR_REQUESTED_FIDELITY = env.ORCHESTRATOR_REQUESTED_FIDELITY;
+
+  for (const key of [
+    'MAILCHIMP_EXCLUDED_FOCUS_IDS',
+    'MAILCHIMP_CONTRACT_SCOPE_PARALLEL_ALL',
+    'MAILCHIMP_BENCHMARK_CARRY_COMPLETED_FOCUS_IDS',
+    'MAILCHIMP_CONTINUE_UNTIL_GLOBAL_PARITY',
+    'MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION',
+    'MAILCHIMP_ENABLE_STRUCTURAL_FULL_CLONE_EXPANSION',
+    'MAILCHIMP_ENABLE_FULL_CLONE_FRONTIER_EXPANSION',
+    'MAILCHIMP_ENABLE_FULL_CLONE_REMEDIATION_EXPANSION',
+    'MAILCHIMP_ENABLE_FULL_CLONE_STRICT_REMEDIATION_EXPANSION',
+    'MAILCHIMP_ENABLE_FULL_CLONE_CONTINUATION_EXPANSION',
+    'MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR',
+    'MAILCHIMP_DISABLE_SEMANTIC_WORK_DIRECTOR',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_SATURATION_THRESHOLD',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_MAX_GAPS',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_SKIP_ADOPTED_PHASES',
+    'MAILCHIMP_REMOTE_MAX_ITERATIONS',
+    'MAILCHIMP_FULL_CLONE_CONTINUATION_MIN_WAVE',
+    'MAILCHIMP_ALLOW_SYNTHETIC_PARITY_DELTAS',
+    'MAILCHIMP_ALLOW_CANONICAL_RUNTIME_FALLBACK',
+    'MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT',
+    'MAILCHIMP_ARCHITECTURE_ONLY_CREDIT'
+  ]) {
+    if (env[key]) launchEnv[key] = String(env[key]);
+  }
 
   const strictGapInventory = String(env[spec.env.useStrictGapInventory] || '').trim();
   if (strictGapInventory) launchEnv[spec.env.useStrictGapInventory] = strictGapInventory;

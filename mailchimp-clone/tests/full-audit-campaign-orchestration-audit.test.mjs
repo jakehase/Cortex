@@ -3,11 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildContradictoryDelegateTruthBlocker, buildNotifierEligibilityPayload, buildOutcomeHeadline, buildStaleDelegateEvidenceBlocker, delegateTruthConflictDetails, deriveCanonicalStatuses, deriveRequestedOutcome, isArtifactFreshForRun, resolveCampaignBlocker } from '../scripts/lib/full-audit-campaign-state.mjs';
-import { buildRepoWideSyncPathspecs, parsePorcelainStatus, renderPathspecArgs, statusRepresentsDeletion } from '../scripts/lib/full-audit-campaign-sync-pathspecs.mjs';
+import { buildContradictoryDelegateTruthBlocker, buildNotifierEligibilityPayload, buildOutcomeHeadline, buildStaleDelegateEvidenceBlocker, delegateTruthConflictDetails, deriveCanonicalStatuses, deriveProductThroughputEvidence, deriveRequestedOutcome, isArtifactFreshForRun, resolveCampaignBlocker } from '../scripts/lib/full-audit-campaign-state.mjs';
+import { buildMailchimpCanonicalTruthPreflight } from '../scripts/lib/mailchimp-canonical-truth-preflight.mjs';
+import { buildControlPlaneOverlaySyncPathspecs, buildRepoWideSyncPathspecs, dirtyEntryAllowedByOverlay, parsePorcelainStatus, renderPathspecArgs, statusRepresentsDeletion } from '../scripts/lib/full-audit-campaign-sync-pathspecs.mjs';
 import { buildHeartbeatSummary, extractCurrentTestHint } from '../scripts/lib/full-audit-campaign-liveness.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const syncRemoteWorktreeSource = fs.readFileSync(
+  path.join(__dirname, '..', 'scripts', 'full-audit-campaign-sync-remote-worktree.mjs'),
+  'utf8'
+);
 
 test('resolveCampaignBlocker promotes an explicit blocker report even when canonical summary is still null', () => {
   const blocker = resolveCampaignBlocker({
@@ -117,11 +122,49 @@ test('deriveCanonicalStatuses refuses a green result when a blocker is present',
   });
 });
 
-test('repo-wide sync pathspecs exclude artifacts and node_modules instead of only a narrow product slice', () => {
+test('repo-wide sync pathspecs exclude artifacts, node_modules, and patch rejects instead of only a narrow product slice', () => {
   const pathspecs = buildRepoWideSyncPathspecs();
-  assert.deepEqual(pathspecs, ['.', ':(exclude)artifacts', ':(exclude)node_modules']);
+  assert.deepEqual(pathspecs, [
+    '.',
+    ':(exclude)artifacts',
+    ':(exclude)node_modules',
+    ':(exclude)packages/app/full-clone-frontier',
+    ':(exclude)packages/app/full-clone-remediation',
+    ':(exclude)packages/app/full-clone-structural',
+    ':(exclude)packages/app/full-clone-swarm',
+    ':(exclude,glob)**/*.rej'
+  ]);
   const rendered = renderPathspecArgs(pathspecs);
-  assert.match(rendered, /^'\.' ':\(exclude\)artifacts' '.*node_modules'$/);
+  assert.match(rendered, /^'\.' ':\(exclude\)artifacts' '.*node_modules' '.*\.rej'$/);
+});
+
+test('control-plane overlay sync pathspecs exclude Mailchimp product surfaces to protect remote baselines', () => {
+  const pathspecs = buildControlPlaneOverlaySyncPathspecs();
+  assert.deepEqual(pathspecs, [
+    '.',
+    ':(exclude)artifacts',
+    ':(exclude)node_modules',
+    ':(exclude)packages/app/full-clone-frontier',
+    ':(exclude)packages/app/full-clone-remediation',
+    ':(exclude)packages/app/full-clone-structural',
+    ':(exclude)packages/app/full-clone-swarm',
+    ':(exclude,glob)**/*.rej',
+    ':(exclude)apps',
+    ':(exclude)packages',
+    ':(exclude)public',
+    ':(exclude)src'
+  ]);
+});
+
+test('remote sync promotion eligibility can use benchmark progress when delegate tier artifacts are absent', () => {
+  assert.match(syncRemoteWorktreeSource, /benchmark_progress\.json/);
+  assert.match(syncRemoteWorktreeSource, /remote_execution_status\.json/);
+  assert.match(syncRemoteWorktreeSource, /const remoteIterationsHadLiveWork = Array\.isArray\(remoteExecutionStatus\?\.iterations\)/);
+  assert.match(syncRemoteWorktreeSource, /const benchmarkProgressHadLiveWork = numericArtifactValue\(observed\.distinctAgentIds, 0\) > 0/);
+  assert.match(syncRemoteWorktreeSource, /benchmarkProgressMergedPatchCount: benchmarkMergedPatchCount/);
+  assert.match(syncRemoteWorktreeSource, /benchmarkProgressFallbackUsed: benchmarkMergedPatchCount > 0 \|\| benchmarkProductChangedLines > 0 \|\| benchmarkProductFileCount > 0/);
+  assert.match(syncRemoteWorktreeSource, /const currentProductChangedLines = Math\.max\(locProductChangedLines, benchmarkProductChangedLines\);/);
+  assert.match(syncRemoteWorktreeSource, /const currentProductFileCount = Math\.max\(locProductFileCount, benchmarkProductFileCount\);/);
 });
 
 test('parsePorcelainStatus preserves renames and deletions for overlay and sync promotion', () => {
@@ -134,6 +177,17 @@ test('parsePorcelainStatus preserves renames and deletions for overlay and sync 
   ]);
   assert.equal(statusRepresentsDeletion(entries[2].status), true);
   assert.equal(statusRepresentsDeletion(entries[0].status), false);
+});
+
+test('overlay dirty-entry guard allows git-collapsed untracked swarm module directories only when descendants are in the overlay manifest', () => {
+  const allowed = new Set([
+    'packages/app/full-clone-swarm/signup_onboarding/001-index.mjs',
+    'packages/app/routes/audience.mjs'
+  ]);
+  assert.equal(dirtyEntryAllowedByOverlay({ status: 'M', path: 'packages/app/routes/audience.mjs' }, allowed), true);
+  assert.equal(dirtyEntryAllowedByOverlay({ status: '??', path: 'packages/app/full-clone-swarm/' }, allowed), true);
+  assert.equal(dirtyEntryAllowedByOverlay({ status: '??', path: 'packages/app/unknown-scratch/' }, allowed), false);
+  assert.equal(dirtyEntryAllowedByOverlay({ status: 'M', path: 'packages/app/full-clone-swarm/' }, allowed), false);
 });
 
 test('extractCurrentTestHint finds the deepest active repo test from process commands', () => {
@@ -228,6 +282,50 @@ test('deriveRequestedOutcome keeps orchestration green while marking the strict 
     blockerKind: 'strict_1to1_ceiling',
     note: 'Delegate/orchestration run passed, but full-clone completion remains blocked by the strict 1:1 ceiling.'
   });
+});
+
+test('deriveRequestedOutcome blocks zero-work scoped green when Mailchimp truth memory says abundant work remains', () => {
+  const productThroughput = deriveProductThroughputEvidence({
+    liveExecutionSummary: { shardCount: 0, mergedShardCount: 0, metrics: { workerSpawnCount: 0, mergedPatchCount: 0 } },
+    patchQueueReport: { merged: [] },
+    syncStatus: { canonicalLandingEvidence: { newlyLandedProductFileCount: 0, canonicalSynchronizedProductFileCount: 48, alreadyMatchedProductFileCount: 48 } }
+  });
+  assert.equal(productThroughput.zeroWork, true);
+  const requested = deriveRequestedOutcome({
+    requestedFidelity: 'parity_for_scope',
+    orchestration: {
+      supervisorStatus: 'green',
+      matrixStatus: 'all_complete',
+      parityStatus: 'full',
+      green: true
+    },
+    productThroughput,
+    truthPreflight: {
+      ok: true,
+      memoryTruth: { assumeAbundantRemainingWork: true, strictGapGreenIsNotFullParity: true },
+      guardrail: 'Scoped matrix green must not be reported as full product parity.'
+    }
+  });
+  assert.equal(requested.green, false);
+  assert.equal(requested.blockerKind, 'zero_work_scoped_green');
+  assert.equal(requested.matrixStatus, 'scope_satisfied_zero_work');
+  assert.match(requested.blocker.blocker, /no live product-work throughput/i);
+});
+
+test('buildOutcomeHeadline names zero-work scoped green without calling the campaign complete', () => {
+  const headline = buildOutcomeHeadline({
+    orchestration: { green: true },
+    requestedOutcome: { green: false, blockerKind: 'zero_work_scoped_green' }
+  });
+  assert.equal(headline, 'Scoped matrix passed, but no product-work throughput was proven.');
+});
+
+test('Mailchimp canonical truth preflight loads local memory guardrails before completion claims', () => {
+  const preflight = buildMailchimpCanonicalTruthPreflight({ workspaceRoot: path.resolve(__dirname, '..', '..') });
+  assert.equal(preflight.memoryTruth.fullCloneParityKnownIncomplete, true);
+  assert.equal(preflight.memoryTruth.assumeAbundantRemainingWork, true);
+  assert.equal(preflight.localProjectMemoryOk, true);
+  assert.equal(preflight.localOrchestrationMemoryOk, true);
 });
 
 test('deriveRequestedOutcome preserves orchestration blockers as the primary requested outcome', () => {
@@ -363,12 +461,19 @@ test('remote runner persists verified focus progress, seeds env carry-forward, a
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-remote-runner.mjs'), 'utf8');
   assert.match(source, /const hasVerifiedSchema = Array\.isArray\(raw\?\.verifiedCompletedFocusIds\);/);
   assert.match(source, /discardedLegacyCompletedFocusIds/);
+  assert.match(source, /function legacyProgressStateLooksBloatContaminated\(raw = null\)/);
+  assert.match(source, /productDiffChangedLines >= 100000/);
   assert.match(source, /function filterFocusIdsByTrustedSet\(values = \[\], trustedValues = \[\]\) \{/);
   assert.match(source, /return extractVerifiedFocusIdsFromPatchQueue\(patchQueue\);/);
   assert.match(source, /const envCompletedFocusIds = normalizeCompletedFocusIds\(String\(process\.env\.MAILCHIMP_COMPLETED_FOCUS_IDS \|\| ''\)\.split\(','\)\);/);
-  assert.match(source, /const seededEnvCompletedFocusIds = verifiedCompletedFocusIds\.length > 0/);
-  assert.match(source, /\? filterFocusIdsByTrustedSet\(envCompletedFocusIds, verifiedCompletedFocusIds\)/);
-  assert.match(source, /\.\.\.seededEnvCompletedFocusIds,/);
+  assert.match(source, /const envVerifiedCompletedFocusIds = normalizeCompletedFocusIds\(String\(process\.env\.MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS \|\| ''\)\.split\(','\)\);/);
+  assert.match(source, /const suspectCompletedFocusIds = normalizeCompletedFocusIds\(\[/);
+  assert.match(source, /legacyProgressStateLooksBloatContaminated\(raw\) \? verifiedCompletedFocusIds : \[\]/);
+  assert.match(source, /const trustedVerifiedCompletedFocusIds = verifiedCompletedFocusIds\.filter/);
+  assert.match(source, /const seededEnvCompletedFocusIds = trustedVerifiedCompletedFocusIds\.length > 0/);
+  assert.match(source, /\? filterFocusIdsByTrustedSet\(envCompletedFocusIds, trustedVerifiedCompletedFocusIds\)/);
+  assert.match(source, /const seededCompletedFocusIds = normalizeCompletedFocusIds\(trustedVerifiedCompletedFocusIds\);/);
+  assert.doesNotMatch(source, /\.\.\.seededEnvCompletedFocusIds,/);
   assert.doesNotMatch(source, /rawVerifiedCompletedFocusIds.length > 0 \? rawVerifiedCompletedFocusIds : rawCompletedFocusIds/);
   assert.match(source, /const verifiedFocusIds = Array\.from\(new Set\(\[\.\.\.\(progressState\.verifiedCompletedFocusIds \|\| \[\]\), \.\.\.mergedFocusIds\]\)\);/);
   assert.match(source, /verifiedCompletedFocusIds,/);
@@ -383,8 +488,10 @@ test('remote runner continues when supervisor goes green without fresh product p
   assert.match(source, /const selectedTierHadLiveWork = hasSelectedTierLiveWork\(liveExecutionSummary\);/);
   assert.match(source, /const patchQueueFocusIds = extractMergedFocusIds\(patchQueueReport\);/);
   assert.match(source, /const trustedPatchQueueFocusIds = extractVerifiedFocusIdsFromPatchQueue\(patchQueueReport\);/);
+  assert.match(source, /const patchQueueSuspectFocusIds = extractSuspectFocusIdsFromPatchQueue\(patchQueueReport\);/);
   assert.match(source, /const targetedTestCandidateFocusIds = selectedTierHadLiveWork/);
-  assert.match(source, /\? trustedPatchQueueFocusIds\.filter\(\(focusId\) => !progressState\.completedFocusIds\.includes\(focusId\)\)/);
+  assert.match(source, /!patchQueueSuspectFocusIds\.includes\(focusId\)/);
+  assert.match(source, /semanticBloatCurrentIteration !== true/);
   assert.match(source, /filter\(\(focusId\) => !progressState\.completedFocusIds\.includes\(focusId\)\)/);
   assert.match(source, /const targetedTestVerifiedFocusIds = targetedTestCandidateFocusIds.length > 0/);
   assert.match(source, /verifyFocusIdsByTargetedTests\(targetedTestCandidateFocusIds\)/);
@@ -392,20 +499,26 @@ test('remote runner continues when supervisor goes green without fresh product p
   assert.match(source, /const unstableExecution = stateLossEvents > 0 \|\| continuityFailures.length > 0;/);
   assert.match(source, /if \(unstableExecution\) \{/);
   assert.match(source, /if \(isNoParityReductionBlocker\(blocker\)\) \{/);
-  assert.match(source, /return Array\.from\(new Set\(targetedTestVerifiedFocusIds\)\);/);
+  assert.match(source, /\.\.\.patchQueueFocusIds,/);
+  assert.match(source, /\.\.\.targetedTestVerifiedFocusIds/);
   assert.doesNotMatch(source, /summaryProvenFocusIds/);
   assert.match(source, /const mergedFocusIds = creditableFocusIdsForIteration\(\{/);
-  assert.match(source, /patchQueueFocusIds: trustedPatchQueueFocusIds,/);
+  assert.match(source, /patchQueueFocusIds: semanticBloatCurrentIteration === true/);
+  assert.match(source, /trustedPatchQueueFocusIds\.filter\(\(focusId\) => !patchQueueSuspectFocusIds\.includes\(focusId\)\)/);
   assert.match(source, /liveExecutionSummary/);
   assert.match(source, /const progressDelta = selectedTierHadLiveWork/);
-  assert.match(source, /const freshProgressDetected = Boolean\(workspaceDiff\.trim\(\)\)/);
-  assert.match(source, /\|\| \(selectedTierHadLiveWork && progressDelta.length > 0\);/);
-  assert.match(source, /const retryClass = campaignState\?\.stopAllowed && !blocker && !freshProgressDetected/);
+  assert.match(source, /const verifiedProductPatchProgressDetected = selectedTierHadLiveWork/);
+  assert.match(source, /&& trustedPatchQueueFocusIds\.length > 0/);
+  assert.match(source, /&& hasVerifiedProductPatchProgress\(patchQueueReport\);/);
+  assert.match(source, /const freshProgressDetected = deepArchitectureCreditRequired\(\)/);
+  assert.match(source, /\? \(selectedTierHadLiveWork && \(progressDelta\.length > 0 \|\| verifiedProductPatchProgressDetected\)\)/);
+  assert.match(source, /: \(Boolean\(workspaceDiff\.trim\(\)\)/);
   assert.match(source, /const preserveLiveWorkBlocker = selectedTierHadLiveWork && isNoParityReductionBlocker\(blocker\);/);
-  assert.match(source, /const greenCompletionReached = !blocker/);
+  assert.match(source, /const greenCompletionReached = !blocker\s+&& selectedTierHadLiveWork\s+&& statuses\.supervisorStatus === 'green'\s+&& statuses\.matrixStatus === 'all_complete';/);
+  assert.match(source, /const retryClass = campaignState\?\.stopAllowed && !blocker && !freshProgressDetected && !greenCompletionReached/);
   assert.match(source, /'terminal_green_without_fresh_progress'/);
   assert.match(source, /stopReason: retryClass === 'terminal_green_without_fresh_progress'/);
-  assert.match(source, /const shouldRequeue = blocker/);
+  assert.match(source, /const shouldRequeue = greenCompletionReached\s+\? false/);
   assert.match(source, /: preserveLiveWorkBlocker/);
   assert.match(source, /let blockerClass = classifyIteration\(\{ blocker, progressDelta, freshProgressDetected, spawnError: result\.error, workspaceError: result\.workspaceRefreshError, retryClass \}\);/);
   assert.match(source, /if \(blocker && blockerClass === 'hard_blocker'\) blockerClass = null;/);
@@ -415,7 +528,7 @@ test('remote runner continues when supervisor goes green without fresh product p
   assert.match(source, /if \(blocker && !shouldRequeue\) \{/);
   assert.match(source, /if \(shouldRequeue\) \{/);
   assert.match(source, /continuationDetected = true;/);
-  assert.match(source, /const creditedFocusIds = Array\.from\(new Set\(\[\.\.\.progressState\.completedFocusIds, \.\.\.mergedFocusIds\]\)\);/);
+  assert.match(source, /const creditedFocusIds = Array\.from\(new Set\(\[\.\.\.\(progressState\.verifiedCompletedFocusIds \|\| \[\]\), \.\.\.mergedFocusIds\]\)\);/);
   assert.match(source, /completedFocusIds: creditedFocusIds/);
   assert.match(source, /No parity-surface reduction was proven by this iteration\./);
 });
@@ -453,7 +566,11 @@ test('product-only supervisor derives nextFocus from verified focus merges inste
   assert.match(source, /const selectedTierHadLiveWork = selectedTierShardCount > 0 \|\| selectedTierMergedShardCount > 0 \|\| selectedTierMergedPatchCount > 0;/);
   assert.match(source, /const focusSurfaces = surfaceDefinitions\(\);/);
   assert.match(source, /graph = \{\n    version: priorGraph\?\.version \|\| 1,/);
-  assert.match(source, /const completedFocusIds = new Set\(normalizeFocusIds\(String\(process\.env\.MAILCHIMP_COMPLETED_FOCUS_IDS \|\| ''\)/);
+  assert.match(source, /const rawCompletedFocusIds = normalizeFocusIds\(String\(process\.env\.MAILCHIMP_COMPLETED_FOCUS_IDS \|\| ''\)/);
+  assert.match(source, /const verifiedCompletedFocusIds = normalizeFocusIds\(String\(process\.env\.MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS \|\| ''\)/);
+  assert.match(source, /const completedFocusIds = new Set\(verifiedCompletedFocusIds\);/);
+  assert.match(source, /const discardedLegacyCompletedFocusIds = rawCompletedFocusIds\.filter\(\(id\) => !completedFocusIds\.has\(id\)\);/);
+  assert.match(source, /const excludedFocusIds = new Set\(normalizeFocusIds\(String\(process\.env\.MAILCHIMP_EXCLUDED_FOCUS_IDS \|\| ''\)/);
   assert.match(source, /const targetedTestCandidateFocusIds = selectedTierHadLiveWork/);
   assert.match(source, /\? mergedFocusIds.filter\(\(id\) => !completedFocusIds.has\(id\)\)/);
   assert.match(source, /const targetedTestVerifiedFocusIds = verifyFocusIdsByTargetedTests\(/);
@@ -462,6 +579,8 @@ test('product-only supervisor derives nextFocus from verified focus merges inste
   assert.match(source, /const iterationFocusArtifacts = buildFocusArtifactPaths\(\{ patchQueue, runRoot: runForArtifacts\?\.runRoot \}\);/);
   assert.match(source, /const currentIterationProvenFocusIds = new Set\(\[\.\.\.mergedFocusIds, \.\.\.targetedTestVerifiedFocusIds\]\);/);
   assert.match(source, /const provenFocusIds = new Set\(\[\.\.\.completedFocusIds, \.\.\.currentIterationProvenFocusIds\]\);/);
+  assert.match(source, /const verifiedFocusProofPresent = completedFocusIds\.size > 0 \|\| currentIterationProvenFocusIds\.size > 0;/);
+  assert.match(source, /productOnlyFocusEvidence = \{/);
   assert.match(source, /function extractVerifiedFocusIdsFromResultFiles\(/);
   assert.match(source, /function resolveFocusIdFromPatchEntry\(/);
   assert.match(source, /const mergedFocusIds = Array\.from\(new Set\(\s*extractVerifiedFocusIdsFromPatchQueue\(patchQueue\)\s*\)\);/);
@@ -476,15 +595,20 @@ test('product-only supervisor derives nextFocus from verified focus merges inste
   assert.match(source, /issueComplete \? 'complete' : 'pending'/);
   assert.match(source, /issues: focusIssues/);
   assert.match(source, /const parityFocusIds = mailchimpParityFocusIds\(\);/);
-  assert.match(source, /const allFocusComplete = nextFocus.length === 0 && focusIssues\.every\(\(issue\) => issueSatisfied\(issue\.id\)\);/);
-  assert.match(source, /selectedTier: Boolean\(selectedTier \|\| scaleQualification\?\.highestPassingTier \|\| scaleQualification\?\.provenCoordinationScaleTier\),/);
+  assert.match(source, /const openUnprovenFocusIds = parityFocusIds\.filter\(\(id\) => !provenFocusIds\.has\(id\)\);/);
+  assert.match(source, /nextFocus = openUnprovenFocusIds\.filter\(\(id\) => !excludedFocusIds\.has\(id\)\);/);
+  assert.match(source, /const allFocusComplete = openUnprovenFocusIds.length === 0 && focusIssues\.every\(\(issue\) => issueSatisfied\(issue\.id\)\);/);
+  assert.match(source, /selectedTier: Boolean\(selectedTier \|\| scaleQualification\?\.highestPassingTier \|\| scaleQualification\?\.provenCoordinationScaleTier\)/);
   assert.match(source, /selected_tier_had_live_work: selectedTierHadLiveWork/);
+  assert.match(source, /unresolvedRejectedCount > 0 && mergedFocusIds\.length === 0/);
+  assert.match(source, /rejected patch candidate\(s\) remain after all focus lanes were otherwise proven/);
   assert.match(source, /Selected live qualification tier reported green without any live shard work for this run\./);
   assert.match(source, /if \(!blocker && !allFocusComplete && priorBlockerReport\?\.blocker\) blocker = priorBlockerReport;/);
   assert.match(source, /if \(!blocker && resolveMatrixStatus\(matrixPreview\) !== 'all_complete'\) \{/);
   assert.match(source, /intendedMatrixStatus = blocker/);
   assert.match(source, /resolveMatrixStatus\(matrixPreview\)/);
-  assert.match(source, /const finalAllComplete = !blocker && truth\.supervisorStatus === 'green' && matrix\.status === 'all_complete';/);
+  assert.match(source, /const stageIntegrityOk = Object\.values\(stageFlags\)\.every\(\(value\) => value === true\);/);
+  assert.match(source, /const finalAllComplete = greenComplete && !blocker && truth\.supervisorStatus === 'green' && matrix\.status === 'all_complete';/);
   assert.match(source, /const finalSupervisorStatus = finalAllComplete \? 'green' : 'red';/);
   assert.match(source, /blocker: finalBlocker \|\| null,/);
   assert.match(source, /nextFocus = parityFocusIds\.filter/);
@@ -510,6 +634,8 @@ test('product-only verifier still runs targeted tests and refuses empty test con
   assert.doesNotMatch(source, /skipped in product-only mode/);
   assert.match(source, /tests verifier requested but no shard test files were configured/);
   assert.match(source, /\['--test', '--test-concurrency=1', testFile\]/);
+  assert.match(source, /scoped_architecture_differential/);
+  assert.match(source, /baselineFailureWaived/);
 });
 
 test('full-audit supervisor reads delegate program state and prefers it over stale canonical blockers', () => {
@@ -572,7 +698,9 @@ test('full-audit supervisor ignores stale root canonical summaries when the acti
 test('full-audit supervisor aggregates benchmark thresholds across the whole campaign and enforces the full gate', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-supervisor.mjs'), 'utf8');
   assert.match(source, /function campaignIterationRunIds\(currentRun = null, canonicalSummary = null\) \{/);
-  assert.match(source, /function aggregateBenchmarkObserved\(\{ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null \} = \{\}\) \{/);
+  assert.match(source, /const AUTONOMY_SOAK_PROOF_PATH = path\.join\(ARTIFACT_DIR, 'autonomy_soak_proof\.json'\);/);
+  assert.match(source, /function autonomySoakProofEndAt\(\{ autonomySoakProof = null, currentRun = null, canonicalSummary = null \} = \{\}\) \{/);
+  assert.match(source, /function aggregateBenchmarkObserved\(\{ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null, autonomySoakProof = null \} = \{\}\) \{/);
   assert.match(source, /const observed = aggregateBenchmarkObserved\(\{/);
   assert.match(source, /const benchmarkProgress = readJson\(path\.join\(delegateDir, 'benchmark_progress\.json'\), null\);/);
   assert.match(source, /const benchmarkObserved = benchmarkProgress\?\.observed && typeof benchmarkProgress\.observed === 'object'/);
@@ -594,6 +722,9 @@ test('full-audit supervisor aggregates benchmark thresholds across the whole cam
   assert.match(source, /compareEquality\(\{ thresholdField: 'truthIntegrityContradictions', observedField: 'truthIntegrityContradictions', label: 'Truth contradictions' \} \);/);
   assert.match(source, /netProductAddedLines \+= promotedLoc\.added;/);
   assert.match(source, /netProductFiles: productFiles\.size,/);
+  assert.match(source, /autonomyMinutes: minutesBetween\(currentRun\?\.campaignStartedAt \|\| currentRun\?\.startedAt \|\| currentRun\?\.generatedAt \|\| null, autonomyEndAt\),/);
+  assert.match(source, /const autonomySoakProof = readJson\(AUTONOMY_SOAK_PROOF_PATH, null\);/);
+  assert.match(source, /autonomySoakProof/);
   assert.match(source, /noOpRate: totalPatchCandidates > 0 \? roundMetric\(noOpPatchCount \/ totalPatchCandidates\) : 0,/);
   assert.match(source, /repeatBlockerRate: blockerEventCount > 0/);
 });
@@ -610,7 +741,8 @@ test('remote runner benchmark progress credits promoted production files, not ge
   assert.match(source, /function promotedProductLocFromAccounting\(locAccounting = null, contract = null\)/);
   assert.match(source, /productionCreditEligibility\(filePath, policy\)\.eligible/);
   assert.match(source, /readJson\(BENCHMARK_CONTRACT_DEST_PATH, null\)/);
-  assert.match(source, /locAccounting: readJson\(path\.join\(ARTIFACT_ROOT, 'loc_accounting\.json'\), null\) \|\| completionSummary\?\.locAccountingSummary/);
+  assert.match(source, /const locAccountingForIteration = readJson\(path\.join\(ARTIFACT_ROOT, 'loc_accounting\.json'\), null\);/);
+  assert.match(source, /locAccounting: locAccountingForIteration \|\| completionSummary\?\.locAccountingSummary/);
   assert.doesNotMatch(source, /function measureProductDiffChangedLines/);
 });
 
@@ -642,7 +774,8 @@ test('product-only supervisor canonicalizes shard ids before computing next focu
   assert.match(source, /canonicalizeFocusId,/);
   assert.match(source, /normalizeFocusIds/);
   assert.match(source, /const shardId = canonicalizeFocusId\(result\?\.shardId\);/);
-  assert.match(source, /const completedFocusIds = new Set\(normalizeFocusIds\(String\(process\.env\.MAILCHIMP_COMPLETED_FOCUS_IDS \|\| ''\)/);
+  assert.match(source, /const verifiedCompletedFocusIds = normalizeFocusIds\(String\(process\.env\.MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS \|\| ''\)/);
+  assert.match(source, /const completedFocusIds = new Set\(verifiedCompletedFocusIds\);/);
 });
 
 test('real-repo supervisor loc accounting includes fresh untracked product files from disposable worktrees', () => {
@@ -657,11 +790,19 @@ test('worker seeds a fresh current_run instead of inheriting foreign run ancestr
   assert.match(source, /function resolveRunId\(\)/);
   assert.match(source, /if \(!requested \|\| requested === 'default'\) return makeGeneratedRunId\(\);/);
   assert.match(source, /const preservedCurrentRun = existingBinding\.currentRun\?\.runId === RUN_ID/);
-  assert.match(source, /const DELEGATE_COMPLETION_SUMMARY = path.join\(DELEGATE_ARTIFACT_ROOT, 'canonical_summary\.json'\);/);
+  assert.match(source, /const DELEGATE_COMPLETION_SUMMARY = path.join\(DELEGATE_ARTIFACT_ROOT, 'scale_qualification\.json'\);/);
   assert.match(source, /const DELEGATE_PROGRAM_STATE = path.join\(DELEGATE_ARTIFACT_ROOT, 'program_state\.json'\);/);
   assert.match(source, /campaignRunId: preservedCurrentRun\?\.campaignRunId \?\? `campaign-\$\{RUN_ID\}`/);
   assert.match(source, /startedAt: preservedCurrentRun\?\.startedAt \?\? new Date\(\)\.toISOString\(\)/);
   assert.match(source, /remoteArtifactRoot: preservedCurrentRun\?\.remoteArtifactRoot \?\? null/);
+});
+
+test('100-agent worker treats productive partial parity reduction as a continuation handoff', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-worker-100-agent.mjs'), 'utf8');
+  assert.match(source, /const productivePartialBlocker = \/partial parity-surface reduction was proven\|remaining red surfaces are still open\/i/);
+  assert.match(source, /mergedShardCount/);
+  assert.match(source, /productivePartialBlocker/);
+  assert.match(source, /sync, credit, and continue product work/);
 });
 
 test('launch script binds a fresh run id and campaign id for persistent Mailchimp full-clone launches', () => {
@@ -672,9 +813,12 @@ test('launch script binds a fresh run id and campaign id for persistent Mailchim
   assert.match(source, /MAILCHIMP_FULL_AUDIT_RUN_ID: launchRunId/);
   assert.match(source, /MAILCHIMP_CAMPAIGN_RUN_ID: campaignRunId/);
   assert.match(source, /const oneShot = process\.env\.MAILCHIMP_ONE_SHOT === '1';/);
+  assert.match(source, /fs\.rmSync\(benchmarkContractTargetPath, \{ force: true \}\);/);
   assert.match(source, /const benchmarkContract = readJsonIfExists\(benchmarkContractTargetPath, null\);/);
+  assert.match(source, /const benchmarkContractRuntimeEnvPath = benchmarkContractSourcePath/);
   assert.match(source, /const contractLaunchEnv = benchmarkContract\?\.launchEnvironment && typeof benchmarkContract\.launchEnvironment === 'object'/);
   assert.match(source, /\.\.\.contractLaunchEnv,/);
+  assert.match(source, /MAILCHIMP_ONE_PASS_CONTRACT_PATH: benchmarkContractRuntimeEnvPath/);
   assert.match(source, /const persistent = oneShot \? null : run\('scripts\/full-audit-campaign-persistent-runner\.mjs'\);/);
   assert.match(source, /const watcher = oneShot \|\| persistent/);
   assert.match(source, /run\('scripts\/full-audit-campaign-watch\.mjs'\)/);
@@ -688,6 +832,8 @@ test('launch script binds a fresh run id and campaign id for persistent Mailchim
 
 test('parity focus planner serializes file-colliding surfaces and still expands exact carry-forward credits', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'lib', 'orchestrator-real-repo-clean-plan.mjs'), 'utf8');
+  assert.match(source, /STRICT_GAP_INVENTORY_FALLBACK_PATHS/);
+  assert.match(source, /MAILCHIMP_STRICT_1TO1_GAP_INVENTORY_2026-05-08\.json/);
   assert.match(source, /function surfaceEquivalenceSignature\(surface\)/);
   assert.match(source, /function surfaceCollisionSignature\(surface\)/);
   assert.match(source, /function buildSurfaceGroupMap\(signatureResolver\)/);
@@ -696,26 +842,42 @@ test('parity focus planner serializes file-colliding surfaces and still expands 
   assert.match(source, /export function expandEquivalentFocusIds\(values = \[\]\) \{/);
   assert.match(source, /export function selectNonOverlappingFocusIds\(values = \[\]\) \{/);
   assert.match(source, /for \(const siblingFocusId of SURFACE_COLLISION_BY_FOCUS_ID\.get\(focusId\) \|\| \[focusId\]\) \{/);
-  assert.match(source, /return new Set\(expandEquivalentFocusIds\(String\(process\.env\.MAILCHIMP_COMPLETED_FOCUS_IDS \|\| ''\)/);
+  assert.match(source, /export function objectiveCreditFocusIds\(values = \[\]\) \{/);
+  assert.match(source, /return new Set\(objectiveCreditFocusIds\(String\(process\.env\.MAILCHIMP_COMPLETED_FOCUS_IDS \|\| ''\)/);
   assert.match(source, /new Set\(selectNonOverlappingFocusIds\(Array\.from\(remainingOpenFocusIds\)\)\)/);
-  assert.match(source, /status: remainingOpenFocusIds\.has\(`focus\.\$\{surface\.id\}`\) \? 'open' : 'proven_complete'/);
+  assert.match(source, /status: excluded\.has\(`focus\.\$\{surface\.id\}`\)/);
+  assert.match(source, /excluded_until_repaired/);
+  assert.match(source, /remainingOpenFocusIds\.has\(`focus\.\$\{surface\.id\}`\) \? 'open' : 'proven_complete'/);
 });
 
 test('persistent runner carries completed Mailchimp surfaces forward across shared continuation decisions', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-persistent-runner.mjs'), 'utf8');
-  assert.match(source, /import \{ deriveCampaignContinuation, initializeCampaign, installProcessTerminationPersistence \} from '\.\.\/\.\.\/large-project-capability-stack\/packages\/campaign-runtime\/index\.mjs';/);
+  assert.match(source, /import \{ deriveCampaignContinuation, deriveObjectiveExpansion, initializeCampaign, installProcessTerminationPersistence \} from '\.\.\/\.\.\/large-project-capability-stack\/packages\/campaign-runtime\/index\.mjs';/);
   assert.match(source, /import \{ ORCHESTRATION_PROGRAM_SPEC, resolveProgramEnvKeys, resolveProgramPaths, resolveProgramScriptPath \} from '\.\/lib\/orchestration-program-config\.mjs';/);
-  assert.match(source, /import \{ buildMailchimpParityFocusWorkGraph, extractVerifiedFocusIdsFromPatchQueue, mailchimpParityFocusIds \} from '\.\/lib\/orchestrator-real-repo-clean-plan\.mjs';/);
-  assert.match(source, /function deriveCompletedFocusIds\(/);
-  assert.match(source, /const mergedFocusIds = new Set\(normalizeFocusIds\(iterationRecord\?\.mergedFocusIds \|\| \[\]\)\);/);
-  assert.match(source, /if \(mergedFocusIds\.size > 0\) return parityFocusIds\.filter\(\(focusId\) => mergedFocusIds\.has\(focusId\)\);/);
+  assert.match(source, /import \{ buildMailchimpParityFocusWorkGraph, extractVerifiedFocusIdsFromPatchQueue, fullCloneObjectiveInventory, mailchimpParityFocusIds, strictGapAlreadySatisfied, strictGapStructuralAlreadySatisfied, strictGapSwarmAlreadySatisfied \} from '\.\/lib\/orchestrator-real-repo-clean-plan\.mjs';/);
+  assert.match(source, /function deriveCompletedFocusIds\(iterationRecord = null, patchQueueReport = null, syncStatus = null\)/);
+  assert.match(source, /\.filter\(\(gap\) => !strictGapSwarmAlreadySatisfied\(gap\)\)/);
+  assert.match(source, /\.filter\(\(gap\) => !strictGapStructuralAlreadySatisfied\(gap\)\)/);
+  assert.match(source, /syncStatus\?\.canonicalLandingEvidence\?\.ok !== true/);
+  assert.match(source, /landedProductFilesFromSyncStatus\(syncStatus\)/);
+  assert.match(source, /const legacyEnvCompletedFocusIds = normalizeFocusIds\(String\(process\.env\[PROGRAM_ENV\.completedFocusIds\] \|\| ''\)\.split\(','\)\);/);
+  assert.match(source, /const seededVerifiedCompletedFocusIds = normalizeFocusIds\(String\(process\.env\[PROGRAM_ENV\.verifiedCompletedFocusIds\] \|\| ''\)\.split\(','\)\);/);
+  assert.match(source, /CANONICAL_SURFACE_NEXT_FOCUS_ALIASES/);
+  assert.match(source, /function normalizeContinuationFocusIds\(values = \[\]\) \{/);
+  assert.match(source, /MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS: directedNextFocusIds\.join\(','\)/);
+  assert.match(source, /const mappedNextFocusIds = normalizeContinuationFocusIds\(iterationRecord\.nextFocus\);/);
+  assert.match(source, /const seededCompletedFocusIds = new Set\(seededVerifiedCompletedFocusIds\);/);
+  assert.match(source, /discardedLegacyCompletedFocusIds/);
   assert.match(source, /function deriveIterationContinuation\(/);
   assert.match(source, /const delegatePatchQueueReport = readJson\(path\.join\(runDir, 'delegate', 'patch_queue_report\.json'\), \{ merged: \[\] \}\);/);
   assert.match(source, /mergedFocusIds: extractVerifiedFocusIdsFromPatchQueue\(delegatePatchQueueReport\),/);
   assert.match(source, /\[PROGRAM_ENV\.completedFocusIds\]: Array\.from\(completedFocusIds\)\.join\(','\)/);
-  assert.match(source, /for \(const focusId of deriveCompletedFocusIds\(iterationRecord\)\) completedFocusIds\.add\(focusId\);/);
-  assert.match(source, /const continuation = iterationRecord\.continuationDecision/);
+  assert.match(source, /\[PROGRAM_ENV\.verifiedCompletedFocusIds\]: Array\.from\(completedFocusIds\)\.join\(','\)/);
+  assert.match(source, /for \(const focusId of deriveCompletedFocusIds\(iterationRecord, delegatePatchQueueReport, syncStatus\)\) completedFocusIds\.add\(focusId\);/);
+  assert.match(source, /const delegateContinuationDecision = iterationRecord\.continuationDecision \|\| null/);
+  assert.match(source, /iterationRecord\.delegateContinuationDecisionIgnored = delegateContinuationDecision/);
   assert.match(source, /if \(softContinuation\) \{/);
+  assert.match(source, /Finite Mailchimp swarm graph is saturated, but strict 1:1 full-clone parity is still not proven\./);
   assert.match(source, /completedFocusIds: Array\.from\(completedFocusIds\),/);
 });
 
@@ -735,9 +897,12 @@ test('wrapper config centralizes reusable orchestration program wiring', () => {
   assert.match(contractSource, /buildProgramRemoteRuntimeCandidates/);
   assert.match(configSource, /useBenchmarkScope: 'MAILCHIMP_USE_BENCHMARK_SCOPE',/);
   assert.match(configSource, /if \(env\[spec\.env\.completedFocusIds\]\) launchEnv\[spec\.env\.completedFocusIds\] = String\(env\[spec\.env\.completedFocusIds\]\);/);
+  assert.match(configSource, /if \(env\[spec\.env\.verifiedCompletedFocusIds\]\) launchEnv\[spec\.env\.verifiedCompletedFocusIds\] = String\(env\[spec\.env\.verifiedCompletedFocusIds\]\);/);
   assert.match(configSource, /if \(env\[spec\.env\.useBenchmarkScope\]\) launchEnv\[spec\.env\.useBenchmarkScope\] = String\(env\[spec\.env\.useBenchmarkScope\]\);/);
   assert.match(configSource, /if \(env\[spec\.env\.maxRuntimeHours\]\) launchEnv\[spec\.env\.maxRuntimeHours\] = String\(env\[spec\.env\.maxRuntimeHours\]\);/);
   assert.match(configSource, /if \(env\[spec\.env\.soakFullRuntime\]\) launchEnv\[spec\.env\.soakFullRuntime\] = String\(env\[spec\.env\.soakFullRuntime\]\);/);
+  assert.match(configSource, /'MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT'/);
+  assert.match(configSource, /'MAILCHIMP_ARCHITECTURE_ONLY_CREDIT'/);
   assert.match(architectureSource, /resolveProgramScriptArg\('remoteRunner'\)/);
 });
 
@@ -769,17 +934,71 @@ test('remote execution mirrors live execution and patch queue artifacts for cont
   assert.match(source, /if \(verifiedRemoteSha !== localSha\) \{/);
 });
 
-test('remote execution dynamically syncs local overlay files instead of pinning individual product files', () => {
+test('remote sync requires canonical landed product evidence before marking promotion ok', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-sync-remote-worktree.mjs'), 'utf8');
+  assert.match(source, /function localGitTopLevel\(\)/);
+  assert.match(source, /function localApplyDirectory\(gitTopLevel\)/);
+  assert.match(source, /--directory=\$\{applyDirectory\}/);
+  assert.match(source, /function promoteRemoteProductSurfaceFiles\(remote, remoteRepo, changedFiles = \[\], remoteUntrackedProductFiles = \[\]\)/);
+  assert.match(source, /process\.env\.MAILCHIMP_SYNC_APPLY_PATCH === '1'/);
+  assert.match(source, /content-promotion copied=\$\{contentPromotion\.copiedFileCount \|\| 0\} deleted=\$\{contentPromotion\.deletedFileCount \|\| 0\}/);
+  assert.match(source, /BANNED_PRODUCT_PROMOTION_MARKERS/);
+  assert.match(source, /MAILCHIMP_SYNC_REMOTE_COPY_BATCH_SIZE/);
+  assert.match(source, /for \(let index = 0; index < productFiles\.length; index \+= maxFilesPerBatch\)/);
+  assert.match(source, /remote product copy batch/);
+  assert.match(source, /banned_product_promotion_markers/);
+  assert.match(source, /mailchimpHighDensityProduct/);
+  assert.match(source, /mailchimp_surface_grounding_/);
+  assert.match(source, /mailchimp_product_density_/);
+  assert.match(source, /ProductDensityV1/);
+  assert.match(source, /mailchimp_persistence_operational_/);
+  assert.match(source, /FullCloneDepthBlueprint/);
+  assert.match(source, /full_clone_depth_evaluated/);
+  assert.match(source, /\"fidelity\": \"full_clone\"/);
+  assert.match(source, /\"requirements\": \[/);
+  assert.match(source, /function buildCanonicalLandingEvidence\(/);
+  assert.match(source, /changedInCanonicalCheckout/);
+  assert.match(source, /alreadyMatchedProductFileCount/);
+  assert.match(source, /canonicalSynchronizedProductFileCount/);
+  assert.match(source, /changedInCanonicalCheckout \|\| entry\.alreadyMatchedBeforeSync/);
+  assert.match(source, /Skipped patch/i);
+  assert.match(source, /canonicalLandingEvidence\.ok/);
+  assert.match(source, /no_new_product_surface_changes_landed_in_canonical_checkout/);
+  assert.match(source, /ok: remoteStatus\.status === 0 && remoteDiff\.status === 0 && applyOk && canonicalLandingEvidence\.ok/);
+});
+
+test('supervisor blocks green when sync lacks canonical landed product evidence', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-supervisor.mjs'), 'utf8');
+  assert.match(source, /const SYNC_STATUS_PATH = PROGRAM_PATHS\.syncStatusPath;/);
+  assert.match(source, /syncStatus\?\.runId === runId \? syncStatus\?\.canonicalLandingEvidence : null/);
+  assert.match(source, /canonical_landing_evidence_missing/);
+  assert.match(source, /do not credit parity surfaces from patch admission alone/);
+});
+
+test('remote execution dynamically syncs control overlay files while excluding product surfaces', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'lib', 'full-audit-campaign-remote-execution.mjs'), 'utf8');
-  assert.match(source, /const LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS = buildRepoWideSyncPathspecs\(\);/);
+  assert.match(source, /buildControlPlaneOverlaySyncPathspecs/);
+  assert.match(source, /const LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS = buildControlPlaneOverlaySyncPathspecs\(\);/);
+  assert.match(source, /function localGitTopLevelForOverlay\(repoRoot\)/);
+  assert.match(source, /function normalizeLocalRepoOverlayPath\(\{ repoRoot, gitTopLevel, recordPath \}\)/);
+  assert.match(source, /recordPath\.startsWith\(`\$\{repoPrefix\}\/`\)/);
+  assert.match(source, /function normalizeLocalRepoOverlayRecordPaths\(repoRoot, records\)/);
   assert.match(source, /function collectLocalRepoOverlayRecords\(repoRoot\)/);
   assert.match(source, /git', \['-C', repoRoot, 'status', '--porcelain', '-uall', '--', \.\.\.LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS\]/);
-  assert.match(source, /function syncLocalRepoOverlayFiles\(\{ repoRoot, remoteExecution, remoteRepoRoot \}\)/);
+  assert.match(source, /return normalizeLocalRepoOverlayRecordPaths\(repoRoot, parsePorcelainStatus\(String\(result\.stdout \|\| ''\)\)\);/);
+  assert.match(source, /function syncLocalRepoOverlayFiles\(\{ repoRoot, remoteExecution, remoteRepoRoot, protectedPaths = \[\] \}\)/);
+  assert.match(source, /function cleanupRemoteOverlayDrift\(\{ remoteExecution, remoteRepoRoot, expectedRecords = \[\], protectedPaths = \[\] \}\)/);
+  assert.match(source, /protectedPaths: REMOTE_CONTROL_FILE_MANIFEST/);
+  assert.match(source, /function collectRemoteRepoOverlayRecords\(remoteExecution, remoteRepoRoot\)/);
+  assert.match(source, /remoteBaselineCleanup,/);
+  assert.match(source, /Failed to restore stale remote overlay path/);
+  assert.match(source, /Failed to remove stale remote overlay file/);
   assert.match(source, /if \(record\.fromPath && record\.fromPath !== record\.path\)/);
   assert.match(source, /if \(statusRepresentsDeletion\(record\.status\)\)/);
   assert.match(source, /const localBytes = fs\.readFileSync\(localPath\);/);
   assert.match(source, /const repoOverlay = syncLocalRepoOverlayFiles\(\{/);
   assert.match(source, /repoOverlay,/);
+  assert.doesNotMatch(source, /buildRepoWideSyncPathspecs/);
   assert.doesNotMatch(source, /packages\/app\/ai-provider\.mjs/);
   assert.doesNotMatch(source, /packages\/app\/domain-audience\.mjs/);
   assert.doesNotMatch(source, /packages\/template-approvals\/domain-template-approvals\.mjs/);
@@ -795,9 +1014,11 @@ test('worker wrapper converts top-level remote submission crashes into explicit 
   assert.match(source, /Inspect reports\/100_agent_worker\.log and the worker wrapper error/);
 });
 
-test('delegate supervisor reconciles final green state by clearing nested blockers and completing stages', () => {
+test('delegate supervisor reconciles final truth without overwriting stage evidence', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'orchestrator-real-repo-clean-supervisor.mjs'), 'utf8');
-  assert.match(source, /const finalStages = finalAllComplete/);
+  assert.match(source, /const finalAllComplete = greenComplete && !blocker && truth\.supervisorStatus === 'green' && matrix\.status === 'all_complete';/);
+  assert.match(source, /const finalStages = programState\.stages;/);
+  assert.doesNotMatch(source, /programState\.stages\.map\(\(stage\) => \(\{ \.\.\.stage, complete: true \}\)\)/);
   assert.match(source, /blocker: finalBlocker \|\| null,/);
   assert.match(source, /note: finalAllComplete/);
   assert.match(source, /stages: finalStages,/);
@@ -834,4 +1055,35 @@ test('real-repo supervisor clean-baseline green truth ignores implementation-onl
   assert.match(source, /'repo_integrity_green'/);
   assert.match(source, /const effectiveMatrixStatus = greenComplete \? 'all_complete' : matrix\.status;/);
   assert.match(source, /status: greenComplete \? 'green' : 'red'/);
+});
+
+test('loc accounting separates cumulative dirty diff from launch-specific incremental LOC', () => {
+  const repoRoot = path.resolve(__dirname, '..');
+  const supervisorSource = fs.readFileSync(path.join(repoRoot, 'scripts', 'orchestrator-real-repo-clean-supervisor.mjs'), 'utf8');
+  const runnerSource = fs.readFileSync(path.join(repoRoot, 'scripts', 'orchestrator-real-repo-clean-run.mjs'), 'utf8');
+  const planSource = fs.readFileSync(path.join(repoRoot, 'scripts', 'lib', 'orchestrator-real-repo-clean-plan.mjs'), 'utf8');
+  assert.match(planSource, /launchLocBaseline: path\.join\(ARTIFACT_ROOT, 'launch_loc_baseline\.json'\)/);
+  assert.match(runnerSource, /function writeLaunchLocBaseline\(\)/);
+  assert.match(runnerSource, /pre_launch_dirty_diff_snapshot/);
+  assert.match(supervisorSource, /function buildIncrementalLocAccounting\(currentCounts = null, launchBaseline = null\)/);
+  assert.match(supervisorSource, /incrementalLocAccountingSummary: locAccounting\?\.incremental\?\.counts \|\| null/);
+  assert.match(supervisorSource, /function computeProductLocTruth\(repoRoot\)/);
+  assert.match(supervisorSource, /productLocTruth: locAccounting\?\.productLocTruth \|\| null/);
+  assert.match(supervisorSource, /semanticBloatSuspect: semanticBloatReasons\.length > 0/);
+  assert.match(supervisorSource, /counts is cumulative surviving diff against HEAD; incremental\.counts is launch-specific final-minus-prelaunch LOC/);
+});
+
+test('semantic director emits and admission requires architecture-quality evidence', () => {
+  const repoRoot = path.resolve(__dirname, '..');
+  const implementSource = fs.readFileSync(path.join(repoRoot, 'scripts', 'orchestrator-real-repo-clean-implement.mjs'), 'utf8');
+  const orchestratorSource = fs.readFileSync(path.join(repoRoot, '..', 'large-project-capability-stack', 'packages', 'multi-agent-orchestrator', 'index.mjs'), 'utf8');
+  assert.match(implementSource, /function buildSemanticArchitectureEvidence\(workspacePath, modifiedFiles, assignment = \{\}, productDeltaQuality = null\)/);
+  assert.match(implementSource, /minArchitectureLayers: 2/);
+  assert.match(implementSource, /architectureEvidence/);
+  assert.match(orchestratorSource, /function evaluateArchitectureAdmission\(patch = \{\}, assignmentContract = \{\}\)/);
+  assert.match(implementSource, /runtimeIntegrationEvidence/);
+  assert.match(implementSource, /semanticBloatAudit/);
+  assert.match(orchestratorSource, /reason: !runtimeIntegrationOk \? 'missing_concrete_runtime_integration_delta' : 'shallow_semantic_patch'/);
+  assert.match(orchestratorSource, /reason: 'semantic_bloat_product_delta'/);
+  assert.match(orchestratorSource, /category: 'architecture_quality'/);
 });

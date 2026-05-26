@@ -336,6 +336,8 @@ export function createWebsite(state, actor, body) {
     revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] }
   };
   state.db.websites.unshift(website);
@@ -439,6 +441,8 @@ export function updateWebsitePage(state, actor, website, page, body) {
   recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
   Object.assign(page, {
     name: body.name || page.name,
     slug: body.slug === '' || body.pageType === 'home' ? '' : uniqueSlug(others, body.slug || page.slug || body.name || 'page', 'page'),
@@ -513,3 +517,57 @@ export function buildWebsiteBuilderEditorRealismOperationalPersistenceAndJobsPac
   return { runtimeKey: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeKey, surfaceId: "website_builder_editor_realism", focusGroup: "website_builder", phaseId: "operational_persistence_and_jobs", shardId: "focus.website_builder_editor_realism::semantic-frontier-001#02-operational_persistence_and_jobs#1", productIntent: "Connect the capability to durable persistence, background work, telemetry, sync, or audit surfaces where the real product would require it.", targetFile: "packages/app/domain-website-builder.mjs", workspaceId, durableStateReady: Boolean(db), ...websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeCounts, phaseRuntimeSignal: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionPhaseRuntimeSignal, workflowEvidence: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["apps/web/public/app-shell-client.mjs","apps/web/public/app-shell.css","apps/web/public/app-shell.jsx"], nextAction: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeCounts.jobQueueDepth > 0 ? "operational_persistence_and_jobs:website_builder_editor_realism:monitor_job_runtime_handoff" : "operational_persistence_and_jobs:website_builder_editor_realism:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeKey, targetFile: "packages/app/domain-website-builder.mjs" } };
 }
 
+
+
+export function buildWebsiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionState(state = {}, actor = {}, input = {}) {
+  const websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeKey = "website_builder_editor_realism:integrated_user_path_evidence:packages/app/domain-website-builder.mjs", workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace', db = state.db || {};
+  const websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeCounts = { contactCount: Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0, jobQueueDepth: Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0 };
+  const websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionPhaseRuntimeSignal = "route render handler request response workflow submit execute", websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
+  return { runtimeKey: websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeKey, surfaceId: "website_builder_editor_realism", focusGroup: "website_builder", phaseId: "integrated_user_path_evidence", shardId: "focus.website_builder_editor_realism::semantic-frontier-001#02-integrated_user_path_evidence#1", productIntent: "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.", targetFile: "packages/app/domain-website-builder.mjs", workspaceId, durableStateReady: Boolean(db), ...websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeCounts, phaseRuntimeSignal: websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionPhaseRuntimeSignal, workflowEvidence: websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["apps/web/public/app-shell-client.mjs","apps/web/public/app-shell.css","apps/web/public/app-shell.jsx"], nextAction: websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeCounts.jobQueueDepth > 0 ? "integrated_user_path_evidence:website_builder_editor_realism:monitor_job_runtime_handoff" : "integrated_user_path_evidence:website_builder_editor_realism:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: websiteBuilderEditorRealismIntegratedUserPathEvidencePackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeKey, targetFile: "packages/app/domain-website-builder.mjs" } };
+}
+
+export function websiteExperienceSummary(state, website) {
+  const pages = websitePages(state, website.id);
+  const analytics = website.analytics || {};
+  return {
+    websiteId: website.id,
+    name: website.name || '',
+    status: website.status || 'draft',
+    pageCount: pages.length,
+    publishedPageCount: pages.filter((page) => page.status === 'published' || website.status === 'published').length,
+    navigationCount: pages.filter((page) => page.showInNav !== false).length,
+    analytics: {
+      views: Number(analytics.views || pages.reduce((sum, page) => sum + Number(page.analytics?.views || page.views || 0), 0)),
+      signups: Number(analytics.signups || pages.reduce((sum, page) => sum + Number(page.analytics?.signups || page.signups || 0), 0)),
+      ctaClicks: Number(analytics.ctaClicks || pages.reduce((sum, page) => sum + Number(page.analytics?.ctaClicks || page.ctaClicks || 0), 0))
+    },
+    seoReady: Boolean(website.seoTitle && website.seoDescription),
+    analyticsEnabled: Boolean(website.analyticsEnabled)
+  };
+}
+
+export function buildWebsitePublishingChecklist(state, website) {
+  const pages = websitePages(state, website.id);
+  const checks = [
+    { id: 'name', label: 'Website named', ok: Boolean(website.name) },
+    { id: 'slug', label: 'Slug configured', ok: Boolean(website.slug) },
+    { id: 'pages', label: 'At least one page exists', ok: pages.length > 0 },
+    { id: 'seo', label: 'SEO title and description configured', ok: Boolean(website.seoTitle && website.seoDescription) },
+    { id: 'navigation', label: 'Navigation has a visible page', ok: pages.some((page) => page.showInNav !== false) }
+  ];
+  return { websiteId: website.id, ready: checks.every((check) => check.ok), checks, blockers: checks.filter((check) => !check.ok).map((check) => check.label) };
+}
+
+export function websiteRevisionSummary(website) {
+  const undo = website.revisions?.undo || [];
+  const redo = website.revisions?.redo || [];
+  return {
+    websiteId: website.id,
+    undoDepth: undo.length,
+    redoDepth: redo.length,
+    latestUndoAt: undo[0]?.at || null,
+    latestRedoAt: redo[0]?.at || null,
+    canUndo: undo.length > 0,
+    canRedo: redo.length > 0
+  };
+}

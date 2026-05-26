@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { buildRemoteRuntimeCandidates, selectRemoteRuntimeCandidate } from './lib/full-audit-campaign-remote-contract.mjs';
-import { buildProductSurfaceSyncPathspecs, parsePorcelainStatus, renderPathspecArgs } from './lib/full-audit-campaign-sync-pathspecs.mjs';
+import { buildProductSurfaceSyncPathspecs, parsePorcelainStatus, renderPathspecArgs, statusRepresentsDeletion } from './lib/full-audit-campaign-sync-pathspecs.mjs';
 import { resolveCampaignRunBinding } from './lib/full-audit-campaign-run-binding.mjs';
 import { resolveProgramEnvKeys, resolveProgramPaths } from './lib/orchestration-program-config.mjs';
 
@@ -18,6 +19,34 @@ const WORKER_STATUS_PATH = PROGRAM_PATHS.workerStatusPath;
 const STATUS_PATH = PROGRAM_PATHS.syncStatusPath;
 const LOG_PATH = path.join(ARTIFACT_DIR, 'sync_remote_worktree.log');
 const SYNC_PATHSPECS = buildProductSurfaceSyncPathspecs();
+const PRODUCT_SURFACE_PREFIXES = Object.freeze(['apps/', 'packages/', 'public/', 'src/']);
+const PRODUCT_SURFACE_EXCLUDED_PREFIXES = Object.freeze(['scripts/', 'tests/', 'docs/', 'artifacts/']);
+const BANNED_PRODUCT_PROMOTION_MARKERS = Object.freeze([
+  'high_density_mailchimp_product_surface',
+  'mailchimpHighDensityProduct',
+  'mailchimp_surface_grounding_',
+  'mailchimp_product_density_',
+  'ProductDensityV1',
+  'ProductDensityFollowup',
+  'mailchimp_persistence_operational_',
+  'mailchimp_canonical_parity_surface',
+  "runtimeKind: 'mailchimp_benchmark_grounding_delta'",
+  'FullCloneDepthBlueprint',
+  'FullCloneSwarmLeaf',
+  'FullCloneStructuralLeaf',
+  'FullCloneFrontierLeaf',
+  'FullCloneRemediationLeaf',
+  'full_clone_depth_evaluated',
+  'full_clone_swarm_leaf_evaluated',
+  'full_clone_structural_leaf_evaluated',
+  'full_clone_frontier_leaf_evaluated',
+  'full_clone_remediation_leaf_evaluated',
+  'compact primary-product adoption marker',
+  'remaining-work remediation product slice for strict Mailchimp clone blockers',
+  '"fidelity": "full_clone"',
+  '"requirements": [',
+  '"remediationContracts": ['
+]);
 
 function ensureDir(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
@@ -49,6 +78,66 @@ function runSsh(remote, remoteCommand, timeout = 120_000) {
   return spawnSync('ssh', [...sshBaseArgs(remote), remoteCommand], { encoding: 'utf8', timeout, maxBuffer: 1024 * 1024 * 400 });
 }
 
+function runGit(args, options = {}) {
+  return spawnSync('git', args, { encoding: 'utf8', timeout: 120_000, maxBuffer: 1024 * 1024 * 400, ...options });
+}
+
+function localGitTopLevel() {
+  const result = runGit(['-C', ROOT, 'rev-parse', '--show-toplevel']);
+  return result.status === 0 && !result.error ? String(result.stdout || '').trim() : ROOT;
+}
+
+function localApplyDirectory(gitTopLevel) {
+  const relativeRoot = path.relative(gitTopLevel || ROOT, ROOT).replace(/\\/g, '/');
+  return relativeRoot && relativeRoot !== '.' ? relativeRoot : null;
+}
+
+function fileSha256(filePath) {
+  try {
+    return fs.existsSync(filePath) ? crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex') : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProductSurfacePath(filePath) {
+  const normalized = String(filePath || '').replace(/^\.\//, '').replace(/\\/g, '/');
+  return PRODUCT_SURFACE_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+    && !PRODUCT_SURFACE_EXCLUDED_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function buildCanonicalLandingEvidence({ changedFiles = [], beforeHashes = new Map(), applyOk = false, applyOutput = '', gitTopLevel = ROOT, applyDirectory = null } = {}) {
+  const productFiles = Array.from(new Set(changedFiles.map((entry) => entry.path).filter(isProductSurfacePath)));
+  const files = productFiles.map((filePath) => {
+    const localPath = path.join(ROOT, filePath);
+    const beforeHash = beforeHashes.get(filePath) || null;
+    const afterHash = fileSha256(localPath);
+    return {
+      path: filePath,
+      beforeHash,
+      afterHash,
+      existsAfter: Boolean(afterHash),
+      changedInCanonicalCheckout: beforeHash !== afterHash,
+      alreadyMatchedBeforeSync: Boolean(beforeHash && afterHash && beforeHash === afterHash)
+    };
+  });
+  const newlyLandedProductFiles = files.filter((entry) => entry.changedInCanonicalCheckout);
+  const alreadyMatchedProductFiles = files.filter((entry) => entry.alreadyMatchedBeforeSync);
+  const canonicalSynchronizedProductFiles = files.filter((entry) => entry.changedInCanonicalCheckout || entry.alreadyMatchedBeforeSync);
+  const skippedPatchOutput = /Skipped patch/i.test(String(applyOutput || ''));
+  return {
+    ok: Boolean(applyOk) && !skippedPatchOutput && canonicalSynchronizedProductFiles.length > 0,
+    gitTopLevel,
+    applyDirectory,
+    skippedPatchOutput,
+    productFileCount: files.length,
+    newlyLandedProductFileCount: newlyLandedProductFiles.length,
+    alreadyMatchedProductFileCount: alreadyMatchedProductFiles.length,
+    canonicalSynchronizedProductFileCount: canonicalSynchronizedProductFiles.length,
+    files
+  };
+}
+
 function runSshBuffer(remote, remoteCommand, timeout = 240_000) {
   return spawnSync('ssh', [...sshBaseArgs(remote), remoteCommand], { timeout, maxBuffer: 1024 * 1024 * 500 });
 }
@@ -57,6 +146,86 @@ function readRemoteFile(remote, filePath, timeout = 60_000) {
   const result = runSsh(remote, `python3 - <<'PY'\nfrom pathlib import Path\np = Path(${JSON.stringify(filePath)})\nif p.exists():\n    print(p.read_text())\nPY`, timeout);
   if (result.status !== 0 || result.error) return null;
   return String(result.stdout || '');
+}
+
+function readRemoteJson(remote, filePath, fallback = null) {
+  const text = readRemoteFile(remote, filePath);
+  if (!text) return fallback;
+  try { return JSON.parse(text); } catch { return fallback; }
+}
+
+function numericArtifactValue(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function artifactFileCount(value) {
+  if (Array.isArray(value)) return value.length;
+  return numericArtifactValue(value, 0);
+}
+
+function buildPromotionEligibility(remote, remoteArtifactRoot) {
+  if (!remoteArtifactRoot) {
+    return {
+      ok: false,
+      reason: 'missing_remote_artifact_root',
+      selectedTierMergedPatchCount: 0,
+      currentProductDelta: null
+    };
+  }
+  const mergeReport = readRemoteJson(remote, path.join(remoteArtifactRoot, 'merge', 'merge_report.json'), null);
+  const liveExecutionSummary = readRemoteJson(remote, path.join(remoteArtifactRoot, 'live_execution_summary.json'), null);
+  const locAccounting = readRemoteJson(remote, path.join(remoteArtifactRoot, 'loc_accounting.json'), null);
+  const benchmarkProgress = readRemoteJson(remote, path.join(remoteArtifactRoot, 'benchmark_progress.json'), null);
+  const remoteExecutionStatus = readRemoteJson(remote, path.join(remoteArtifactRoot, 'remote_execution_status.json'), null);
+  const observed = benchmarkProgress?.observed || {};
+  const remoteIterationsHadLiveWork = Array.isArray(remoteExecutionStatus?.iterations)
+    && remoteExecutionStatus.iterations.some((entry) => entry?.selectedTierHadLiveWork === true);
+  const benchmarkProgressHadLiveWork = numericArtifactValue(observed.distinctAgentIds, 0) > 0
+    || numericArtifactValue(observed.mergedPatchCount, 0) > 0
+    || numericArtifactValue(observed.verifiedMergedPatchCount, 0) > 0;
+  const selectedTierHadLiveWork = remoteIterationsHadLiveWork || benchmarkProgressHadLiveWork;
+  const benchmarkMergedPatchCount = selectedTierHadLiveWork
+    ? Math.max(
+        numericArtifactValue(observed.mergedPatchCount, 0),
+        numericArtifactValue(observed.verifiedMergedPatchCount, 0)
+      )
+    : 0;
+  const benchmarkProductChangedLines = selectedTierHadLiveWork
+    ? numericArtifactValue(observed.productDiffChangedLines, 0)
+    : 0;
+  const benchmarkProductFileCount = selectedTierHadLiveWork
+    ? artifactFileCount(observed.productDiffFiles)
+    : 0;
+  const selectedTierMergedPatchCount = Math.max(
+    numericArtifactValue(mergeReport?.mergedPatchCount, 0),
+    numericArtifactValue(liveExecutionSummary?.metrics?.mergedPatchCount, 0),
+    benchmarkMergedPatchCount
+  );
+  const currentProductDelta = locAccounting?.incremental?.counts?.productCode || null;
+  const locProductChangedLines = numericArtifactValue(currentProductDelta?.added, 0) + numericArtifactValue(currentProductDelta?.deleted, 0);
+  const locProductFileCount = numericArtifactValue(currentProductDelta?.files, 0);
+  const currentProductChangedLines = Math.max(locProductChangedLines, benchmarkProductChangedLines);
+  const currentProductFileCount = Math.max(locProductFileCount, benchmarkProductFileCount);
+  const allowZeroMergePromotion = process.env.MAILCHIMP_SYNC_ALLOW_ZERO_MERGE_PRODUCT_PROMOTION === '1';
+  const ok = allowZeroMergePromotion || (selectedTierMergedPatchCount > 0 && currentProductChangedLines > 0 && currentProductFileCount > 0);
+  return {
+    ok,
+    reason: ok ? 'selected_tier_admitted_product_delta_present' : 'no_selected_tier_admitted_product_delta',
+    allowZeroMergePromotion,
+    selectedTierHadLiveWork,
+    selectedTierMergedPatchCount,
+    mergeReportMergedPatchCount: numericArtifactValue(mergeReport?.mergedPatchCount, 0),
+    liveExecutionMergedPatchCount: numericArtifactValue(liveExecutionSummary?.metrics?.mergedPatchCount, 0),
+    benchmarkProgressMergedPatchCount: benchmarkMergedPatchCount,
+    currentProductDelta,
+    currentProductChangedLines,
+    currentProductFileCount,
+    locAccountingIncrementalOk: locAccounting?.incremental?.ok === true,
+    benchmarkProgressFallbackUsed: benchmarkMergedPatchCount > 0 || benchmarkProductChangedLines > 0 || benchmarkProductFileCount > 0,
+    benchmarkProductChangedLines,
+    benchmarkProductFileCount
+  };
 }
 
 function cleanupRemoteDisposableWorktree(remote, remoteRepo, { enabled = true } = {}) {
@@ -79,17 +248,49 @@ function listRemoteUntrackedProductFiles(remote, remoteRepo) {
   return String(result.stdout || '').split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
 }
 
-function copyRemoteUntrackedProductFiles(remote, remoteRepo, files = []) {
-  if (!remoteRepo || files.length === 0) return { attempted: false, copiedFileCount: 0, ok: true };
+function copyRemoteProductFiles(remote, remoteRepo, files = []) {
+  const productFiles = Array.from(new Set(files.filter(isProductSurfacePath)));
+  if (!remoteRepo || productFiles.length === 0) return { attempted: false, copiedFileCount: 0, ok: true };
+  const maxFilesPerBatch = Number(process.env.MAILCHIMP_SYNC_REMOTE_COPY_BATCH_SIZE || 100);
+  if (productFiles.length > maxFilesPerBatch) {
+    let copiedFileCount = 0;
+    for (let index = 0; index < productFiles.length; index += maxFilesPerBatch) {
+      const batch = productFiles.slice(index, index + maxFilesPerBatch);
+      const result = copyRemoteProductFiles(remote, remoteRepo, batch);
+      copiedFileCount += Number(result.copiedFileCount || 0);
+      if (!result.ok) {
+        return {
+          attempted: true,
+          copiedFileCount,
+          ok: false,
+          error: result.error || `remote product copy batch ${Math.floor(index / maxFilesPerBatch) + 1} failed`
+        };
+      }
+    }
+    return { attempted: true, copiedFileCount, ok: true, error: null };
+  }
   const remoteCommand = `cd ${JSON.stringify(remoteRepo)} && python3 - <<'PY'
-import subprocess, sys
-paths = subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard', '-z', '--', 'apps', 'packages', 'public', 'src'])
-if not paths:
-    sys.exit(0)
-proc = subprocess.run(['tar', '--null', '-T', '-', '-cf', '-'], input=paths, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-sys.stderr.buffer.write(proc.stderr)
-sys.stdout.buffer.write(proc.stdout)
-sys.exit(proc.returncode)
+from pathlib import Path
+import json, sys, tarfile
+paths = json.loads(${JSON.stringify(JSON.stringify(productFiles))})
+banned_markers = json.loads(${JSON.stringify(JSON.stringify(BANNED_PRODUCT_PROMOTION_MARKERS))})
+contaminated = []
+for raw in paths:
+    p = Path(raw)
+    if not p.is_file():
+        continue
+    text = p.read_text(errors='ignore')
+    matched = [marker for marker in banned_markers if marker in text]
+    if matched:
+        contaminated.append({'path': raw, 'markers': matched})
+if contaminated:
+    print(json.dumps({'error': 'banned_product_promotion_markers', 'contaminated': contaminated}, indent=2), file=sys.stderr)
+    sys.exit(42)
+with tarfile.open(fileobj=sys.stdout.buffer, mode='w|') as tar:
+    for raw in paths:
+        p = Path(raw)
+        if p.is_file():
+            tar.add(str(p), arcname=str(p))
 PY`;
   const archive = runSshBuffer(remote, remoteCommand, 300_000);
   if (archive.status !== 0 || archive.error) {
@@ -109,9 +310,46 @@ PY`;
   });
   return {
     attempted: true,
-    copiedFileCount: files.length,
+    copiedFileCount: productFiles.length,
     ok: extract.status === 0 && !extract.error,
     error: extract.error ? String(extract.error.message || extract.error) : (extract.status === 0 ? null : String(Buffer.from(extract.stderr || '').toString() || 'local tar extract failed'))
+  };
+}
+
+function promoteRemoteProductSurfaceFiles(remote, remoteRepo, changedFiles = [], remoteUntrackedProductFiles = []) {
+  const changedProductFiles = changedFiles.filter((entry) => isProductSurfacePath(entry?.path));
+  const deletedFiles = changedProductFiles
+    .filter((entry) => statusRepresentsDeletion(entry.status))
+    .map((entry) => entry.path);
+  const copyFiles = Array.from(new Set([
+    ...changedProductFiles
+      .filter((entry) => !statusRepresentsDeletion(entry.status))
+      .map((entry) => entry.path),
+    ...remoteUntrackedProductFiles.filter(isProductSurfacePath)
+  ]));
+  const copy = copyRemoteProductFiles(remote, remoteRepo, copyFiles);
+  if (!copy.ok) return { ...copy, deletedFileCount: 0 };
+  let deletedFileCount = 0;
+  for (const filePath of deletedFiles) {
+    try {
+      fs.rmSync(path.join(ROOT, filePath), { force: true });
+      deletedFileCount += 1;
+    } catch (error) {
+      return {
+        attempted: true,
+        copiedFileCount: copy.copiedFileCount,
+        deletedFileCount,
+        ok: false,
+        error: String(error?.message || error)
+      };
+    }
+  }
+  return {
+    attempted: true,
+    copiedFileCount: copy.copiedFileCount,
+    deletedFileCount,
+    ok: true,
+    error: null
   };
 }
 
@@ -142,6 +380,7 @@ const statusByPath = Object.fromEntries(
 const resolved = selectRemoteRuntimeCandidate({ candidates, statusByPath, runId });
 const remoteRepo = resolved.remoteRepo;
 const remoteArtifactRoot = resolved.remoteArtifactRoot;
+const promotionEligibility = buildPromotionEligibility(remote, remoteArtifactRoot);
 const pathspecArgs = renderPathspecArgs(SYNC_PATHSPECS);
 const remoteStatus = remoteRepo
   ? runSsh(remote, `cd ${JSON.stringify(remoteRepo)} && git add -N -- ${pathspecArgs} >/dev/null 2>&1 || true && git status --porcelain -- ${pathspecArgs}`)
@@ -165,20 +404,60 @@ const patchManifestPath = path.join(runDir, 'patch_manifest.json');
 if (diffText.trim()) fs.writeFileSync(patchPath, diffText);
 let applyOk = true;
 let applyError = null;
-let untrackedCopy = { attempted: false, copiedFileCount: 0, ok: true };
+let applyOutput = '';
+let contentPromotion = { attempted: false, copiedFileCount: 0, deletedFileCount: 0, ok: true };
+const gitTopLevel = localGitTopLevel();
+const applyDirectory = localApplyDirectory(gitTopLevel);
+const expectedProductPaths = Array.from(new Set([
+  ...changedFiles.map((entry) => entry.path),
+  ...remoteUntrackedProductFiles
+].filter(isProductSurfacePath)));
+const beforeHashes = new Map(expectedProductPaths
+  .map((filePath) => [filePath, fileSha256(path.join(ROOT, filePath))]));
 if (!changedFiles.length && remoteUntrackedProductFiles.length === 0) {
   applyOk = false;
   applyError = 'no_product_surface_changes_to_promote';
 }
-if (diffText.trim()) {
-  const apply = spawnSync('git', ['-C', ROOT, 'apply', '--reject', '--whitespace=nowarn', patchPath], { encoding: 'utf8', timeout: 240_000, maxBuffer: 1024 * 1024 * 400 });
-  applyOk = apply.status === 0 && !apply.error;
-  applyError = apply.error ? String(apply.error.message || apply.error) : (applyOk ? null : String(apply.stderr || apply.stdout || 'git apply failed'));
+if ((diffText.trim() || remoteUntrackedProductFiles.length > 0) && expectedProductPaths.length > 0 && !promotionEligibility.ok) {
+  applyOk = false;
+  applyError = promotionEligibility.reason;
+  applyOutput = `product-promotion refused: ${promotionEligibility.reason}`;
+  contentPromotion = {
+    attempted: false,
+    copiedFileCount: 0,
+    deletedFileCount: 0,
+    ok: false,
+    error: promotionEligibility.reason
+  };
+} else if (diffText.trim() || remoteUntrackedProductFiles.length > 0) {
+  if (process.env.MAILCHIMP_SYNC_APPLY_PATCH === '1' && diffText.trim()) {
+    const applyArgs = ['-C', gitTopLevel || ROOT, 'apply', '--reject', '--whitespace=nowarn'];
+    if (applyDirectory) applyArgs.push(`--directory=${applyDirectory}`);
+    applyArgs.push(patchPath);
+    const apply = runGit(applyArgs, { timeout: 240_000 });
+    applyOutput = `${apply.stdout || ''}${apply.stderr || ''}`;
+    applyOk = apply.status === 0 && !apply.error && !/Skipped patch/i.test(applyOutput);
+    applyError = apply.error
+      ? String(apply.error.message || apply.error)
+      : (applyOk ? null : String(applyOutput || 'git apply failed or skipped patches'));
+  } else {
+    contentPromotion = promoteRemoteProductSurfaceFiles(remote, remoteRepo, changedFiles, remoteUntrackedProductFiles);
+    applyOutput = `content-promotion copied=${contentPromotion.copiedFileCount || 0} deleted=${contentPromotion.deletedFileCount || 0}`;
+    applyOk = contentPromotion.ok;
+    applyError = contentPromotion.ok ? null : contentPromotion.error;
+  }
 }
-if (applyOk && remoteUntrackedProductFiles.length > 0) {
-  untrackedCopy = copyRemoteUntrackedProductFiles(remote, remoteRepo, remoteUntrackedProductFiles);
-  applyOk = untrackedCopy.ok;
-  applyError = untrackedCopy.ok ? applyError : untrackedCopy.error;
+const canonicalLandingEvidence = buildCanonicalLandingEvidence({
+  changedFiles: expectedProductPaths.map((filePath) => ({ path: filePath })),
+  beforeHashes,
+  applyOk,
+  applyOutput,
+  gitTopLevel,
+  applyDirectory
+});
+if (!canonicalLandingEvidence.ok && applyOk) {
+  applyOk = false;
+  applyError = 'no_new_product_surface_changes_landed_in_canonical_checkout';
 }
 writeJson(patchManifestPath, {
   generatedAt: new Date().toISOString(),
@@ -189,14 +468,16 @@ writeJson(patchManifestPath, {
   remoteStatusPath: resolved.candidate?.statusPath || null,
   remoteRuntimeStatus: resolved.status || null,
   availableStatuses: statusByPath,
+  promotionEligibility,
   syncPathspecs: SYNC_PATHSPECS,
   changedFiles,
   remoteUntrackedProductFileCount: remoteUntrackedProductFiles.length,
   remoteUntrackedProductFiles: remoteUntrackedProductFiles.slice(0, 500),
-  untrackedCopy,
+  contentPromotion,
   patchPath: diffText.trim() ? path.relative(ROOT, patchPath) : null,
   applyOk,
-  applyError
+  applyError,
+  canonicalLandingEvidence
 });
 
 for (const [remoteFile, localName] of Object.entries({
@@ -237,16 +518,18 @@ const statusPayload = {
   remoteResolution: resolved.resolution,
   remoteStatusPath: resolved.candidate?.statusPath || null,
   remoteRuntimeStatus: resolved.status || null,
+  promotionEligibility,
   syncPathspecs: SYNC_PATHSPECS,
   changedFileCount: changedFiles.length,
   changedFiles,
   remoteUntrackedProductFileCount: remoteUntrackedProductFiles.length,
   remoteUntrackedProductFiles: remoteUntrackedProductFiles.slice(0, 500),
-  untrackedCopy,
+  contentPromotion,
   patchPath: diffText.trim() ? path.relative(ROOT, patchPath) : null,
   applyOk,
   applyError,
-  ok: remoteStatus.status === 0 && remoteDiff.status === 0 && applyOk
+  canonicalLandingEvidence,
+  ok: remoteStatus.status === 0 && remoteDiff.status === 0 && applyOk && canonicalLandingEvidence.ok
 };
 if (statusPayload.ok) {
   statusPayload.remoteWorktreeCleanup = cleanupRemoteDisposableWorktree(remote, remoteRepo, {

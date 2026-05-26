@@ -11,134 +11,95 @@ export function scoreContactPredictiveFit(contact = {}) {
   return Math.max(0, Math.min(100, score));
 }
 
-function lifecycleTierFor(score) {
-  return score >= 75 ? 'high_intent' : score >= 50 ? 'warming' : 'monitor';
+export function buildPredictiveWorkspace(state, workspaceId, audienceId = '') {
+  const contacts = state.db.contacts.filter((entry) => entry.workspaceId === workspaceId).filter((entry) => !audienceId || entry.audienceId === audienceId).map((contact) => {
+    const predictiveScore = scoreContactPredictiveFit(contact);
+    return { ...contact, predictiveScore, lifecycleTier: predictiveScore >= 75 ? 'high_intent' : predictiveScore >= 50 ? 'warming' : 'monitor' };
+  }).sort((a, b) => b.predictiveScore - a.predictiveScore);
+  return { contacts, highIntent: contacts.filter((entry) => entry.predictiveScore >= 75).length, recommendations: [{ id: 'predictive-rec-1', label: 'Likely next purchasers', criteria: 'predictiveScore >= 75' }, { id: 'predictive-rec-2', label: 'Re-engage with SMS fallback', criteria: 'predictiveScore between 50 and 74' }, { id: 'predictive-rec-3', label: 'Frequency cap / fatigue watch', criteria: 'predictiveScore < 50 and recent activity low' }], sendTime: buildSendTimeOptimizerSnapshot(), predictiveSegments: buildPredictiveSegmentsSnapshot() };
 }
 
-function recommendedWindowFor(contact = {}, score = 0) {
-  const activityText = (contact.activity || []).join(' ').toLowerCase();
-  if (activityText.includes('evening')) return '17:00-19:00 local';
-  if (activityText.includes('morning') || score >= 75) return '09:00-11:00 local';
-  return '13:00-15:00 local';
-}
-
-export function buildContactFeatureVector(contact = {}) {
-  const predictiveScore = scoreContactPredictiveFit(contact);
-  const lifecycleTier = lifecycleTierFor(predictiveScore);
-  return {
+export function buildPredictiveFeatureStore(state = { db: {} }, workspaceId = '', options = {}) {
+  const workspace = buildPredictiveWorkspace(state, workspaceId, options.audienceId || '');
+  const campaigns = Array.isArray(state.db?.campaigns) ? state.db.campaigns.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const automations = Array.isArray(state.db?.automations) ? state.db.automations.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const vectors = workspace.contacts.map((contact) => ({
     contactId: contact.id,
     email: contact.email,
-    predictiveScore,
-    lifecycleTier,
+    audienceId: contact.audienceId || '',
+    score: contact.predictiveScore,
+    lifecycleTier: contact.lifecycleTier,
     tagCount: (contact.tags || []).length,
     interestCount: (contact.interests || []).length,
     activityCount: (contact.activity || []).length,
     hasPhone: Boolean(contact.phone),
-    status: contact.status || 'unknown',
-    recommendedWindow: recommendedWindowFor(contact, predictiveScore),
-    evidence: [
-      contact.status === 'subscribed' ? 'subscribed contact' : 'non-subscribed status',
-      `${(contact.tags || []).length} tags`,
-      `${(contact.interests || []).length} interests`,
-      `${(contact.activity || []).length} activity signals`,
-      contact.phone ? 'sms-capable contact' : 'email-only contact'
-    ]
-  };
-}
-
-export function buildPredictiveFeatureStore(state, workspaceId, audienceId = '') {
-  const contacts = (state.db.contacts || [])
-    .filter((entry) => entry.workspaceId === workspaceId)
-    .filter((entry) => !audienceId || entry.audienceId === audienceId)
-    .map((contact) => ({ ...contact, featureVector: buildContactFeatureVector(contact) }))
-    .sort((a, b) => b.featureVector.predictiveScore - a.featureVector.predictiveScore);
-  const vectors = contacts.map((contact) => contact.featureVector);
-  const highIntent = vectors.filter((entry) => entry.lifecycleTier === 'high_intent').length;
-  const warming = vectors.filter((entry) => entry.lifecycleTier === 'warming').length;
-  const monitor = vectors.filter((entry) => entry.lifecycleTier === 'monitor').length;
-  const bestSendWindow = vectors.find((entry) => entry.recommendedWindow)?.recommendedWindow || '09:00-11:00 local';
+    status: contact.status || 'unknown'
+  }));
+  const averageScore = vectors.length
+    ? Number((vectors.reduce((sum, vector) => sum + Number(vector.score || 0), 0) / vectors.length).toFixed(1))
+    : 0;
   return {
-    modelVersion: 'mailclone-predictive-features-v2',
     workspaceId,
-    audienceId,
-    generatedFrom: ['contacts', 'tags', 'interests', 'activity', 'channel consent'],
-    featureColumns: ['subscription_status', 'tag_count', 'interest_count', 'activity_count', 'phone_capability', 'notes_vip_signal'],
-    contacts: contacts.map((contact) => ({ ...contact, predictiveScore: contact.featureVector.predictiveScore, lifecycleTier: contact.featureVector.lifecycleTier })),
+    featureColumns: ['predictiveScore', 'lifecycleTier', 'tagCount', 'interestCount', 'activityCount', 'hasPhone', 'status'],
     vectors,
     aggregate: {
+      goal: options.goal || 'increase audience engagement',
       totalContacts: vectors.length,
-      highIntent,
-      warming,
-      monitor,
-      bestSendWindow,
-      averageScore: vectors.length ? Number((vectors.reduce((sum, entry) => sum + entry.predictiveScore, 0) / vectors.length).toFixed(1)) : 0
-    }
+      highIntentContacts: vectors.filter((entry) => entry.lifecycleTier === 'high_intent').length,
+      warmingContacts: vectors.filter((entry) => entry.lifecycleTier === 'warming').length,
+      averageScore,
+      campaignCount: campaigns.length,
+      automationCount: automations.length
+    },
+    sendTime: workspace.sendTime,
+    predictiveSegments: workspace.predictiveSegments
   };
 }
 
-export function rankPredictiveNextActions(state, workspaceId, options = {}) {
-  const featureStore = buildPredictiveFeatureStore(state, workspaceId, options.audienceId || '');
-  const campaigns = (state.db.campaigns || []).filter((entry) => entry.workspaceId === workspaceId);
-  const automations = (state.db.automations || []).filter((entry) => entry.workspaceId === workspaceId);
-  const targetCampaign = campaigns.find((entry) => entry.id === options.campaignId) || campaigns[0] || null;
-  const targetAutomation = automations.find((entry) => entry.id === options.automationId) || automations[0] || null;
-  const topVector = featureStore.vectors[0] || null;
-  const totalContacts = featureStore.aggregate.totalContacts;
-  const highIntent = featureStore.aggregate.highIntent;
-  const campaignConfidence = Math.min(0.96, Number((0.68 + (highIntent * 0.04) + (totalContacts * 0.01)).toFixed(2)));
+export function rankPredictiveNextActions(state = { db: {} }, workspaceId = '', options = {}) {
+  const featureStore = buildPredictiveFeatureStore(state, workspaceId, options);
+  const campaigns = Array.isArray(state.db?.campaigns) ? state.db.campaigns.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const automations = Array.isArray(state.db?.automations) ? state.db.automations.filter((entry) => entry.workspaceId === workspaceId) : [];
   const recommendations = [];
-  if (targetCampaign) {
+  if (campaigns.length) {
     recommendations.push({
       category: 'campaign_optimization',
-      targetType: 'campaign',
-      targetId: targetCampaign.id,
-      label: `Optimize ${targetCampaign.name} for predictive intent`,
-      action: 'apply_campaign_optimization',
-      confidence: campaignConfidence,
-      rationale: `Campaign has ${totalContacts} scored contacts, ${highIntent} high-intent contacts, and a best send window of ${featureStore.aggregate.bestSendWindow}.`,
-      evidence: ['campaign audience selection', 'predictive feature store', 'lifecycle tier distribution'],
-      payload: {
-        sendTimeWindow: featureStore.aggregate.bestSendWindow,
-        predictiveSegment: highIntent > 0 ? 'High-intent lifecycle contacts' : 'Warming lifecycle contacts',
-        fatigueGuardrail: '2 messages / 7 days',
-        productRecommendation: options.productRecommendation || 'Personalized offer bundle'
-      },
-      featureRefs: featureStore.vectors.slice(0, 5).map((entry) => entry.contactId)
+      targetId: campaigns[0].id,
+      label: `Optimize ${campaigns[0].name || 'campaign'} for ${options.goal || 'engagement'}`,
+      confidence: 0.88,
+      rationale: 'Campaign and audience feature signals are available for content optimization.',
+      payload: { campaignId: campaigns[0].id, goal: options.goal || featureStore.aggregate.goal }
     });
   }
-  if (topVector) {
+  for (const vector of featureStore.vectors.slice(0, 3)) {
     recommendations.push({
       category: 'audience_prioritization',
-      targetType: 'contact',
-      targetId: topVector.contactId,
-      label: `Prioritize ${topVector.email}`,
-      action: 'prioritize_contact_lifecycle',
-      confidence: Number((0.55 + (topVector.predictiveScore / 220)).toFixed(2)),
-      rationale: `Top contact is ${topVector.lifecycleTier} with score ${topVector.predictiveScore} and ${topVector.activityCount} activity signals.`,
-      evidence: topVector.evidence,
-      payload: { lifecycleStage: topVector.lifecycleTier, sendTimeWindow: topVector.recommendedWindow, channel: topVector.hasPhone ? 'sms_plus_email' : 'email' },
-      featureRefs: [topVector.contactId]
+      targetId: vector.contactId,
+      label: `${vector.lifecycleTier} contact follow-up`,
+      confidence: Number((Math.max(0, Math.min(100, vector.score)) / 100).toFixed(2)),
+      rationale: `Predictive score ${vector.score} with ${vector.activityCount} recent activity signals.`,
+      payload: { contactId: vector.contactId, lifecycleTier: vector.lifecycleTier, preferredChannel: vector.hasPhone ? 'sms_plus_email' : 'email' }
     });
   }
-  if (targetAutomation) {
+  if (automations.length) {
     recommendations.push({
-      category: 'journey_guidance',
-      targetType: 'automation',
-      targetId: targetAutomation.id,
-      label: `Add predictive branch to ${targetAutomation.name}`,
-      action: 'add_predictive_journey_branch',
-      confidence: Number((0.66 + Math.min(0.18, featureStore.aggregate.warming * 0.03)).toFixed(2)),
-      rationale: `Use lifecycle tiers to branch high-intent and warming contacts without changing the durable journey save path.`,
-      evidence: ['automation state', 'lifecycle tier distribution', 'contact feature vectors'],
-      payload: { branchCondition: 'predictiveScore >= 75', warmingPath: 'send proof email', monitorPath: 'hold frequency cap' },
-      featureRefs: featureStore.vectors.slice(0, 3).map((entry) => entry.contactId)
+      category: 'journey_optimization',
+      targetId: automations[0].id,
+      label: 'Tune journey timing and channel mix',
+      confidence: 0.84,
+      rationale: 'Automation history is present, so journey timing can be optimized.',
+      payload: { automationId: automations[0].id, goal: options.goal || featureStore.aggregate.goal }
+    });
+  }
+  if (!recommendations.length) {
+    recommendations.push({
+      category: 'signal_collection',
+      targetId: workspaceId,
+      label: 'Collect campaign and audience signals',
+      confidence: 0.62,
+      rationale: 'Predictive recommendations need at least campaign, contact, or automation activity.',
+      payload: { workspaceId }
     });
   }
   return { featureStore, recommendations };
-}
-
-export function buildPredictiveWorkspace(state, workspaceId, audienceId = '') {
-  const featureStore = buildPredictiveFeatureStore(state, workspaceId, audienceId);
-  const contacts = featureStore.contacts;
-  return { contacts, featureStore, highIntent: featureStore.aggregate.highIntent, recommendations: [{ id: 'predictive-rec-1', label: 'Likely next purchasers', criteria: 'predictiveScore >= 75' }, { id: 'predictive-rec-2', label: 'Re-engage with SMS fallback', criteria: 'predictiveScore between 50 and 74' }, { id: 'predictive-rec-3', label: 'Frequency cap / fatigue watch', criteria: 'predictiveScore < 50 and recent activity low' }], sendTime: buildSendTimeOptimizerSnapshot(), predictiveSegments: buildPredictiveSegmentsSnapshot() };
 }

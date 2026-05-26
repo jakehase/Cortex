@@ -6,7 +6,7 @@ import { shouldFinalizeRemoteExecutionMonitor, writeJson } from '../../../large-
 import { buildExecutionBoundaryBlocker } from './full-audit-campaign-architecture.mjs';
 import { buildDetachedRemoteLaunchCommand, buildRemoteRuntimeCandidates, selectRemoteRuntimeCandidate } from './full-audit-campaign-remote-contract.mjs';
 import { deriveCanonicalStatuses, isArtifactFreshForRun, resolveCampaignBlocker } from './full-audit-campaign-state.mjs';
-import { buildRepoWideSyncPathspecs, parsePorcelainStatus, statusRepresentsDeletion } from './full-audit-campaign-sync-pathspecs.mjs';
+import { buildControlPlaneOverlaySyncPathspecs, parsePorcelainStatus, statusRepresentsDeletion } from './full-audit-campaign-sync-pathspecs.mjs';
 
 const REMOTE_CONTROL_FILE_MANIFEST = [
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'artifacts/full_audit_campaign/strict_1to1_gap_inventory.json' },
@@ -22,6 +22,7 @@ const REMOTE_CONTROL_FILE_MANIFEST = [
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/full-audit-campaign-sync-pathspecs.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/full-audit-campaign-liveness.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/mailchimp-canonical-one-pass-plan-data.mjs' },
+  { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/strict-hierarchical-planner.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/orchestrator-real-repo-clean-plan.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/smoke-full-clone.mjs' },
   { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/campaign-runtime/index.mjs' },
@@ -31,7 +32,7 @@ const REMOTE_CONTROL_FILE_MANIFEST = [
   { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/multi-agent-orchestrator/index.mjs' }
 ];
 
-const LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS = buildRepoWideSyncPathspecs();
+const LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS = buildControlPlaneOverlaySyncPathspecs();
 
 function resolveControlSyncRoots(repoRoot, remoteExecution) {
   const localRoots = {
@@ -122,6 +123,38 @@ function removeRemotePath(remoteExecution, filePath, { timeoutMs = 60_000 } = {}
   });
 }
 
+function localGitTopLevelForOverlay(repoRoot) {
+  const result = spawnSync('git', ['-C', repoRoot, 'rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+    timeout: 20_000,
+    maxBuffer: 1024 * 1024
+  });
+  if (result.status !== 0 || result.error) return repoRoot;
+  return String(result.stdout || '').trim() || repoRoot;
+}
+
+function normalizeLocalRepoOverlayPath({ repoRoot, gitTopLevel, recordPath }) {
+  if (!recordPath) return recordPath;
+  const normalizedRepoRoot = path.resolve(repoRoot);
+  const normalizedGitTopLevel = path.resolve(gitTopLevel || repoRoot);
+  const repoPrefix = path.relative(normalizedGitTopLevel, normalizedRepoRoot).split(path.sep).filter(Boolean).join('/');
+  if (!repoPrefix || normalizedGitTopLevel === normalizedRepoRoot) return recordPath;
+  if (recordPath === repoPrefix) return '.';
+  if (recordPath.startsWith(`${repoPrefix}/`)) return recordPath.slice(repoPrefix.length + 1);
+  return recordPath;
+}
+
+function normalizeLocalRepoOverlayRecordPaths(repoRoot, records) {
+  const gitTopLevel = localGitTopLevelForOverlay(repoRoot);
+  return records.map((record) => ({
+    ...record,
+    originalPath: record.path,
+    originalFromPath: record.fromPath,
+    path: normalizeLocalRepoOverlayPath({ repoRoot, gitTopLevel, recordPath: record.path }),
+    fromPath: normalizeLocalRepoOverlayPath({ repoRoot, gitTopLevel, recordPath: record.fromPath })
+  }));
+}
+
 function collectLocalRepoOverlayRecords(repoRoot) {
   const result = spawnSync('git', ['-C', repoRoot, 'status', '--porcelain', '-uall', '--', ...LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS], {
     encoding: 'utf8',
@@ -132,11 +165,17 @@ function collectLocalRepoOverlayRecords(repoRoot) {
     const errorText = `${result.stdout || ''}${result.stderr || ''}${result.error ? `\n[spawn-error] ${String(result.error.message || result.error)}` : ''}`.trim();
     throw new Error(`Failed to collect local overlay status: ${errorText}`);
   }
-  return parsePorcelainStatus(String(result.stdout || ''));
+  return normalizeLocalRepoOverlayRecordPaths(repoRoot, parsePorcelainStatus(String(result.stdout || '')));
 }
 
-function syncLocalRepoOverlayFiles({ repoRoot, remoteExecution, remoteRepoRoot }) {
+function syncLocalRepoOverlayFiles({ repoRoot, remoteExecution, remoteRepoRoot, protectedPaths = [] }) {
   const records = collectLocalRepoOverlayRecords(repoRoot);
+  const remoteBaselineCleanup = cleanupRemoteOverlayDrift({
+    remoteExecution,
+    remoteRepoRoot,
+    expectedRecords: records,
+    protectedPaths
+  });
   const synced = [];
   const skipped = [];
   const deleted = [];
@@ -187,9 +226,74 @@ function syncLocalRepoOverlayFiles({ repoRoot, remoteExecution, remoteRepoRoot }
   return {
     pathspecs: LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS,
     changedRecordCount: records.length,
+    remoteBaselineCleanup,
     synced,
     skipped,
     deleted
+  };
+}
+
+function collectRemoteRepoOverlayRecords(remoteExecution, remoteRepoRoot) {
+  const remoteCommand = `cd ${shellQuote(remoteRepoRoot)} && git status --porcelain -uall -- ${LOCAL_REPO_DYNAMIC_SYNC_PATHSPECS.map(shellQuote).join(' ')}`;
+  const result = runSsh(remoteExecution, remoteCommand, { timeoutMs: 120_000, maxBuffer: 1024 * 1024 * 50 });
+  if (result.status !== 0 || result.error) {
+    const errorText = `${result.stdout || ''}${result.stderr || ''}${result.error ? `\n[spawn-error] ${String(result.error.message || result.error)}` : ''}`.trim();
+    throw new Error(`Failed to collect remote overlay status: ${errorText}`);
+  }
+  return parsePorcelainStatus(String(result.stdout || ''));
+}
+
+function statusRepresentsUntracked(status = '') {
+  return String(status).includes('?');
+}
+
+function restoreRemoteTrackedPath(remoteExecution, remoteRepoRoot, filePath) {
+  const remoteCommand = `cd ${shellQuote(remoteRepoRoot)} && git checkout -- ${shellQuote(filePath)}`;
+  return runSsh(remoteExecution, remoteCommand, { timeoutMs: 60_000, maxBuffer: 1024 * 1024 * 20 });
+}
+
+function cleanupRemoteOverlayDrift({ remoteExecution, remoteRepoRoot, expectedRecords = [], protectedPaths = [] }) {
+  const expectedPaths = new Set(protectedPaths.filter(Boolean));
+  for (const record of expectedRecords) {
+    if (record?.path) expectedPaths.add(record.path);
+    if (record?.fromPath) expectedPaths.add(record.fromPath);
+  }
+  const remoteRecords = collectRemoteRepoOverlayRecords(remoteExecution, remoteRepoRoot);
+  const staleRecords = remoteRecords.filter((record) => record?.path && !expectedPaths.has(record.path));
+  const reset = [];
+  const removed = [];
+  const skipped = [];
+  for (const record of staleRecords) {
+    if (statusRepresentsUntracked(record.status)) {
+      const removeResult = removeRemotePath(remoteExecution, path.join(remoteRepoRoot, record.path), { timeoutMs: 60_000 });
+      if (removeResult.status !== 0 || removeResult.error) {
+        const errorText = `${removeResult.stdout || ''}${removeResult.stderr || ''}${removeResult.error ? `\n[spawn-error] ${String(removeResult.error.message || removeResult.error)}` : ''}`.trim();
+        throw new Error(`Failed to remove stale remote overlay file ${record.path}: ${errorText}`);
+      }
+      removed.push({ path: record.path, status: record.status });
+      continue;
+    }
+    if (record.fromPath && !expectedPaths.has(record.fromPath)) {
+      const restoreSource = restoreRemoteTrackedPath(remoteExecution, remoteRepoRoot, record.fromPath);
+      if (restoreSource.status !== 0 || restoreSource.error) {
+        const errorText = `${restoreSource.stdout || ''}${restoreSource.stderr || ''}${restoreSource.error ? `\n[spawn-error] ${String(restoreSource.error.message || restoreSource.error)}` : ''}`.trim();
+        throw new Error(`Failed to restore stale remote overlay source ${record.fromPath}: ${errorText}`);
+      }
+      reset.push({ path: record.fromPath, via: 'rename_source' });
+    }
+    const restoreResult = restoreRemoteTrackedPath(remoteExecution, remoteRepoRoot, record.path);
+    if (restoreResult.status !== 0 || restoreResult.error) {
+      const errorText = `${restoreResult.stdout || ''}${restoreResult.stderr || ''}${restoreResult.error ? `\n[spawn-error] ${String(restoreResult.error.message || restoreResult.error)}` : ''}`.trim();
+      throw new Error(`Failed to restore stale remote overlay path ${record.path}: ${errorText}`);
+    }
+    reset.push({ path: record.path, status: record.status });
+  }
+  return {
+    checkedRecordCount: remoteRecords.length,
+    staleRecordCount: staleRecords.length,
+    reset,
+    removed,
+    skipped
   };
 }
 
@@ -227,7 +331,10 @@ function syncRemoteControlFiles({ repoRoot, remoteExecution }) {
   const repoOverlay = syncLocalRepoOverlayFiles({
     repoRoot,
     remoteExecution,
-    remoteRepoRoot: remoteRoots['mailchimp-clone']
+    remoteRepoRoot: remoteRoots['mailchimp-clone'],
+    protectedPaths: REMOTE_CONTROL_FILE_MANIFEST
+      .filter((entry) => entry.remoteRoot === 'mailchimp-clone')
+      .map((entry) => entry.relativeFile)
   });
   return {
     synced,

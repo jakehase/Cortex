@@ -353,6 +353,7 @@ export const MAILCHIMP_CANONICAL_ONE_PASS_PLAN = {
       "currentStatus": "partial_or_shallow",
       "wave": "wave_4_admin_integrations_revenue_and_governance",
       "productFiles": [
+        "packages/app/domain-deliverability-compliance.mjs",
         "packages/app/routes/api-admin.mjs",
         "packages/app/routes/platform.mjs"
       ],

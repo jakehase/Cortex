@@ -1,0 +1,484 @@
+{
+  "generatedAt": "2026-04-29T01:52:45.715Z",
+  "source": "docs/MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json",
+  "kind": "global_mailchimp_parity_inventory",
+  "gapCount": 26,
+  "stopSemantics": "continue_real_product_orchestration_until_all_global_gap_focus_ids_are_credited_or_real_blocker",
+  "gaps": [
+    {
+      "id": "signup_onboarding",
+      "title": "Signup and onboarding wizard",
+      "detail": "Turn a new visitor into a configured workspace with enough profile data to send a first campaign. Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education. Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity. Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education.",
+        "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity.",
+        "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel."
+      ],
+      "sourceSurfaceId": "signup_onboarding"
+    },
+    {
+      "id": "account_workspace_setup",
+      "title": "Account workspace setup",
+      "detail": "Configure sender identity, business details, defaults, and compliance settings for the workspace. Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements. Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth. Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements.",
+        "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth.",
+        "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences."
+      ],
+      "sourceSurfaceId": "account_workspace_setup"
+    },
+    {
+      "id": "dashboard_home",
+      "title": "Dashboard / home",
+      "detail": "Summarize account health and provide entry points into campaigns, audience growth, and recommendations. Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization. Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas. Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization.",
+        "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas.",
+        "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity."
+      ],
+      "sourceSurfaceId": "dashboard_home"
+    },
+    {
+      "id": "audience_overview",
+      "title": "Audience overview",
+      "detail": "Present top-level audience inventory, growth, and management actions. Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights. Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "canonicalStatus": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.",
+        "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events."
+      ],
+      "sourceSurfaceId": "audience_overview"
+    },
+    {
+      "id": "contacts_table",
+      "title": "Contacts table",
+      "detail": "List and filter audience members with bulk actions. Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows. Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "canonicalStatus": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.",
+        "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration."
+      ],
+      "sourceSurfaceId": "contacts_table"
+    },
+    {
+      "id": "contact_profile",
+      "title": "Contact profile",
+      "detail": "Show one contact’s attributes, activity history, and editable metadata. Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields. Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields.",
+        "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility."
+      ],
+      "sourceSurfaceId": "contact_profile"
+    },
+    {
+      "id": "tags_groups_interests",
+      "title": "Tags, groups, and interests management",
+      "detail": "Represent audience classification primitives used for targeting and preference management. Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration. Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration.",
+        "Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration."
+      ],
+      "sourceSurfaceId": "tags_groups_interests"
+    },
+    {
+      "id": "segments",
+      "title": "Segments",
+      "detail": "Define reusable filters for audience targeting. Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns. Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "canonicalStatus": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns.",
+        "Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX."
+      ],
+      "sourceSurfaceId": "segments"
+    },
+    {
+      "id": "signup_forms_popups",
+      "title": "Signup forms and popup forms",
+      "detail": "Collect new leads and subscription preferences through embeddable or hosted capture surfaces. Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity. Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "canonicalStatus": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity.",
+        "Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth."
+      ],
+      "sourceSurfaceId": "signup_forms_popups"
+    },
+    {
+      "id": "campaign_index",
+      "title": "Campaign index",
+      "detail": "Provide list, filtering, lifecycle status, and duplication/archive actions for campaigns. Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions. Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions.",
+        "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility."
+      ],
+      "sourceSurfaceId": "campaign_index"
+    },
+    {
+      "id": "campaign_wizard",
+      "title": "Campaign creation wizard",
+      "detail": "Capture high-level campaign metadata before design and send. Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types. Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types.",
+        "Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows."
+      ],
+      "sourceSurfaceId": "campaign_wizard"
+    },
+    {
+      "id": "email_builder",
+      "title": "Email builder",
+      "detail": "Assemble message content with block editing, styling, previewing, and asset use. Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration. Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration.",
+        "Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity."
+      ],
+      "sourceSurfaceId": "email_builder"
+    },
+    {
+      "id": "template_library",
+      "title": "Template library",
+      "detail": "Offer reusable starting points for campaigns and saved custom layouts. Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance. Add true template lifecycle management, versioning, duplication, review, and dependency tracking.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance.",
+        "Add true template lifecycle management, versioning, duplication, review, and dependency tracking."
+      ],
+      "sourceSurfaceId": "template_library"
+    },
+    {
+      "id": "content_studio",
+      "title": "Content studio / asset manager",
+      "detail": "Store and retrieve reusable images or creative assets used across campaigns. Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows. Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows.",
+        "Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations."
+      ],
+      "sourceSurfaceId": "content_studio"
+    },
+    {
+      "id": "send_schedule_review",
+      "title": "Send / schedule / review",
+      "detail": "Review a draft campaign, run preflight checks, send test messages, and schedule delivery. Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization. Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization.",
+        "Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history."
+      ],
+      "sourceSurfaceId": "send_schedule_review"
+    },
+    {
+      "id": "reports_overview",
+      "title": "Reports overview",
+      "detail": "Aggregate recent campaign, automation, and audience performance metrics. Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis. Add richer export/sharing/report scheduling and role-aware reporting permissions.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "requiredWork": [
+        "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis.",
+        "Add richer export/sharing/report scheduling and role-aware reporting permissions."
+      ],
+      "sourceSurfaceId": "reports_overview"
+    },
+    {
+      "id": "report_detail",
+      "title": "Report detail",
+      "detail": "Show per-campaign or per-automation performance metrics and recipient activity. Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views. Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views.",
+        "Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations."
+      ],
+      "sourceSurfaceId": "report_detail"
+    },
+    {
+      "id": "automations_overview",
+      "title": "Automations overview",
+      "detail": "List, summarize, and launch automation or journey flows. Add richer automation library, health/status views, run history, template selection, analytics, and operational controls. Match automation governance, ownership, approvals, and diagnostics.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "canonicalStatus": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls.",
+        "Match automation governance, ownership, approvals, and diagnostics."
+      ],
+      "sourceSurfaceId": "automations_overview"
+    },
+    {
+      "id": "automation_journey_builder",
+      "title": "Customer journey / automation builder",
+      "detail": "Visually assemble triggered multi-step workflows. Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth. Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "canonicalStatus": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth.",
+        "Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions."
+      ],
+      "sourceSurfaceId": "automation_journey_builder"
+    },
+    {
+      "id": "landing_pages",
+      "title": "Landing pages",
+      "detail": "Create standalone conversion pages connected to audiences and campaigns. Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle. Match domain mapping, asset management, duplication, templates, and conversion reporting.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "canonicalStatus": "observed_direct",
+      "confidence": "medium",
+      "requiredWork": [
+        "Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle.",
+        "Match domain mapping, asset management, duplication, templates, and conversion reporting."
+      ],
+      "sourceSurfaceId": "landing_pages"
+    },
+    {
+      "id": "website_builder",
+      "title": "Website builder",
+      "detail": "Manage broader hosted web presence beyond standalone landing pages. Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics. Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics.",
+        "Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management."
+      ],
+      "sourceSurfaceId": "website_builder"
+    },
+    {
+      "id": "integrations_marketplace",
+      "title": "Integrations marketplace",
+      "detail": "Discover and manage connected apps such as Shopify, Salesforce, Zapier, and analytics tools. Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior. Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior.",
+        "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems."
+      ],
+      "sourceSurfaceId": "integrations_marketplace"
+    },
+    {
+      "id": "api_keys_webhooks",
+      "title": "API keys and webhooks",
+      "detail": "Expose developer-oriented access and event wiring surfaces. Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs. Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs.",
+        "Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links."
+      ],
+      "sourceSurfaceId": "api_keys_webhooks"
+    },
+    {
+      "id": "billing_plans",
+      "title": "Billing and plans",
+      "detail": "Handle subscriptions, payment methods, usage meters, and plan-gated upsells. Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows. Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows.",
+        "Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions."
+      ],
+      "sourceSurfaceId": "billing_plans"
+    },
+    {
+      "id": "settings_domains",
+      "title": "Settings, domains, and authentication",
+      "detail": "Manage account-level defaults, sender authentication, and connected domains. Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings. Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings.",
+        "Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes."
+      ],
+      "sourceSurfaceId": "settings_domains"
+    },
+    {
+      "id": "team_roles_permissions",
+      "title": "Team users, roles, and permissions",
+      "detail": "Invite collaborators and enforce scoped access across account surfaces. Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views. Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls.",
+      "status": "remaining_gap",
+      "requiredForFullClone": true,
+      "candidateAreas": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "canonicalStatus": "partial_or_shallow",
+      "confidence": "low",
+      "requiredWork": [
+        "Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views.",
+        "Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls."
+      ],
+      "sourceSurfaceId": "team_roles_permissions"
+    }
+  ]
+}

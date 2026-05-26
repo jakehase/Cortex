@@ -3,7 +3,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { deriveCampaignContinuation, recoverCampaign, setSupervisor } from '../../large-project-capability-stack/packages/campaign-runtime/index.mjs';
-import { buildContradictoryDelegateTruthBlocker, buildNotifierEligibilityPayload, buildOutcomeHeadline, buildStaleDelegateEvidenceBlocker, delegateTruthConflictDetails, deriveCanonicalStatuses, deriveRequestedOutcome, isArtifactFreshForRun, resolveCampaignBlocker } from './lib/full-audit-campaign-state.mjs';
+import { buildContradictoryDelegateTruthBlocker, buildNotifierEligibilityPayload, buildOutcomeHeadline, buildStaleDelegateEvidenceBlocker, delegateTruthConflictDetails, deriveCanonicalStatuses, deriveProductThroughputEvidence, deriveRequestedOutcome, isArtifactFreshForRun, resolveCampaignBlocker } from './lib/full-audit-campaign-state.mjs';
+import { writeMailchimpCanonicalTruthPreflight } from './lib/mailchimp-canonical-truth-preflight.mjs';
 import { resolveCampaignRunBinding, resolveMirroredArtifactPath } from './lib/full-audit-campaign-run-binding.mjs';
 import { resolveProgramEnvKeys, resolveProgramPaths } from './lib/orchestration-program-config.mjs';
 
@@ -23,12 +24,16 @@ const SUMMARY_PATH = PROGRAM_PATHS.summaryPath;
 const NOTIFY_PATH = PROGRAM_PATHS.notifyPath;
 const BLOCKER_PATH = PROGRAM_PATHS.blockerPath;
 const THRESHOLD_EVALUATION_PATH = path.join(ARTIFACT_DIR, 'threshold_evaluation.json');
+const MAILCHIMP_TRUTH_PREFLIGHT_PATH = path.join(ARTIFACT_DIR, 'mailchimp_truth_preflight.json');
+const AUTONOMY_SOAK_PROOF_PATH = path.join(ARTIFACT_DIR, 'autonomy_soak_proof.json');
+const SYNC_STATUS_PATH = PROGRAM_PATHS.syncStatusPath;
 const REPORTS_DIR = PROGRAM_PATHS.reportsDir;
 const STATUS_REPORT_PATH = PROGRAM_PATHS.supervisorStatusPath;
 const SOAK_FULL_RUNTIME = process.env[PROGRAM_ENV.soakFullRuntime] === '1';
 const STRICT_1TO1_SUPERVISOR_SCRIPT = path.join(ROOT, 'scripts', 'strict-1to1-supervisor.mjs');
 const STRICT_1TO1_STATE_PATH = path.join(ROOT, 'artifacts', 'strict_1to1', 'supervisor_state.json');
 const STRICT_1TO1_BLOCKER_PATH = path.join(ROOT, 'artifacts', 'strict_1to1', 'blocker_report.json');
+const STRICT_1TO1_INVENTORY_REDUCTION_PATH = path.join(ROOT, 'artifacts', 'strict_1to1', 'strict_1to1_gap_inventory_reduction.json');
 const DEFAULT_PRODUCTION_CREDIT_EXCLUDED_PREFIXES = Object.freeze([
   'packages/product-factory/'
 ]);
@@ -50,7 +55,8 @@ function readJson(filePath, fallback = null) {
 function normalizeRequestedContract(rawContract = null, strict1to1Contract = null) {
   const contract = rawContract && typeof rawContract === 'object' ? { ...rawContract } : {};
   const fallback = strict1to1Contract && typeof strict1to1Contract === 'object' ? strict1to1Contract : {};
-  const requestedFidelity = String(contract.requestedFidelity || contract.fidelity || fallback.requestedFidelity || '').trim();
+  const envRequestedFidelity = String(process.env.ORCHESTRATOR_REQUESTED_FIDELITY || '').trim();
+  const requestedFidelity = String(envRequestedFidelity || contract.requestedFidelity || contract.fidelity || fallback.requestedFidelity || '').trim();
   if (requestedFidelity) contract.requestedFidelity = requestedFidelity;
   if (!contract.stopCondition && fallback.stopCondition) contract.stopCondition = fallback.stopCondition;
   return contract;
@@ -190,6 +196,31 @@ function currentProductDiffStats() {
 
 function promotedProductLocFromAccounting(locAccounting = null, contract = null) {
   const policy = productionCreditPolicy(contract);
+  const mergedPatchCount = Number(locAccounting?.mergedPatchCount || 0);
+  const incrementalProductCode = locAccounting?.incremental?.counts?.productCode || null;
+  const incrementalChangedLines = Number(incrementalProductCode?.added || 0) + Number(incrementalProductCode?.deleted || 0);
+  const incrementalFileCount = Number(incrementalProductCode?.files || 0);
+  if (locAccounting?.incremental?.ok === true && (mergedPatchCount === 0 || incrementalChangedLines === 0 || incrementalFileCount === 0)) {
+    return {
+      files: [],
+      added: 0,
+      deleted: 0,
+      net: 0,
+      changedLines: 0,
+      excludedFiles: [],
+      currentIterationGate: {
+        credited: false,
+        reason: mergedPatchCount === 0 ? 'selected_tier_merged_patch_count_zero' : 'no_current_iteration_product_delta',
+        mergedPatchCount,
+        incrementalProductCode
+      },
+      creditPolicy: {
+        requireAllowedFileMatch: policy.requireAllowedFileMatch,
+        allowedFileCount: policy.allowedFiles.size,
+        excludedPatterns: policy.excludedPatterns
+      }
+    };
+  }
   const productCodeFiles = Array.isArray(locAccounting?.productCodeFiles) ? locAccounting.productCodeFiles : [];
   const credited = [];
   const excluded = [];
@@ -214,6 +245,12 @@ function promotedProductLocFromAccounting(locAccounting = null, contract = null)
     net: sum('net'),
     changedLines: sum('added') + sum('deleted'),
     excludedFiles: excluded.filter((entry) => entry.path),
+    currentIterationGate: {
+      credited: true,
+      reason: 'selected_tier_admitted_product_delta_present',
+      mergedPatchCount,
+      incrementalProductCode
+    },
     creditPolicy: {
       requireAllowedFileMatch: policy.requireAllowedFileMatch,
       allowedFileCount: policy.allowedFiles.size,
@@ -271,7 +308,22 @@ function shouldCountRepeatBlocker({ blockerText = null, hasPromotedProductWork =
   return true;
 }
 
-function aggregateBenchmarkObserved({ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null } = {}) {
+function autonomySoakProofEndAt({ autonomySoakProof = null, currentRun = null, canonicalSummary = null } = {}) {
+  if (!autonomySoakProof || autonomySoakProof.status !== 'complete') return null;
+  const proofCampaignRunId = String(autonomySoakProof.campaignRunId || '').trim();
+  const currentCampaignRunId = String(currentRun?.campaignRunId || '').trim();
+  if (proofCampaignRunId && currentCampaignRunId && proofCampaignRunId !== currentCampaignRunId) return null;
+  const proofRunId = String(autonomySoakProof.basedOnRunId || autonomySoakProof.runId || '').trim();
+  const currentRunId = String(currentRun?.runId || '').trim();
+  if (proofRunId && currentRunId && proofRunId !== currentRunId) return null;
+  const proofMs = Date.parse(String(autonomySoakProof.generatedAt || ''));
+  const canonicalMs = Date.parse(String(canonicalSummary?.generatedAt || ''));
+  if (!Number.isFinite(proofMs)) return null;
+  if (Number.isFinite(canonicalMs) && proofMs < canonicalMs) return null;
+  return new Date(proofMs).toISOString();
+}
+
+function aggregateBenchmarkObserved({ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null, autonomySoakProof = null } = {}) {
   const runIds = campaignIterationRunIds(currentRun, canonicalSummary);
   const productFiles = new Set();
   const focusLanes = new Set();
@@ -305,6 +357,8 @@ function aggregateBenchmarkObserved({ contract = null, currentRun = null, canoni
       ? benchmarkProgress.observed
       : null;
     const promotedLoc = promotedProductLocFromAccounting(locAccounting, contract);
+    const selectedTierMergedPatchCount = Number(liveExecutionSummary?.metrics?.mergedPatchCount ?? locAccounting?.mergedPatchCount ?? 0);
+    const selectedTierHasAdmittedWork = selectedTierMergedPatchCount > 0 && promotedLoc.changedLines > 0 && promotedLoc.files.length > 0;
 
     for (const filePath of promotedLoc.files) productFiles.add(filePath);
     for (const excluded of promotedLoc.excludedFiles) excludedProductFiles.set(excluded.path, excluded.reason);
@@ -314,6 +368,11 @@ function aggregateBenchmarkObserved({ contract = null, currentRun = null, canoni
     netProductNetLines += promotedLoc.net;
 
     if (benchmarkObserved) {
+      if (!selectedTierHasAdmittedWork) {
+        candidateProgressDiscardedLines += Number(benchmarkObserved.productDiffChangedLines || 0);
+        candidateProgressDiscardedFiles += Number(benchmarkObserved.productDiffFiles || (Array.isArray(benchmarkObserved.productFiles) ? benchmarkObserved.productFiles.length : 0) || 0);
+        truthIntegrityContradictions += Number(benchmarkObserved.mergedPatchCount || 0) > 0 ? 1 : 0;
+      } else {
       const observedChangedLines = Number(benchmarkObserved.productDiffChangedLines || 0);
       const observedProductFiles = Number(benchmarkObserved.productDiffFiles || (Array.isArray(benchmarkObserved.productFiles) ? benchmarkObserved.productFiles.length : 0) || 0);
       if (observedChangedLines > promotedLoc.changedLines || observedProductFiles > promotedLoc.files.length) {
@@ -344,6 +403,7 @@ function aggregateBenchmarkObserved({ contract = null, currentRun = null, canoni
       verifiedMergedPatchCount += Number(benchmarkObserved.verifiedMergedPatchCount || 0);
       truthIntegrityContradictions += Number(benchmarkObserved.truthIntegrityContradictions || 0);
       continue;
+      }
     }
 
     const mergedEntries = Array.isArray(patchQueueReport?.merged) ? patchQueueReport.merged : [];
@@ -383,9 +443,16 @@ function aggregateBenchmarkObserved({ contract = null, currentRun = null, canoni
     ? roundMetric(verifiedMergedPatchCount / observedMergedPatchCount)
     : 1;
   const controlPlaneProductDiff = currentProductDiffStats();
+  const autonomyEndAt = autonomySoakProofEndAt({ autonomySoakProof, currentRun, canonicalSummary }) || canonicalSummary?.generatedAt || null;
 
   return {
-    autonomyMinutes: minutesBetween(currentRun?.campaignStartedAt || currentRun?.startedAt || currentRun?.generatedAt || null, canonicalSummary?.generatedAt || null),
+    autonomyMinutes: minutesBetween(currentRun?.campaignStartedAt || currentRun?.startedAt || currentRun?.generatedAt || null, autonomyEndAt),
+    autonomyEndAt,
+    autonomySoakProof: autonomySoakProofEndAt({ autonomySoakProof, currentRun, canonicalSummary }) ? {
+      path: path.relative(ROOT, AUTONOMY_SOAK_PROOF_PATH),
+      generatedAt: autonomySoakProof.generatedAt,
+      mode: autonomySoakProof.mode || null
+    } : null,
     productDiffChangedLines,
     productDiffFiles: productFiles.size,
     netProductAddedLines,
@@ -415,7 +482,7 @@ function aggregateBenchmarkObserved({ contract = null, currentRun = null, canoni
   };
 }
 
-function evaluateBenchmarkThresholdGate({ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null } = {}) {
+function evaluateBenchmarkThresholdGate({ contract = null, currentRun = null, canonicalSummary = null, delegateLiveExecutionSummary = null, delegatePatchQueueReport = null, autonomySoakProof = null } = {}) {
   const thresholds = implicitBenchmarkThresholds(contract);
   if (!thresholds) {
     return {
@@ -436,7 +503,8 @@ function evaluateBenchmarkThresholdGate({ contract = null, currentRun = null, ca
     currentRun,
     canonicalSummary,
     delegateLiveExecutionSummary,
-    delegatePatchQueueReport
+    delegatePatchQueueReport,
+    autonomySoakProof
   });
 
   const failures = [];
@@ -586,6 +654,7 @@ function evaluateStrict1To1Ceiling(contract = {}, strict1to1Contract = null) {
   }
   const state = readJson(STRICT_1TO1_STATE_PATH, null);
   const strictBlocker = readJson(STRICT_1TO1_BLOCKER_PATH, null);
+  const strictInventoryReduction = state?.strictInventoryReduction || readJson(STRICT_1TO1_INVENTORY_REDUCTION_PATH, null);
   if (!state || state.status === 'green') {
     return { required: true, state, blocker: null, supervisorExitCode: 0 };
   }
@@ -600,7 +669,8 @@ function evaluateStrict1To1Ceiling(contract = {}, strict1to1Contract = null) {
         status: state.status || null,
         matrixStatus: state.matrixStatus || null,
         deepParityEstimate: state.deepParityEstimate || null,
-        exactRemainingGaps: state.exactRemainingGaps || strictBlocker?.exactRemainingGaps || []
+        exactRemainingGaps: state.exactRemainingGaps || strictBlocker?.exactRemainingGaps || [],
+        strictInventoryReduction
       }
     }
   };
@@ -695,6 +765,8 @@ const workerBlocker = workerBlockerPath ? readJson(workerBlockerPath, null) : nu
 const notifierEligibilityArtifact = notifierEligibilityPath ? readJson(notifierEligibilityPath, null) : null;
 const delegateLiveExecutionSummary = delegateLiveExecutionSummaryPath ? readJson(delegateLiveExecutionSummaryPath, null) : null;
 const delegatePatchQueueReport = delegatePatchQueueReportPath ? readJson(delegatePatchQueueReportPath, null) : null;
+const syncStatus = readJson(SYNC_STATUS_PATH, null);
+const autonomySoakProof = readJson(AUTONOMY_SOAK_PROOF_PATH, null);
 const remoteProgress = liveRemoteProgress(workerStatus, currentRun, runId);
 
 const freshDelegateEvidence = isArtifactFreshForRun({
@@ -720,6 +792,10 @@ const delegateTruthConflict = delegateTruthConflictDetails({
 });
 const strict1to1 = evaluateStrict1To1Ceiling(contract, strict1to1Contract);
 const requestedFidelity = contract.requestedFidelity || strict1to1Contract?.requestedFidelity || 'full_clone';
+const mailchimpTruthPreflight = writeMailchimpCanonicalTruthPreflight({
+  workspaceRoot: path.resolve(ROOT, '..'),
+  outputPath: MAILCHIMP_TRUTH_PREFLIGHT_PATH
+});
 
 let orchestrationBlocker = null;
 let nextFocus = canonicalSummary?.nextFocus || delegateProgramState?.nextFocus || [];
@@ -742,16 +818,35 @@ if (!runId) {
   if (!orchestrationBlocker && canonicalSummary?.supervisorStatus === 'green' && delegateTruthConflict.hasConflict) {
     orchestrationBlocker = buildContradictoryDelegateTruthBlocker({ conflict: delegateTruthConflict, runId });
   }
+  if (!orchestrationBlocker && canonicalSummary?.supervisorStatus === 'green') {
+    const landingEvidence = syncStatus?.runId === runId ? syncStatus?.canonicalLandingEvidence : null;
+    if (!landingEvidence || landingEvidence.ok !== true) {
+      orchestrationBlocker = {
+        blocker: 'Supervisor green is blocked because no new product-surface diff was proven landed in the canonical checkout.',
+        nextAction: 'Fix remote baseline/path sync and rerun; do not credit parity surfaces from patch admission alone.',
+        runId,
+        blockerKind: 'canonical_landing_evidence_missing',
+        canonicalLandingEvidence: landingEvidence || null,
+        syncStatusPath: path.relative(ROOT, SYNC_STATUS_PATH)
+      };
+    }
+  }
 }
 
 const orchestration = deriveCanonicalStatuses({ canonicalSummary, programState: delegateProgramState, blocker: orchestrationBlocker });
+const productThroughput = deriveProductThroughputEvidence({
+  liveExecutionSummary: delegateLiveExecutionSummary,
+  patchQueueReport: delegatePatchQueueReport,
+  syncStatus
+});
 const benchmarkThresholdGate = !orchestrationBlocker && orchestration.green
   ? evaluateBenchmarkThresholdGate({
       contract,
       currentRun,
       canonicalSummary,
       delegateLiveExecutionSummary,
-      delegatePatchQueueReport
+      delegatePatchQueueReport,
+      autonomySoakProof
     })
   : {
       evaluated: false,
@@ -782,7 +877,9 @@ const requestedOutcome = deriveRequestedOutcome({
   orchestration,
   blocker: orchestrationBlocker,
   strict1to1,
-  benchmarkGate: benchmarkThresholdGate
+  benchmarkGate: benchmarkThresholdGate,
+  productThroughput,
+  truthPreflight: mailchimpTruthPreflight
 });
 const finalBlocker = requestedOutcome.blocker || null;
 let continuation = deriveCampaignContinuation({
@@ -867,10 +964,15 @@ programState.supervisor = {
   strict1to1,
   thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
   benchmarkThresholdGate,
+  productThroughput,
+  mailchimpTruthPreflightPath: path.relative(ROOT, MAILCHIMP_TRUTH_PREFLIGHT_PATH),
+  mailchimpTruthPreflight,
   continuationDecision: continuation.decision,
   continuation,
   delegateLiveExecutionSummaryPath: delegateLiveExecutionSummaryPath ? path.relative(ROOT, delegateLiveExecutionSummaryPath) : null,
-  delegatePatchQueueReportPath: delegatePatchQueueReportPath ? path.relative(ROOT, delegatePatchQueueReportPath) : null
+  delegatePatchQueueReportPath: delegatePatchQueueReportPath ? path.relative(ROOT, delegatePatchQueueReportPath) : null,
+  syncStatusPath: path.relative(ROOT, SYNC_STATUS_PATH),
+  canonicalLandingEvidence: syncStatus?.canonicalLandingEvidence || null
 };
 programState.stopAllowed = continuation.shouldStop;
 programState.done = continuation.shouldStop;
@@ -912,6 +1014,9 @@ const summary = {
   strict1to1,
   thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
   benchmarkThresholdGate,
+  productThroughput,
+  mailchimpTruthPreflightPath: path.relative(ROOT, MAILCHIMP_TRUTH_PREFLIGHT_PATH),
+  mailchimpTruthPreflight,
   continuationDecision: continuation.decision,
   continuation,
   orchestrationConfirmedCompletion: orchestration.green,
@@ -942,6 +1047,8 @@ writeJson(STATUS_REPORT_PATH, {
   strict1to1,
   thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
   benchmarkThresholdGate,
+  productThroughput,
+  mailchimpTruthPreflight,
   continuationDecision: continuation.decision,
   continuation,
   notifierEligibility,
@@ -958,6 +1065,8 @@ console.log(JSON.stringify({
   blocker: finalBlocker,
   blockerKind: requestedOutcome.blockerKind || null,
   requestedOutcome,
+  productThroughput,
+  mailchimpTruthPreflight: { ok: mailchimpTruthPreflight.ok, guardrail: mailchimpTruthPreflight.guardrail },
   headline
 }, null, 2));
 process.exit(requestedOutcome.green ? 0 : finalBlocker ? 1 : 2);

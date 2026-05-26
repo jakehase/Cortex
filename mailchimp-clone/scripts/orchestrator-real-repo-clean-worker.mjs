@@ -38,6 +38,19 @@ function requiresExecutableTestEvidence(assignment = {}) {
   );
 }
 
+function verifierSubprocessEnv() {
+  const existing = String(process.env.NODE_OPTIONS || '').trim();
+  const verifierHeapMb = Math.max(512, Number(process.env.ORCHESTRATOR_VERIFIER_HEAP_MB || process.env.ORCHESTRATOR_TEST_VERIFIER_HEAP_MB || 1024));
+  const withoutHeapCap = existing
+    .replace(/(?:^|\s)--max-old-space-size(?:=|\s+)\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return {
+    ...process.env,
+    NODE_OPTIONS: [withoutHeapCap, `--max-old-space-size=${verifierHeapMb}`].filter(Boolean).join(' ')
+  };
+}
+
 function runVerifier(assignmentPath, assignment, verifier) {
   if (process.env.MAILCHIMP_PRODUCT_ONLY !== '0' && (verifier === 'tests' || verifier === 'test') && !requiresExecutableTestEvidence(assignment)) {
     return {
@@ -56,7 +69,8 @@ function runVerifier(assignmentPath, assignment, verifier) {
     const stdout = execFileSync(command[0], command.slice(1), {
       cwd: assignment.workspacePath,
       encoding: 'utf8',
-      stdio: 'pipe'
+      stdio: 'pipe',
+      env: verifierSubprocessEnv()
     });
     const parsed = JSON.parse(String(stdout).trim());
     return {
@@ -109,6 +123,8 @@ function runImplementation(assignmentPath, assignment) {
       command: command.join(' '),
       durationMs: Date.now() - startedAt,
       modifiedFiles: parsed.modifiedFiles || [],
+      diff: parsed.diff || parsed.unifiedDiff || parsed.patch || '',
+      unifiedDiff: parsed.unifiedDiff || parsed.diff || parsed.patch || '',
       diffSummary: parsed.diffSummary || 'implemented shard changes',
       stdout: String(stdout).trim(),
       stderr: '',
@@ -130,6 +146,49 @@ function runImplementation(assignmentPath, assignment) {
   }
 }
 
+function snapshotAllowedFiles(assignment) {
+  const workspacePath = assignment.workspacePath;
+  const allowedFiles = [...new Set((assignment.shard?.allowedFiles || [])
+    .filter((entry) => /\.(mjs|js|json|css|html)$/.test(String(entry || ''))))];
+  const snapshot = new Map();
+  for (const rel of allowedFiles) {
+    const filePath = path.join(workspacePath, rel);
+    snapshot.set(rel, {
+      filePath,
+      existed: fs.existsSync(filePath),
+      content: fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null
+    });
+  }
+  return snapshot;
+}
+
+function restoreModifiedFiles(snapshot, modifiedFiles = null) {
+  const restoreList = modifiedFiles && modifiedFiles.length ? modifiedFiles : [...snapshot.keys()];
+  for (const rel of [...new Set(restoreList)]) {
+    const entry = snapshot.get(rel);
+    if (!entry) continue;
+    if (entry.existed) {
+      fs.mkdirSync(path.dirname(entry.filePath), { recursive: true });
+      fs.writeFileSync(entry.filePath, entry.content);
+    } else if (fs.existsSync(entry.filePath)) {
+      fs.unlinkSync(entry.filePath);
+    }
+  }
+}
+
+function implementationAdmissionFailure(implementation = {}) {
+  const metadata = implementation.metadata || {};
+  const architectureEvidence = metadata.architectureEvidence || null;
+  const semanticBloatAudit = metadata.semanticBloatAudit || architectureEvidence?.semanticBloatAudit || null;
+  if (semanticBloatAudit?.semanticBloatSuspect === true) {
+    return { reason: 'semantic_bloat_product_delta', architectureEvidence, semanticBloatAudit };
+  }
+  if (process.env.MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT === '1' && architectureEvidence && architectureEvidence.ok !== true) {
+    return { reason: architectureEvidence.reason || 'missing_concrete_runtime_delta', architectureEvidence, semanticBloatAudit };
+  }
+  return null;
+}
+
 const args = parseArgs(process.argv.slice(2));
 if (!args.assignment) {
   console.error('missing --assignment');
@@ -139,6 +198,7 @@ if (!args.assignment) {
 const assignment = JSON.parse(fs.readFileSync(args.assignment, 'utf8'));
 const failureInjection = assignment.failureInjection || null;
 const startedAt = Date.now();
+const workspaceSnapshot = snapshotAllowedFiles(assignment);
 fs.mkdirSync(path.dirname(assignment.resultPath), { recursive: true });
 fs.mkdirSync(path.dirname(assignment.logPath), { recursive: true });
 
@@ -155,6 +215,7 @@ if (failureInjection?.mode === 'stall') {
 const implementation = runImplementation(args.assignment, assignment);
 fs.appendFileSync(assignment.logPath, `${JSON.stringify({ type: 'implementation', ...implementation })}\n`);
 if (implementation.ok === false) {
+  restoreModifiedFiles(workspaceSnapshot);
   fs.writeFileSync(assignment.resultPath, JSON.stringify({
     ok: false,
     shardId: assignment.shard.id,
@@ -168,12 +229,30 @@ if (implementation.ok === false) {
   process.exit(2);
 }
 
+const admissionFailure = implementationAdmissionFailure(implementation);
+if (admissionFailure) {
+  restoreModifiedFiles(workspaceSnapshot, implementation.modifiedFiles);
+  fs.writeFileSync(assignment.resultPath, JSON.stringify({
+    ok: false,
+    shardId: assignment.shard.id,
+    leaseId: assignment.lease.leaseId,
+    agentId: assignment.agentId,
+    executionMode: assignment.executionMode,
+    implementation,
+    verifierResults: [],
+    admissionFailure,
+    elapsedMs: Date.now() - startedAt
+  }, null, 2));
+  process.exit(2);
+}
+
 const verifierResults = [];
 for (const verifier of assignment.shard.requiredVerifiers || []) {
   const result = runVerifier(args.assignment, assignment, verifier);
   verifierResults.push(result);
   fs.appendFileSync(assignment.logPath, `${JSON.stringify(result)}\n`);
   if (result.ok === false) {
+    restoreModifiedFiles(workspaceSnapshot);
     fs.writeFileSync(assignment.resultPath, JSON.stringify({
       ok: false,
       shardId: assignment.shard.id,

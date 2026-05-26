@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { compileTaskContract, saveContract } from '../../large-project-capability-stack/packages/task-contract/index.mjs';
-import { parsePorcelainStatus } from './lib/full-audit-campaign-sync-pathspecs.mjs';
+import { dirtyEntryAllowedByOverlay, parsePorcelainStatus } from './lib/full-audit-campaign-sync-pathspecs.mjs';
+import { parsePositiveIntegerList, resolveAdaptiveConcurrencyTiers, resolveRequestedAgentCount } from './lib/orchestrator-adaptive-concurrency.mjs';
 import { createIssueGraph, upsertIssue, linkDependency, saveGraph, setIssueStatus } from '../../large-project-capability-stack/packages/issue-dag/index.mjs';
 import { compileSurfaceMatrix, saveMatrix } from '../../large-project-capability-stack/packages/surface-matrix/index.mjs';
 import { initializeCampaign, recoverCampaign, claimWorkerIteration, updateWorker, completeWorkerIteration } from '../../large-project-capability-stack/packages/campaign-runtime/index.mjs';
@@ -53,7 +54,9 @@ function resetQualificationArtifacts() {
     paths.completionSummary,
     paths.programState,
     paths.launchChecklist,
+    paths.launchLocBaseline,
     paths.locAccounting,
+    paths.strictHierarchicalPlan,
     paths.canonicalSummary,
     paths.blockerReport,
     paths.supervisorStatus,
@@ -84,6 +87,91 @@ function runCommand(command, args, { cwd = ROOT, logPath, allowFailure = false }
     if (!allowFailure) throw error;
     return { ok: false, command: rendered, output, durationMs: Date.now() - startedAt, logPath };
   }
+}
+
+
+function normalizeDiffPath(filePath) {
+  return String(filePath || '')
+    .replace(/\{[^}]* => ([^}]*)\}/g, '$1')
+    .replace(/^.* => /, '')
+    .trim();
+}
+
+function classifyDiffPath(filePath) {
+  const normalized = normalizeDiffPath(filePath);
+  if (normalized.startsWith('packages/') || normalized.startsWith('apps/')) return 'productCode';
+  if (normalized.startsWith('tests/')) return 'tests';
+  if (normalized.startsWith('scripts/')) return 'scripts';
+  if (normalized.startsWith('docs/')) return 'docs';
+  if (normalized.startsWith('artifacts/')) return 'artifacts';
+  return 'other';
+}
+
+function summarizeLocEntries(entries = [], category = null) {
+  const filtered = category ? entries.filter((entry) => entry.category === category) : entries;
+  const summary = filtered.reduce((acc, entry) => {
+    acc.files += 1;
+    acc.added += Number.isFinite(entry.added) ? entry.added : 0;
+    acc.deleted += Number.isFinite(entry.deleted) ? entry.deleted : 0;
+    acc.binaryFiles += entry.binary ? 1 : 0;
+    return acc;
+  }, { files: 0, added: 0, deleted: 0, net: 0, binaryFiles: 0 });
+  summary.net = summary.added - summary.deleted;
+  return summary;
+}
+
+function computeDirtyLocSnapshot(repoRoot) {
+  const output = execFileSync('git', ['diff', '--numstat', '--find-renames=90%', 'HEAD', '--', '.'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: 'pipe',
+    maxBuffer: 4 * 1024 * 1024
+  });
+  const entries = String(output || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split('\t');
+      const rawPath = parts.slice(2).join('\t');
+      const added = parts[0] === '-' ? null : Number(parts[0]);
+      const deleted = parts[1] === '-' ? null : Number(parts[1]);
+      const filePath = normalizeDiffPath(rawPath);
+      return {
+        path: filePath,
+        rawPath,
+        added,
+        deleted,
+        net: (Number.isFinite(added) ? added : 0) - (Number.isFinite(deleted) ? deleted : 0),
+        binary: parts[0] === '-' || parts[1] === '-',
+        category: classifyDiffPath(filePath)
+      };
+    });
+  return {
+    generatedAt: new Date().toISOString(),
+    ok: true,
+    repoRoot,
+    baseline: { type: 'pre_launch_dirty_diff_snapshot', ref: 'HEAD' },
+    counts: {
+      all: summarizeLocEntries(entries),
+      productCode: summarizeLocEntries(entries, 'productCode'),
+      tests: summarizeLocEntries(entries, 'tests'),
+      scripts: summarizeLocEntries(entries, 'scripts'),
+      docs: summarizeLocEntries(entries, 'docs'),
+      artifacts: summarizeLocEntries(entries, 'artifacts'),
+      other: summarizeLocEntries(entries, 'other')
+    },
+    changedFiles: entries,
+    productCodeFiles: entries.filter((entry) => entry.category === 'productCode'),
+    note: 'Pre-launch dirty diff snapshot. Incremental launch LOC must subtract this from final loc_accounting.json.'
+  };
+}
+
+function writeLaunchLocBaseline() {
+  if (fs.existsSync(paths.launchLocBaseline) && process.env.MAILCHIMP_REUSE_LAUNCH_LOC_BASELINE === '1') return readJson(paths.launchLocBaseline, null);
+  const snapshot = computeDirtyLocSnapshot(ROOT);
+  writeJson(paths.launchLocBaseline, snapshot);
+  return snapshot;
 }
 
 function honestResult(highestPassingTier, attemptedTier, blocker) {
@@ -153,6 +241,7 @@ updateWorker(paths.campaignState, { id: 'qualification.start', ok: true, note: '
 const fixtureBaseline = readJson(STACK_FIXTURE_SCALE_PATH, null);
 const seed = buildSelectedWorkGraphSeed();
 writeJson(paths.workGraph, seed.workGraph);
+if (seed.strictHierarchicalPlan) writeJson(paths.strictHierarchicalPlan, seed.strictHierarchicalPlan);
 writeJson(paths.workSurfaceMatrix, seed.surfaceMatrix);
 writeJson(paths.verifierCatalog, buildVerifierCatalog());
 
@@ -181,14 +270,18 @@ function assertWorkspaceReadyForImplementation() {
   if (!porcelain) return;
   const allowed = buildAllowedDirtyWorkspaceEntries();
   const disallowed = parsePorcelainStatus(porcelain)
-    .filter((entry) => !allowed.has(entry.path) && !(entry.fromPath && allowed.has(entry.fromPath)));
+    .filter((entry) => !dirtyEntryAllowedByOverlay(entry, allowed));
   if (!disallowed.length) return;
   throw new Error(`Implementation mode requires a clean workspace before launch. Dirty files detected:\n${disallowed.map((entry) => `${entry.status} ${entry.fromPath ? `${entry.fromPath} -> ` : ''}${entry.path}`).join('\n')}`);
 }
 
 assertWorkspaceReadyForImplementation();
+const launchLocBaseline = writeLaunchLocBaseline();
 
-const tiers = String(process.env.ORCHESTRATOR_TIERS || '8,16,32,64,100').split(',').map((value) => Number(value.trim())).filter((value) => Number.isFinite(value) && value > 0);
+const requestedTiers = parsePositiveIntegerList(process.env.ORCHESTRATOR_TIERS || '8,16,32,64,100');
+const requestedAgentCount = resolveRequestedAgentCount({ env: process.env, requestedTiers });
+let concurrencyPlan = null;
+let tiers = requestedTiers;
 
 function buildLaunchChecklist({ baselineRepoTests }) {
   const items = [
@@ -219,7 +312,14 @@ function buildLaunchChecklist({ baselineRepoTests }) {
     {
       id: 'requested_tiers_resolved',
       ok: tiers.length > 0,
-      detail: tiers.join(',')
+      detail: `requested=${requestedTiers.join(',')} resolved=${tiers.join(',')}`
+    },
+    {
+      id: 'adaptive_concurrency_resolved',
+      ok: Boolean(concurrencyPlan && !concurrencyPlan.blocker),
+      detail: concurrencyPlan
+        ? `${concurrencyPlan.mode}: target=${concurrencyPlan.adaptiveTarget ?? 'staged'} requestedAgentCount=${concurrencyPlan.requestedAgentCount} shardCount=${concurrencyPlan.shardCount} reason=${concurrencyPlan.reason}`
+        : 'pending'
     },
     {
       id: 'loc_accounting_required',
@@ -240,7 +340,14 @@ function buildLaunchChecklist({ baselineRepoTests }) {
     productOnlyMode: PRODUCT_ONLY_MODE,
     implementationScript: IMPLEMENTATION_SCRIPT,
     requestedTiers: tiers,
+    originallyRequestedTiers: requestedTiers,
+    requestedAgentCount,
+    adaptiveConcurrency: concurrencyPlan,
     locAccountingPath: paths.locAccounting,
+    strictHierarchicalPlanPath: paths.strictHierarchicalPlan,
+    strictHierarchicalPlanSummary: seed.strictHierarchicalPlan?.summary || null,
+    launchLocBaselinePath: paths.launchLocBaseline,
+    launchLocBaselineSummary: launchLocBaseline?.counts || null,
     items,
     ok: items.every((entry) => entry.ok)
   };
@@ -256,6 +363,19 @@ const shardPlan = buildShardPlan({
   }
 });
 writeJson(paths.shardPlan, shardPlan);
+
+concurrencyPlan = resolveAdaptiveConcurrencyTiers({
+  requestedTiers,
+  requestedAgentCount,
+  shardCount: shardPlan.summary.shardCount,
+  requestedFidelity: contract.requestedFidelity,
+  env: process.env
+});
+tiers = concurrencyPlan.resolvedTiers;
+writeJson(path.join(ARTIFACT_ROOT, 'adaptive_concurrency.json'), {
+  generatedAt: new Date().toISOString(),
+  ...concurrencyPlan
+});
 
 const contextPacks = compileContextPacks({
   contract,
@@ -294,6 +414,21 @@ const baselineRepoTests = PRODUCT_ONLY_MODE
 validationIndex.baseline = { ok: baselineRepoTests.ok, skipped: Boolean(baselineRepoTests.skipped), reason: baselineRepoTests.reason || null, command: baselineRepoTests.command, logPath: baselineLog, durationMs: baselineRepoTests.durationMs };
 writeJson(paths.validationIndex, validationIndex);
 writeJson(paths.launchChecklist, buildLaunchChecklist({ baselineRepoTests }));
+if (concurrencyPlan.blocker) {
+  const blocker = {
+    generatedAt: new Date().toISOString(),
+    ...concurrencyPlan.blocker,
+    requestedTiers,
+    resolvedTiers: tiers,
+    requestedAgentCount,
+    shardCount: shardPlan.summary.shardCount
+  };
+  writeJson(paths.blockerReport, blocker);
+  updateWorker(paths.campaignState, { id: 'qualification.adaptive_concurrency', ok: false, note: blocker.blocker });
+  completeWorkerIteration(paths.campaignState, { ok: false, note: blocker.blocker, outcome: blocker });
+  console.log(JSON.stringify({ ok: false, artifactRoot: ARTIFACT_ROOT, blocker }, null, 2));
+  process.exit(1);
+}
 if (!baselineRepoTests.ok) {
   const blocker = {
     generatedAt: new Date().toISOString(),
@@ -507,6 +642,9 @@ const scaleQualification = {
   realRepoLive: {
     targetPath: ROOT,
     requestedTiers: tiers,
+    originallyRequestedTiers: requestedTiers,
+    requestedAgentCount,
+    adaptiveConcurrency: concurrencyPlan,
     attemptedTiers: tierResults.map((entry) => entry.tier),
     qualificationMode: 'real_mailchimp_repo_live_worker_farm',
     highestPassingTier,

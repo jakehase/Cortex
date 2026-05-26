@@ -42,10 +42,20 @@ async function expectBody(page, pattern, message) {
 }
 
 async function submitAndWait(page, buttonLocator, urlPattern) {
-  const navigation = page.waitForNavigation();
-  await buttonLocator.click();
-  await navigation;
-  await page.waitForLoadState('domcontentloaded');
+  const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => null);
+  const click = buttonLocator.click({ timeout: 10000 }).catch(async (error) => {
+    if (!/intercepts pointer events|Timeout/i.test(String(error?.message || error))) throw error;
+    await buttonLocator.evaluate((button) => {
+      const form = button.closest('form');
+      if (form?.requestSubmit) form.requestSubmit(button);
+      else button.click();
+    });
+  });
+  await Promise.all([navigation, click]);
+  await page.waitForLoadState('domcontentloaded', { timeout: 10000 }).catch(() => null);
+  if (urlPattern && !urlPattern.test(page.url())) {
+    await page.waitForURL(urlPattern, { timeout: 10000 });
+  }
   if (urlPattern) assert.match(page.url(), urlPattern, `Expected URL ${page.url()} to match ${urlPattern}`);
 }
 

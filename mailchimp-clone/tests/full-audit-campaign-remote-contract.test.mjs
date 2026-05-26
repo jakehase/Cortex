@@ -24,6 +24,7 @@ test('buildRemoteLaunchEnvironment returns the run-scoped execution-plane env', 
       MAILCHIMP_ORCHESTRATOR_ARTIFACT_ROOT: '/remote/runs/run-123/artifacts',
       ORCHESTRATOR_IMPLEMENTATION_PROFILE: 'mailchimp_parity_focus',
       MAILCHIMP_PRODUCT_ONLY: '1',
+      MAILCHIMP_REQUESTED_AGENT_COUNT: '100',
       MAILCHIMP_USE_STRICT_GAP_INVENTORY: '1',
       MAILCHIMP_STRICT_GAP_SEQUENCE: '1'
     }
@@ -72,6 +73,7 @@ test('buildDetachedRemoteLaunchCommand detaches execution and returns launcher p
     MAILCHIMP_ORCHESTRATOR_ARTIFACT_ROOT: '/srv/remote/mailchimp-runs/run-123/artifacts/implementation_runs/run-123',
     ORCHESTRATOR_IMPLEMENTATION_PROFILE: 'mailchimp_parity_focus',
     MAILCHIMP_PRODUCT_ONLY: '1',
+    MAILCHIMP_REQUESTED_AGENT_COUNT: '100',
     MAILCHIMP_USE_STRICT_GAP_INVENTORY: '1',
     MAILCHIMP_STRICT_GAP_SEQUENCE: '1'
   });

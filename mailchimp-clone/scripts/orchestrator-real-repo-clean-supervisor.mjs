@@ -13,6 +13,7 @@ import {
   RUNS_DIR,
   writeJson,
   extractVerifiedFocusIdsFromPatchQueue,
+  extractSuspectFocusIdsFromPatchQueue,
   PRODUCT_ONLY_MODE,
   canonicalizeFocusId,
   mailchimpParityFocusIds,
@@ -76,6 +77,204 @@ function finalizeLocSummary(summary) {
     net: summary.added - summary.deleted
   };
 }
+
+
+function subtractLocSummary(current = {}, baseline = {}) {
+  const added = Number(current.added || 0) - Number(baseline.added || 0);
+  const deleted = Number(current.deleted || 0) - Number(baseline.deleted || 0);
+  return {
+    files: Math.max(0, Number(current.files || 0) - Number(baseline.files || 0)),
+    added,
+    deleted,
+    net: added - deleted,
+    binaryFiles: Math.max(0, Number(current.binaryFiles || 0) - Number(baseline.binaryFiles || 0))
+  };
+}
+
+function buildIncrementalLocAccounting(currentCounts = null, launchBaseline = null) {
+  if (!currentCounts || !launchBaseline?.counts) {
+    return {
+      ok: false,
+      reason: 'missing_pre_launch_loc_baseline',
+      note: 'Launch-specific LOC is unknown because no pre-launch dirty-diff baseline artifact was available.'
+    };
+  }
+  const categories = ['all', 'productCode', 'tests', 'scripts', 'docs', 'artifacts', 'other'];
+  const counts = {};
+  for (const category of categories) counts[category] = subtractLocSummary(currentCounts[category] || {}, launchBaseline.counts[category] || {});
+  return {
+    ok: true,
+    baselinePath: paths.launchLocBaseline,
+    baselineGeneratedAt: launchBaseline.generatedAt || null,
+    baselineType: launchBaseline.baseline?.type || 'pre_launch_dirty_diff_snapshot',
+    counts,
+    note: 'Counts are final dirty diff minus pre-launch dirty diff, so they represent this launch increment rather than cumulative overlay LOC.'
+  };
+}
+
+const PRODUCT_LOC_TRUTH_ROOTS = Object.freeze(['apps', 'packages', 'plugins']);
+const LOC_TRUTH_SKIP_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.svg', '.pdf', '.zip', '.gz', '.tar', '.sqlite', '.db', '.map']);
+const LOC_TRUTH_BLOAT_MARKERS = Object.freeze([
+  'full_clone_remediation_leaf_evaluated',
+  'compact primary-product adoption marker',
+  'remaining-work remediation product slice for strict Mailchimp clone blockers',
+  '"fidelity": "full_clone"',
+  '"requirements": [',
+  '"remediationContracts": ['
+]);
+
+function normalizeLocTruthLine(line) {
+  return String(line || '').trim().replace(/\s+/g, ' ');
+}
+
+function countTextLines(text = '') {
+  if (!text) return 0;
+  const lines = String(text).split(/\r?\n/);
+  return lines.at(-1) === '' ? lines.length - 1 : lines.length;
+}
+
+function isLocTruthTextPath(filePath) {
+  return !LOC_TRUTH_SKIP_EXTENSIONS.has(path.extname(String(filePath || '')).toLowerCase());
+}
+
+function gitLines(repoRoot, args = [], { timeout = 120000, maxBuffer = 16 * 1024 * 1024 } = {}) {
+  const result = spawnSync('git', args, {
+    cwd: repoRoot,
+    env: process.env,
+    encoding: 'utf8',
+    timeout,
+    maxBuffer
+  });
+  if (result.status !== 0 || result.error) return [];
+  return String(result.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function computeProductLocTruth(repoRoot) {
+  const trackedFiles = gitLines(repoRoot, ['ls-files', '--', ...PRODUCT_LOC_TRUTH_ROOTS]);
+  const untrackedFiles = gitLines(repoRoot, ['ls-files', '--others', '--exclude-standard', '--', ...PRODUCT_LOC_TRUTH_ROOTS]);
+  const untrackedSet = new Set(untrackedFiles);
+  const allFiles = Array.from(new Set([...trackedFiles, ...untrackedFiles])).sort();
+  const fileRecords = [];
+  let baselineProductLOC = 0;
+  let baselineTrackedFiles = 0;
+  for (const filePath of trackedFiles) {
+    if (!isLocTruthTextPath(filePath)) continue;
+    const show = spawnSync('git', ['show', `HEAD:${filePath}`], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      timeout: 120000,
+      maxBuffer: 8 * 1024 * 1024
+    });
+    if (show.status !== 0 || show.error || String(show.stdout || '').includes('\u0000')) continue;
+    baselineProductLOC += countTextLines(show.stdout || '');
+    baselineTrackedFiles += 1;
+  }
+  const allNormalizedLines = [];
+  for (const filePath of allFiles) {
+    if (!isLocTruthTextPath(filePath)) continue;
+    const absPath = path.join(repoRoot, filePath);
+    try {
+      const stat = fs.statSync(absPath);
+      if (!stat.isFile()) continue;
+      const text = fs.readFileSync(absPath, 'utf8');
+      if (text.includes('\u0000')) continue;
+      const lines = text.split(/\r?\n/);
+      const normalizedLines = lines.map(normalizeLocTruthLine).filter(Boolean);
+      const localCounts = normalizedLines.reduce((counts, line) => {
+        counts.set(line, (counts.get(line) || 0) + 1);
+        return counts;
+      }, new Map());
+      allNormalizedLines.push(...normalizedLines);
+      fileRecords.push({
+        path: filePath,
+        loc: countTextLines(text),
+        nonblank: normalizedLines.length,
+        uniqueNormalized: localCounts.size,
+        duplicateNormalizedInstances: Math.max(0, normalizedLines.length - localCounts.size),
+        maxRepeat: Math.max(0, ...localCounts.values()),
+        untracked: untrackedSet.has(filePath)
+      });
+    } catch {}
+  }
+
+  const diff = spawnSync('git', ['diff', '--unified=0', 'HEAD', '--', ...PRODUCT_LOC_TRUTH_ROOTS], {
+    cwd: repoRoot,
+    env: process.env,
+    encoding: 'utf8',
+    timeout: 120000,
+    maxBuffer: 24 * 1024 * 1024
+  });
+  const addedLines = [];
+  if (diff.status === 0 && !diff.error) {
+    for (const line of String(diff.stdout || '').split(/\r?\n/)) {
+      if (line.startsWith('+') && !line.startsWith('+++')) {
+        const normalized = normalizeLocTruthLine(line.slice(1));
+        if (normalized) addedLines.push(normalized);
+      }
+    }
+  }
+  for (const filePath of untrackedFiles) {
+    if (!isLocTruthTextPath(filePath)) continue;
+    try {
+      for (const line of fs.readFileSync(path.join(repoRoot, filePath), 'utf8').split(/\r?\n/)) {
+        const normalized = normalizeLocTruthLine(line);
+        if (normalized) addedLines.push(normalized);
+      }
+    } catch {}
+  }
+  const currentCounts = allNormalizedLines.reduce((counts, line) => {
+    counts.set(line, (counts.get(line) || 0) + 1);
+    return counts;
+  }, new Map());
+  const addedCounts = addedLines.reduce((counts, line) => {
+    counts.set(line, (counts.get(line) || 0) + 1);
+    return counts;
+  }, new Map());
+  const markerCounts = {};
+  for (const marker of LOC_TRUTH_BLOAT_MARKERS) markerCounts[marker] = addedLines.filter((line) => line.includes(marker)).length;
+  const addedNonblankLines = addedLines.length;
+  const addedUniqueNormalizedLines = addedCounts.size;
+  const addedDuplicateNormalizedLineInstances = Math.max(0, addedNonblankLines - addedUniqueNormalizedLines);
+  const duplicateAddedLineRatio = addedNonblankLines > 0 ? Number((addedDuplicateNormalizedLineInstances / addedNonblankLines).toFixed(4)) : 0;
+  const markerLineCount = Object.values(markerCounts).reduce((sum, count) => sum + count, 0);
+  const semanticBloatReasons = [];
+  if (addedNonblankLines >= 500 && duplicateAddedLineRatio >= 0.55) semanticBloatReasons.push('high_duplicate_normalized_added_line_ratio');
+  if (Number(markerCounts.full_clone_remediation_leaf_evaluated || 0) >= 20) semanticBloatReasons.push('repeated_remediation_marker_blocks');
+  if (Number(markerCounts['"fidelity": "full_clone"'] || 0) >= 20 || Number(markerCounts['"remediationContracts": ['] || 0) >= 20) semanticBloatReasons.push('remediation_blueprint_boilerplate_concentration');
+  if (markerLineCount >= 100 && markerLineCount / Math.max(1, addedNonblankLines) >= 0.03) semanticBloatReasons.push('marker_heavy_product_delta');
+
+  return {
+    generatedAt: new Date().toISOString(),
+    roots: PRODUCT_LOC_TRUTH_ROOTS,
+    baselineProductLOC,
+    baselineTrackedFiles,
+    currentProductLOC: fileRecords.reduce((sum, record) => sum + record.loc, 0),
+    currentProductFiles: fileRecords.length,
+    trackedProductLOC: fileRecords.filter((record) => !record.untracked).reduce((sum, record) => sum + record.loc, 0),
+    trackedProductFiles: fileRecords.filter((record) => !record.untracked).length,
+    untrackedProductLOC: fileRecords.filter((record) => record.untracked).reduce((sum, record) => sum + record.loc, 0),
+    untrackedProductFiles: fileRecords.filter((record) => record.untracked).length,
+    currentNonblankLines: allNormalizedLines.length,
+    currentUniqueNormalizedLines: currentCounts.size,
+    currentDuplicateNormalizedInstances: Math.max(0, allNormalizedLines.length - currentCounts.size),
+    addedNonblankLinesApprox: addedNonblankLines,
+    addedUniqueNormalizedLinesApprox: addedUniqueNormalizedLines,
+    addedDuplicateNormalizedLineInstancesApprox: addedDuplicateNormalizedLineInstances,
+    duplicateAddedLineRatio,
+    markerCounts,
+    markerLineCount,
+    topRepeatedAddedLines: Array.from(addedCounts.entries())
+      .filter(([, count]) => count >= 10)
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 20)
+      .map(([line, count]) => ({ line: line.slice(0, 160), count })),
+    topFilesByLOC: fileRecords.sort((left, right) => right.loc - left.loc).slice(0, 25),
+    semanticBloatSuspect: semanticBloatReasons.length > 0,
+    semanticBloatReasons,
+    note: 'Raw LOC truth separates physical line growth from meaningful architecture/parity credit. semanticBloatSuspect blocks completion credit until inspected.'
+  };
+}
+
 
 function computeLocAccounting(repoRoot, { runForArtifacts = null, selectedTier = null } = {}) {
   const diff = spawnSync('git', ['diff', '--numstat', '--find-renames=90%', 'HEAD', '--', '.'], {
@@ -150,27 +349,41 @@ function computeLocAccounting(repoRoot, { runForArtifacts = null, selectedTier =
   const docs = finalizeLocSummary(summarizeLocEntries(entries, 'docs'));
   const artifacts = finalizeLocSummary(summarizeLocEntries(entries, 'artifacts'));
   const other = finalizeLocSummary(summarizeLocEntries(entries, 'other'));
+  const counts = {
+    all,
+    productCode,
+    tests,
+    scripts,
+    docs,
+    artifacts,
+    other
+  };
+  const launchBaseline = readJson(paths.launchLocBaseline, null);
+  const incremental = buildIncrementalLocAccounting(counts, launchBaseline);
+  const productLocTruth = computeProductLocTruth(repoRoot);
   return {
     generatedAt: new Date().toISOString(),
     ok: true,
     repoRoot,
-    baseline: { type: 'git_head_worktree_diff', ref: 'HEAD' },
+    baseline: {
+      type: 'git_head_worktree_diff',
+      ref: 'HEAD',
+      cumulativeDirtyOverlay: true,
+      launchBaselinePath: paths.launchLocBaseline,
+      launchBaselineAvailable: incremental.ok === true
+    },
     selectedTier,
     runRoot: runForArtifacts?.runRoot || null,
     mergedPatchCount: Number(runForArtifacts?.patchQueue?.merged?.length || 0),
     requiredForCompletion: true,
-    counts: {
-      all,
-      productCode,
-      tests,
-      scripts,
-      docs,
-      artifacts,
-      other
-    },
+    counts,
+    incremental,
+    productLocTruth,
     changedFiles: entries,
     productCodeFiles: entries.filter((entry) => entry.category === 'productCode'),
-    note: 'Counts reflect surviving uncommitted diff against HEAD, not cumulative churn during the run.'
+    note: incremental.ok
+      ? 'counts is cumulative surviving diff against HEAD; incremental.counts is launch-specific final-minus-prelaunch LOC.'
+      : 'counts is cumulative surviving diff against HEAD; launch-specific LOC is unknown without launch_loc_baseline.json.'
   };
 }
 
@@ -228,6 +441,23 @@ function buildFocusArtifactPaths({ patchQueue = null, runRoot = null } = {}) {
     addArtifact(focusId, artifactPath);
   }
   return artifactMap;
+}
+
+function patchEntryHasSemanticBloatAuditSchema(entry = {}) {
+  const stdout = String(entry?.metadata?.implementation?.stdout || '');
+  return Boolean(entry?.metadata?.implementation?.metadata?.semanticBloatAudit)
+    || Boolean(entry?.metadata?.semanticBloatAudit)
+    || Boolean(entry?.admissionAudit?.semanticBloatAdmission?.details?.semanticBloatAudit)
+    || /"semanticBloatAudit"\s*:/.test(stdout)
+    || /"claimIntegrityKind"\s*:/.test(stdout);
+}
+
+function currentIterationSemanticBloatSuspect({ locAccounting = null, patchQueue = null, suspectFocusIds = [] } = {}) {
+  if (Array.isArray(suspectFocusIds) && suspectFocusIds.length > 0) return true;
+  if (locAccounting?.productLocTruth?.semanticBloatSuspect !== true) return false;
+  const merged = Array.isArray(patchQueue?.merged) ? patchQueue.merged : [];
+  if (merged.length === 0) return true;
+  return !merged.every((entry) => patchEntryHasSemanticBloatAuditSchema(entry));
 }
 
 const FOCUS_TARGETED_TESTS = new Map(
@@ -357,14 +587,27 @@ const selectedTier = runForArtifacts?.tier || null;
 const selectedTierShardCount = Number(runForArtifacts?.summary?.shardCount || 0);
 const selectedTierMergedShardCount = Number(runForArtifacts?.summary?.mergedShardCount || 0);
 const selectedTierMergedPatchCount = Number(runForArtifacts?.summary?.metrics?.mergedPatchCount || 0);
+const selectedTierObservedAgentCount = Number(runForArtifacts?.summary?.metrics?.observedAgentCount || 0);
+const selectedTierPeakConcurrentWorkers = Number(runForArtifacts?.summary?.metrics?.peakConcurrentWorkers || 0);
+const selectedTierMinimumObservedAgents = selectedTier
+  ? Math.min(selectedTier, Math.max(2, Math.ceil(selectedTier * 0.2)))
+  : 0;
+const selectedTierMinimumPeakConcurrentWorkers = selectedTier
+  ? Math.min(selectedTier, Math.max(2, Math.ceil(selectedTier * 0.1)))
+  : 0;
+const selectedTierScaleProofOk = !selectedTier || selectedTier < 8 || (
+  selectedTierObservedAgentCount >= selectedTierMinimumObservedAgents
+  && selectedTierPeakConcurrentWorkers >= selectedTierMinimumPeakConcurrentWorkers
+);
 const selectedTierHadLiveWork = selectedTierShardCount > 0 || selectedTierMergedShardCount > 0 || selectedTierMergedPatchCount > 0;
 const launchChecklist = readJson(paths.launchChecklist, null);
 const locAccounting = computeLocAccounting(contract.targetPath || process.cwd(), { runForArtifacts, selectedTier });
 writeJson(paths.locAccounting, locAccounting);
 const launchChecklistOk = Boolean(launchChecklist?.ok) && Array.isArray(launchChecklist?.items) && launchChecklist.items.every((entry) => entry?.ok === true);
 const locAccountingPresent = Boolean(locAccounting?.ok);
-const productCodeLineDelta = Number(locAccounting?.counts?.productCode?.added || 0) + Number(locAccounting?.counts?.productCode?.deleted || 0);
-const productCodeDiffPresent = productCodeLineDelta > 0 && Number(locAccounting?.counts?.productCode?.files || 0) > 0;
+const productLocForAdmission = locAccounting?.incremental?.ok ? locAccounting.incremental.counts.productCode : locAccounting?.counts?.productCode;
+const productCodeLineDelta = Number(productLocForAdmission?.added || 0) + Number(productLocForAdmission?.deleted || 0);
+const productCodeDiffPresent = productCodeLineDelta > 0 && Number(productLocForAdmission?.files || locAccounting?.counts?.productCode?.files || 0) > 0;
 
 if (runForArtifacts) {
   writeJson(paths.selectedTierSupervisor, runForArtifacts.supervisor);
@@ -426,6 +669,12 @@ const priorBlockerReport = readJson(paths.blockerReport, null);
 
 const unresolvedRejected = unresolvedRejectedPatches(patchQueue);
 const unresolvedRejectedCount = unresolvedRejected.length;
+const patchQueueSuspectFocusIds = extractSuspectFocusIdsFromPatchQueue(patchQueue);
+const semanticBloatCurrentIteration = currentIterationSemanticBloatSuspect({
+  locAccounting,
+  patchQueue,
+  suspectFocusIds: patchQueueSuspectFocusIds
+});
 const launchChecklistBlocker = launchChecklistOk
   ? null
   : {
@@ -443,6 +692,31 @@ const locAccountingBlocker = !locAccountingPresent
         nextAction: 'Produce surviving packages/ or apps/ changes before crediting the run as real code output.'
       }
     : null;
+const semanticBloatBlocker = semanticBloatCurrentIteration
+  ? {
+      blocker: 'Deep architecture credit is contaminated by generated/remediation blueprint bulk.',
+      nextAction: 'Reject high-duplicate marker/remediation product deltas and require concrete runtime integration evidence before carrying focus credit or relaunching.',
+      locTruthPath: paths.locAccounting,
+      semanticBloatReasons: locAccounting?.productLocTruth?.semanticBloatReasons || [],
+      suspectFocusIds: patchQueueSuspectFocusIds,
+      markerCounts: locAccounting?.productLocTruth?.markerCounts || {},
+      duplicateAddedLineRatio: locAccounting?.productLocTruth?.duplicateAddedLineRatio || null,
+      addedNonblankLinesApprox: locAccounting?.productLocTruth?.addedNonblankLinesApprox || null,
+      addedUniqueNormalizedLinesApprox: locAccounting?.productLocTruth?.addedUniqueNormalizedLinesApprox || null
+    }
+  : null;
+const scaleProofBlocker = selectedTierHadLiveWork && !selectedTierScaleProofOk
+  ? {
+      blocker: 'Selected live tier did not prove the requested agent scale from observed worker utilization.',
+      nextAction: 'Repair scheduling/file-area balancing and scale reporting before citing this as a tiered multi-agent proof.',
+      selectedTier,
+      requestedAgentCount: selectedTier,
+      observedAgentCount: selectedTierObservedAgentCount,
+      peakConcurrentWorkers: selectedTierPeakConcurrentWorkers,
+      minimumObservedAgents: selectedTierMinimumObservedAgents,
+      minimumPeakConcurrentWorkers: selectedTierMinimumPeakConcurrentWorkers
+    }
+  : null;
 
 let blocker = null;
 let graphSummary;
@@ -451,6 +725,7 @@ let intendedMatrixStatus;
 let greenComplete = false;
 let stageFlags;
 let nextFocus = [];
+let productOnlyFocusEvidence = null;
 
 if (PRODUCT_ONLY_MODE) {
   const priorGraph = loadGraph(paths.issueGraph);
@@ -476,7 +751,13 @@ if (PRODUCT_ONLY_MODE) {
   const mergedFocusIds = Array.from(new Set(
     extractVerifiedFocusIdsFromPatchQueue(patchQueue)
   ));
-  const completedFocusIds = new Set(normalizeFocusIds(String(process.env.MAILCHIMP_COMPLETED_FOCUS_IDS || '')
+  const rawCompletedFocusIds = normalizeFocusIds(String(process.env.MAILCHIMP_COMPLETED_FOCUS_IDS || '')
+    .split(','));
+  const verifiedCompletedFocusIds = normalizeFocusIds(String(process.env.MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS || '')
+    .split(','));
+  const completedFocusIds = new Set(verifiedCompletedFocusIds);
+  const discardedLegacyCompletedFocusIds = rawCompletedFocusIds.filter((id) => !completedFocusIds.has(id));
+  const excludedFocusIds = new Set(normalizeFocusIds(String(process.env.MAILCHIMP_EXCLUDED_FOCUS_IDS || '')
     .split(',')));
   const targetedTestCandidateFocusIds = selectedTierHadLiveWork
     ? mergedFocusIds.filter((id) => !completedFocusIds.has(id))
@@ -488,10 +769,29 @@ if (PRODUCT_ONLY_MODE) {
   const iterationFocusArtifacts = buildFocusArtifactPaths({ patchQueue, runRoot: runForArtifacts?.runRoot });
   const currentIterationProvenFocusIds = new Set([...mergedFocusIds, ...targetedTestVerifiedFocusIds]);
   const provenFocusIds = new Set([...completedFocusIds, ...currentIterationProvenFocusIds]);
+  const verifiedFocusProofPresent = completedFocusIds.size > 0 || currentIterationProvenFocusIds.size > 0;
   const parityFocusIds = mailchimpParityFocusIds();
-  nextFocus = parityFocusIds.filter((id) => !provenFocusIds.has(id));
+  const openUnprovenFocusIds = parityFocusIds.filter((id) => !provenFocusIds.has(id));
+  nextFocus = openUnprovenFocusIds.filter((id) => !excludedFocusIds.has(id));
   const issueSatisfied = (issueId) => provenFocusIds.has(issueId) || !parityFocusIds.includes(issueId);
-  const allFocusComplete = nextFocus.length === 0 && focusIssues.every((issue) => issueSatisfied(issue.id));
+  const allFocusComplete = openUnprovenFocusIds.length === 0 && focusIssues.every((issue) => issueSatisfied(issue.id));
+  productOnlyFocusEvidence = {
+    rawCompletedFocusIds,
+    verifiedCompletedFocusIds,
+    discardedLegacyCompletedFocusIds,
+    mergedFocusIds,
+    targetedTestVerifiedFocusIds,
+    currentIterationProvenFocusIds: Array.from(currentIterationProvenFocusIds),
+    provenFocusIds: Array.from(provenFocusIds),
+    openUnprovenFocusIds,
+    verifiedFocusProofPresent,
+    locTruth: locAccounting?.productLocTruth || null,
+    suspectCredit: semanticBloatBlocker ? {
+      reason: 'semantic_bloat_product_delta',
+      affectedCurrentIterationFocusIds: Array.from(currentIterationProvenFocusIds),
+      note: 'These focus ids are not safe to carry forward until the bloat/admission audit is clean.'
+    } : null
+  };
 
   for (const issue of focusIssues) {
     const issueComplete = issueSatisfied(issue.id);
@@ -514,20 +814,29 @@ if (PRODUCT_ONLY_MODE) {
     contract_compiled: Boolean(contract.replyAnchor && contract.anchor && contract.targetPath),
     launch_checklist_present: launchChecklistOk,
     loc_accounting_present: locAccountingPresent,
+    semantic_bloat_clean: !semanticBloatBlocker,
+    selected_tier_scale_proven: !scaleProofBlocker,
     product_code_diff_present: !selectedTierHadLiveWork || productCodeDiffPresent,
-    merged_focus_work_present: mergedFocusIds.length > 0,
+    merged_focus_work_present: verifiedFocusProofPresent,
     selected_tier_had_live_work: selectedTierHadLiveWork,
     bounded_ownership_conflicts: Boolean(unresolvedRejectedCount === 0 && (mergeReport?.rejectedPatchCount || 0) === 0),
     selected_artifacts_present: Boolean(leaseState?.history && patchQueue),
     supervisor_outputs_present: true,
-    selectedTier: Boolean(selectedTier || scaleQualification?.highestPassingTier || scaleQualification?.provenCoordinationScaleTier),
-    mergedFocusIds
+    selectedTier: Boolean(selectedTier || scaleQualification?.highestPassingTier || scaleQualification?.provenCoordinationScaleTier)
   };
 
   blocker = launchChecklistBlocker
     || locAccountingBlocker
-    || (unresolvedRejectedCount > 0
+    || scaleProofBlocker
+    || semanticBloatBlocker
+    || (unresolvedRejectedCount > 0 && mergedFocusIds.length === 0
       ? makeRejectedPatchBlocker(unresolvedRejected)
+      : (unresolvedRejectedCount > 0 && allFocusComplete)
+        ? {
+            blocker: `${unresolvedRejectedCount} rejected patch candidate(s) remain after all focus lanes were otherwise proven.`,
+            nextAction: 'Resolve or quarantine rejected swarm leaves before treating the run as a clean full-clone completion.',
+            rejectionSummary: summarizeRejectedPatchCategories(unresolvedRejected)
+          }
       : (!allFocusComplete && !selectedTierHadLiveWork)
         ? {
             blocker: 'Selected live qualification tier reported green without any live shard work for this run.',
@@ -551,21 +860,24 @@ if (PRODUCT_ONLY_MODE) {
   }
   if (!blocker && !allFocusComplete && priorBlockerReport?.blocker) blocker = priorBlockerReport;
   if (blocker && nextFocus.length === 0 && parityFocusIds.length > 0 && provenFocusIds.size < parityFocusIds.length) {
-    nextFocus = parityFocusIds.filter((id) => !provenFocusIds.has(id));
+    nextFocus = parityFocusIds.filter((id) => !provenFocusIds.has(id) && !excludedFocusIds.has(id));
   }
   intendedMatrixStatus = blocker
     ? (resolveMatrixStatus(matrixPreview) === 'all_complete' ? 'all_complete' : 'partial')
     : resolveMatrixStatus(matrixPreview);
-  intendedSupervisorStatus = !blocker && intendedMatrixStatus === 'all_complete' ? 'green' : 'red';
+  const stageIntegrityOk = Object.values(stageFlags).every((value) => value === true);
+  intendedSupervisorStatus = !blocker && intendedMatrixStatus === 'all_complete' && allFocusComplete && stageIntegrityOk ? 'green' : 'red';
   greenComplete = intendedSupervisorStatus === 'green';
 } else {
   stageFlags = {
     contract_compiled: Boolean(contract.replyAnchor && contract.anchor && contract.targetPath),
     launch_checklist_present: launchChecklistOk,
     loc_accounting_present: locAccountingPresent,
+    semantic_bloat_clean: !semanticBloatBlocker,
+    selected_tier_scale_proven: !scaleProofBlocker,
     product_code_diff_present: !selectedTierHadLiveWork || productCodeDiffPresent,
     real_repo_slice_compiled: Boolean(shardPlan?.summary?.shardCount >= 120 && Array.isArray(contextPacks) && contextPacks.length === shardPlan?.shards?.length),
-    live_worker_selected_tier_green: Boolean(selectedTierSupervisor?.topLevel?.status === 'green' && selectedTierSummary?.agentCount >= 8),
+    live_worker_selected_tier_green: Boolean(selectedTierSupervisor?.topLevel?.status === 'green' && selectedTierSummary?.agentCount >= 8 && !scaleProofBlocker),
     zero_state_loss: Boolean((selectedTierSummary?.metrics?.stateLossEvents || 0) === 0 && (recoveryReport?.stateLossEvents || 0) === 0),
     bounded_ownership_conflicts: Boolean(unresolvedRejectedCount === 0 && (mergeReport?.rejectedPatchCount || 0) === 0),
     staged_ladder_honest: Boolean(attemptedTiers[0] === 8 && highestPassingTier !== null),
@@ -574,7 +886,7 @@ if (PRODUCT_ONLY_MODE) {
     supervisor_outputs_present: true
   };
 
-  const derivedBlocker = (launchChecklistBlocker || locAccountingBlocker || (!highestPassingTier
+  const derivedBlocker = (launchChecklistBlocker || locAccountingBlocker || scaleProofBlocker || semanticBloatBlocker || (!highestPassingTier
     ? {
         blocker: 'No clean-baseline live tier was honestly proven.',
         nextAction: 'Inspect the first attempted tier under artifacts/qualification/orchestrator_real_repo_clean_baseline/live_runs and repair worker/verifier failures before rerunning.'
@@ -654,7 +966,8 @@ let programState = {
     recoveryReport: paths.recoveryReport,
     launchChecklist: paths.launchChecklist,
     locAccounting: paths.locAccounting,
-    blockerReport: blocker ? paths.blockerReport : null
+    blockerReport: blocker ? paths.blockerReport : null,
+    productOnlyFocusEvidence
   },
   blocker: blocker || null,
   nextFocus,
@@ -674,6 +987,9 @@ let completionSummary = {
   launchChecklistPath: paths.launchChecklist,
   locAccountingPath: paths.locAccounting,
   locAccountingSummary: locAccounting?.counts || null,
+  incrementalLocAccountingSummary: locAccounting?.incremental?.counts || null,
+  productLocTruth: locAccounting?.productLocTruth || null,
+  productOnlyFocusEvidence,
   blocker: blocker || null,
   nextFocus,
   stopReason: scaleQualification.realRepoLive.stopReason,
@@ -704,6 +1020,7 @@ writeJson(paths.supervisorStatus, {
   provenCoordinationScaleTier: highestPassingTier,
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
   stages: programState.stages,
+  productLocTruth: locAccounting?.productLocTruth || null,
   blocker: blocker || null,
   stopReason: scaleQualification.realRepoLive.stopReason,
   provisional: true
@@ -712,12 +1029,10 @@ writeJson(paths.supervisorStatus, {
 let matrix = compileSurfaceMatrix({ contract, graph, surfaces: surfaceDefinitions() });
 saveMatrix(paths.surfaceMatrix, matrix);
 let truth = deriveSupervisorTruth(matrix);
-const finalAllComplete = !blocker && truth.supervisorStatus === 'green' && matrix.status === 'all_complete';
+const finalAllComplete = greenComplete && !blocker && truth.supervisorStatus === 'green' && matrix.status === 'all_complete';
 const finalBlocker = finalAllComplete ? null : blocker;
 const finalSupervisorStatus = finalAllComplete ? 'green' : 'red';
-const finalStages = finalAllComplete
-  ? programState.stages.map((stage) => ({ ...stage, complete: true }))
-  : programState.stages;
+const finalStages = programState.stages;
 
 campaignState = setSupervisor(paths.campaignState, {
   status: finalSupervisorStatus,
@@ -733,6 +1048,7 @@ programState = {
   allComplete: finalAllComplete,
   matrixStatus: matrix.status,
   stages: finalStages,
+  productLocTruth: locAccounting?.productLocTruth || null,
   blocker: finalBlocker || null,
   campaignState
 };
@@ -762,6 +1078,7 @@ writeJson(paths.supervisorStatus, {
   provenCoordinationScaleTier: highestPassingTier,
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
   stages: finalStages,
+  productLocTruth: locAccounting?.productLocTruth || null,
   blocker: finalBlocker || null,
   stopReason: scaleQualification.realRepoLive.stopReason
 });

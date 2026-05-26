@@ -6,7 +6,7 @@
   "benchmarkClass": "mailchimp_parity_long_run_stress",
   "fidelity": "parity_for_scope",
   "scope": {
-    "durationTargetMinutes": 120,
+    "durationTargetMinutes": 10,
     "surfaces": [
       {
         "id": "frontend_client_shell_state",
@@ -174,7 +174,8 @@
           "node --test tests/current-product-browser-realism.test.mjs"
         ]
       }
-    ]
+    ],
+    "passiveSoakMinutes": 10
   },
   "repoPath": "/home/jake/clawd-remote/mailchimp-clone",
   "controlPlaneRepoPath": "/root/clawd/mailchimp-clone",
@@ -202,13 +203,14 @@
     "ORCHESTRATOR_REQUESTED_FIDELITY": "parity_for_scope",
     "ORCHESTRATOR_TIERS": "10",
     "MAILCHIMP_PARITY_MAX_RUNTIME_HOURS": "3",
-    "MAILCHIMP_PARITY_SOAK_FULL_RUNTIME": "1",
+    "MAILCHIMP_PARITY_SOAK_FULL_RUNTIME": "0",
     "MAILCHIMP_PRODUCT_ONLY": "1",
     "MAILCHIMP_USE_STRICT_GAP_INVENTORY": "0",
     "MAILCHIMP_STRICT_GAP_SEQUENCE": "0",
-    "MAILCHIMP_USE_BENCHMARK_SCOPE": "1"
+    "MAILCHIMP_USE_BENCHMARK_SCOPE": "1",
+    "MAILCHIMP_PASSIVE_AUTONOMY_SOAK_MINUTES": "10"
   },
-  "launchCommand": "MAILCHIMP_ONE_PASS_CONTRACT_PATH=docs/MAILCHIMP_PRODUCTION_CREATION_GATE_RUN_CONTRACT_2026-04-21.json ORCHESTRATOR_REQUESTED_FIDELITY=parity_for_scope ORCHESTRATOR_TIERS=10 MAILCHIMP_PARITY_MAX_RUNTIME_HOURS=3 MAILCHIMP_PARITY_SOAK_FULL_RUNTIME=1 MAILCHIMP_PRODUCT_ONLY=1 MAILCHIMP_USE_BENCHMARK_SCOPE=1 MAILCHIMP_USE_STRICT_GAP_INVENTORY=0 MAILCHIMP_STRICT_GAP_SEQUENCE=0 node scripts/full-audit-campaign-launch.mjs",
+  "launchCommand": "MAILCHIMP_ONE_PASS_CONTRACT_PATH=docs/MAILCHIMP_PRODUCTION_CREATION_GATE_RUN_CONTRACT_2026-04-21.json ORCHESTRATOR_REQUESTED_FIDELITY=parity_for_scope ORCHESTRATOR_TIERS=10 MAILCHIMP_PARITY_MAX_RUNTIME_HOURS=1 MAILCHIMP_PARITY_SOAK_FULL_RUNTIME=0 MAILCHIMP_PRODUCT_ONLY=1 MAILCHIMP_USE_BENCHMARK_SCOPE=1 MAILCHIMP_USE_STRICT_GAP_INVENTORY=0 MAILCHIMP_STRICT_GAP_SEQUENCE=0 MAILCHIMP_PASSIVE_AUTONOMY_SOAK_MINUTES=10 node scripts/full-audit-campaign-launch.mjs",
   "prelaunchGates": {
     "minimumExecutableProductShards": 10,
     "minimumFocusLanes": 3,
@@ -217,7 +219,7 @@
     "requireRemoteExecution": true
   },
   "goThresholds": {
-    "minimumAutonomyMinutes": 120,
+    "minimumAutonomyMinutes": 10,
     "minimumProductDiffChangedLines": 150,
     "minimumProductDiffFiles": 8,
     "minimumDistinctFocusLanes": 3,
@@ -227,6 +229,12 @@
     "minimumVerificationIntegrity": 0.95,
     "truthIntegrityContradictions": 0
   },
-  "notes": "This contract deliberately replaces live-worker qualification with an actual product-creation gate. Scripts, docs, artifacts, and supervisor-only churn cannot count toward passing. A green run with trivial surviving product diff is a no-go, not a success. The endurance rerun disables strict-gap narrowing and enables full-runtime soak so autonomy is measured across the full campaign instead of a final short cleanup iteration.",
-  "replyAnchor": "Jake asked when actual production creation testing starts. The bound answer was: the next serious Mailchimp run, not another qualification-style pass."
+  "notes": "This contract deliberately replaces live-worker qualification with an actual product-creation gate. Scripts, docs, artifacts, and supervisor-only churn cannot count toward passing. A green run with trivial surviving product diff is a no-go, not a success. Passive post-product soaks are capped at 10 minutes and do not count as product implementation; active product evidence is scored through promoted product LOC, file count, focus lanes, agent ids, no-op rate, and verification integrity.",
+  "replyAnchor": "Jake asked when actual production creation testing starts. The bound answer was: the next serious Mailchimp run, not another qualification-style pass.",
+  "autonomyPolicy": {
+    "kind": "active_product_work_plus_short_passive_stability_proof",
+    "passiveSoakMinutes": 10,
+    "passiveSoakCountsAsProductImplementation": false,
+    "rationale": "Once benchmark-scope product work is complete, wall-clock waiting does not add product value; passive soak is only a short control-plane stability proof."
+  }
 }

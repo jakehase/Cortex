@@ -149,7 +149,49 @@ export function deriveCanonicalStatuses({ completionSummary = null, programState
   return { supervisorStatus, matrixStatus, parityStatus, green };
 }
 
-export function deriveRequestedOutcome({ requestedFidelity = null, orchestration = null, blocker = null, strict1to1 = null, benchmarkGate = null } = {}) {
+export function deriveProductThroughputEvidence({ liveExecutionSummary = null, patchQueueReport = null, syncStatus = null } = {}) {
+  const shardCount = Number(liveExecutionSummary?.shardCount ?? 0);
+  const mergedShardCount = Number(liveExecutionSummary?.mergedShardCount ?? 0);
+  const workerSpawnCount = Number(liveExecutionSummary?.metrics?.workerSpawnCount ?? 0);
+  const mergedPatchCount = Array.isArray(patchQueueReport?.merged)
+    ? patchQueueReport.merged.length
+    : Number(liveExecutionSummary?.metrics?.mergedPatchCount ?? 0);
+  const newlyLandedProductFileCount = Number(syncStatus?.canonicalLandingEvidence?.newlyLandedProductFileCount ?? 0);
+  const canonicalSynchronizedProductFileCount = Number(syncStatus?.canonicalLandingEvidence?.canonicalSynchronizedProductFileCount ?? 0);
+  const alreadyMatchedProductFileCount = Number(syncStatus?.canonicalLandingEvidence?.alreadyMatchedProductFileCount ?? 0);
+  const admittedProductWork = mergedPatchCount > 0 && canonicalSynchronizedProductFileCount > 0;
+  const zeroWork = !admittedProductWork;
+  return {
+    shardCount,
+    mergedShardCount,
+    workerSpawnCount,
+    mergedPatchCount,
+    newlyLandedProductFileCount,
+    canonicalSynchronizedProductFileCount,
+    alreadyMatchedProductFileCount,
+    admittedProductWork,
+    zeroWork,
+    note: zeroWork
+      ? 'No admitted selected-tier product patch landed in the canonical checkout.'
+      : 'Selected-tier admitted product-work throughput evidence was observed.'
+  };
+}
+
+export function buildZeroWorkScopedGreenBlocker({ productThroughput = null, truthPreflight = null } = {}) {
+  return {
+    blocker: 'Scoped Mailchimp matrix is mechanically satisfied, but no live product-work throughput was proven.',
+    nextAction: 'Do not report this as Mailchimp parity or productive orchestration. Build a broader remaining-work matrix from Mailchimp-scale product gaps, then rerun with real product-code shards and landing evidence.',
+    blockerKind: 'zero_work_scoped_green',
+    productThroughput: productThroughput || null,
+    truthPreflight: truthPreflight ? {
+      ok: truthPreflight.ok === true,
+      guardrail: truthPreflight.guardrail || null,
+      memoryTruth: truthPreflight.memoryTruth || null
+    } : null
+  };
+}
+
+export function deriveRequestedOutcome({ requestedFidelity = null, orchestration = null, blocker = null, strict1to1 = null, benchmarkGate = null, productThroughput = null, truthPreflight = null } = {}) {
   const fidelity = String(requestedFidelity || '').trim().toLowerCase();
   const orchestrationTruth = orchestration || {
     supervisorStatus: 'red',
@@ -167,6 +209,19 @@ export function deriveRequestedOutcome({ requestedFidelity = null, orchestration
       blocker,
       blockerKind: 'orchestration',
       note: 'Delegate/orchestration run is still blocked or incomplete.'
+    };
+  }
+  if (orchestrationTruth.green && productThroughput?.zeroWork === true && truthPreflight?.memoryTruth?.assumeAbundantRemainingWork === true) {
+    const zeroWorkBlocker = buildZeroWorkScopedGreenBlocker({ productThroughput, truthPreflight });
+    return {
+      requestedFidelity: fidelity || null,
+      supervisorStatus: 'red',
+      matrixStatus: 'scope_satisfied_zero_work',
+      parityStatus: 'not_full_clone',
+      green: false,
+      blocker: zeroWorkBlocker,
+      blockerKind: 'zero_work_scoped_green',
+      note: 'Scoped matrix passed, but Mailchimp memory says full-clone parity is not proven and abundant real product work remains; zero-work green is only a saturation canary.'
     };
   }
   const strictCeilingRequired = fidelity === 'full_clone' && strict1to1?.required === true;
@@ -213,6 +268,7 @@ export function deriveRequestedOutcome({ requestedFidelity = null, orchestration
 }
 
 export function buildOutcomeHeadline({ orchestration = null, requestedOutcome = null } = {}) {
+  if (requestedOutcome?.blockerKind === 'zero_work_scoped_green') return 'Scoped matrix passed, but no product-work throughput was proven.';
   if (requestedOutcome?.green) return 'Full-audit campaign complete.';
   if (requestedOutcome?.blockerKind === 'strict_1to1_ceiling' && orchestration?.green) {
     return 'Orchestration passed, full-clone strict 1:1 ceiling still red.';

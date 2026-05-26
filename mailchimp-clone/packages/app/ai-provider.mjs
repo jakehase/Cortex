@@ -12,63 +12,21 @@ function recommendationMeta(kind, score, extras = {}) {
   };
 }
 
-export const AI_PROVIDER_REGISTRY = Object.freeze({
-  primary: {
-    id: 'mailclone-predictive-orchestrator',
+function averageScore(items = []) {
+  const scores = items.map((entry) => Number(entry.score || 0)).filter((score) => Number.isFinite(score));
+  if (!scores.length) return 0;
+  return Number((scores.reduce((sum, score) => sum + score, 0) / scores.length).toFixed(1));
+}
+
+export function buildProviderRuntimeEnvelope(options = {}) {
+  const objective = normalizeGoal(options.objective || options.goal, 'increase audience engagement');
+  return {
     provider: 'mailclone-ai-runtime',
-    model: 'mailclone-predictive-orchestrator-v2',
-    capabilities: ['next_best_action', 'campaign_optimization', 'journey_guidance', 'audience_prioritization'],
-    evidenceContract: ['feature_store_snapshot', 'model_run_ledger', 'recommendation_lineage', 'human_acceptance_feedback']
-  }
-});
-
-export function buildProviderRuntimeEnvelope(input = {}) {
-  const provider = input.provider || AI_PROVIDER_REGISTRY.primary;
-  return {
-    provider: provider.provider,
-    providerId: provider.id,
-    model: input.model || provider.model,
-    capabilities: [...provider.capabilities],
-    evidenceContract: [...provider.evidenceContract],
-    objective: normalizeGoal(input.objective, 'increase audience engagement'),
-    generatedFrom: input.generatedFrom || ['predictive feature store', 'campaign state', 'audience lifecycle signals', 'engagement history'],
-    confidencePolicy: 'score-weighted recommendations with explicit feature evidence and acceptance feedback'
-  };
-}
-
-export function buildCampaignOptimizationBrief(campaign = {}, predictiveSummary = {}, body = {}) {
-  const goal = normalizeGoal(body.goal || campaign.goal, 'engagement');
-  const highIntent = Number(predictiveSummary.highIntent || 0);
-  const totalContacts = Number(predictiveSummary.totalContacts || predictiveSummary.contacts || 0);
-  const confidence = Math.min(94, 72 + Math.min(12, highIntent * 3) + Math.min(10, totalContacts));
-  return {
-    label: `${campaign.name || 'Campaign'} next-best optimization`,
-    action: 'apply_campaign_optimization',
-    rationale: `Prioritize the ${goal} objective for contacts with recent engagement, clear consent, and higher predictive fit.`,
-    payload: {
-      sendTimeWindow: body.sendTimeWindow || predictiveSummary.bestSendWindow || '09:00-11:00 local',
-      predictiveSegment: body.predictiveSegment || (highIntent > 0 ? 'High-intent lifecycle contacts' : 'Warming lifecycle contacts'),
-      fatigueGuardrail: body.fatigueGuardrail || '2 messages / 7 days',
-      productRecommendation: body.productRecommendation || 'Personalized offer bundle'
-    },
-    meta: recommendationMeta('campaign_optimization', confidence, { model: 'mailclone-predictive-orchestrator-v2', generatedFrom: ['campaign setup', 'predictive feature store', 'contact engagement'] })
-  };
-}
-
-export function buildLifecycleNextBestAction(contact = {}, features = {}, body = {}) {
-  const score = Number(features.predictiveScore || contact.predictiveScore || 0);
-  const channel = contact.phone && score >= 70 ? 'sms_plus_email' : 'email';
-  const confidence = Math.min(92, 64 + Math.round(score / 4));
-  return {
-    label: `${contact.email || contact.firstName || 'Contact'} lifecycle action`,
-    action: 'prioritize_contact_lifecycle',
-    rationale: `Use ${channel.replace(/_/g, ' ')} because the contact has score ${score}, tier ${features.lifecycleTier || 'monitor'}, and ${features.activityCount || 0} recent activity signals.`,
-    payload: {
-      channel,
-      lifecycleStage: features.lifecycleTier || 'monitor',
-      guardrail: body.guardrail || 'respect consent and frequency caps'
-    },
-    meta: recommendationMeta('lifecycle_next_best_action', confidence, { model: 'mailclone-predictive-orchestrator-v2', generatedFrom: ['contact feature vector', 'lifecycle tier', 'channel consent'] })
+    model: options.model || 'mailclone-reasoner-v2',
+    objective,
+    latencyMsEstimate: Number(options.latencyMsEstimate || 180),
+    generatedFrom: options.generatedFrom || ['workspace signals', 'campaign context', 'predictive feature store'],
+    safetyControls: ['deterministic local fallback', 'recommendation confidence scoring', 'auditable payload lineage']
   };
 }
 
@@ -102,6 +60,48 @@ export function buildCampaignBlockVariants(block = {}, tone = 'direct', goal = '
   ];
 }
 
+export function buildCampaignOptimizationBrief(campaign = {}, aggregateOrOptions = {}, options = {}) {
+  const aggregate = options && Object.keys(options).length ? aggregateOrOptions : {};
+  const runtimeOptions = options && Object.keys(options).length ? options : aggregateOrOptions;
+  const goal = normalizeGoal(runtimeOptions.goal || aggregate.goal, 'conversion');
+  const tone = runtimeOptions.tone || campaign.tone || 'confident';
+  const subjectVariants = buildCampaignSubjectVariants(campaign, tone, goal);
+  const preheaderVariants = buildCampaignPreheaderVariants(campaign, tone);
+  const blockVariants = (campaign.blocks || [{ title: campaign.name || 'Campaign', body: campaign.previewText || campaign.preheader || 'Explain the offer clearly.' }])
+    .slice(0, 3)
+    .flatMap((block) => buildCampaignBlockVariants(block, tone, goal).slice(0, 1));
+  const subjectSummary = {
+    count: subjectVariants.length,
+    average: averageScore(subjectVariants),
+    best: subjectVariants.slice().sort((left, right) => right.score - left.score)[0] || null
+  };
+  const preheaderSummary = {
+    count: preheaderVariants.length,
+    average: averageScore(preheaderVariants),
+    best: preheaderVariants.slice().sort((left, right) => right.score - left.score)[0] || null
+  };
+  const audienceSignalCount = Number(aggregate.totalContacts || aggregate.contactCount || runtimeOptions.contactCount || 0);
+  return {
+    label: `Optimize ${campaign.name || 'campaign'} for ${goal}`,
+    rationale: `Combines subject, preheader, block, and audience signals to improve ${goal}.`,
+    subjectSummary,
+    preheaderSummary,
+    blockSummary: { count: blockVariants.length, average: averageScore(blockVariants) },
+    payload: {
+      campaignId: campaign.id || '',
+      goal,
+      tone,
+      audienceSignalCount,
+      recommendedSubject: subjectSummary.best?.text || campaign.subject || campaign.name || 'Campaign update',
+      recommendedPreheader: preheaderSummary.best?.text || campaign.preheader || '',
+      subjectVariants,
+      preheaderVariants,
+      blockVariants
+    },
+    meta: recommendationMeta('campaign_optimization', Math.max(subjectSummary.average, preheaderSummary.average, 86), { generatedFrom: ['campaign content', 'predictive aggregate', 'goal'] })
+  };
+}
+
 export function buildJourneyRecommendation(automation = {}, body = {}) {
   const goal = normalizeGoal(body.goal || automation.goal, 'engagement');
   return {
@@ -120,6 +120,24 @@ export function buildJourneyRecommendation(automation = {}, body = {}) {
   };
 }
 
+export function buildJourneyChannelMix(automation = {}, body = {}) {
+  const goal = normalizeGoal(body.goal || automation.goal, 'retention');
+  const hasSms = body.smsConsentReady !== false;
+  const channels = [
+    { channel: 'email', role: 'primary', timing: 'immediate', rationale: `Best first touch for ${goal}.` },
+    ...(hasSms ? [{ channel: 'sms', role: 'assist', timing: 'after 24 hours', rationale: 'Use only for consented high-intent contacts.' }] : []),
+    { channel: 'social', role: 'retargeting', timing: 'after engagement branch', rationale: 'Keeps warm contacts in the journey without over-emailing.' }
+  ];
+  return {
+    automationId: automation.id || '',
+    goal,
+    primaryChannel: 'email',
+    channels,
+    branchStrategy: automation.trigger ? `${automation.trigger}: branch by open/click and consent state` : 'branch by open/click and consent state',
+    meta: recommendationMeta('journey_channel_mix', 87, { generatedFrom: ['automation trigger', 'channel consent', 'goal'] })
+  };
+}
+
 export function buildWebsiteCopyRecommendation(website = {}, body = {}) {
   const goal = normalizeGoal(body.goal, 'lead capture');
   return {
@@ -130,5 +148,72 @@ export function buildWebsiteCopyRecommendation(website = {}, body = {}) {
     proofPoints: ['Customer outcome first', 'Urgency without hype', 'CTA aligned to the next step'],
     sectionPlan: ['Promise', 'Proof', 'Offer', 'CTA'],
     meta: recommendationMeta('website_copy', 88, { generatedFrom: ['website name', 'goal', 'cta label'] })
+  };
+}
+
+export function buildWebsiteExperimentCopyPack(website = {}, body = {}) {
+  const goal = normalizeGoal(body.goal, 'lead capture');
+  const base = buildWebsiteCopyRecommendation(website, body);
+  return {
+    websiteId: website.id || '',
+    goal,
+    variants: [
+      {
+        id: 'website-copy-a',
+        name: 'Outcome-led hero',
+        headline: base.headline,
+        body: base.body,
+        ctaLabel: base.ctaLabel,
+        hypothesis: `A direct promise will increase ${goal}.`,
+        score: 88
+      },
+      {
+        id: 'website-copy-b',
+        name: 'Proof-led hero',
+        headline: `${website.name || 'Your brand'} with proof for ${goal}`,
+        body: `Lead with customer proof, remove friction, and make the next action for ${goal} unmistakable.`,
+        ctaLabel: body.secondaryCtaLabel || base.ctaLabel,
+        hypothesis: 'Specific proof points will improve qualified signups.',
+        score: 86
+      }
+    ],
+    successMetric: body.successMetric || 'signup_conversion_rate',
+    meta: recommendationMeta('website_experiment_copy', 87, { generatedFrom: ['website copy', 'experiment goal', 'CTA intent'] })
+  };
+}
+
+export function buildLifecycleNextBestAction(contact = {}, vector = {}, body = {}) {
+  const score = Number(vector.score || vector.predictiveScore || contact.predictiveScore || 0);
+  const tier = score >= 75 ? 'high_intent' : score >= 50 ? 'warming' : 'nurture';
+  const channel = contact.phone || vector.hasPhone ? 'sms_plus_email' : 'email';
+  const goal = normalizeGoal(body.goal, 'lifecycle conversion');
+  return {
+    label: `${tier} next best action`,
+    rationale: `Contact ${contact.email || vector.email || contact.id || 'unknown'} is in ${tier}; use ${channel} to move toward ${goal}.`,
+    payload: {
+      contactId: contact.id || vector.contactId || '',
+      email: contact.email || vector.email || '',
+      tier,
+      channel,
+      action: tier === 'high_intent' ? 'send_offer_followup' : tier === 'warming' ? 'send_education_sequence' : 'monitor_until_next_signal',
+      score
+    },
+    meta: recommendationMeta('lifecycle_next_best_action', Math.max(65, score), { generatedFrom: ['contact vector', 'engagement score', 'channel consent'] })
+  };
+}
+
+export function buildPredictiveDecisionRuntimeEvidence(state = {}, actor = {}, input = {}) {
+  const workspaceId = actor?.workspace?.id || input.workspaceId || 'workspace';
+  const campaigns = Array.isArray(state.db?.campaigns) ? state.db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(state.db?.contacts) ? state.db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const predictiveCandidates = contacts.map((contact) => ({ id: contact.id, email: contact.email, score: Number(contact.predictiveScore || 0) || (contact.status === 'subscribed' ? 62 : 28) }));
+  return {
+    provider: 'mailclone-ai-runtime',
+    workspaceId,
+    campaignCount: campaigns.length,
+    predictiveCandidateCount: predictiveCandidates.length,
+    topCandidates: predictiveCandidates.sort((left, right) => right.score - left.score).slice(0, 5),
+    workflowStatus: predictiveCandidates.length ? 'predictive_decision_ready' : 'predictive_signal_collection_needed',
+    nextAction: campaigns.length ? 'apply_predictive_recommendation' : 'create_campaign_for_prediction'
   };
 }

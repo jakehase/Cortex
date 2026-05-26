@@ -11,7 +11,7 @@ const ROOT = path.resolve(__dirname, '..');
 const IMPLEMENT_SCRIPT = path.join(ROOT, 'scripts', 'orchestrator-real-repo-clean-implement.mjs');
 
 function fixtureFileContent(relPath) {
-  const fixtureRef = String(process.env.MAILCHIMP_IMPLEMENT_REGRESSION_FIXTURE_REF || 'HEAD').trim() || 'HEAD';
+  const fixtureRef = String(process.env.MAILCHIMP_IMPLEMENT_REGRESSION_FIXTURE_REF || '4c894f87c').trim() || '4c894f87c';
   for (const gitPath of [`mailchimp-clone/${relPath}`, relPath]) {
     const fromRef = spawnSync('git', ['show', `${fixtureRef}:${gitPath}`], {
       cwd: ROOT,
@@ -1640,6 +1640,21 @@ test('implement worker: strict persistence parity shard stays inside storage sco
   assert.match(storage, /export function storageOperationalSummary\(\)/, 'strict persistence parity should emit an in-scope storage operational summary');
 });
 
+test('implement worker: delivery jobs generation preserves operational API exports', () => {
+  const { workspacePath } = runFocusGroup([
+    'packages/app/jobs.mjs',
+    'packages/app/job-handlers.mjs',
+    'packages/app/job-runtime.mjs',
+    'apps/web/server.mjs'
+  ], 'delivery_jobs');
+  const jobs = fs.readFileSync(path.join(workspacePath, 'packages/app/jobs.mjs'), 'utf8');
+  assert.match(jobs, /export function buildJobOperationalSnapshot\(/, 'delivery job generation must preserve admin snapshot exports');
+  assert.match(jobs, /export function requeueDeadLetterJob\(/, 'delivery job generation must preserve dead-letter requeue exports');
+  assert.match(jobs, /export function ensureJobOperationalCollections\(/, 'delivery job generation must preserve operational collection initialization');
+  const syntaxCheck = spawnSync(process.execPath, ['--check', path.join(workspacePath, 'packages/app/jobs.mjs')], { encoding: 'utf8' });
+  assert.equal(syntaxCheck.status, 0, `generated jobs module should parse after preserving exports\nstdout:\n${syntaxCheck.stdout}\nstderr:\n${syntaxCheck.stderr}`);
+});
+
 test('implement worker: strict ai predictive parity shard emits an admissible ai-provider diff', () => {
   const { workspacePath, output } = runAssignment([
     'surface-honesty.json',
@@ -1661,6 +1676,11 @@ test('implement worker: strict ai predictive parity shard emits an admissible ai
   assert.deepEqual(output.modifiedFiles, ['packages/app/ai-provider.mjs']);
   assert.match(provider, /mailclone-ai-runtime/, 'ai predictive parity should emit provider metadata into the canonical AI surface');
   assert.match(provider, /proof-led path/, 'ai predictive parity should enrich campaign subject generation');
+  assert.match(provider, /export function buildProviderRuntimeEnvelope\(/, 'ai predictive parity should keep provider runtime envelope exports available for downstream imports');
+  assert.match(provider, /export function buildCampaignOptimizationBrief\(/, 'ai predictive parity should keep campaign optimization exports available for downstream imports');
+  assert.match(provider, /export function buildLifecycleNextBestAction\(/, 'ai predictive parity should keep lifecycle next-best-action exports available for downstream imports');
+  assert.match(provider, /export function buildJourneyChannelMix\(/, 'ai predictive parity should keep journey channel-mix exports available for downstream imports');
+  assert.match(provider, /export function buildWebsiteExperimentCopyPack\(/, 'ai predictive parity should keep website experiment copy exports available for downstream imports');
   assert.equal(honesty.surfaces['packages/app/ai-provider.mjs']?.status, 'real');
   assert.ok(honesty.surfaces['packages/app/ai-provider.mjs']?.evidence?.tests?.includes('tests/current-product-parity.test.mjs'));
 });

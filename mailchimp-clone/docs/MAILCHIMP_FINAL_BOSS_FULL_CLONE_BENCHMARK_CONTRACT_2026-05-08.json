@@ -1,0 +1,89 @@
+{
+  "schemaVersion": "claw.agent_benchmark_run_contract.v1",
+  "generatedAt": "2026-05-08T00:55:00-05:00",
+  "benchmarkId": "mailchimp_final_boss_full_clone_one_shot",
+  "benchmarkTier": "final_boss_full_clone",
+  "benchmarkClass": "mailchimp_full_clone_final_boss",
+  "fidelity": "full_clone",
+  "targetProduct": "Mailchimp large-scale whole-product parity",
+  "anchor": {
+    "conversationAnchor": "Jake agreed Mailchimp is the final-boss example for one-shot agent orchestration.",
+    "canonicalPlan": "docs/MAILCHIMP_CANONICAL_ONE_PASS_EXECUTION_PLAN_2026-04-11.json",
+    "canonicalMatrix": "docs/MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json",
+    "canonicalAudit": "docs/MAILCHIMP_CANONICAL_PARITY_AUDIT_2026-04-11.md"
+  },
+  "repoPath": "/home/jake/clawd-remote/mailchimp-clone",
+  "controlPlaneRepoPath": "/root/clawd/mailchimp-clone",
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign",
+  "requestedAgentCount": 100,
+  "executionBoundary": "remote_execution_required_vm102",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "truthModel": {
+    "separateLayers": [
+      "orchestration_transport_and_scale",
+      "real_promoted_product_throughput",
+      "mailchimp_full_clone_parity"
+    ],
+    "completionClaimRule": "Only a full_clone supervisor green with full parity, direct product evidence, and no blocker may be reported as Mailchimp completion.",
+    "nonCompletionRule": "Scoped green, strict-gap saturation, mechanical green, benchmark threshold green, or helper/scaffold-only diffs are not Mailchimp full-clone completion.",
+    "blockerRule": "If the run cannot continue, emit a blocker with exact remaining surfaces, failed truth gate, and next action."
+  },
+  "scope": {
+    "mode": "one_pass_continuous_campaign",
+    "surfacesSource": "docs/MAILCHIMP_CANONICAL_ONE_PASS_EXECUTION_PLAN_2026-04-11.json",
+    "negativeSpacePolicy": "The planner must keep expanding from the full objective when finite surface inventory is exhausted but full Mailchimp parity is still false.",
+    "productOnly": true,
+    "prohibitedCredit": [
+      "docs_only_changes",
+      "tests_only_changes",
+      "scripts_only_changes",
+      "artifact_only_changes",
+      "isolated_full_clone_marker_modules_without_primary_runtime_adoption",
+      "synthetic_or_fallback_parity_deltas"
+    ]
+  },
+  "prelaunchGates": {
+    "minimumExecutableProductShards": 80,
+    "minimumFocusLanes": 8,
+    "requireRealFileContracts": true,
+    "requireRemoteExecution": true,
+    "requireSwarmMode": true,
+    "forbidStrictGapSequence": true,
+    "requireRolePlan": true,
+    "requireStrictHierarchicalPlan": true,
+    "requireCleanProductBaseline": true
+  },
+  "progressEvidencePolicy": {
+    "requirePromotedLocAccounting": true,
+    "requireSelectedTierAdmittedProductDelta": true,
+    "requirePrimaryRuntimeAdoptionForArchitectureCredit": true,
+    "rejectZeroModifiedFiles": true,
+    "rejectHighDuplicateGeneratedBulk": true,
+    "preserveNegativeSpace": true
+  },
+  "launchEnvironment": {
+    "ORCHESTRATOR_REQUESTED_FIDELITY": "full_clone",
+    "ORCHESTRATOR_IMPLEMENTATION_PROFILE": "mailchimp_parity_focus",
+    "MAILCHIMP_REQUESTED_AGENT_COUNT": "100",
+    "MAILCHIMP_PARITY_MAX_RUNTIME_HOURS": "6",
+    "MAILCHIMP_PARITY_NO_PROGRESS_ITERATION_LIMIT": "5",
+    "MAILCHIMP_PRODUCT_ONLY": "1",
+    "MAILCHIMP_USE_BENCHMARK_SCOPE": "0",
+    "MAILCHIMP_USE_STRICT_GAP_INVENTORY": "1",
+    "MAILCHIMP_STRICT_GAP_SEQUENCE": "0",
+    "MAILCHIMP_CONTINUE_UNTIL_GLOBAL_PARITY": "1",
+    "MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION": "1",
+    "MAILCHIMP_ENABLE_FULL_CLONE_FRONTIER_EXPANSION": "1",
+    "MAILCHIMP_ENABLE_FULL_CLONE_REMEDIATION_EXPANSION": "1",
+    "MAILCHIMP_ENABLE_FULL_CLONE_STRICT_REMEDIATION_EXPANSION": "1",
+    "MAILCHIMP_ENABLE_FULL_CLONE_CONTINUATION_EXPANSION": "1",
+    "MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR": "1",
+    "MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE": "1",
+    "MAILCHIMP_SEMANTIC_WORK_DIRECTOR_SKIP_ADOPTED_PHASES": "0",
+    "MAILCHIMP_SEMANTIC_WORK_DIRECTOR_MAX_GAPS": "26",
+    "MAILCHIMP_ALLOW_SYNTHETIC_PARITY_DELTAS": "0",
+    "MAILCHIMP_ALLOW_BENCHMARK_GROUNDING_FALLBACK": "0"
+  },
+  "launchCommand": "MAILCHIMP_FULL_CLONE_AUTOPILOT=1 MAILCHIMP_ONE_PASS_CONTRACT_PATH=docs/MAILCHIMP_FINAL_BOSS_FULL_CLONE_BENCHMARK_CONTRACT_2026-05-08.json node scripts/full-audit-campaign-launch.mjs",
+  "notes": "This contract makes Mailchimp the final-boss benchmark. It is intentionally not a scoped production-creation gate: orchestration can be observed as improved without allowing full-clone completion unless the full Mailchimp objective is actually satisfied."
+}

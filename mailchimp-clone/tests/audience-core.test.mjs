@@ -130,16 +130,16 @@ test('Program 2 audience core: audience metrics, taxonomy management, contacts f
     const previewId = importHtml.match(/name="previewId" value="(import_[a-f0-9]+)"/)[1];
 
     await postForm(baseUrl, jar, '/contacts/import/commit', { previewId });
+    let audienceHtml = '';
     await waitFor(async () => {
       const jobsPage = await request(baseUrl, jar, '/jobs');
       assert.match(await jobsPage.text(), /completed/);
+      const audienceOverview = await request(baseUrl, jar, `/audiences/${audienceId}`);
+      audienceHtml = await audienceOverview.text();
+      assert.match(audienceHtml, /4 contacts/);
+      assert.match(audienceHtml, /Groups: .*Region:Central/);
       return true;
     });
-
-    const audienceOverview = await request(baseUrl, jar, `/audiences/${audienceId}`);
-    const audienceHtml = await audienceOverview.text();
-    assert.match(audienceHtml, /4 contacts/);
-    assert.match(audienceHtml, /Groups: .*Region:Central/);
 
     const workspacesPage = await request(baseUrl, jar, '/workspaces');
     const apiKey = (await workspacesPage.text()).match(/key_[a-f0-9]+/)[0];

@@ -63,3 +63,28 @@ export function createCampaignEditorVariantCatalog(workspace = createTemplateVar
     narrative: workspace.name + ' variant ' + (index + 1) + ' keeps the campaign editor stocked with reusable layouts.'
   }));
 }
+
+export function createTemplateVariantExperimentMatrix(workspace = createTemplateVariantsWorkspace()) {
+  return workspace.programs.map((program, index) => ({
+    id: `${program.id}-experiment-${index + 1}`,
+    lane: program.lane,
+    variantA: index % 2 === 0 ? 'story-led' : 'proof-led',
+    variantB: index % 2 === 0 ? 'offer-led' : 'urgency-led',
+    audienceSplit: index === 0 ? '50/50' : '60/40',
+    primaryMetric: index < 2 ? 'click_rate' : 'conversion_rate',
+    status: index < 2 ? 'active' : index === 2 ? 'queued' : 'ready_to_promote',
+    liftEstimate: Number((4.5 + index * 1.2).toFixed(1))
+  }));
+}
+
+export function summarizeVariantPromotionQueue(workspace = createTemplateVariantsWorkspace()) {
+  const matrix = createTemplateVariantExperimentMatrix(workspace);
+  return {
+    workspaceId: workspace.id,
+    activeExperiments: matrix.filter((entry) => entry.status === 'active').length,
+    queuedExperiments: matrix.filter((entry) => entry.status === 'queued').length,
+    promotionReady: matrix.filter((entry) => entry.status === 'ready_to_promote').length,
+    averageLiftEstimate: Number((matrix.reduce((sum, entry) => sum + entry.liftEstimate, 0) / matrix.length).toFixed(2)),
+    nextPromotionLane: matrix.find((entry) => entry.status === 'ready_to_promote')?.lane || matrix[0]?.lane || null
+  };
+}

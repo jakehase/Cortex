@@ -6,7 +6,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { buildHeartbeatSummary } from './lib/full-audit-campaign-liveness.mjs';
 import { buildNotifierEligibilityPayload, deriveCanonicalStatuses, resolveCampaignBlocker } from './lib/full-audit-campaign-state.mjs';
 import { buildRepoWideSyncPathspecs, parsePorcelainStatus, statusRepresentsDeletion } from './lib/full-audit-campaign-sync-pathspecs.mjs';
-import { expandEquivalentFocusIds, extractVerifiedFocusIdsFromPatchQueue, mailchimpParityFocusIds, normalizeFocusIds } from './lib/orchestrator-real-repo-clean-plan.mjs';
+import { expandEquivalentFocusIds, extractSuspectFocusIdsFromPatchQueue, extractVerifiedFocusIdsFromPatchQueue, mailchimpParityFocusIds, normalizeFocusIds, objectiveCreditFocusIds } from './lib/orchestrator-real-repo-clean-plan.mjs';
 import { MAILCHIMP_CANONICAL_ONE_PASS_PLAN } from './lib/mailchimp-canonical-one-pass-plan-data.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +20,7 @@ const ARTIFACT_ROOT = process.env.MAILCHIMP_ORCHESTRATOR_ARTIFACT_ROOT || path.j
 const STATUS_PATH = path.join(ARTIFACT_ROOT, 'remote_execution_status.json');
 const TERMINAL_STATUS_PATH = path.join(ARTIFACT_ROOT, 'remote_execution_terminal.json');
 const TARGETED_FOCUS_CREDIT_PATH = path.join(ARTIFACT_ROOT, 'targeted_focus_credit.json');
+const TARGETED_SEMANTIC_REPLAY_STATUS_PATH = path.join(ARTIFACT_ROOT, 'targeted_semantic_replay_status.json');
 const BENCHMARK_PROGRESS_PATH = path.join(ARTIFACT_ROOT, 'benchmark_progress.json');
 const IMPLEMENTATION_MODE_STATUS_PATH = path.join(ARTIFACT_ROOT, 'implementation_mode_status.json');
 const CANONICAL_SUMMARY_PATH = path.join(ARTIFACT_ROOT, 'canonical_summary.json');
@@ -27,13 +28,16 @@ const NOTIFIER_ELIGIBILITY_PATH = path.join(ARTIFACT_ROOT, 'notifier_eligibility
 const BASELINE_COMMIT_PATH = path.join(ARTIFACT_ROOT, 'baseline_commit.json');
 const WORKTREE_MANIFEST_PATH = path.join(ARTIFACT_ROOT, 'worktree_manifest.json');
 const BASELINE_OVERLAY_PATH = path.join(ARTIFACT_ROOT, 'baseline_overlay.json');
+const BASELINE_PRODUCT_CLEANLINESS_PATH = path.join(ARTIFACT_ROOT, 'baseline_product_cleanliness.json');
 const BLOCKER_PATH = path.join(ARTIFACT_ROOT, 'blocker_report.json');
 const PROGRESS_STATE_PATH = path.join(ARTIFACT_ROOT, 'parity_progress_state.json');
+const PARTIAL_PROGRESS_PROMOTION_PATH = path.join(ARTIFACT_ROOT, 'partial_progress_promotion.json');
 const ITERATION_LAUNCH_ENV_PATH = path.join(ARTIFACT_ROOT, 'iteration_launch_env.json');
 const STRICT_GAP_INVENTORY_SOURCE_PATH = path.join(ROOT, 'artifacts', 'full_audit_campaign', 'strict_1to1_gap_inventory.json');
 const STRICT_GAP_INVENTORY_DEST_PATH = path.join(ARTIFACT_ROOT, 'full_audit_campaign', 'strict_1to1_gap_inventory.json');
 const BENCHMARK_CONTRACT_SOURCE_PATH = path.join(ROOT, 'artifacts', 'full_audit_campaign', 'one_pass_run_contract.latest.json');
 const BENCHMARK_CONTRACT_DEST_PATH = path.join(ARTIFACT_ROOT, 'full_audit_campaign', 'one_pass_run_contract.latest.json');
+const BENCHMARK_CONTRACT_ITERATION_ENV_PATH = path.join('artifacts', 'full_audit_campaign', 'one_pass_run_contract.latest.json');
 const MAX_NO_PROGRESS_ITERATIONS = Math.max(1, Number(process.env.MAILCHIMP_MAX_NO_PROGRESS_ITERATIONS || 12));
 const MAX_RECOVERABLE_INFRA_RETRIES = Math.max(1, Number(process.env.MAILCHIMP_MAX_RECOVERABLE_INFRA_RETRIES || 3));
 const MIN_FREE_INODES_FOR_WORKTREE = Math.max(10_000, Number(process.env.MAILCHIMP_MIN_FREE_INODES_FOR_WORKTREE || 500_000));
@@ -80,6 +84,7 @@ const HEARTBEAT_ARTIFACTS = [
   'loc_accounting.json'
 ].map((name) => path.join(ARTIFACT_ROOT, name));
 const OVERLAY_PATHSPECS = buildRepoWideSyncPathspecs();
+const PRODUCT_BASELINE_PATHSPECS = Object.freeze(['apps', 'packages', 'public', 'src']);
 const SIGNAL_EXIT_CODES = Object.freeze({ SIGINT: 130, SIGTERM: 143 });
 const PRODUCT_SURFACE_PROGRESS_EXCLUDES = Object.freeze([
   'artifacts/',
@@ -102,6 +107,15 @@ function ensureDir(dirPath) {
 function writeJson(filePath, payload) {
   ensureDir(path.dirname(filePath));
   fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function resolveIterationBenchmarkContractEnvPath() {
+  const requested = String(process.env.MAILCHIMP_ONE_PASS_CONTRACT_PATH || '').trim();
+  if (!requested) return null;
+  if (!path.isAbsolute(requested)) return requested;
+  const remoteRelative = path.relative(ROOT, requested);
+  if (remoteRelative && !remoteRelative.startsWith('..') && !path.isAbsolute(remoteRelative)) return remoteRelative;
+  return BENCHMARK_CONTRACT_ITERATION_ENV_PATH;
 }
 
 function rmIfExists(filePath) {
@@ -168,15 +182,88 @@ function creditableFocusIdsForIteration({
   const stateLossEvents = Number(metrics?.stateLossEvents || 0);
   const unstableExecution = stateLossEvents > 0 || continuityFailures.length > 0;
   if (unstableExecution) {
-    return Array.from(new Set(targetedTestVerifiedFocusIds));
+    return Array.from(new Set([
+      ...patchQueueFocusIds,
+      ...targetedTestVerifiedFocusIds
+    ]));
   }
   if (isNoParityReductionBlocker(blocker)) {
-    return Array.from(new Set(targetedTestVerifiedFocusIds));
+    return Array.from(new Set([
+      ...patchQueueFocusIds,
+      ...targetedTestVerifiedFocusIds
+    ]));
   }
   return Array.from(new Set([
     ...patchQueueFocusIds,
     ...targetedTestVerifiedFocusIds
   ]));
+}
+
+function collectWorktreeProductDiffStats(productFiles = []) {
+  const files = uniqueNonEmptyStrings(productFiles).filter((filePath) => fs.existsSync(path.join(WORKTREE_PATH, filePath)));
+  if (files.length === 0) {
+    return { ok: true, added: 0, deleted: 0, changedLines: 0, files: 0, entries: [] };
+  }
+  const diff = run('git', ['-C', WORKTREE_PATH, 'diff', '--numstat', 'HEAD', '--', ...files], { timeout: 120_000, maxBuffer: 1024 * 1024 * 80 });
+  const entries = String(diff.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [rawAdded, rawDeleted, ...rest] = line.split(/\s+/);
+      return {
+        path: rest.join(' '),
+        added: Number(rawAdded) || 0,
+        deleted: Number(rawDeleted) || 0
+      };
+    })
+    .filter((entry) => entry.path);
+  const added = entries.reduce((total, entry) => total + entry.added, 0);
+  const deleted = entries.reduce((total, entry) => total + entry.deleted, 0);
+  return {
+    ok: diff.status === 0 && !diff.error,
+    added,
+    deleted,
+    changedLines: added + deleted,
+    files: entries.length,
+    entries,
+    error: diff.error ? String(diff.error.message || diff.error) : (diff.status === 0 ? null : String(diff.stderr || diff.stdout || 'git diff --numstat failed'))
+  };
+}
+
+function recordVerifiedProductPatchFilesForControlPlanePromotion(patchQueueReport = null) {
+  const mergedEntries = Array.isArray(patchQueueReport?.merged) ? patchQueueReport.merged : [];
+  const creditableEntries = deepArchitectureCreditRequired()
+    ? mergedEntries.filter((entry) => extractVerifiedFocusIdsFromPatchQueue({ merged: [entry] }).length > 0)
+    : mergedEntries;
+  const productFiles = extractProductSurfaceFiles(creditableEntries);
+  const present = [];
+  const missing = [];
+  for (const filePath of productFiles) {
+    const sourcePath = path.join(WORKTREE_PATH, filePath);
+    if (!fs.existsSync(sourcePath)) {
+      missing.push(filePath);
+      continue;
+    }
+    present.push(filePath);
+  }
+  const diffStats = collectWorktreeProductDiffStats(present);
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    runId: RUN_ID,
+    worktreePath: WORKTREE_PATH,
+    baselineRepo: ROOT,
+    mode: 'control_plane_sync_from_disposable_worktree',
+    presentCount: present.length,
+    missingCount: missing.length,
+    productFiles: present,
+    missing,
+    diffStats,
+    note: 'Verified partial-progress product files are left in the disposable worktree for the control-plane sync step; the remote baseline repo is not mutated.'
+  };
+  writeJson(PARTIAL_PROGRESS_PROMOTION_PATH, manifest);
+  appendLog(`\n===== remote partial-progress control-plane promotion manifest =====\n${JSON.stringify(manifest, null, 2)}\n`);
+  return manifest;
 }
 
 function uniqueNonEmptyStrings(values = []) {
@@ -229,6 +316,21 @@ function extractProductSurfaceFiles(mergedEntries = []) {
     }
     return filePaths;
   }).filter((filePath) => !PRODUCT_SURFACE_PROGRESS_EXCLUDES.some((prefix) => String(filePath).startsWith(prefix))));
+}
+
+function deepArchitectureCreditRequired() {
+  return process.env.MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT === '1'
+    || process.env.MAILCHIMP_ARCHITECTURE_ONLY_CREDIT === '1';
+}
+
+function hasVerifiedProductPatchProgress(patchQueueReport = null) {
+  const mergedEntries = Array.isArray(patchQueueReport?.merged) ? patchQueueReport.merged : [];
+  return mergedEntries.some((entry) => {
+    if (extractProductSurfaceFiles([entry]).length === 0) return false;
+    if (deepArchitectureCreditRequired() && extractVerifiedFocusIdsFromPatchQueue({ merged: [entry] }).length === 0) return false;
+    const verifiers = collectVerifierResults(entry);
+    return verifiers.length === 0 || verifiers.every((result) => result?.ok === true && result?.skipped !== true);
+  });
 }
 
 function normalizeRepoPath(value) {
@@ -294,6 +396,7 @@ function promotedProductLocFromAccounting(locAccounting = null, contract = null)
     });
   }
   return {
+    entries: credited,
     files: credited.map((entry) => entry.path).filter(Boolean),
     changedLines: credited.reduce((total, entry) => total + entry.added + entry.deleted, 0)
   };
@@ -303,6 +406,7 @@ function emptyBenchmarkMetrics() {
   return {
     productDiffChangedLines: 0,
     productFiles: [],
+    productLocCreditByFile: {},
     focusLanes: [],
     agentIds: [],
     mergedPatchCount: 0,
@@ -324,6 +428,7 @@ function loadBenchmarkMetrics(raw = null) {
     ...metrics,
     productDiffChangedLines: Number(metrics?.productDiffChangedLines || 0),
     productFiles: uniqueNonEmptyStrings(metrics?.productFiles || []),
+    productLocCreditByFile: metrics?.productLocCreditByFile && typeof metrics.productLocCreditByFile === 'object' ? metrics.productLocCreditByFile : {},
     focusLanes: uniqueNonEmptyStrings(metrics?.focusLanes || []),
     agentIds: uniqueNonEmptyStrings(metrics?.agentIds || []),
     mergedPatchCount: Number(metrics?.mergedPatchCount || 0),
@@ -408,9 +513,23 @@ function accumulateBenchmarkMetrics({
   let promotedChangedLines = 0;
   if (hasAcceptedProductWork) {
     const promotedLoc = promotedProductLocFromAccounting(locAccounting, readJson(BENCHMARK_CONTRACT_DEST_PATH, null));
-    for (const filePath of promotedLoc.files) productFiles.add(filePath);
-    next.productDiffChangedLines += promotedLoc.changedLines;
-    promotedChangedLines = promotedLoc.changedLines;
+    const locCreditByFile = next.productLocCreditByFile && typeof next.productLocCreditByFile === 'object' ? { ...next.productLocCreditByFile } : {};
+    for (const entry of promotedLoc.entries || []) {
+      const currentChangedLines = Number(entry.added || 0) + Number(entry.deleted || 0);
+      const previousChangedLines = Number(locCreditByFile[entry.path]?.changedLines || 0);
+      const incrementalChangedLines = Math.max(0, currentChangedLines - previousChangedLines);
+      if (incrementalChangedLines > 0) {
+        productFiles.add(entry.path);
+        promotedChangedLines += incrementalChangedLines;
+      }
+      locCreditByFile[entry.path] = {
+        added: Number(entry.added || 0),
+        deleted: Number(entry.deleted || 0),
+        changedLines: currentChangedLines
+      };
+    }
+    next.productLocCreditByFile = locCreditByFile;
+    next.productDiffChangedLines += promotedChangedLines;
   }
 
   const blockerLabel = blockerText(blocker).trim();
@@ -433,12 +552,16 @@ function accumulateBenchmarkMetrics({
 }
 
 function writeBenchmarkProgress({ progressState = null, iteration = null }) {
+  const locAccounting = readJson(path.join(ARTIFACT_ROOT, 'loc_accounting.json'), null);
+  const locTruth = locAccounting?.productLocTruth || null;
   writeJson(BENCHMARK_PROGRESS_PATH, {
     generatedAt: new Date().toISOString(),
     runId: RUN_ID,
     iteration,
     completedFocusIds: normalizeCompletedFocusIds(progressState?.completedFocusIds || []),
     verifiedFocusIds: normalizeCompletedFocusIds(progressState?.verifiedCompletedFocusIds || []),
+    suspectCompletedFocusIds: normalizeCompletedFocusIds(progressState?.suspectCompletedFocusIds || []),
+    locTruth,
     observed: summarizeBenchmarkMetrics(progressState?.benchmarkMetrics)
   });
 }
@@ -452,13 +575,47 @@ function readJson(filePath, fallback = null) {
 }
 
 function normalizeCompletedFocusIds(value) {
-  return expandEquivalentFocusIds(Array.isArray(value) ? value : []);
+  return objectiveCreditFocusIds(Array.isArray(value) ? value : []);
 }
 
 function filterFocusIdsByTrustedSet(values = [], trustedValues = []) {
   const trustedFocusIds = new Set(normalizeCompletedFocusIds(trustedValues));
   return normalizeCompletedFocusIds(values)
     .filter((focusId) => trustedFocusIds.has(focusId));
+}
+
+function requestedSemanticTargetFocusIds() {
+  return normalizeCompletedFocusIds(String(process.env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS || '')
+    .split(',')
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean)
+    .map((entry) => entry.startsWith('focus.') ? entry : `focus.${entry}`));
+}
+
+function evaluateTargetedSemanticReplay({ verifiedFocusIds = [], iteration = null, progressDelta = [], freshProgressDetected = false, selectedTierHadLiveWork = false } = {}) {
+  const targetFocusIds = requestedSemanticTargetFocusIds();
+  const verified = new Set(normalizeCompletedFocusIds(verifiedFocusIds));
+  const verifiedTargetFocusIds = targetFocusIds.filter((focusId) => verified.has(focusId));
+  const missingFocusIds = targetFocusIds.filter((focusId) => !verified.has(focusId));
+  const active = targetFocusIds.length > 0 && process.env.MAILCHIMP_DISABLE_SEMANTIC_WORK_DIRECTOR !== '1';
+  return {
+    generatedAt: new Date().toISOString(),
+    runId: RUN_ID,
+    iteration,
+    active,
+    targetFocusIds,
+    verifiedTargetFocusIds,
+    missingFocusIds,
+    progressDelta: normalizeCompletedFocusIds(progressDelta),
+    freshProgressDetected,
+    selectedTierHadLiveWork,
+    satisfied: active && missingFocusIds.length === 0,
+    stopReason: active && missingFocusIds.length === 0
+      ? 'targeted_semantic_focus_verified'
+      : active
+        ? 'targeted_semantic_focus_still_open'
+        : 'not_a_targeted_semantic_replay'
+  };
 }
 
 function verifyFocusIdsByTargetedTests(focusIds) {
@@ -495,26 +652,66 @@ function verifyFocusIdsByTargetedTests(focusIds) {
   return verifiedFocusIds;
 }
 
+function legacyProgressStateLooksBloatContaminated(raw = null) {
+  if (!raw || !deepArchitectureCreditRequired()) return false;
+  const explicitLocTruth = raw?.locTruth || raw?.benchmarkMetrics?.locTruth || raw?.benchmarkMetrics?.productLocTruth || null;
+  if (explicitLocTruth?.semanticBloatSuspect === false) return false;
+  if (explicitLocTruth?.semanticBloatSuspect === true) return true;
+  const productDiffChangedLines = Number(raw?.benchmarkMetrics?.productDiffChangedLines || 0);
+  const verifiedCount = Array.isArray(raw?.verifiedCompletedFocusIds) ? raw.verifiedCompletedFocusIds.length : 0;
+  const lacksSuspectSchema = !Array.isArray(raw?.suspectCompletedFocusIds);
+  return lacksSuspectSchema && verifiedCount > 0 && productDiffChangedLines >= 100000;
+}
+
+function patchEntryHasSemanticBloatAuditSchema(entry = {}) {
+  const stdout = String(entry?.metadata?.implementation?.stdout || '');
+  return Boolean(entry?.metadata?.implementation?.metadata?.semanticBloatAudit)
+    || Boolean(entry?.metadata?.semanticBloatAudit)
+    || Boolean(entry?.admissionAudit?.semanticBloatAdmission?.details?.semanticBloatAudit)
+    || /"semanticBloatAudit"\s*:/.test(stdout)
+    || /"claimIntegrityKind"\s*:/.test(stdout);
+}
+
+function currentIterationSemanticBloatSuspect({ locTruth = null, patchQueue = null, suspectFocusIds = [] } = {}) {
+  if (Array.isArray(suspectFocusIds) && suspectFocusIds.length > 0) return true;
+  if (locTruth?.semanticBloatSuspect !== true) return false;
+  const merged = Array.isArray(patchQueue?.merged) ? patchQueue.merged : [];
+  if (merged.length === 0) return true;
+  return !merged.every((entry) => patchEntryHasSemanticBloatAuditSchema(entry));
+}
+
 function loadProgressState() {
   const raw = readJson(PROGRESS_STATE_PATH, null) || {};
   const envCompletedFocusIds = normalizeCompletedFocusIds(String(process.env.MAILCHIMP_COMPLETED_FOCUS_IDS || '').split(','));
+  const envVerifiedCompletedFocusIds = normalizeCompletedFocusIds(String(process.env.MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS || '').split(','));
   const hasVerifiedSchema = Array.isArray(raw?.verifiedCompletedFocusIds);
-  const verifiedCompletedFocusIds = normalizeCompletedFocusIds(hasVerifiedSchema ? raw.verifiedCompletedFocusIds : []);
-  const legacyCompletedFocusIds = hasVerifiedSchema ? [] : normalizeCompletedFocusIds(raw?.completedFocusIds);
-  const seededEnvCompletedFocusIds = verifiedCompletedFocusIds.length > 0
-    ? filterFocusIdsByTrustedSet(envCompletedFocusIds, verifiedCompletedFocusIds)
-    : envCompletedFocusIds;
-  const seededCompletedFocusIds = normalizeCompletedFocusIds([
-    ...seededEnvCompletedFocusIds,
-    ...verifiedCompletedFocusIds
+  const verifiedCompletedFocusIds = normalizeCompletedFocusIds([
+    ...envVerifiedCompletedFocusIds,
+    ...(hasVerifiedSchema ? raw.verifiedCompletedFocusIds : [])
   ]);
+  const suspectCompletedFocusIds = normalizeCompletedFocusIds([
+    ...(raw?.suspectCompletedFocusIds || []),
+    ...(legacyProgressStateLooksBloatContaminated(raw) ? verifiedCompletedFocusIds : [])
+  ]);
+  const trustedVerifiedCompletedFocusIds = verifiedCompletedFocusIds.filter((focusId) => !suspectCompletedFocusIds.includes(focusId));
+  const legacyCompletedFocusIds = hasVerifiedSchema ? [] : normalizeCompletedFocusIds(raw?.completedFocusIds);
+  const seededEnvCompletedFocusIds = trustedVerifiedCompletedFocusIds.length > 0
+    ? filterFocusIdsByTrustedSet(envCompletedFocusIds, trustedVerifiedCompletedFocusIds)
+    : [];
+  const discardedEnvCompletedFocusIds = envCompletedFocusIds.filter((focusId) => !trustedVerifiedCompletedFocusIds.includes(focusId));
+  const seededCompletedFocusIds = normalizeCompletedFocusIds(trustedVerifiedCompletedFocusIds);
   return {
     generatedAt: hasVerifiedSchema ? (raw.generatedAt || null) : null,
     completedFocusIds: seededCompletedFocusIds,
-    verifiedCompletedFocusIds,
+    verifiedCompletedFocusIds: trustedVerifiedCompletedFocusIds,
+    suspectCompletedFocusIds,
+    locTruth: raw?.locTruth || raw?.benchmarkMetrics?.locTruth || raw?.benchmarkMetrics?.productLocTruth || null,
     benchmarkMetrics: loadBenchmarkMetrics(raw?.benchmarkMetrics),
     envCompletedFocusIds: seededEnvCompletedFocusIds,
-    discardedLegacyCompletedFocusIds: legacyCompletedFocusIds,
+    discardedLegacyCompletedFocusIds: normalizeCompletedFocusIds([
+      ...legacyCompletedFocusIds,
+      ...discardedEnvCompletedFocusIds
+    ]),
     noProgressStreak: Number(raw?.noProgressStreak || 0),
     recoverableInfraRetries: Number(raw?.recoverableInfraRetries || 0),
     lastIteration: Number(raw?.lastIteration || 0)
@@ -525,15 +722,17 @@ function saveProgressState(next) {
   const rawCompletedFocusIds = Array.isArray(next?.completedFocusIds) ? next.completedFocusIds : [];
   const rawVerifiedCompletedFocusIds = Array.isArray(next?.verifiedCompletedFocusIds) ? next.verifiedCompletedFocusIds : [];
   const envCompletedFocusIds = Array.isArray(next?.envCompletedFocusIds) ? next.envCompletedFocusIds : [];
-  const verifiedCompletedFocusIds = normalizeCompletedFocusIds(rawVerifiedCompletedFocusIds);
+  const suspectCompletedFocusIds = normalizeCompletedFocusIds(next?.suspectCompletedFocusIds || []);
+  const verifiedCompletedFocusIds = normalizeCompletedFocusIds(rawVerifiedCompletedFocusIds)
+    .filter((focusId) => !suspectCompletedFocusIds.includes(focusId));
   const seededEnvCompletedFocusIds = verifiedCompletedFocusIds.length > 0
     ? filterFocusIdsByTrustedSet(envCompletedFocusIds, verifiedCompletedFocusIds)
-    : normalizeCompletedFocusIds(envCompletedFocusIds);
-  const completedFocusIds = normalizeCompletedFocusIds([
-    ...seededEnvCompletedFocusIds,
-    ...rawCompletedFocusIds,
-    ...verifiedCompletedFocusIds
+    : [];
+  const discardedLegacyCompletedFocusIds = normalizeCompletedFocusIds([
+    ...rawCompletedFocusIds.filter((focusId) => !verifiedCompletedFocusIds.includes(focusId)),
+    ...normalizeCompletedFocusIds(envCompletedFocusIds).filter((focusId) => !verifiedCompletedFocusIds.includes(focusId))
   ]);
+  const completedFocusIds = normalizeCompletedFocusIds(verifiedCompletedFocusIds);
   const payload = {
     noProgressStreak: 0,
     recoverableInfraRetries: 0,
@@ -542,9 +741,11 @@ function saveProgressState(next) {
     generatedAt: new Date().toISOString(),
     completedFocusIds,
     verifiedCompletedFocusIds,
+    suspectCompletedFocusIds,
+    locTruth: next?.locTruth || null,
     benchmarkMetrics: loadBenchmarkMetrics(next?.benchmarkMetrics),
     envCompletedFocusIds: seededEnvCompletedFocusIds,
-    discardedLegacyCompletedFocusIds: []
+    discardedLegacyCompletedFocusIds
   };
   writeJson(PROGRESS_STATE_PATH, payload);
   return payload;
@@ -658,6 +859,59 @@ function collectBaselineOverlayRecords() {
   return parsePorcelainStatus(String(status.stdout || ''));
 }
 
+function collectProductBaselineCleanliness() {
+  const status = run('git', ['-C', ROOT, 'status', '--porcelain', '-uall', '--', ...PRODUCT_BASELINE_PATHSPECS], { timeout: 120_000 });
+  const diff = run('git', ['-C', ROOT, 'diff', '--no-ext-diff', '--unified=0', 'HEAD', '--', ...PRODUCT_BASELINE_PATHSPECS], { timeout: 120_000, maxBuffer: 1024 * 1024 * 120 });
+  const dirtyEntries = parsePorcelainStatus(String(status.stdout || ''))
+    .filter((entry) => entry?.path && !String(entry.path).startsWith('packages/app/full-clone-'));
+  const normalizedCounts = new Map();
+  let addedNonblankLines = 0;
+  for (const rawLine of String(diff.stdout || '').split(/\r?\n/)) {
+    if (!rawLine.startsWith('+') || rawLine.startsWith('+++')) continue;
+    const line = rawLine.slice(1).trim();
+    if (!line) continue;
+    addedNonblankLines += 1;
+    const normalized = line
+      .replace(/['"`][^'"`]{12,}['"`]/g, '"<str>"')
+      .replace(/\b\d{2,}\b/g, '<num>')
+      .replace(/\s+/g, ' ')
+      .trim();
+    normalizedCounts.set(normalized, (normalizedCounts.get(normalized) || 0) + 1);
+  }
+  const uniqueNormalizedAddedLines = normalizedCounts.size;
+  const duplicateAddedLineRatio = addedNonblankLines > 0
+    ? Number(((addedNonblankLines - uniqueNormalizedAddedLines) / addedNonblankLines).toFixed(4))
+    : 0;
+  const semanticBloatSuspect = addedNonblankLines >= 500 && duplicateAddedLineRatio >= 0.55;
+  const allowDirtyProductBaseline = process.env.MAILCHIMP_ALLOW_DIRTY_PRODUCT_BASELINE === '1';
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    runId: RUN_ID,
+    baselineRepo: ROOT,
+    pathspecs: PRODUCT_BASELINE_PATHSPECS,
+    ok: status.status === 0 && diff.status === 0 && (allowDirtyProductBaseline || dirtyEntries.length === 0) && !semanticBloatSuspect,
+    allowDirtyProductBaseline,
+    dirtyProductFileCount: dirtyEntries.length,
+    dirtyProductFiles: dirtyEntries.slice(0, 200),
+    addedNonblankLinesApprox: addedNonblankLines,
+    addedUniqueNormalizedLinesApprox: uniqueNormalizedAddedLines,
+    duplicateAddedLineRatio,
+    semanticBloatSuspect,
+    semanticBloatReasons: semanticBloatSuspect ? ['high_duplicate_normalized_added_line_ratio'] : [],
+    statusExitCode: status.status,
+    diffExitCode: diff.status
+  };
+  writeJson(BASELINE_PRODUCT_CLEANLINESS_PATH, payload);
+  appendLog(`\n===== product baseline cleanliness =====\n${JSON.stringify(payload, null, 2)}\n${status.stdout || ''}${status.stderr || ''}`);
+  return payload;
+}
+
+function assertProductBaselineClean() {
+  const cleanliness = collectProductBaselineCleanliness();
+  if (cleanliness.ok) return cleanliness;
+  throw new Error(`Dirty or semantic-bloat product baseline refused before remote worktree launch: dirtyProductFileCount=${cleanliness.dirtyProductFileCount}, semanticBloatSuspect=${cleanliness.semanticBloatSuspect}, duplicateAddedLineRatio=${cleanliness.duplicateAddedLineRatio}. Preserve/quarantine the overlay or set MAILCHIMP_ALLOW_DIRTY_PRODUCT_BASELINE=1 only with ledger-backed carry-forward evidence.`);
+}
+
 function applyBaselineOverlayToWorktree() {
   const records = collectBaselineOverlayRecords();
   const operations = [];
@@ -764,6 +1018,7 @@ function prepareIterationWorkspace(iteration) {
   removePriorWorktree();
   cleanupStaleDisposableWorktrees();
   assertWorktreeInodeCapacity();
+  assertProductBaselineClean();
   const worktree = run('git', ['-C', ROOT, 'worktree', 'add', '--detach', WORKTREE_PATH, 'HEAD']);
   if (worktree.status !== 0) {
     throw new Error(String(worktree.stderr || worktree.stdout || 'failed to create disposable worktree'));
@@ -919,6 +1174,7 @@ function buildRunningStatus({ iteration, iterationStartedAt, childPid, iteration
 
 let lastStatusPayload = null;
 let terminalStatusWritten = false;
+let activeIterationChild = null;
 let lifecycleSnapshot = {
   iteration: 0,
   childPid: null,
@@ -952,6 +1208,7 @@ function buildTerminalStatus({
   signal = null,
   error = null,
   blocker = null,
+  targetedSemanticReplay = null,
   statusSource = 'remote_runner_terminalizer'
 } = {}) {
   const base = lastStatusPayload && typeof lastStatusPayload === 'object' ? lastStatusPayload : {};
@@ -983,6 +1240,7 @@ function buildTerminalStatus({
     signal,
     error: error ? String(error instanceof Error ? error.stack || error.message : error) : null,
     blocker: blocker || null,
+    targetedSemanticReplay: targetedSemanticReplay || null,
     note: note || (ok
       ? 'Remote execution runner persisted a terminal completion record.'
       : 'Remote execution runner persisted a terminal failure record.')
@@ -999,15 +1257,37 @@ function persistTerminalStatus(options = {}) {
   return payload;
 }
 
+function killChildProcessTree(child, signal = 'SIGTERM') {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return false;
+  let killed = false;
+  if (process.platform !== 'win32' && Number(child.pid) > 0) {
+    try {
+      process.kill(-child.pid, signal);
+      killed = true;
+    } catch {}
+  }
+  try {
+    killed = child.kill(signal) || killed;
+  } catch {}
+  return killed;
+}
+
 function installTerminalPersistenceHooks() {
   const handleSignal = (signal) => {
     appendLog(`\n[terminal-signal] ${signal}\n`);
+    const activePid = activeIterationChild?.pid || lifecycleSnapshot.childPid || null;
+    if (activeIterationChild) {
+      const killed = killChildProcessTree(activeIterationChild, 'SIGTERM');
+      appendLog(`[terminal-signal] childTree pid=${activePid || 'unknown'} signal=SIGTERM killed=${killed}\n`);
+      const forceKilled = killChildProcessTree(activeIterationChild, 'SIGKILL');
+      appendLog(`[terminal-signal] childTree pid=${activePid || 'unknown'} signal=SIGKILL killed=${forceKilled}\n`);
+    }
     persistTerminalStatus({
       ok: false,
       phase: 'remote_execution_interrupted',
       signal,
       exitCode: SIGNAL_EXIT_CODES[signal] || 1,
-      note: `Remote execution runner received ${signal} and wrote a terminal receipt before exiting.`
+      note: `Remote execution runner received ${signal}, signalled the active child process tree, and wrote a terminal receipt before exiting.`
     });
     process.exit(SIGNAL_EXIT_CODES[signal] || 1);
   };
@@ -1044,17 +1324,42 @@ async function runIteration({ iteration, iterationResults, baselineOverlay, depe
     MAILCHIMP_FULL_AUDIT_RUN_ID: RUN_ID,
     MAILCHIMP_ORCHESTRATOR_ARTIFACT_ROOT: ARTIFACT_ROOT,
     MAILCHIMP_COMPLETED_FOCUS_IDS: Array.isArray(progressState?.completedFocusIds) ? progressState.completedFocusIds.join(',') : '',
+    MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS: Array.isArray(progressState?.verifiedCompletedFocusIds) ? progressState.verifiedCompletedFocusIds.join(',') : '',
     ORCHESTRATOR_IMPLEMENTATION_SCRIPT: process.env.ORCHESTRATOR_IMPLEMENTATION_SCRIPT || path.join(WORKTREE_PATH, 'scripts', 'orchestrator-real-repo-clean-implement.mjs'),
     ORCHESTRATOR_RESUME_CAMPAIGN: iteration > 1 ? '1' : '0'
   };
   if (process.env.MAILCHIMP_USE_BENCHMARK_SCOPE) iterationEnv.MAILCHIMP_USE_BENCHMARK_SCOPE = process.env.MAILCHIMP_USE_BENCHMARK_SCOPE;
-  if (process.env.MAILCHIMP_ONE_PASS_CONTRACT_PATH) iterationEnv.MAILCHIMP_ONE_PASS_CONTRACT_PATH = process.env.MAILCHIMP_ONE_PASS_CONTRACT_PATH;
+  const iterationBenchmarkContractPath = resolveIterationBenchmarkContractEnvPath();
+  if (iterationBenchmarkContractPath) iterationEnv.MAILCHIMP_ONE_PASS_CONTRACT_PATH = iterationBenchmarkContractPath;
   if (process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE) iterationEnv.ORCHESTRATOR_IMPLEMENTATION_PROFILE = process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE;
   if (process.env.ORCHESTRATOR_TIERS) iterationEnv.ORCHESTRATOR_TIERS = process.env.ORCHESTRATOR_TIERS;
   if (process.env.ORCHESTRATOR_REQUESTED_FIDELITY) iterationEnv.ORCHESTRATOR_REQUESTED_FIDELITY = process.env.ORCHESTRATOR_REQUESTED_FIDELITY;
   if (process.env.MAILCHIMP_PRODUCT_ONLY) iterationEnv.MAILCHIMP_PRODUCT_ONLY = process.env.MAILCHIMP_PRODUCT_ONLY;
   if (process.env.MAILCHIMP_USE_STRICT_GAP_INVENTORY) iterationEnv.MAILCHIMP_USE_STRICT_GAP_INVENTORY = process.env.MAILCHIMP_USE_STRICT_GAP_INVENTORY;
   if (process.env.MAILCHIMP_STRICT_GAP_SEQUENCE) iterationEnv.MAILCHIMP_STRICT_GAP_SEQUENCE = process.env.MAILCHIMP_STRICT_GAP_SEQUENCE;
+  for (const key of [
+    'MAILCHIMP_EXCLUDED_FOCUS_IDS',
+    'MAILCHIMP_CONTRACT_SCOPE_PARALLEL_ALL',
+    'MAILCHIMP_BENCHMARK_CARRY_COMPLETED_FOCUS_IDS',
+    'MAILCHIMP_CONTINUE_UNTIL_GLOBAL_PARITY',
+    'MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION',
+    'MAILCHIMP_ALLOW_SYNTHETIC_PARITY_DELTAS',
+    'MAILCHIMP_ALLOW_CANONICAL_RUNTIME_FALLBACK',
+    'MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT',
+    'MAILCHIMP_ARCHITECTURE_ONLY_CREDIT',
+    'MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_MAX_GAPS',
+    'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_SKIP_ADOPTED_PHASES',
+    'MAILCHIMP_ENABLE_STRUCTURAL_FULL_CLONE_EXPANSION',
+    'MAILCHIMP_ENABLE_FULL_CLONE_FRONTIER_EXPANSION',
+    'MAILCHIMP_ENABLE_FULL_CLONE_REMEDIATION_EXPANSION',
+    'MAILCHIMP_ENABLE_FULL_CLONE_STRICT_REMEDIATION_EXPANSION',
+    'MAILCHIMP_ENABLE_FULL_CLONE_CONTINUATION_EXPANSION'
+  ]) {
+    if (process.env[key]) iterationEnv[key] = process.env[key];
+  }
   writeJson(ITERATION_LAUNCH_ENV_PATH, {
     generatedAt: new Date().toISOString(),
     runId: RUN_ID,
@@ -1068,6 +1373,8 @@ async function runIteration({ iteration, iterationResults, baselineOverlay, depe
     benchmarkContractSourceExists: fs.existsSync(BENCHMARK_CONTRACT_SOURCE_PATH),
     benchmarkContractDestPath: BENCHMARK_CONTRACT_DEST_PATH,
     benchmarkContractDestExists: fs.existsSync(BENCHMARK_CONTRACT_DEST_PATH),
+    requestedBenchmarkContractEnvPath: process.env.MAILCHIMP_ONE_PASS_CONTRACT_PATH || null,
+    effectiveBenchmarkContractEnvPath: iterationBenchmarkContractPath,
     env: iterationEnv
   });
   const child = spawn(process.execPath, [DELEGATE_SCRIPT], {
@@ -1076,8 +1383,10 @@ async function runIteration({ iteration, iterationResults, baselineOverlay, depe
       ...process.env,
       ...iterationEnv
     },
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32'
   });
+  activeIterationChild = child;
 
   let lastOutputAt = iterationStartedAt;
   let heartbeatCount = 0;
@@ -1115,6 +1424,7 @@ async function runIteration({ iteration, iterationResults, baselineOverlay, depe
   });
 
   clearInterval(heartbeatTimer);
+  if (activeIterationChild === child) activeIterationChild = null;
   updateLifecycleSnapshot({ childPid: null, lastOutputAt });
   const finalHeartbeat = buildRunningStatus({ iteration, iterationStartedAt, childPid: child.pid, iterationResults, baselineOverlay, dependencyLinks, lastOutputAt });
   writeExecutionStatus(finalHeartbeat);
@@ -1182,8 +1492,41 @@ let finalSignal = null;
 let finalSpawnError = null;
 let finalOk = false;
 let continuationDetected = false;
+let terminalNoProgressBlocker = null;
+let terminalTargetReplayStatus = null;
 let lastHeartbeat = null;
 let progressState = loadProgressState();
+
+const preflightTargetFocusIds = requestedSemanticTargetFocusIds();
+if (preflightTargetFocusIds.length > 0) {
+  const preflightVerifiedFocusIds = verifyFocusIdsByTargetedTests(preflightTargetFocusIds);
+  const preflightProgressState = saveProgressState({
+    ...progressState,
+    completedFocusIds: Array.from(new Set([...(progressState.completedFocusIds || []), ...preflightVerifiedFocusIds])),
+    verifiedCompletedFocusIds: Array.from(new Set([...(progressState.verifiedCompletedFocusIds || []), ...preflightVerifiedFocusIds])),
+    lastIteration: 0
+  });
+  progressState = preflightProgressState;
+  writeBenchmarkProgress({ progressState, iteration: 0 });
+  const preflightTargetStatus = evaluateTargetedSemanticReplay({
+    verifiedFocusIds: progressState.verifiedCompletedFocusIds,
+    iteration: 0,
+    progressDelta: preflightVerifiedFocusIds,
+    freshProgressDetected: false,
+    selectedTierHadLiveWork: false
+  });
+  writeJson(TARGETED_SEMANTIC_REPLAY_STATUS_PATH, preflightTargetStatus);
+  if (preflightTargetStatus.satisfied) {
+    persistTerminalStatus({
+      ok: true,
+      phase: 'remote_execution_target_satisfied',
+      exitCode: 0,
+      targetedSemanticReplay: preflightTargetStatus,
+      note: 'Remote execution runner stopped before delegate launch because the requested targeted semantic focus set was already verified by targeted tests. This is not a full-clone completion claim.'
+    });
+    process.exit(0);
+  }
+}
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
   appendLog(`\n===== remote runner iteration ${iteration} =====\n`);
@@ -1246,12 +1589,23 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
   const blocker = resolveCampaignBlocker({ completionSummary, programState, campaignState, blockerReport });
   const liveExecutionSummary = readJson(path.join(ARTIFACT_ROOT, 'live_execution_summary.json'), null);
   const patchQueueReport = readJson(path.join(ARTIFACT_ROOT, 'patch_queue_report.json'), { merged: [] });
+  const locAccountingForIteration = readJson(path.join(ARTIFACT_ROOT, 'loc_accounting.json'), null);
+  const locTruthForIteration = locAccountingForIteration?.productLocTruth || null;
   const selectedTierHadLiveWork = hasSelectedTierLiveWork(liveExecutionSummary);
   const patchQueueFocusIds = extractMergedFocusIds(patchQueueReport);
   const trustedPatchQueueFocusIds = extractVerifiedFocusIdsFromPatchQueue(patchQueueReport);
+  const patchQueueSuspectFocusIds = extractSuspectFocusIdsFromPatchQueue(patchQueueReport);
+  const semanticBloatCurrentIteration = currentIterationSemanticBloatSuspect({
+    locTruth: locTruthForIteration,
+    patchQueue: patchQueueReport,
+    suspectFocusIds: patchQueueSuspectFocusIds
+  });
   const targetedTestCandidateFocusIds = selectedTierHadLiveWork
     && /no parity-surface reduction was proven by this iteration|partial parity-surface reduction was proven/i.test(blockerText(blocker))
-    ? trustedPatchQueueFocusIds.filter((focusId) => !progressState.completedFocusIds.includes(focusId))
+    ? trustedPatchQueueFocusIds
+      .filter((focusId) => !patchQueueSuspectFocusIds.includes(focusId))
+      .filter((focusId) => semanticBloatCurrentIteration !== true)
+      .filter((focusId) => !progressState.completedFocusIds.includes(focusId))
     : [];
   const targetedTestVerifiedFocusIds = targetedTestCandidateFocusIds.length > 0
     ? verifyFocusIdsByTargetedTests(targetedTestCandidateFocusIds)
@@ -1259,34 +1613,47 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
   const mergedFocusIds = creditableFocusIdsForIteration({
     selectedTierHadLiveWork,
     blocker,
-    patchQueueFocusIds: trustedPatchQueueFocusIds,
+    patchQueueFocusIds: semanticBloatCurrentIteration === true
+      ? []
+      : trustedPatchQueueFocusIds.filter((focusId) => !patchQueueSuspectFocusIds.includes(focusId)),
     targetedTestVerifiedFocusIds,
     liveExecutionSummary
   });
+  const suspectFocusIdsForIteration = normalizeCompletedFocusIds([
+    ...patchQueueSuspectFocusIds,
+    ...(semanticBloatCurrentIteration === true ? trustedPatchQueueFocusIds : [])
+  ]);
   const progressDelta = selectedTierHadLiveWork
     ? mergedFocusIds.filter((id) => !progressState.completedFocusIds.includes(id))
     : [];
+  const verifiedProductPatchProgressDetected = selectedTierHadLiveWork
+    && trustedPatchQueueFocusIds.length > 0
+    && hasVerifiedProductPatchProgress(patchQueueReport);
   const workspaceDiff = typeof result.workspaceDiff === 'string' ? result.workspaceDiff : '';
-  const freshProgressDetected = Boolean(workspaceDiff.trim())
-    || (selectedTierHadLiveWork && progressDelta.length > 0);
-  const retryClass = campaignState?.stopAllowed && !blocker && !freshProgressDetected
-    ? 'terminal_green_without_fresh_progress'
-    : null;
+  const freshProgressDetected = deepArchitectureCreditRequired()
+    ? (selectedTierHadLiveWork && (progressDelta.length > 0 || verifiedProductPatchProgressDetected))
+    : (Boolean(workspaceDiff.trim())
+      || (selectedTierHadLiveWork && (progressDelta.length > 0 || verifiedProductPatchProgressDetected)));
   const preserveLiveWorkBlocker = selectedTierHadLiveWork && isNoParityReductionBlocker(blocker);
   const statuses = deriveCanonicalStatuses({ completionSummary, programState, campaignState, blocker });
   const greenCompletionReached = !blocker
-    && freshProgressDetected
+    && selectedTierHadLiveWork
     && statuses.supervisorStatus === 'green'
     && statuses.matrixStatus === 'all_complete';
+  const retryClass = campaignState?.stopAllowed && !blocker && !freshProgressDetected && !greenCompletionReached
+    ? 'terminal_green_without_fresh_progress'
+    : null;
   const benchmarkMetrics = accumulateBenchmarkMetrics({
     benchmarkMetrics: progressState.benchmarkMetrics,
     patchQueueReport,
     liveExecutionSummary,
-    locAccounting: readJson(path.join(ARTIFACT_ROOT, 'loc_accounting.json'), null) || completionSummary?.locAccountingSummary,
+    locAccounting: locAccountingForIteration || completionSummary?.locAccountingSummary,
     blocker,
     freshProgressDetected
   });
-  const shouldRequeue = blocker
+  const shouldRequeue = greenCompletionReached
+    ? false
+    : blocker
     ? false
     : retryClass === 'terminal_green_without_fresh_progress'
       ? true
@@ -1341,13 +1708,15 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
   finalExitCode = result.status || 0;
   finalSignal = result.signal;
   finalSpawnError = result.error ? String(result.error.message || result.error) : null;
-  const creditedFocusIds = Array.from(new Set([...progressState.completedFocusIds, ...mergedFocusIds]));
+  const creditedFocusIds = Array.from(new Set([...(progressState.verifiedCompletedFocusIds || []), ...mergedFocusIds]));
   const verifiedFocusIds = Array.from(new Set([...(progressState.verifiedCompletedFocusIds || []), ...mergedFocusIds]));
   const gainedCreditedFocus = creditedFocusIds.length > progressState.completedFocusIds.length;
   progressState = saveProgressState({
     ...progressState,
     completedFocusIds: creditedFocusIds,
     verifiedCompletedFocusIds: verifiedFocusIds,
+    suspectCompletedFocusIds: Array.from(new Set([...(progressState.suspectCompletedFocusIds || []), ...suspectFocusIdsForIteration])),
+    locTruth: locTruthForIteration || progressState.locTruth || null,
     benchmarkMetrics,
     lastIteration: iteration,
     noProgressStreak: (progressDelta.length > 0 || gainedCreditedFocus) ? 0 : progressState.noProgressStreak,
@@ -1355,14 +1724,35 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
   });
   writeBenchmarkProgress({ progressState, iteration });
 
+  const targetedSemanticReplayStatus = evaluateTargetedSemanticReplay({
+    verifiedFocusIds,
+    iteration,
+    progressDelta,
+    freshProgressDetected,
+    selectedTierHadLiveWork
+  });
+  if (targetedSemanticReplayStatus.active) {
+    writeJson(TARGETED_SEMANTIC_REPLAY_STATUS_PATH, targetedSemanticReplayStatus);
+  }
+  if (targetedSemanticReplayStatus.satisfied) {
+    terminalTargetReplayStatus = targetedSemanticReplayStatus;
+    finalOk = true;
+    finalExitCode = 0;
+    finalSignal = null;
+    finalSpawnError = null;
+    continuationDetected = false;
+    break;
+  }
+
   let blockerClass = classifyIteration({ blocker, progressDelta, freshProgressDetected, spawnError: result.error, workspaceError: result.workspaceRefreshError, retryClass });
   if (blocker && blockerClass === 'hard_blocker') blockerClass = null;
   if (preserveLiveWorkBlocker) blockerClass = null;
   if (greenCompletionReached) blockerClass = null;
   if (blockerClass === 'partial_progress') {
+    recordVerifiedProductPatchFilesForControlPlanePromotion(patchQueueReport);
     progressState = saveProgressState({ ...progressState, noProgressStreak: 0, recoverableInfraRetries: 0, lastIteration: iteration });
     continuationDetected = true;
-    continue;
+    break;
   }
   if (blockerClass === 'recoverable_infra' && progressState.recoverableInfraRetries < MAX_RECOVERABLE_INFRA_RETRIES) {
     progressState = saveProgressState({ ...progressState, recoverableInfraRetries: progressState.recoverableInfraRetries + 1, lastIteration: iteration });
@@ -1376,6 +1766,28 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
       continuationDetected = true;
       continue;
     }
+    terminalNoProgressBlocker = {
+      blocker: `Remote execution reached ${nextNoProgressStreak} consecutive iterations with supervisor-green/no-fresh-progress and no newly credited product focus work.`,
+      nextAction: 'Return a no-progress blocker to the persistent control plane; do not report remote_execution_finished/ok=true for a zero-work scoped-green loop.',
+      blockerKind: 'remote_no_progress_scoped_green',
+      noProgressStreak: nextNoProgressStreak,
+      maxNoProgressIterations: MAX_NO_PROGRESS_ITERATIONS,
+      lastIteration: iteration,
+      stopReason: iterationRecord.stopReason || null,
+      selectedTierHadLiveWork,
+      freshProgressDetected
+    };
+    writeJson(BLOCKER_PATH, {
+      generatedAt: new Date().toISOString(),
+      runId: RUN_ID,
+      phase: 'remote_runner',
+      status: 'blocked',
+      ...terminalNoProgressBlocker
+    });
+    finalOk = false;
+    continuationDetected = false;
+    finalExitCode = 1;
+    break;
   }
   if (blocker) {
     finalOk = result.status === 0 && !result.error && !blocker;
@@ -1414,7 +1826,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration += 1) {
 
 persistTerminalStatus({
   ok: finalOk,
-  phase: finalOk
+  phase: terminalTargetReplayStatus
+    ? 'remote_execution_target_satisfied'
+    : finalOk
     ? 'remote_execution_finished'
     : continuationDetected
       ? 'remote_execution_iteration_cap_reached'
@@ -1422,8 +1836,12 @@ persistTerminalStatus({
   exitCode: continuationDetected ? 2 : (finalExitCode || (finalSpawnError ? 1 : 0)),
   signal: finalSignal,
   error: finalSpawnError,
+  blocker: terminalNoProgressBlocker,
+  targetedSemanticReplay: terminalTargetReplayStatus,
   note: continuationDetected
     ? 'Remote execution runner stopped after hitting the iteration cap while the persistent campaign still wanted to continue, and wrote a terminal receipt.'
+    : terminalTargetReplayStatus
+      ? 'Remote execution runner stopped because the requested targeted semantic focus set was verified. This is not a full-clone completion claim.'
     : finalOk
       ? 'Remote execution runner finished on the execution plane and wrote a terminal receipt.'
       : 'Remote execution runner finished without a clean success state and wrote a terminal receipt.'

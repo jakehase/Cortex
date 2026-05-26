@@ -23,7 +23,11 @@
       "evidence": {
         "tests": [
           "tests/browser-realism.test.mjs",
-          "tests/platform-spine.test.mjs"
+          "tests/conversation-inbox.test.mjs",
+          "tests/mobile-app-experience.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/surveys-feedback.test.mjs",
+          "tests/transactional-journeys.test.mjs"
         ]
       },
       "notes": "Real HTTP server bootstrap, route mounting, and background job loop lifecycle."
@@ -33,6 +37,7 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/ai-predictive-recommendations.test.mjs",
           "tests/current-product-parity.test.mjs",
           "tests/parity-expansion-real-surface.test.mjs"
         ]
@@ -45,7 +50,10 @@
       "evidence": {
         "tests": [
           "tests/audience-core.test.mjs",
-          "tests/parity-expansion-real-surface.test.mjs"
+          "tests/audience-funnels.test.mjs",
+          "tests/audience-warehouse-lifecycle.test.mjs",
+          "tests/parity-expansion-real-surface.test.mjs",
+          "tests/phase9-audience-parity.test.mjs"
         ],
         "routes": [
           "/audiences",
@@ -60,11 +68,19 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/campaign-pipeline.test.mjs",
+          "tests/architecture-hardening.test.mjs",
           "tests/automation-journeys.test.mjs",
-          "tests/campaign-editor-depth.test.mjs",
           "tests/browser-realism.test.mjs",
-          "tests/parity-expansion-real-surface.test.mjs"
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/campaign-pipeline.test.mjs",
+          "tests/commerce-revenue.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/parity-expansion-real-surface.test.mjs",
+          "tests/phase9-campaign-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs",
+          "tests/reports-admin.test.mjs",
+          "tests/template-approvals-routes.test.mjs",
+          "tests/template-variants-routes.test.mjs"
         ],
         "routes": [
           "/campaigns",
@@ -80,7 +96,11 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/automation-journeys.test.mjs"
+          "tests/automation-journeys.test.mjs",
+          "tests/cross-channel-journey-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/journey-designer-client.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
         ],
         "routes": [
           "/automations",
@@ -97,8 +117,19 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/ads-retargeting-runtime.test.mjs",
+          "tests/ai-predictive-recommendations.test.mjs",
+          "tests/campaign-experiment-runtime.test.mjs",
           "tests/current-product-parity.test.mjs",
-          "tests/platform-spine.test.mjs"
+          "tests/dashboard-home-runtime.test.mjs",
+          "tests/omnichannel-reporting-attribution-runtime.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/postcard-direct-mail-runtime.test.mjs",
+          "tests/sms-marketing-runtime.test.mjs",
+          "tests/sms-orchestration.test.mjs",
+          "tests/social-calendar-coordination-runtime.test.mjs",
+          "tests/social-publisher.test.mjs",
+          "tests/social-publishing-runtime.test.mjs"
         ]
       },
       "notes": "Real parity routes and business logic for AI recommendations and predictive workspace surfaces."
@@ -108,8 +139,12 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/browser-realism.test.mjs",
           "tests/campaign-pipeline.test.mjs",
-          "tests/browser-realism.test.mjs"
+          "tests/persistence-jobs-operational-runtime.test.mjs",
+          "tests/persistence-storage.test.mjs",
+          "tests/security-ops-hardening.test.mjs",
+          "tests/sqlite-persistence.test.mjs"
         ]
       },
       "notes": "Maps queued jobs onto concrete import, test-send, and campaign-delivery handlers."
@@ -120,7 +155,11 @@
       "evidence": {
         "tests": [
           "tests/browser-realism.test.mjs",
-          "tests/platform-spine.test.mjs"
+          "tests/persistence-jobs-operational-runtime.test.mjs",
+          "tests/persistence-storage.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/security-ops-hardening.test.mjs",
+          "tests/sqlite-persistence.test.mjs"
         ]
       },
       "notes": "Owns the recurring background job loop used by the live server."
@@ -130,8 +169,12 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/browser-realism.test.mjs",
           "tests/campaign-pipeline.test.mjs",
-          "tests/browser-realism.test.mjs"
+          "tests/persistence-jobs-operational-runtime.test.mjs",
+          "tests/persistence-storage.test.mjs",
+          "tests/security-ops-hardening.test.mjs",
+          "tests/sqlite-persistence.test.mjs"
         ]
       },
       "notes": "Runs pending jobs, retries failures, and records dead letters/events."
@@ -141,6 +184,7 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/ai-predictive-recommendations.test.mjs",
           "tests/current-product-parity.test.mjs"
         ]
       },
@@ -168,9 +212,14 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/campaign-pipeline.test.mjs",
+          "tests/architecture-hardening.test.mjs",
           "tests/browser-realism.test.mjs",
-          "tests/campaign-editor-depth.test.mjs"
+          "tests/campaign-editor-client.test.mjs",
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/campaign-editor-visual-builder-runtime.test.mjs",
+          "tests/campaign-pipeline.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/phase9-campaign-parity.test.mjs"
         ],
         "routes": [
           "/campaigns",
@@ -188,8 +237,18 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/automation-journeys.test.mjs",
           "tests/browser-realism.test.mjs",
-          "tests/current-product-browser-realism.test.mjs"
+          "tests/campaign-editor-client.test.mjs",
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/current-product-browser-realism.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/frontend-client-shell-runtime.test.mjs",
+          "tests/journey-designer-client.test.mjs",
+          "tests/mobile-app-experience.test.mjs",
+          "tests/phase9-platform-parity.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/website-designer-client.test.mjs"
         ]
       },
       "notes": "Serves public-facing pages used by browser realism checks."
@@ -199,9 +258,53 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/ads-retargeting-runtime.test.mjs",
+          "tests/ai-predictive-recommendations.test.mjs",
+          "tests/auth-security-runtime.test.mjs",
+          "tests/automation-journeys.test.mjs",
+          "tests/billing-entitlements-runtime.test.mjs",
+          "tests/campaign-experiment-runtime.test.mjs",
+          "tests/campaign-pipeline.test.mjs",
+          "tests/commerce-revenue-runtime.test.mjs",
+          "tests/content-asset-templates.test.mjs",
+          "tests/content-studio-runtime.test.mjs",
+          "tests/conversation-inbox-runtime.test.mjs",
+          "tests/conversation-inbox.test.mjs",
+          "tests/cross-channel-journey-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/dashboard-home-runtime.test.mjs",
+          "tests/deliverability-compliance.test.mjs",
+          "tests/developer-api-webhook-runtime.test.mjs",
+          "tests/forms-landing.test.mjs",
+          "tests/integration-provider-account-runtime.test.mjs",
+          "tests/integrations-marketplace.test.mjs",
+          "tests/lead-capture-conversion-runtime.test.mjs",
+          "tests/mailchimp-continuous-frontier-runtime.test.mjs",
+          "tests/mobile-app-experience.test.mjs",
+          "tests/mobile-app-runtime.test.mjs",
+          "tests/omnichannel-reporting-attribution-runtime.test.mjs",
+          "tests/persistence-jobs-operational-runtime.test.mjs",
           "tests/persistence-storage.test.mjs",
+          "tests/phase9-lead-capture-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs",
           "tests/platform-spine.test.mjs",
-          "tests/campaign-pipeline.test.mjs"
+          "tests/postcard-direct-mail-runtime.test.mjs",
+          "tests/preferences-center-runtime.test.mjs",
+          "tests/preferences-center.test.mjs",
+          "tests/reports-admin.test.mjs",
+          "tests/security-ops-hardening.test.mjs",
+          "tests/settings-domains-deliverability-runtime.test.mjs",
+          "tests/sms-marketing-runtime.test.mjs",
+          "tests/sms-orchestration.test.mjs",
+          "tests/social-calendar-coordination-runtime.test.mjs",
+          "tests/social-publisher.test.mjs",
+          "tests/social-publishing-runtime.test.mjs",
+          "tests/sqlite-persistence.test.mjs",
+          "tests/surveys-feedback-runtime.test.mjs",
+          "tests/surveys-feedback.test.mjs",
+          "tests/team-governance-runtime.test.mjs",
+          "tests/transactional-journeys.test.mjs",
+          "tests/transactional-messaging-runtime.test.mjs"
         ]
       },
       "notes": "Loads and saves persistent workspace state with legacy compatibility and shared persistState abstraction."
@@ -211,7 +314,8 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/persistence-storage.test.mjs"
+          "tests/persistence-storage.test.mjs",
+          "tests/sqlite-persistence.test.mjs"
         ]
       },
       "notes": "Shared atomic JSON and text writers used by the live persistence layer for workspace state, exports, and uploads."
@@ -221,8 +325,9 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/security-ops-hardening.test.mjs",
-          "tests/platform-spine.test.mjs"
+          "tests/auth-security-runtime.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/security-ops-hardening.test.mjs"
         ],
         "routes": [
           "/login",
@@ -237,8 +342,21 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/auth-security-runtime.test.mjs",
+          "tests/campaign-editor-client.test.mjs",
+          "tests/campaign-pipeline.test.mjs",
+          "tests/conversation-inbox.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/frontend-client-shell-runtime.test.mjs",
+          "tests/mobile-app-experience.test.mjs",
+          "tests/parity-route-aliases.test.mjs",
+          "tests/phase9-platform-parity.test.mjs",
+          "tests/platform-spine.test.mjs",
           "tests/public-marketing.test.mjs",
-          "tests/campaign-pipeline.test.mjs"
+          "tests/security-ops-hardening.test.mjs",
+          "tests/surveys-feedback.test.mjs",
+          "tests/transactional-journeys.test.mjs",
+          "tests/website-designer-client.test.mjs"
         ],
         "routes": [
           "/",
@@ -254,7 +372,14 @@
       "evidence": {
         "tests": [
           "tests/browser-realism.test.mjs",
-          "tests/current-product-browser-realism.test.mjs"
+          "tests/campaign-editor-client.test.mjs",
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/campaign-editor-visual-builder-runtime.test.mjs",
+          "tests/current-product-browser-realism.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/frontend-client-shell-runtime.test.mjs",
+          "tests/website-builder-publish-runtime.test.mjs",
+          "tests/website-designer-client.test.mjs"
         ]
       },
       "notes": "Defines public shell styling needed by browser realism coverage."
@@ -264,8 +389,11 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/implement-worker.regressions.test.mjs",
           "tests/audience-core.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/implement-worker.regressions.test.mjs",
+          "tests/parity-route-aliases.test.mjs",
+          "tests/phase9-platform-parity.test.mjs",
           "tests/platform-spine.test.mjs"
         ]
       },
@@ -276,7 +404,10 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/audience-core.test.mjs"
+          "tests/audience-core.test.mjs",
+          "tests/audience-funnels.test.mjs",
+          "tests/audience-warehouse-lifecycle.test.mjs",
+          "tests/phase9-audience-parity.test.mjs"
         ]
       },
       "notes": "Serves audience CRUD, metrics, taxonomy, and contact management flows."
@@ -286,7 +417,19 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/platform-spine.test.mjs"
+          "tests/architecture-hardening.test.mjs",
+          "tests/auth-security-runtime.test.mjs",
+          "tests/billing-entitlements-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/dashboard-home-runtime.test.mjs",
+          "tests/developer-api-webhook-runtime.test.mjs",
+          "tests/parity-route-aliases.test.mjs",
+          "tests/phase9-platform-parity.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/reports-admin.test.mjs",
+          "tests/security-ops-hardening.test.mjs",
+          "tests/settings-domains-deliverability-runtime.test.mjs",
+          "tests/team-governance-runtime.test.mjs"
         ]
       },
       "notes": "Serves platform pricing, billing, and plan catalog surfaces."
@@ -296,7 +439,9 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/conversation-inbox.test.mjs"
+          "tests/conversation-inbox-runtime.test.mjs",
+          "tests/conversation-inbox.test.mjs",
+          "tests/mobile-app-experience.test.mjs"
         ]
       },
       "notes": "Serves conversation inbox listing, reply, and close-thread flows."
@@ -306,6 +451,8 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/preferences-center-runtime.test.mjs",
           "tests/preferences-center.test.mjs"
         ]
       },
@@ -316,6 +463,8 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/surveys-feedback-runtime.test.mjs",
           "tests/surveys-feedback.test.mjs"
         ]
       },
@@ -326,7 +475,9 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/transactional-journeys.test.mjs"
+          "tests/mobile-app-experience.test.mjs",
+          "tests/transactional-journeys.test.mjs",
+          "tests/transactional-messaging-runtime.test.mjs"
         ]
       },
       "notes": "Serves journey creation, activation, and dispatch flows."
@@ -336,8 +487,10 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/integrations-marketplace.test.mjs",
-          "tests/implement-worker.regressions.test.mjs"
+          "tests/current-product-parity.test.mjs",
+          "tests/implement-worker.regressions.test.mjs",
+          "tests/integration-provider-account-runtime.test.mjs",
+          "tests/integrations-marketplace.test.mjs"
         ],
         "routes": [
           "/integrations",
@@ -352,8 +505,10 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "tests/integrations-marketplace.test.mjs",
-          "tests/implement-worker.regressions.test.mjs"
+          "tests/current-product-parity.test.mjs",
+          "tests/implement-worker.regressions.test.mjs",
+          "tests/integration-provider-account-runtime.test.mjs",
+          "tests/integrations-marketplace.test.mjs"
         ]
       },
       "notes": "Fetch-based provider bridge that returns live sync payloads and refreshed scopes for installed marketplace integrations."
@@ -394,8 +549,18 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/ads-retargeting-runtime.test.mjs",
+          "tests/ai-predictive-recommendations.test.mjs",
+          "tests/architecture-hardening.test.mjs",
+          "tests/browser-realism.test.mjs",
           "tests/current-product-parity.test.mjs",
-          "tests/parity-expansion-real-surface.test.mjs"
+          "tests/parity-expansion-real-surface.test.mjs",
+          "tests/sms-marketing-runtime.test.mjs",
+          "tests/sms-orchestration.test.mjs",
+          "tests/social-publisher.test.mjs",
+          "tests/social-publishing-runtime.test.mjs",
+          "tests/website-builder-publish-runtime.test.mjs",
+          "tests/website-designer-client.test.mjs"
         ],
         "routes": [
           "/websites",
@@ -410,7 +575,11 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/billing-analytics.test.mjs",
+          "tests/commerce-revenue-runtime.test.mjs",
           "tests/commerce-revenue.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs",
           "tests/reports-admin.test.mjs"
         ],
         "routes": [
@@ -450,7 +619,12 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/content-asset-templates.test.mjs",
+          "tests/content-studio-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/platform-spine.test.mjs",
           "tests/template-approvals-routes.test.mjs",
+          "tests/template-marketplace.test.mjs",
           "tests/template-variants-routes.test.mjs"
         ]
       },
@@ -461,6 +635,11 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/content-asset-templates.test.mjs",
+          "tests/content-studio-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/platform-spine.test.mjs",
           "tests/template-approvals-routes.test.mjs",
           "tests/template-variants-routes.test.mjs"
         ]
@@ -472,6 +651,8 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/integration-provider-account-runtime.test.mjs",
           "tests/integrations-marketplace.test.mjs"
         ]
       },
@@ -482,11 +663,617 @@
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/architecture-hardening.test.mjs",
           "tests/billing-analytics.test.mjs",
+          "tests/browser-realism.test.mjs",
+          "tests/commerce-revenue.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs",
+          "tests/reporting-telemetry-pipeline.test.mjs",
           "tests/reports-admin.test.mjs"
         ]
       },
       "notes": "Declared after product parity box relaunch changed reports overview behavior."
+    },
+    "packages/app/routes/api-admin.mjs": {
+      "label": "Packages App Routes Api Admin",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/architecture-hardening.test.mjs",
+          "tests/billing-analytics.test.mjs",
+          "tests/billing-entitlements-runtime.test.mjs",
+          "tests/browser-realism.test.mjs",
+          "tests/content-asset-templates.test.mjs",
+          "tests/content-studio-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/dashboard-home-runtime.test.mjs",
+          "tests/deliverability-compliance.test.mjs",
+          "tests/developer-api-webhook-runtime.test.mjs",
+          "tests/persistence-jobs-operational-runtime.test.mjs",
+          "tests/persistence-storage.test.mjs",
+          "tests/phase9-platform-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/reports-admin.test.mjs",
+          "tests/security-ops-hardening.test.mjs",
+          "tests/settings-domains-deliverability-runtime.test.mjs",
+          "tests/sqlite-persistence.test.mjs",
+          "tests/team-governance-runtime.test.mjs"
+        ]
+      },
+      "notes": "Auto-declared by implement worker for frontend_architecture parity changes."
+    },
+    "apps/web/public/journey-designer-client.mjs": {
+      "label": "Journey designer client module",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/automation-journeys.test.mjs",
+          "tests/journey-designer-client.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof; served through the authenticated automation builder path with executable tests."
+    },
+    "apps/web/public/editor-client.mjs": {
+      "label": "Apps Web Public Editor Client",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/campaign-editor-client.test.mjs",
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/campaign-editor-visual-builder-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (campaign_editor_client_interaction_layer)."
+    },
+    "apps/web/public/website-designer-client.mjs": {
+      "label": "Apps Web Public Website Designer Client",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/website-builder-publish-runtime.test.mjs",
+          "tests/website-designer-client.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (website_builder_visual_designer_layer)."
+    },
+    "packages/app/domain-content-ecosystem-depth.mjs": {
+      "label": "Packages App Domain Content Ecosystem Depth",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/content-checklists.test.mjs",
+          "tests/content-library.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/integration-provider-account-runtime.test.mjs",
+          "tests/integrations-marketplace.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (product proof)."
+    },
+    "packages/app/domain-custom-journeys.mjs": {
+      "label": "Packages App Domain Custom Journeys",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/integrations-marketplace.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (integrations_marketplace__gap_integration_ecosystem_realism)."
+    },
+    "packages/app/domain-deliverability-compliance.mjs": {
+      "label": "Packages App Domain Deliverability Compliance",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/deliverability-compliance.test.mjs",
+          "tests/deliverability-labs.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/settings-domains-deliverability-runtime.test.mjs",
+          "tests/team-governance-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (product proof)."
+    },
+    "packages/app/domain-growth.mjs": {
+      "label": "Packages App Domain Growth",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/automation-journeys.test.mjs",
+          "tests/cross-channel-journey-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/deep-parity-growth.test.mjs",
+          "tests/forms-landing.test.mjs",
+          "tests/lead-capture-conversion-runtime.test.mjs",
+          "tests/phase9-lead-capture-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (product proof)."
+    },
+    "packages/app/domain-journeys.mjs": {
+      "label": "Packages App Domain Journeys",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/automation-journeys.test.mjs",
+          "tests/cross-channel-journey-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (automation_journey_builder__req_01)."
+    },
+    "packages/app/domain-leads.mjs": {
+      "label": "Packages App Domain Leads",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/forms-landing.test.mjs",
+          "tests/lead-capture-conversion-runtime.test.mjs",
+          "tests/phase9-lead-capture-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (signup_forms_popups__req_01)."
+    },
+    "packages/app/domain-notes.mjs": {
+      "label": "Packages App Domain Notes",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/phase9-platform-parity.test.mjs",
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (team_roles_permissions__req_01)."
+    },
+    "packages/app/experiment-engine.mjs": {
+      "label": "Packages App Experiment Engine",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/experiment-lab.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (product proof)."
+    },
+    "packages/app/http-runtime.mjs": {
+      "label": "Packages App Http Runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/browser-realism.test.mjs",
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (product proof)."
+    },
+    "packages/app/routes/content-library.mjs": {
+      "label": "Packages App Routes Content Library",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/content-library.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (content_studio__gap_content_studio_depth)."
+    },
+    "packages/app/routes/content-ops.mjs": {
+      "label": "Packages App Routes Content Ops",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/content-library.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (content_studio__gap_content_studio_depth)."
+    },
+    "packages/app/routes/current-product-ops.mjs": {
+      "label": "Packages App Routes Current Product Ops",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/ads-retargeting-runtime.test.mjs",
+          "tests/ai-predictive-recommendations.test.mjs",
+          "tests/campaign-experiment-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/dashboard-home-runtime.test.mjs",
+          "tests/integration-provider-account-runtime.test.mjs",
+          "tests/integrations-marketplace.test.mjs",
+          "tests/mailchimp-continuous-frontier-runtime.test.mjs",
+          "tests/omnichannel-reporting-attribution-runtime.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/postcard-direct-mail-runtime.test.mjs",
+          "tests/sms-marketing-runtime.test.mjs",
+          "tests/sms-orchestration.test.mjs",
+          "tests/social-calendar-coordination-runtime.test.mjs",
+          "tests/social-publisher.test.mjs",
+          "tests/social-publishing-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (product proof)."
+    },
+    "packages/app/routes/forms.mjs": {
+      "label": "Packages App Routes Forms",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/forms-landing.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (product proof)."
+    },
+    "packages/app/routes/integrations.mjs": {
+      "label": "Packages App Routes Integrations",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/integrations-marketplace.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (integrations_marketplace__gap_integration_ecosystem_realism)."
+    },
+    "packages/app/routes/leads.mjs": {
+      "label": "Packages App Routes Leads",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/forms-landing.test.mjs",
+          "tests/lead-capture-conversion-runtime.test.mjs",
+          "tests/phase9-lead-capture-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (signup_forms_popups__req_01)."
+    },
+    "packages/app/routes/templates.mjs": {
+      "label": "Packages App Routes Templates",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/phase9-campaign-parity.test.mjs",
+          "tests/template-approvals-routes.test.mjs",
+          "tests/template-variants-routes.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (email_builder__req_01)."
+    },
+    "packages/app/routes/website-builder.mjs": {
+      "label": "Packages App Routes Website Builder",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/website-builder-publish-runtime.test.mjs",
+          "tests/website-designer-client.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (website_builder_visual_designer_layer)."
+    },
+    "packages/app/routes/websites.mjs": {
+      "label": "Packages App Routes Websites",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/forms-landing.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (landing_pages__req_01)."
+    },
+    "packages/app/storage-sqlite.mjs": {
+      "label": "Packages App Storage Sqlite",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/persistence-storage.test.mjs",
+          "tests/sqlite-persistence.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (sqlite_persistence_data_plane)."
+    },
+    "packages/mobile-app/domain-mobile-app.mjs": {
+      "label": "Packages Mobile App Domain Mobile App",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/mobile-app-runtime.test.mjs",
+          "tests/transactional-journeys.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (mobile_app)."
+    },
+    "packages/mobile-app/index.mjs": {
+      "label": "Packages Mobile App Index",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/mobile-app-runtime.test.mjs",
+          "tests/transactional-journeys.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (mobile_app)."
+    },
+    "packages/mobile-app/routes/mobile-app.mjs": {
+      "label": "Packages Mobile App Routes Mobile App",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/mobile-app-runtime.test.mjs",
+          "tests/transactional-journeys.test.mjs"
+        ]
+      },
+      "notes": "Real Mailchimp product surface declared from executable proof coverage (mobile_app)."
+    },
+    "packages/app/analytics-events.mjs": {
+      "label": "Analytics event recording surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/billing-analytics.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/reporting-telemetry-pipeline.test.mjs",
+          "tests/reports-admin.test.mjs"
+        ]
+      },
+      "notes": "Real analytics event helpers used by reporting and current product proof surfaces."
+    },
+    "packages/app/domain-collaboration-approval.mjs": {
+      "label": "Collaboration approvals domain",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/approval-batches.test.mjs",
+          "tests/calendar-approvals.test.mjs",
+          "tests/collaboration-approval.test.mjs"
+        ]
+      },
+      "notes": "Real collaboration, approval, and marketing calendar domain surface with executable route and workflow tests."
+    },
+    "apps/web/public/app-shell-client.mjs": {
+      "label": "Frontend full client application runtime shell",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/campaign-editor-client.test.mjs",
+          "tests/frontend-client-shell-runtime.test.mjs",
+          "tests/website-designer-client.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof; served through the authenticated automation builder path with executable tests."
+    },
+    "apps/web/public/app-shell.jsx": {
+      "label": "Frontend full client application runtime shell",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/campaign-editor-client.test.mjs",
+          "tests/frontend-client-shell-runtime.test.mjs",
+          "tests/website-designer-client.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof; served through the authenticated automation builder path with executable tests."
+    },
+    "packages/app/routes/commerce-revenue.mjs": {
+      "label": "Commerce revenue attribution and recovery runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/commerce-revenue-runtime.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Commerce revenue attribution and recovery runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/conversation-inbox/domain-conversation-inbox.mjs": {
+      "label": "Conversation inbox SLA/assignment runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/conversation-inbox-runtime.test.mjs",
+          "tests/conversation-inbox.test.mjs",
+          "tests/mobile-app-experience.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Conversation inbox SLA/assignment runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/conversation-inbox/index.mjs": {
+      "label": "Conversation inbox SLA/assignment runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/conversation-inbox-runtime.test.mjs",
+          "tests/conversation-inbox.test.mjs",
+          "tests/mobile-app-experience.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Conversation inbox SLA/assignment runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/surveys-feedback/domain-surveys-feedback.mjs": {
+      "label": "Survey feedback insights runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/surveys-feedback-runtime.test.mjs",
+          "tests/surveys-feedback.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Survey feedback insights runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/surveys-feedback/index.mjs": {
+      "label": "Survey feedback insights runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/surveys-feedback-runtime.test.mjs",
+          "tests/surveys-feedback.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Survey feedback insights runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/preferences-center/domain-preferences-center.mjs": {
+      "label": "Preference center consent/suppression runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/preferences-center-runtime.test.mjs",
+          "tests/preferences-center.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Preference center consent/suppression runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/preferences-center/index.mjs": {
+      "label": "Preference center consent/suppression runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/preferences-center-runtime.test.mjs",
+          "tests/preferences-center.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Preference center consent/suppression runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/customer-journeys/domain-customer-journeys.mjs": {
+      "label": "Transactional messaging delivery runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/transactional-journeys.test.mjs",
+          "tests/transactional-messaging-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Transactional messaging delivery runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/customer-journeys/index.mjs": {
+      "label": "Transactional messaging delivery runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/mobile-app-experience.test.mjs",
+          "tests/transactional-journeys.test.mjs",
+          "tests/transactional-messaging-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Transactional messaging delivery runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/app/domain-core.mjs": {
+      "label": "Developer API/webhook runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/billing-entitlements-runtime.test.mjs",
+          "tests/dashboard-home-runtime.test.mjs",
+          "tests/developer-api-webhook-runtime.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/reports-admin.test.mjs",
+          "tests/settings-domains-deliverability-runtime.test.mjs",
+          "tests/team-governance-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Developer API/webhook runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/app/routes/deliverability-compliance.mjs": {
+      "label": "Settings domains deliverability runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/deliverability-compliance.test.mjs",
+          "tests/platform-spine.test.mjs",
+          "tests/settings-domains-deliverability-runtime.test.mjs",
+          "tests/team-governance-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Settings domains deliverability runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/app/domain-mailchimp-continuous-frontier.mjs": {
+      "label": "Mailchimp continuous frontier runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/mailchimp-continuous-frontier-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Mailchimp continuous frontier runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/app/domain-current-product.mjs": {
+      "label": "Mailchimp continuous frontier runtime",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/mailchimp-continuous-frontier-runtime.test.mjs"
+        ]
+      },
+      "notes": "Real product surface for autonomous strict-gap continuation proof: Mailchimp continuous frontier runtime; served through normal authenticated app routes with executable tests."
+    },
+    "packages/admin-studio/index.mjs": {
+      "label": "Admin Studio package surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/platform-spine.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/reports-admin.test.mjs"
+        ]
+      },
+      "notes": "Real account governance, permission review, workspace health summaries and dashboard route descriptors consumed by admin console server."
+    },
+    "packages/consent-ledger/index.mjs": {
+      "label": "Consent Ledger package surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/platform-spine.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/reports-admin.test.mjs"
+        ]
+      },
+      "notes": "Real consent history, subscription source tracking, and compliance export dashboard descriptors consumed by compliance hub server."
+    },
+    "packages/developer-hub/index.mjs": {
+      "label": "Developer Hub package surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/platform-spine.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/reports-admin.test.mjs"
+        ]
+      },
+      "notes": "Real API onboarding, webhook readiness, and integration launch dashboard descriptors consumed by developer portal server."
+    },
+    "packages/partner-exchange/index.mjs": {
+      "label": "Partner Exchange package surface",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/platform-spine.test.mjs",
+          "tests/current-product-parity.test.mjs",
+          "tests/reports-admin.test.mjs"
+        ]
+      },
+      "notes": "Real partner listing, certification, and marketplace handoff dashboard descriptors consumed by developer portal server."
     }
   }
 }
