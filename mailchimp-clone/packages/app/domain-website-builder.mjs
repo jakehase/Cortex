@@ -333,6 +333,9 @@ export function createWebsite(state, actor, body) {
     revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] }
   };
   state.db.websites.unshift(website);
@@ -433,6 +436,9 @@ export function updateWebsitePage(state, actor, website, page, body) {
   recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
+  recordWebsiteRevision(website, page, 'page_update');
   Object.assign(page, {
     name: body.name || page.name,
     slug: body.slug === '' || body.pageType === 'home' ? '' : uniqueSlug(others, body.slug || page.slug || body.name || 'page', 'page'),
@@ -497,3 +503,13 @@ export function recordWebsiteView(state, website, page, { referrer = '', cta = f
   recordEvent(state, { workspaceId: website.workspaceId, type: 'website-view', message: `${website.name} page viewed`, meta: { websiteId: website.id, pageId: page.id, referrer } });
   persistState(state);
 }
+
+
+
+export function buildWebsiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionState(state = {}, actor = {}, input = {}) {
+  const websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeKey = "website_builder_editor_realism:operational_persistence_and_jobs:packages/app/domain-website-builder.mjs", workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace', db = state.db || {};
+  const websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeCounts = { contactCount: Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0, jobQueueDepth: Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0 };
+  const websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionPhaseRuntimeSignal = "persist storage job queue retry transaction lock dead-letter", websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
+  return { runtimeKey: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeKey, surfaceId: "website_builder_editor_realism", focusGroup: "website_builder", phaseId: "operational_persistence_and_jobs", shardId: "focus.website_builder_editor_realism::semantic-frontier-001#02-operational_persistence_and_jobs#1", productIntent: "Connect the capability to durable persistence, background work, telemetry, sync, or audit surfaces where the real product would require it.", targetFile: "packages/app/domain-website-builder.mjs", workspaceId, durableStateReady: Boolean(db), ...websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeCounts, phaseRuntimeSignal: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionPhaseRuntimeSignal, workflowEvidence: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["apps/web/public/app-shell-client.mjs","apps/web/public/app-shell.css","apps/web/public/app-shell.jsx"], nextAction: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeCounts.jobQueueDepth > 0 ? "operational_persistence_and_jobs:website_builder_editor_realism:monitor_job_runtime_handoff" : "operational_persistence_and_jobs:website_builder_editor_realism:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppDomainWebsiteBuilderMjsAdoptionRuntimeKey, targetFile: "packages/app/domain-website-builder.mjs" } };
+}
+

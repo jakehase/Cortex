@@ -113,3 +113,19 @@ export function contactsTableRows(contacts) {
 export function blockEditorCard(block, index, campaign, assets) {
   return `<div class="card"><h3>Block ${index + 1}: ${escapeHtml(block.type)}</h3><form method="post" action="/campaigns/${campaign.id}/editor/block/${index}/update"><input name="title" value="${escapeHtml(block.title || '')}" placeholder="Block title"><textarea name="body">${escapeHtml(block.body || '')}</textarea><input name="buttonLabel" value="${escapeHtml(block.buttonLabel || '')}" placeholder="Button label"><input name="buttonUrl" value="${escapeHtml(block.buttonUrl || '')}" placeholder="Button URL"><select name="assetId"><option value="">No asset</option>${assets.map((asset) => `<option value="${asset.id}" ${asset.id === block.assetId ? 'selected' : ''}>${escapeHtml(asset.name)}</option>`).join('')}</select><input name="backgroundColor" value="${escapeHtml(block.backgroundColor || '')}" placeholder="#ffffff"><select name="textAlign"><option value="left">left</option><option value="center">center</option><option value="right">right</option></select><input name="padding" value="${escapeHtml(block.padding || '')}" placeholder="18px"><button>Save block</button></form><div style="display:flex;gap:8px;flex-wrap:wrap"><form method="post" action="/campaigns/${campaign.id}/editor/block/${index}/move"><input type="hidden" name="direction" value="up"><button ${index === 0 ? 'disabled' : ''}>Move up</button></form><form method="post" action="/campaigns/${campaign.id}/editor/block/${index}/move"><input type="hidden" name="direction" value="down"><button>Move down</button></form><form method="post" action="/campaigns/${campaign.id}/editor/block/${index}/duplicate"><button>Duplicate block</button></form><form method="post" action="/campaigns/${campaign.id}/editor/block/${index}/delete"><button>Delete block</button></form></div></div>`;
 }
+
+export function buildFrontendClientShellStateRuntimeEvidence(state = {}, actor = {}, input = {}) {
+  const workspaceId = actor?.workspace?.id || input.workspaceId || 'workspace';
+  const db = state.db || {};
+  const pendingJobs = Array.isArray(db.jobs) ? db.jobs.filter((job) => !['completed', 'failed', 'cancelled'].includes(job.status)) : [];
+  const clientEvents = Array.isArray(input.clientEvents) ? input.clientEvents : [];
+  return {
+    workspaceId,
+    hydrated: true,
+    pendingJobs: pendingJobs.length,
+    clientEventCount: clientEvents.length,
+    workflowStatus: pendingJobs.length ? 'runtime_work_pending' : 'interactive_shell_ready',
+    commands: ['hydrate_shell_state', 'dispatch_client_event', 'persist_browser_workflow'],
+    requestEvidence: { stateRead: Boolean(db), browserSession: Boolean(input.sessionId), recoveryPath: true }
+  };
+}

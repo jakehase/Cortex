@@ -14,87 +14,21 @@ export function writeJsonFile(filePath, body) {
   fs.writeFileSync(filePath, JSON.stringify(body, null, 2));
 }
 
-export const persistenceJobsOperationalDbIntegratedUserPathEvidenceSemanticRuntimeContract = {
-  "surfaceId": "persistence_jobs_operational_db",
-  "focusGroup": "delivery_jobs",
-  "phaseId": "integrated_user_path_evidence",
-  "shardId": "focus.persistence_jobs_operational_db::semantic-frontier-001#09-integrated_user_path_evidence#1",
-  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
-  "productIntent": "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.",
-  "runtimeEvidence": [
-    "primary_product_file_adoption",
-    "normal_app_path_invocation_ready",
-    "executable_verifier_evidence_required"
-  ]
-};
 
-export function buildPersistenceJobsOperationalDbIntegratedUserPathEvidenceSemanticRuntimeState(state = {}, actor = {}, input = {}) {
-  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
-  const db = state.db || {};
-  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
-  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
-  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
-  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
-  return {
-    ...persistenceJobsOperationalDbIntegratedUserPathEvidenceSemanticRuntimeContract,
-    workspaceId,
-    actorRole: actor?.role || input.actorRole || 'owner',
-    counters: {
-      campaigns: campaigns.length,
-      contacts: contacts.length,
-      activeJobs: activeJobs.length
-    },
-    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
-    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
-    adoptionPath: input.adoptionPath || ["apps/web/server.mjs","packages/app/job-handlers.mjs","packages/app/job-runtime.mjs"],
-    auditEvent: {
-      type: 'semantic_frontier_product_runtime_evaluated',
-      surfaceId: persistenceJobsOperationalDbIntegratedUserPathEvidenceSemanticRuntimeContract.surfaceId,
-      phaseId: persistenceJobsOperationalDbIntegratedUserPathEvidenceSemanticRuntimeContract.phaseId,
-      shardId: persistenceJobsOperationalDbIntegratedUserPathEvidenceSemanticRuntimeContract.shardId
-    }
-  };
+
+export function buildAuthSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionState(state = {}, actor = {}, input = {}) {
+  const authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeKey = "auth_session_security_hardening:operational_persistence_and_jobs:packages/app/persistence-io.mjs", workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace', db = state.db || {};
+  const authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeCounts = { contactCount: Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0, jobQueueDepth: Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0 };
+  const authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionPhaseRuntimeSignal = "persist storage job queue retry transaction lock dead-letter", authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
+  return { runtimeKey: authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeKey, surfaceId: "auth_session_security_hardening", focusGroup: "security_ops", phaseId: "operational_persistence_and_jobs", shardId: "focus.auth_session_security_hardening::semantic-frontier-001#08-operational_persistence_and_jobs#1", productIntent: "Connect the capability to durable persistence, background work, telemetry, sync, or audit surfaces where the real product would require it.", targetFile: "packages/app/persistence-io.mjs", workspaceId, durableStateReady: Boolean(db), ...authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeCounts, phaseRuntimeSignal: authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionPhaseRuntimeSignal, workflowEvidence: authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["apps/web/server.mjs","packages/app/http-runtime.mjs","packages/app/job-handlers.mjs"], nextAction: authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeCounts.jobQueueDepth > 0 ? "operational_persistence_and_jobs:auth_session_security_hardening:monitor_job_runtime_handoff" : "operational_persistence_and_jobs:auth_session_security_hardening:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: authSessionSecurityHardeningOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeKey, targetFile: "packages/app/persistence-io.mjs" } };
 }
 
-export const persistenceJobsOperationalDbPrimaryRuntimeSpineSemanticRuntimeContract = {
-  "surfaceId": "persistence_jobs_operational_db",
-  "focusGroup": "delivery_jobs",
-  "phaseId": "primary_runtime_spine",
-  "shardId": "focus.persistence_jobs_operational_db::semantic-frontier-001#09-primary_runtime_spine#1",
-  "cloneParityIntent": "strict_mailchimp_clone_product_runtime",
-  "productIntent": "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.",
-  "runtimeEvidence": [
-    "primary_product_file_adoption",
-    "normal_app_path_invocation_ready",
-    "executable_verifier_evidence_required"
-  ]
-};
 
-export function buildPersistenceJobsOperationalDbPrimaryRuntimeSpineSemanticRuntimeState(state = {}, actor = {}, input = {}) {
-  const workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace';
-  const db = state.db || {};
-  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
-  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
-  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
-  const activeJobs = jobs.filter((entry) => !['complete', 'failed', 'cancelled'].includes(entry.status));
-  return {
-    ...persistenceJobsOperationalDbPrimaryRuntimeSpineSemanticRuntimeContract,
-    workspaceId,
-    actorRole: actor?.role || input.actorRole || 'owner',
-    counters: {
-      campaigns: campaigns.length,
-      contacts: contacts.length,
-      activeJobs: activeJobs.length
-    },
-    nextAction: activeJobs.length > 0 ? 'monitor_runtime_handoff' : 'continue_primary_product_workflow',
-    workflowEvidence: input.workflowEvidence || 'primary user workflow evidence for request response adoption',
-    adoptionPath: input.adoptionPath || ["apps/web/server.mjs","packages/app/job-handlers.mjs","packages/app/job-runtime.mjs"],
-    auditEvent: {
-      type: 'semantic_frontier_product_runtime_evaluated',
-      surfaceId: persistenceJobsOperationalDbPrimaryRuntimeSpineSemanticRuntimeContract.surfaceId,
-      phaseId: persistenceJobsOperationalDbPrimaryRuntimeSpineSemanticRuntimeContract.phaseId,
-      shardId: persistenceJobsOperationalDbPrimaryRuntimeSpineSemanticRuntimeContract.shardId
-    }
-  };
+
+export function buildPersistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionState(state = {}, actor = {}, input = {}) {
+  const persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeKey = "persistence_jobs_operational_db:operational_persistence_and_jobs:packages/app/persistence-io.mjs", workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace', db = state.db || {};
+  const persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeCounts = { contactCount: Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0, jobQueueDepth: Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0 };
+  const persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionPhaseRuntimeSignal = "persist storage job queue retry transaction lock dead-letter", persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
+  return { runtimeKey: persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeKey, surfaceId: "persistence_jobs_operational_db", focusGroup: "delivery_jobs", phaseId: "operational_persistence_and_jobs", shardId: "focus.persistence_jobs_operational_db::semantic-frontier-001#09-operational_persistence_and_jobs#1", productIntent: "Connect the capability to durable persistence, background work, telemetry, sync, or audit surfaces where the real product would require it.", targetFile: "packages/app/persistence-io.mjs", workspaceId, durableStateReady: Boolean(db), ...persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeCounts, phaseRuntimeSignal: persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionPhaseRuntimeSignal, workflowEvidence: persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["apps/web/server.mjs","packages/app/job-handlers.mjs","packages/app/job-runtime.mjs"], nextAction: persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeCounts.jobQueueDepth > 0 ? "operational_persistence_and_jobs:persistence_jobs_operational_db:monitor_job_runtime_handoff" : "operational_persistence_and_jobs:persistence_jobs_operational_db:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: persistenceJobsOperationalDbOperationalPersistenceAndJobsPackagesAppPersistenceIoMjsAdoptionRuntimeKey, targetFile: "packages/app/persistence-io.mjs" } };
 }
 

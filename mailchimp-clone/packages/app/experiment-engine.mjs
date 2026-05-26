@@ -1,20 +1,17 @@
-export function evaluateExperimentReport(experiment, totalRecipients = 0) {
-  const variants = Array.isArray(experiment?.variants) ? experiment.variants : [];
-  const safeTotal = Math.max(variants.length, Number(totalRecipients) || variants.length || 1);
-  return variants.map((variant, index) => {
-    const recipients = Math.max(1, Math.floor(safeTotal / Math.max(variants.length, 1)) + index);
-    const openRate = Number((0.31 + index * 0.04 + (variant.label === 'Variant B' ? 0.03 : 0)).toFixed(3));
-    const clickRate = Number((0.07 + index * 0.025 + (String(variant.bodyPreview || '').length % 5) / 1000).toFixed(3));
-    const revenue = Number((recipients * (1.35 + index * 0.42)).toFixed(2));
+export function evaluateExperimentReport(experiment, recipientTotal) {
+  return experiment.variants.map((variant, index) => {
+    const subjectSignal = variant.subject.split(/\s+/).filter(Boolean).length;
+    const proofSignal = /proof|save|learn|launch|join|start/i.test(variant.bodyPreview) ? 0.03 : 0.015;
+    const urgencySignal = /today|now|new|limited/i.test(variant.subject) ? 0.04 : 0.02;
+    const openRate = Math.min(0.76, 0.26 + Math.min(subjectSignal, 10) * 0.018 + urgencySignal + index * 0.01);
+    const clickRate = Math.min(0.42, 0.08 + proofSignal + (variant.sampleAudience === 'high_intent' ? 0.05 : 0.02) + index * 0.008);
     return {
       variantId: variant.id,
       label: variant.label,
-      recipients,
-      opens: Math.round(recipients * openRate),
-      clicks: Math.round(recipients * clickRate),
+      recipients: Math.round(recipientTotal * ((index === 0 ? experiment.trafficSplit.variantA : experiment.trafficSplit.variantB) / 100)),
       openRate,
       clickRate,
-      revenue
+      revenue: Math.round(recipientTotal * (18 + openRate * 95 + clickRate * 110))
     };
   });
 }
