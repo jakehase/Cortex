@@ -3,17 +3,7 @@ import { recordEvent } from './domain-core.mjs';
 import { createId } from './utils.mjs';
 import { executeJobByType } from './job-handlers.mjs';
 
-export const JOBS_OPERATIONAL_RUNTIME_CONTRACT = Object.freeze({
-  surfaceId: 'persistence_jobs_operational_runtime_layer',
-  label: 'Persistence, background jobs, and operational queue runtime',
-  controls: [
-    'durable_job_queue_state',
-    'retry_backoff_and_attempt_history',
-    'dead_letter_requeue_workflow',
-    'job_operational_snapshot_api',
-    'worker_heartbeat_ledger'
-  ]
-});
+export const JOBS_OPERATIONAL_RUNTIME_CONTRACT = Object.freeze({ surfaceId: 'persistence_jobs_operational_runtime_layer', label: 'Persistence, background jobs, and operational queue runtime', controls: ['durable_job_queue_state', 'retry_backoff_and_attempt_history', 'dead_letter_requeue_workflow', 'job_operational_snapshot_api', 'worker_heartbeat_ledger'] });
 
 const DEFAULT_JOB_ATTEMPTS = {
   import_contacts: 2,
@@ -65,37 +55,7 @@ export function buildJobOperationalSnapshot(state, workspaceId = null) {
   const nowMs = Date.now();
   const dueJobs = jobs.filter((job) => job.status === 'pending' && new Date(job.runAt || job.createdAt || 0).getTime() <= nowMs);
   const futurePending = jobs.filter((job) => job.status === 'pending' && new Date(job.runAt || job.createdAt || 0).getTime() > nowMs);
-  return {
-    ...JOBS_OPERATIONAL_RUNTIME_CONTRACT,
-    generatedAt: now(),
-    workspaceId,
-    queue: {
-      ...summarizeJobs(jobs),
-      dueCount: dueJobs.length,
-      nextDueAt: futurePending.map((job) => job.runAt || job.createdAt).filter(Boolean).sort()[0] || null,
-      deadLetterCount: deadLetters.length,
-      retryableDeadLetterCount: deadLetters.filter((entry) => !entry.requeuedAt).length
-    },
-    leases: {
-      active: leases.filter((lease) => lease.status === 'active'),
-      stale: leases.filter((lease) => lease.status === 'active' && new Date(lease.expiresAt || 0).getTime() <= nowMs),
-      recent: leases.slice(0, 20)
-    },
-    recentJobs: jobs.slice(0, 20).map((job) => ({
-      id: job.id,
-      type: job.type,
-      status: job.status,
-      attempts: job.attempts || 0,
-      maxAttempts: job.maxAttempts || DEFAULT_JOB_ATTEMPTS[job.type] || 1,
-      runAt: job.runAt,
-      updatedAt: job.updatedAt,
-      error: job.error || null,
-      history: (job.history || []).slice(0, 5)
-    })),
-    deadLetters: deadLetters.slice(0, 20),
-    heartbeats: state.db.jobServiceHeartbeats.slice(0, 10),
-    idempotencyKeys: state.db.jobIdempotencyKeys.filter((entry) => !workspaceId || entry.workspaceId === workspaceId).slice(0, 10)
-  };
+  return { ...JOBS_OPERATIONAL_RUNTIME_CONTRACT, generatedAt: now(), workspaceId, queue: { ...summarizeJobs(jobs), dueCount: dueJobs.length, nextDueAt: futurePending.map((job) => job.runAt || job.createdAt).filter(Boolean).sort()[0] || null, deadLetterCount: deadLetters.length, retryableDeadLetterCount: deadLetters.filter((entry) => !entry.requeuedAt).length }, leases: { active: leases.filter((lease) => lease.status === 'active'), stale: leases.filter((lease) => lease.status === 'active' && new Date(lease.expiresAt || 0).getTime() <= nowMs), recent: leases.slice(0, 20) }, recentJobs: jobs.slice(0, 20).map((job) => ({ id: job.id, type: job.type, status: job.status, attempts: job.attempts || 0, maxAttempts: job.maxAttempts || DEFAULT_JOB_ATTEMPTS[job.type] || 1, runAt: job.runAt, updatedAt: job.updatedAt, error: job.error || null, history: (job.history || []).slice(0, 5) })), deadLetters: deadLetters.slice(0, 20), heartbeats: state.db.jobServiceHeartbeats.slice(0, 10), idempotencyKeys: state.db.jobIdempotencyKeys.filter((entry) => !workspaceId || entry.workspaceId === workspaceId).slice(0, 10) };
 }
 
 export function recordJobServiceHeartbeat(state, { workerId = 'mailclone-in-process-worker', status = 'running', detail = 'job runtime heartbeat' } = {}) {
@@ -112,26 +72,11 @@ export function requeueDeadLetterJob(state, actor, deadLetterId, { runAt = now()
   const workspaceId = actor?.workspace?.id || actor?.workspaceId || null;
   const deadLetter = state.db.jobDeadLetters.find((entry) => entry.id === deadLetterId && (!workspaceId || entry.workspaceId === workspaceId));
   if (!deadLetter) return null;
-  const job = {
-    id: createId('job'),
-    type: deadLetter.type,
-    workspaceId: deadLetter.workspaceId,
-    userId: actor?.user?.id || deadLetter.userId || '',
-    payload: deadLetter.payload || {},
-    status: 'pending',
-    createdAt: now(),
-    updatedAt: now(),
-    runAt,
-    attempts: 0,
-    maxAttempts: Math.max(1, Number(deadLetter.attempts || DEFAULT_JOB_ATTEMPTS[deadLetter.type] || 1)),
-    retryDelayMs: 250,
-    requeuedFromDeadLetterId: deadLetter.id,
-    history: [{ at: now(), status: 'requeued', detail: `Requeued from dead letter ${deadLetter.id}`, attempt: 0 }]
-  };
+  const job = { id: createId('job'), type: deadLetter.type, workspaceId: deadLetter.workspaceId, userId: actor?.user?.id || deadLetter.userId || '', payload: deadLetter.payload || {}, status: 'pending', createdAt: now(), updatedAt: now(), runAt, attempts: 0, maxAttempts: Math.max(1, Number(deadLetter.attempts || DEFAULT_JOB_ATTEMPTS[deadLetter.type] || 1)), retryDelayMs: 250, requeuedFromDeadLetterId: deadLetter.id, history: [{ at: now(), status: 'requeued', detail: 'Requeued from dead letter ' + deadLetter.id, attempt: 0 }] };
   state.db.jobs.unshift(job);
   deadLetter.requeuedAt = now();
   deadLetter.requeuedJobId = job.id;
-  recordEvent(state, { workspaceId: job.workspaceId, type: 'job-dead-letter-requeued', message: `${deadLetter.type} requeued`, meta: { deadLetterId, jobId: job.id } });
+  recordEvent(state, { workspaceId: job.workspaceId, type: 'job-dead-letter-requeued', message: deadLetter.type + ' requeued', meta: { deadLetterId, jobId: job.id } });
   state.db.jobOperationalSnapshots.unshift({ id: createId('jobsnap'), reason: 'dead_letter_requeued', ...buildJobOperationalSnapshot(state, job.workspaceId) });
   state.db.jobOperationalSnapshots = state.db.jobOperationalSnapshots.slice(0, 50);
   persistState(state);
