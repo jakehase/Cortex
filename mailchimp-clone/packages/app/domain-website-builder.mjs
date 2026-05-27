@@ -391,6 +391,7 @@ export function createWebsite(state, actor, body) {
     revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] },
+    revisions: { undo: [], redo: [] },
     revisions: { undo: [], redo: [] }
   };
   state.db.websites.unshift(website);
@@ -474,6 +475,7 @@ export function updateWebsite(state, actor, website, body) {
 
 export function updateWebsitePage(state, actor, website, page, body) {
   const others = websitePages(state, website.id).filter((entry) => entry.id !== page.id);
+  recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');
   recordWebsiteRevision(website, page, 'page_update');

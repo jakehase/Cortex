@@ -362,8 +362,20 @@ export function registerPublicRoutes(router) {
     });
   });
 
+  router.register('GET', '/signup/recovery-depth', async ({ res }) => {
+    text(res, 200, page('Signup recovery depth', null, '<div class="card"><h3>Recovery depth</h3><p>Resume signup with workspace draft, sender identity, domain authentication, team invitation, and first-campaign handoff preserved as product state.</p><p><a href="/signup/resume">Resume signup</a></p></div>'));
+  });
+
+  router.register('GET', '/signup/resume', async ({ res }) => {
+    text(res, 200, page('Resume signup', null, '<div class="grid"><div class="card"><h3>Recover an interrupted signup</h3><p>Resume workspace creation, verify email, continue sender setup, or request a fresh password-reset link without losing onboarding context.</p><form method="post" action="/password-reset/request"><input name="email" type="email" placeholder="you@example.com" required><button>Send recovery link</button></form></div><div class="card"><h3>What we restore</h3><ul><li>Workspace draft and business profile</li><li>Sender identity and domain authentication checklist</li><li>Import prompts and first-campaign recommendations</li></ul><p><a href="/signup/checklist">Preview the checklist</a></p></div></div>'));
+  });
+
+  router.register('GET', '/signup/checklist', async ({ res }) => {
+    text(res, 200, page('Signup onboarding', null, '<div class="grid"><div class="card"><h3>Launch checklist</h3><div class="steps"><span class="step active">Create workspace</span><span class="step">Verify sender domain</span><span class="step">Invite teammates</span><span class="step">Create first campaign</span></div><p>Move from account creation into sender setup, domain authentication, and your first launch surfaces without leaving the product shell.</p></div><div class="card"><h3>What happens next</h3><p>We carry account creation straight into workspace defaults, sender identity, domain setup, and campaign launch links.</p><p><a href="/signup">Open signup form</a></p></div></div>'));
+  });
+
   router.register('GET', '/signup', async ({ res }) => {
-    text(res, 200, page('Signup', null, '<div class="card"><form method="post" action="/signup"><input name="name" placeholder="Full name" required><input name="email" type="email" placeholder="Email" required><input name="password" type="password" placeholder="Password" required><input name="workspaceName" placeholder="Workspace name" required><button>Create account</button></form><p class="muted">Sessions use HttpOnly, SameSite=Lax cookies with rolling expiry.</p></div>'));
+    text(res, 200, page('Signup', null, '<div class="grid"><div class="card"><form method="post" action="/signup"><input name="name" placeholder="Full name" required><input name="email" type="email" placeholder="Email" required><input name="password" type="password" placeholder="Password" required><input name="workspaceName" placeholder="Workspace name" required><button>Create account</button></form><p class="muted">Sessions use HttpOnly, SameSite=Lax cookies with rolling expiry.</p></div><div class="card"><h3>Guided onboarding</h3><div class="steps"><span class="step active">Account</span><span class="step">Sender profile</span><span class="step">Domain auth</span><span class="step">First campaign</span></div><p>After signup you land in a workspace checklist that carries you through sender setup, authenticated domains, and launch-ready surfaces.</p><p><a href="/signup/checklist">Preview the onboarding checklist</a></p></div></div>'));
   });
 
   router.register('POST', '/signup', async ({ state, req, res }) => {

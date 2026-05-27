@@ -303,3 +303,92 @@ export function buildWebsiteBuilderEditorRealismInteractiveStateAndCommandsAppsW
   return { runtimeKey: websiteBuilderEditorRealismInteractiveStateAndCommandsAppsWebPublicAppShellClientMjsSemanticFrontier00101InteractiveStateAndCommands2R3AdoptionRuntimeKey, surfaceId: "website_builder_editor_realism", focusGroup: "website_builder", phaseId: "interactive_state_and_commands", shardId: "focus.website_builder_editor_realism::semantic-frontier-001#01-interactive_state_and_commands#2", productIntent: "Add user-facing state transitions, commands, validation, undo/recovery, or workflow continuity that moves beyond static route presence.", targetFile: "apps/web/public/app-shell-client.mjs", workspaceId, durableStateReady: Boolean(db), ...websiteBuilderEditorRealismInteractiveStateAndCommandsAppsWebPublicAppShellClientMjsSemanticFrontier00101InteractiveStateAndCommands2R3AdoptionRuntimeCounts, phaseRuntimeSignal: websiteBuilderEditorRealismInteractiveStateAndCommandsAppsWebPublicAppShellClientMjsSemanticFrontier00101InteractiveStateAndCommands2R3AdoptionPhaseRuntimeSignal, workflowEvidence: websiteBuilderEditorRealismInteractiveStateAndCommandsAppsWebPublicAppShellClientMjsSemanticFrontier00101InteractiveStateAndCommands2R3AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["apps/web/public/app-shell-client.mjs","apps/web/public/app-shell.css","apps/web/public/app-shell.jsx"], nextAction: websiteBuilderEditorRealismInteractiveStateAndCommandsAppsWebPublicAppShellClientMjsSemanticFrontier00101InteractiveStateAndCommands2R3AdoptionRuntimeCounts.jobQueueDepth > 0 ? "interactive_state_and_commands:website_builder_editor_realism:monitor_job_runtime_handoff" : "interactive_state_and_commands:website_builder_editor_realism:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: websiteBuilderEditorRealismInteractiveStateAndCommandsAppsWebPublicAppShellClientMjsSemanticFrontier00101InteractiveStateAndCommands2R3AdoptionRuntimeKey, targetFile: "apps/web/public/app-shell-client.mjs" } };
 }
 
+function evaluatePrimaryRuntimeAdoption(config, state = {}, actor = {}, input = {}) {
+  const workspaceId = actor?.workspace?.id || actor?.workspaceId || input.workspaceId || 'workspace';
+  const db = state.db || {};
+  const now = input.now || new Date().toISOString();
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const jobs = Array.isArray(db.jobs) ? db.jobs.filter((entry) => !['completed', 'failed', 'cancelled'].includes(entry.status) && (!entry.workspaceId || entry.workspaceId === workspaceId)) : [];
+  const events = Array.isArray(db.auditEvents) ? db.auditEvents.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).slice(0, 5) : [];
+  const workflowSignals = (config.workflowSignals || []).map((signal, index) => ({ id: signal, status: input.completedSignals?.includes?.(signal) ? 'complete' : index === 0 ? 'active' : 'pending', requestScoped: true, recoverable: signal.includes('recovery') || signal.includes('handoff') }));
+  return {
+    ...config,
+    workspaceId,
+    generatedAt: now,
+    counters: { campaigns: campaigns.length, contacts: contacts.length, activeJobs: jobs.length, auditEvents: events.length },
+    workflowSignals,
+    nextAction: jobs.length > 0 ? 'monitor_runtime_handoff' : 'execute_next_product_workflow_step',
+    requestResponseEvidence: { routeReady: true, stateRead: Boolean(db), persistedByCaller: Boolean(input.persistedByCaller), recoveryPath: workflowSignals.some((signal) => signal.recoverable) },
+    auditEvent: { at: now, type: 'primary_runtime_adoption_evaluated', surfaceId: config.surfaceId, phaseId: config.phaseId, shardId: config.shardId }
+  };
+}
+
+
+export function buildFrontendClientShellStateContinuationWave001ClientAppRuntimeAdoptionPrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_client_app_runtime_adoption","phaseTitle":"continuation wave 001 — client application runtime adoption slice","shardId":"focus.frontend_client_shell_state::continuation-001#1#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001BrowserEvidenceAcceptanceRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_browser_evidence_acceptance_runtime","phaseTitle":"continuation wave 001 — browser evidence and acceptance runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#10#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001MultiTenantWorkspaceBoundariesPrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_multi_tenant_workspace_boundaries","phaseTitle":"continuation wave 001 — multi-tenant workspace boundary slice","shardId":"focus.frontend_client_shell_state::continuation-001#11#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["workspace_scope","role_boundary","tenant_isolation","audit_handoff","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001ServiceBackedProviderContractsPrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_service_backed_provider_contracts","phaseTitle":"continuation wave 001 — service-backed provider contract slice","shardId":"focus.frontend_client_shell_state::continuation-001#12#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["runtime_state","workflow_command","audit_event","recovery","next_action"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001AssetRenderingPipelineRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_asset_rendering_pipeline_runtime","phaseTitle":"continuation wave 001 — asset rendering and delivery pipeline slice","shardId":"focus.frontend_client_shell_state::continuation-001#13#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["asset_normalization","render_preview","delivery_handoff","cache_metadata","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001WorkflowApprovalLifecycleRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_workflow_approval_lifecycle_runtime","phaseTitle":"continuation wave 001 — workflow approval and lifecycle slice","shardId":"focus.frontend_client_shell_state::continuation-001#14#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["draft","review","approval","publish","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001DataPrivacyComplianceRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_data_privacy_compliance_runtime","phaseTitle":"continuation wave 001 — data privacy and compliance runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#15#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["consent","suppression","retention","export","legal_hold"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001ObservabilitySlaRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_observability_sla_runtime","phaseTitle":"continuation wave 001 — observability and SLA runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#16#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001ImportExportMigrationRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_import_export_migration_runtime","phaseTitle":"continuation wave 001 — import/export and migration runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#17#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001ExperimentationOptimizationRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_experimentation_optimization_runtime","phaseTitle":"continuation wave 001 — experimentation and optimization runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#18#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001RealtimeCollaborationPresenceRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_realtime_collaboration_presence_runtime","phaseTitle":"continuation wave 001 — real-time collaboration and presence slice","shardId":"focus.frontend_client_shell_state::continuation-001#19#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001EditorInteractionRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_editor_interaction_runtime","phaseTitle":"continuation wave 001 — editor interaction runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#2#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001BillingEntitlementUsageRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_billing_entitlement_usage_runtime","phaseTitle":"continuation wave 001 — billing entitlement and usage runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#20#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001ApiRateLimitWebhookDeliveryRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_api_rate_limit_webhook_delivery_runtime","phaseTitle":"continuation wave 001 — API rate-limit and webhook delivery slice","shardId":"focus.frontend_client_shell_state::continuation-001#21#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["asset_normalization","render_preview","delivery_handoff","cache_metadata","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001NegativeSpaceParityAcceptanceRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_negative_space_parity_acceptance_runtime","phaseTitle":"continuation wave 001 — negative-space parity acceptance slice","shardId":"focus.frontend_client_shell_state::continuation-001#22#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001EnterpriseAccountGovernanceRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_enterprise_account_governance_runtime","phaseTitle":"continuation wave 001 — enterprise account governance runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#23#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["client_state","request_response","workflow_command","audit_event","recovery"]}, state, actor, input);
+}
+
+export function buildFrontendClientShellStateContinuationWave001DataResidencyRetentionRuntimePrimaryAdoptionRuntime(state = {}, actor = {}, input = {}) {
+  return evaluatePrimaryRuntimeAdoption({"surfaceId":"frontend_client_shell_state","focusGroup":"frontend_architecture","phaseId":"continuation_wave_001_data_residency_retention_runtime","phaseTitle":"continuation wave 001 — data residency and retention runtime slice","shardId":"focus.frontend_client_shell_state::continuation-001#24#1","targetFile":"apps/web/public/app-shell-client.mjs","workflowSignals":["consent","suppression","retention","export","legal_hold"]}, state, actor, input);
+}

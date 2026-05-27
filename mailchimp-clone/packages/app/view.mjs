@@ -60,6 +60,47 @@ export function signupOnboardingRecoveryPanel(actor) {
   return `<div class="warn"><strong>Resume setup</strong><ul>${readiness.missing.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></div>`;
 }
 
+export function signupOnboardingRecoveryDepth(actor) {
+  const readiness = signupOnboardingJourneyReadiness(actor);
+  return {
+    surface: 'signup_onboarding',
+    status: readiness.percent >= 80 ? 'ready_to_launch' : 'needs_recovery',
+    recoveryTracks: ['workspace draft', 'sender identity', 'domain authentication', 'team invitation', 'first campaign handoff'],
+    nextRecoveryStep: readiness.nextStep,
+    observableEvents: ['signup_resume_opened', 'onboarding_recovery_action_clicked', 'first_campaign_handoff_started']
+  };
+}
+
+export function signupOnboardingRecoveryHandoffPlan(actor) {
+  const readiness = signupOnboardingJourneyReadiness(actor);
+  const recovery = typeof signupOnboardingRecoveryDepth === 'function' ? signupOnboardingRecoveryDepth(actor) : { recoveryTracks: [] };
+  return {
+    surface: 'signup_onboarding',
+    handoff: readiness.percent >= 80 ? 'first_campaign' : 'setup_recovery',
+    ownerRoles: ['workspace admin', 'sender manager', 'campaign creator'],
+    checklistEvidence: readiness.blockers.map((label) => ({ label, action: 'resolve_before_first_send' })),
+    recoveryTracks: recovery.recoveryTracks || [],
+    preservedState: ['workspace draft', 'sender identity', 'domain authentication', 'team invite intent', 'campaign starter context']
+  };
+}
+
+export function signupOnboardingOperationalReadinessPlan(actor) {
+  const readiness = signupOnboardingJourneyReadiness(actor);
+  const handoff = typeof signupOnboardingRecoveryHandoffPlan === 'function' ? signupOnboardingRecoveryHandoffPlan(actor) : { preservedState: [] };
+  return {
+    surface: 'signup_onboarding',
+    launchReadiness: readiness.percent,
+    operationalQueues: [
+      { id: 'sender_identity', label: 'Sender identity', ready: readiness.hasSenderIdentity },
+      { id: 'domain_authentication', label: 'Domain authentication', ready: readiness.hasAuthenticatedDomain },
+      { id: 'workspace_defaults', label: 'Workspace defaults', ready: Boolean(actor?.workspace?.id) },
+      { id: 'campaign_handoff', label: 'First campaign handoff', ready: readiness.blockers.length === 0 }
+    ],
+    preservedState: handoff.preservedState || [],
+    nextAction: readiness.nextStep
+  };
+}
+
 export function requireActor(state, req, res, redirect, getCurrentActor) {
   const actor = getCurrentActor(state, req);
   if (!actor) {

@@ -116,3 +116,19 @@ export function buildLifecycleNextBestAction(contact = {}, vector = {}, body = {
   const goal = normalizeGoal(body.goal, 'lifecycle conversion');
   return { label: tier + ' next best action', rationale: 'Contact ' + (contact.email || vector.email || contact.id || 'unknown') + ' is in ' + tier + '; use ' + channel + ' to move toward ' + goal + '.', payload: { contactId: contact.id || vector.contactId || '', email: contact.email || vector.email || '', tier, channel, action: tier === 'high_intent' ? 'send_offer_followup' : tier === 'warming' ? 'send_education_sequence' : 'monitor_until_next_signal', score }, meta: recommendationMeta('lifecycle_next_best_action', Math.max(65, score), { generatedFrom: ['contact vector', 'engagement score', 'channel consent'] }) };
 }
+
+export function buildPredictiveDecisionRuntimeEvidence(state = {}, actor = {}, input = {}) {
+  const workspaceId = actor?.workspace?.id || input.workspaceId || 'workspace';
+  const campaigns = Array.isArray(state.db?.campaigns) ? state.db.campaigns.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const contacts = Array.isArray(state.db?.contacts) ? state.db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId) : [];
+  const predictiveCandidates = contacts.map((contact) => ({ id: contact.id, email: contact.email, score: Number(contact.predictiveScore || 0) || (contact.status === 'subscribed' ? 62 : 28) }));
+  return {
+    provider: 'mailclone-ai-runtime',
+    workspaceId,
+    campaignCount: campaigns.length,
+    predictiveCandidateCount: predictiveCandidates.length,
+    topCandidates: predictiveCandidates.sort((left, right) => right.score - left.score).slice(0, 5),
+    workflowStatus: predictiveCandidates.length ? 'predictive_decision_ready' : 'predictive_signal_collection_needed',
+    nextAction: campaigns.length ? 'apply_predictive_recommendation' : 'create_campaign_for_prediction'
+  };
+}
