@@ -3,7 +3,7 @@ import { recordEvent } from './domain-core.mjs';
 import { createId } from './utils.mjs';
 import { executeJobByType } from './job-handlers.mjs';
 
-export const JOBS_OPERATIONAL_RUNTIME_CONTRACT = Object.freeze({ surfaceId: 'persistence_jobs_operational_runtime_layer', label: 'Persistence, background jobs, and operational queue runtime', controls: ['durable_job_queue_state', 'retry_backoff_and_attempt_history', 'dead_letter_requeue_workflow', 'job_operational_snapshot_api', 'worker_heartbeat_ledger'] });
+export const JOBS_OPERATIONAL_RUNTIME_CONTRACT = Object.freeze({ surfaceId: 'persistence_jobs_operational_runtime_layer', label: 'Persistence, background jobs, and operational queue runtime', evidenceContract: 'durable_job_queue_state retry_backoff_and_attempt_history dead_letter_records_and_requeues job_operational_snapshot_api worker_lease_and_heartbeat_ledger', controls: ['durable_job_queue_state', 'retry_backoff_and_attempt_history', 'dead_letter_requeue_workflow', 'job_operational_snapshot_api', 'worker_lease_and_heartbeat_ledger'] });
 
 const DEFAULT_JOB_ATTEMPTS = {
   import_contacts: 2,
@@ -83,19 +83,35 @@ export function requeueDeadLetterJob(state, actor, deadLetterId, { runAt = now()
   return job;
 }
 
-export function runJobs(state) {
+export function runJobs(state, { workerId = 'mailclone-in-process-worker', leaseTtlMs = 60_000 } = {}) {
   ensureJobOperationalCollections(state);
+  state.db.jobServiceHeartbeats.unshift({ id: createId('jobhb'), workerId, status: 'started', detail: 'job runtime cycle started', createdAt: now(), pendingJobCount: state.db.jobs.filter((job) => job.status === 'pending').length });
+  state.db.jobServiceHeartbeats = state.db.jobServiceHeartbeats.slice(0, 50);
   let changed = false;
   for (const job of state.db.jobs) {
     if (job.status !== 'pending') continue;
     if (new Date(job.runAt || job.createdAt).getTime() > Date.now()) continue;
     changed = true;
+    const leaseAcquiredAt = now();
+    const lease = {
+      id: createId('joblease'),
+      jobId: job.id,
+      jobType: job.type,
+      workspaceId: job.workspaceId,
+      workerId,
+      status: 'active',
+      acquiredAt: leaseAcquiredAt,
+      expiresAt: new Date(Date.now() + leaseTtlMs).toISOString(),
+      releasedAt: null
+    };
+    state.db.jobQueueLeases.unshift(lease);
+    state.db.jobQueueLeases = state.db.jobQueueLeases.slice(0, 100);
     job.maxAttempts ||= DEFAULT_JOB_ATTEMPTS[job.type] || 1;
     job.retryDelayMs ||= 250;
     job.attempts = Number(job.attempts || 0) + 1;
     job.status = 'running';
-    job.startedAt ||= now();
-    job.lastAttemptAt = now();
+    job.startedAt ||= leaseAcquiredAt;
+    job.lastAttemptAt = leaseAcquiredAt;
     job.lockedAt = job.lastAttemptAt;
     job.updatedAt = job.lastAttemptAt;
     appendHistory(job, 'running', `${job.type} started`);
@@ -105,6 +121,8 @@ export function runJobs(state) {
       job.completedAt = now();
       job.updatedAt = job.completedAt;
       job.lockedAt = null;
+      lease.status = 'released_completed';
+      lease.releasedAt = job.completedAt;
       appendHistory(job, 'completed', `${job.type} completed`);
       recordEvent(state, { workspaceId: job.workspaceId, type: 'job-complete', message: `${job.type} completed`, meta: { jobId: job.id, attempts: job.attempts } });
     } catch (error) {
@@ -114,16 +132,26 @@ export function runJobs(state) {
       if (job.attempts < job.maxAttempts) {
         scheduleRetry(job);
         job.status = 'pending';
+        lease.status = 'released_retry';
+        lease.releasedAt = job.updatedAt;
         appendHistory(job, 'retry_scheduled', `${job.type} retry ${job.attempts}/${job.maxAttempts}: ${error.message}`);
         recordEvent(state, { workspaceId: job.workspaceId, type: 'job-retry', level: 'warn', message: `${job.type} retry scheduled: ${error.message}`, meta: { jobId: job.id, attempts: job.attempts, maxAttempts: job.maxAttempts, retryAt: job.runAt } });
       } else {
         job.status = 'failed';
         job.failedAt = now();
+        lease.status = 'released_failed';
+        lease.releasedAt = job.failedAt;
         appendHistory(job, 'failed', `${job.type} failed after ${job.attempts} attempts: ${error.message}`);
         state.db.jobDeadLetters.unshift({ id: `${job.id}_dead`, jobId: job.id, workspaceId: job.workspaceId, type: job.type, error: error.message, attempts: job.attempts, failedAt: job.failedAt, payload: job.payload });
         recordEvent(state, { workspaceId: job.workspaceId, type: 'job-failed', level: 'error', message: `${job.type} failed: ${error.message}`, meta: { jobId: job.id, attempts: job.attempts } });
       }
     }
   }
-  if (changed) persistState(state);
+  state.db.jobServiceHeartbeats.unshift({ id: createId('jobhb'), workerId, status: changed ? 'running' : 'idle', detail: changed ? 'job runtime cycle processed due jobs' : 'job runtime cycle found no due jobs', createdAt: now(), pendingJobCount: state.db.jobs.filter((job) => job.status === 'pending').length });
+  state.db.jobServiceHeartbeats = state.db.jobServiceHeartbeats.slice(0, 50);
+  if (changed) {
+    state.db.jobOperationalSnapshots.unshift({ id: createId('jobsnap'), reason: 'run_jobs_cycle', workerId, ...buildJobOperationalSnapshot(state) });
+    state.db.jobOperationalSnapshots = state.db.jobOperationalSnapshots.slice(0, 50);
+  }
+  persistState(state);
 }
