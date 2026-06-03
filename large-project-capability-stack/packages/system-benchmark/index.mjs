@@ -328,6 +328,48 @@ export function resolveBenchmarkMaxRuntimeMs({ scope = {}, env = process.env, fa
   return Math.max(...candidates);
 }
 
+function parsePositiveMilliseconds(value) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseDeclaredVerifierDurationMs(command) {
+  const text = String(command || '');
+  const directEnv = text.match(/PMHNP_BENCHMARK_SCENARIO_MIN_DURATION_MS\s*=\s*["']?(\d+)/);
+  if (directEnv) return Number(directEnv[1]);
+  const envDefault = text.match(/PMHNP_BENCHMARK_SCENARIO_MIN_DURATION_MS\s*=\s*["']?\$\{[^}]*:-(\d+)\}/);
+  if (envDefault) return Number(envDefault[1]);
+  const cliDuration = text.match(/--duration-ms\s+(\d+)/);
+  if (cliDuration) return Number(cliDuration[1]);
+  return null;
+}
+
+export function resolveBenchmarkWorkerTimeoutMs({ scope = {}, env = process.env, maxRuntimeMs = null, fallbackMs = 5 * 60 * 1000, minimumMs = 10000 } = {}) {
+  const explicit = parsePositiveMilliseconds(env?.TRANSFER_BENCHMARK_WORKER_TIMEOUT_MS)
+    || parsePositiveMilliseconds(env?.ORCHESTRATOR_WORKER_TIMEOUT_MS)
+    || parsePositiveMilliseconds(scope?.workerTimeoutMs);
+  if (explicit != null) return Math.max(minimumMs, explicit);
+
+  const scenarioDurationOverride = parsePositiveMilliseconds(env?.PMHNP_BENCHMARK_SCENARIO_MIN_DURATION_MS_OVERRIDE)
+    || parsePositiveMilliseconds(env?.PMHNP_BENCHMARK_SCENARIO_MIN_DURATION_MS);
+  const declaredVerifierDurations = (scope?.surfaces || [])
+    .flatMap((surface) => surface?.verification || [])
+    .map(parseDeclaredVerifierDurationMs)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const verifierDurationMs = scenarioDurationOverride
+    || (declaredVerifierDurations.length ? Math.max(...declaredVerifierDurations) : null);
+
+  const candidates = [minimumMs, fallbackMs];
+  if (verifierDurationMs != null) {
+    const graceMs = Math.max(30000, Math.min(5 * 60 * 1000, verifierDurationMs * 0.05));
+    candidates.push(verifierDurationMs + graceMs);
+  }
+  if (Number.isFinite(Number(maxRuntimeMs)) && Number(maxRuntimeMs) > 0 && verifierDurationMs == null) {
+    candidates.push(Number(maxRuntimeMs));
+  }
+  return Math.max(...candidates);
+}
+
 export function resolveBenchmarkLeaseTtlMs({ scope = {}, env = process.env, fallbackMs = 5000, minimumMs = 5000, maxRuntimeMs = null } = {}) {
   const envOverrideMs = Number(env?.TRANSFER_BENCHMARK_LEASE_TTL_MS || 0);
   if (Number.isFinite(envOverrideMs) && envOverrideMs > 0) {
@@ -352,6 +394,21 @@ export const BENCHMARK_TIER_THRESHOLDS = Object.freeze({
     autonomyWindowMinutes: Object.freeze({ min: 30 }),
     truthIntegrityContradictions: Object.freeze({ eq: 0 }),
     fakeGreenIncidents: Object.freeze({ eq: 0 })
+  }),
+  tier1_creative_product_30m: Object.freeze({
+    productiveIterationRate: Object.freeze({ min: 0.55 }),
+    noOpRate: Object.freeze({ max: 0.20 }),
+    repeatBlockerRate: Object.freeze({ max: 0.15 }),
+    medianMinutesToMeaningfulProgress: Object.freeze({ max: 12 }),
+    verificationIntegrity: Object.freeze({ eq: 1 }),
+    handoffEfficiency: Object.freeze({ min: 0.60 }),
+    autonomyWindowMinutes: Object.freeze({ min: 30 }),
+    truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+    fakeGreenIncidents: Object.freeze({ eq: 0 }),
+    creativeWorkerEvidenceIntegrity: Object.freeze({ min: 1 }),
+    creativeIterationIntegrity: Object.freeze({ min: 1 }),
+    creativeProductDeltaIntegrity: Object.freeze({ min: 1 }),
+    templateFallbackRate: Object.freeze({ max: 0 })
   }),
   tier2_functional: Object.freeze({
     productiveIterationRate: Object.freeze({ min: 0.65 }),
