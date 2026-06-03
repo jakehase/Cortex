@@ -418,6 +418,60 @@ test('system benchmark transfer orchestrator can require deterministic product d
   assert.match(fs.readFileSync(path.join(repo, 'surface-b.mjs'), 'utf8'), /transferBenchmarkEvidence_surface_b/);
 });
 
+test('transfer orchestrator preserves zero-ms meaningful progress through verifier wrappers', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-zero-progress-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(path.join(repo, 'surface-a.mjs'), 'export const surfaceA = 1;\n');
+  fs.writeFileSync(path.join(repo, 'zero-progress-verifier.mjs'), `console.log(JSON.stringify({
+  ok: true,
+  scenarioId: 'surface_a',
+  surfaceId: 'surface_a',
+  durationMs: 7200000,
+  requestedDurationMs: 7200000,
+  firstMeaningfulProgressMs: 0,
+  firstMeaningfulProgressAt: new Date().toISOString(),
+  cyclesCompleted: 3,
+  checkKinds: ['file_exists', 'product_delta']
+}));\n`);
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'transfer_orchestrator_zero_progress_demo',
+    benchmarkTier: 'tier1_smoke',
+    repoPath: repo,
+    scope: {
+      durationTargetMinutes: 15,
+      productDiffMode: 'deterministic_metadata_patch',
+      requireRealProductDiffs: true,
+      surfaces: [
+        {
+          id: 'surface_a',
+          label: 'Surface A',
+          allowedFiles: ['surface-a.mjs'],
+          verification: ['node zero-progress-verifier.mjs']
+        }
+      ]
+    },
+    verifierSet: [{ kind: 'node_script', command: 'node zero-progress-verifier.mjs' }],
+    requestedAgentCount: 1,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'transfer_orchestrator_zero_progress_demo', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+  const runner = spawnSync(process.execPath, [path.join(process.cwd(), 'apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs'), path.join(bootstrap.root, 'run_contract.json')], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+  assert.equal(runner.status, 0, runner.stdout || runner.stderr);
+  const patchQueue = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'orchestrator_run', 'patch_queue.json'), 'utf8'));
+  assert.equal(patchQueue.merged.length, 1);
+  const result = JSON.parse(fs.readFileSync(patchQueue.merged[0].metadata.resultPath, 'utf8'));
+  assert.equal(result.implementation.firstMeaningfulProgressMs, 0);
+  assert.equal(result.verifierResults[0].firstMeaningfulProgressMs, 0);
+  assert.equal(result.verifierResults[0].metadata.parsedOutputSummary.firstMeaningfulProgressMs, 0);
+  const threshold = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'threshold_evaluation.json'), 'utf8'));
+  assert.equal(threshold.meaningfulProgressEvidence.measuredSurfaceCount, 1);
+  assert.ok(threshold.meaningfulProgressEvidence.medianMinutesToMeaningfulProgress < 1, JSON.stringify(threshold.meaningfulProgressEvidence));
+});
+
 test('transfer orchestrator semantic product mode credits concrete runtime architecture patches', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-orchestrator-semantic-admission-'));
   const repo = path.join(root, 'repo');

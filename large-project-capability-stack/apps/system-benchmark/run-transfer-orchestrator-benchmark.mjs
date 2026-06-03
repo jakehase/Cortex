@@ -279,6 +279,12 @@ function computeMedian(values = []) {
   return Number(((sorted[middle - 1] + sorted[middle]) / 2).toFixed(2));
 }
 
+function nonNegativeNumberOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function deriveMeaningfulProgressEvidence({ contract, liveRun }) {
   const benchmarkStartAt = (() => {
     const firstWorkerSpawn = (liveRun.workerEvents || []).find((event) => event.type === 'live_worker_spawned');
@@ -290,6 +296,36 @@ function deriveMeaningfulProgressEvidence({ contract, liveRun }) {
     const result = merged?.metadata?.resultPath ? readJson(merged.metadata.resultPath, null) : null;
     const verifierResults = Array.isArray(result?.verifierResults) ? result.verifierResults : [];
     let firstMeaningfulProgressAt = null;
+    const considerTimestamp = (candidate) => {
+      if (!candidate) return;
+      firstMeaningfulProgressAt = !firstMeaningfulProgressAt || candidate < firstMeaningfulProgressAt
+        ? candidate
+        : firstMeaningfulProgressAt;
+    };
+
+    const implementation = result?.implementation && typeof result.implementation === 'object'
+      ? result.implementation
+      : null;
+    if (implementation && implementation.ok !== false && ((implementation.modifiedFiles || []).length > 0 || implementation.diff)) {
+      const implementationMetadata = implementation.metadata && typeof implementation.metadata === 'object'
+        ? implementation.metadata
+        : {};
+      considerTimestamp(
+        parseIsoDate(implementation.firstMeaningfulProgressAt)
+        || parseIsoDate(implementationMetadata.firstMeaningfulProgressAt)
+        || parseIsoDate(implementationMetadata.generatedAt)
+      );
+      const implementationStartedAt = parseIsoDate(implementation.startedAt)
+        || parseIsoDate(result?.startedAt)
+        || parseIsoDate(merged?.createdAt)
+        || parseIsoDate(merged?.metadata?.createdAt);
+      const implementationFirstMeaningfulProgressMs = nonNegativeNumberOrNull(implementation.firstMeaningfulProgressMs)
+        ?? nonNegativeNumberOrNull(implementationMetadata.firstMeaningfulProgressMs);
+      if (implementationStartedAt && implementationFirstMeaningfulProgressMs != null) {
+        considerTimestamp(new Date(implementationStartedAt.getTime() + implementationFirstMeaningfulProgressMs));
+      }
+    }
+
     for (const verifierResult of verifierResults) {
       const metadata = verifierResult?.metadata && typeof verifierResult.metadata === 'object'
         ? verifierResult.metadata
@@ -299,21 +335,18 @@ function deriveMeaningfulProgressEvidence({ contract, liveRun }) {
         || parseIsoDate(metadata.firstMeaningfulProgressAt)
         || parseIsoDate(parsedStdout?.firstMeaningfulProgressAt);
       if (directTimestamp) {
-        firstMeaningfulProgressAt = !firstMeaningfulProgressAt || directTimestamp < firstMeaningfulProgressAt
-          ? directTimestamp
-          : firstMeaningfulProgressAt;
+        considerTimestamp(directTimestamp);
         continue;
       }
 
       const startedAt = parseIsoDate(verifierResult?.startedAt)
         || parseIsoDate(metadata.startedAt)
         || parseIsoDate(parsedStdout?.startedAt);
-      const firstMeaningfulProgressMs = Number(verifierResult?.firstMeaningfulProgressMs || metadata.firstMeaningfulProgressMs || parsedStdout?.firstMeaningfulProgressMs || 0);
-      if (startedAt && Number.isFinite(firstMeaningfulProgressMs) && firstMeaningfulProgressMs >= 0) {
-        const inferred = new Date(startedAt.getTime() + firstMeaningfulProgressMs);
-        firstMeaningfulProgressAt = !firstMeaningfulProgressAt || inferred < firstMeaningfulProgressAt
-          ? inferred
-          : firstMeaningfulProgressAt;
+      const firstMeaningfulProgressMs = nonNegativeNumberOrNull(verifierResult?.firstMeaningfulProgressMs)
+        ?? nonNegativeNumberOrNull(metadata.firstMeaningfulProgressMs)
+        ?? nonNegativeNumberOrNull(parsedStdout?.firstMeaningfulProgressMs);
+      if (startedAt && firstMeaningfulProgressMs != null) {
+        considerTimestamp(new Date(startedAt.getTime() + firstMeaningfulProgressMs));
       }
     }
 

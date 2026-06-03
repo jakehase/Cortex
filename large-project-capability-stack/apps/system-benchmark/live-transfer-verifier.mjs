@@ -24,6 +24,34 @@ function parseArgs(argv) {
   return args;
 }
 
+function parseJsonFromMixedStdout(stdoutText = '') {
+  const text = String(stdoutText || '').trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {}
+  for (const line of text.split('\n').map((entry) => entry.trim()).filter(Boolean).reverse()) {
+    if (!line.startsWith('{') || !line.endsWith('}')) continue;
+    try {
+      return JSON.parse(line);
+    } catch {}
+  }
+  const firstObjectStart = text.indexOf('{');
+  const lastObjectEnd = text.lastIndexOf('}');
+  if (firstObjectStart >= 0 && lastObjectEnd > firstObjectStart) {
+    try {
+      return JSON.parse(text.slice(firstObjectStart, lastObjectEnd + 1));
+    } catch {}
+  }
+  return null;
+}
+
+function nonNegativeNumberOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 const args = parseArgs(process.argv.slice(2));
 if (!args.assignment || !args.verifier) {
   console.error('usage: node live-transfer-verifier.mjs --assignment <path> --verifier <id>');
@@ -56,18 +84,30 @@ const finishedAtIso = new Date(finishedAt).toISOString();
 
 const stdout = truncateText(result.stdout || '');
 const stderr = truncateText(result.stderr || '');
-const parsedOutput = (() => {
-  try {
-    return JSON.parse(String(result.stdout || '').trim() || '{}');
-  } catch {
-    return null;
-  }
-})();
-const firstMeaningfulProgressMs = Number(parsedOutput?.firstMeaningfulProgressMs || 0) > 0
-  ? Number(parsedOutput.firstMeaningfulProgressMs)
-  : result.status === 0
-    ? finishedAt - startedAt
-    : null;
+const parsedOutput = parseJsonFromMixedStdout(result.stdout || '');
+const parsedOutputSummary = parsedOutput && typeof parsedOutput === 'object'
+  ? {
+      ok: parsedOutput.ok !== false,
+      scenarioId: parsedOutput.scenarioId || null,
+      surfaceId: parsedOutput.surfaceId || null,
+      durationMs: parsedOutput.durationMs || null,
+      firstMeaningfulProgressMs: nonNegativeNumberOrNull(parsedOutput.firstMeaningfulProgressMs),
+      firstMeaningfulProgressAt: parsedOutput.firstMeaningfulProgressAt || null,
+      cyclesCompleted: parsedOutput.cyclesCompleted || (Array.isArray(parsedOutput.cycles) ? parsedOutput.cycles.length : null),
+      semanticRuntimeExecution: parsedOutput.semanticRuntimeExecution || null,
+      checkKinds: Array.from(new Set([
+        ...(Array.isArray(parsedOutput.checkKinds) ? parsedOutput.checkKinds : []),
+        ...(parsedOutput.cycles || []).flatMap((cycle) => [
+          ...(cycle.checks || []).map((check) => check.kind).filter(Boolean),
+          ...(Array.isArray(cycle.checkKinds) ? cycle.checkKinds : [])
+        ])
+      ].filter(Boolean)))
+    }
+  : null;
+const parsedFirstMeaningfulProgressMs = nonNegativeNumberOrNull(parsedOutput?.firstMeaningfulProgressMs);
+const firstMeaningfulProgressMs = parsedFirstMeaningfulProgressMs ?? (result.status === 0 ? finishedAt - startedAt : null);
+const firstMeaningfulProgressAt = parsedOutput?.firstMeaningfulProgressAt
+  || (firstMeaningfulProgressMs != null ? new Date(startedAt + firstMeaningfulProgressMs).toISOString() : null);
 
 console.log(JSON.stringify({
   ok: result.status === 0,
@@ -79,7 +119,8 @@ console.log(JSON.stringify({
   finishedAt: finishedAtIso,
   durationMs: finishedAt - startedAt,
   firstMeaningfulProgressMs,
-  firstMeaningfulProgressAt: firstMeaningfulProgressMs != null ? new Date(startedAt + firstMeaningfulProgressMs).toISOString() : null,
+  firstMeaningfulProgressAt,
+  parsedOutputSummary,
   stdout: stdout.text,
   stderr: stderr.text,
   stdoutTruncated: stdout.truncated,
