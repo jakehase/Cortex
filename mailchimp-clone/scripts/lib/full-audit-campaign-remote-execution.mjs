@@ -21,6 +21,8 @@ const REMOTE_CONTROL_FILE_MANIFEST = [
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/full-audit-campaign-state.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/full-audit-campaign-sync-pathspecs.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/full-audit-campaign-liveness.mjs' },
+  { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/orchestration-program-config.mjs' },
+  { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/orchestrator-adaptive-concurrency.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/mailchimp-canonical-one-pass-plan-data.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/strict-hierarchical-planner.mjs' },
   { localRoot: 'mailchimp-clone', remoteRoot: 'mailchimp-clone', relativeFile: 'scripts/lib/orchestrator-real-repo-clean-plan.mjs' },
@@ -29,6 +31,8 @@ const REMOTE_CONTROL_FILE_MANIFEST = [
   { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/task-contract/index.mjs' },
   { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/issue-dag/index.mjs' },
   { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/surface-matrix/index.mjs' },
+  { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/objective-surface-decomposer/index.mjs' },
+  { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/orchestrator-run-state/index.mjs' },
   { localRoot: 'large-project-capability-stack', remoteRoot: 'large-project-capability-stack', relativeFile: 'packages/multi-agent-orchestrator/index.mjs' }
 ];
 
@@ -346,6 +350,7 @@ function syncRemoteControlFiles({ repoRoot, remoteExecution }) {
 }
 
 function buildRemoteFileMap(remoteArtifactRoot, remoteRunRoot) {
+  const launcherStateRoot = path.join(path.dirname(remoteRunRoot), '_launcher', path.basename(remoteRunRoot));
   return {
     completionSummary: path.join(remoteArtifactRoot, 'completion_summary.json'),
     programState: path.join(remoteArtifactRoot, 'program_state.json'),
@@ -357,6 +362,8 @@ function buildRemoteFileMap(remoteArtifactRoot, remoteRunRoot) {
     liveExecutionSummary: path.join(remoteArtifactRoot, 'live_execution_summary.json'),
     patchQueueReport: path.join(remoteArtifactRoot, 'patch_queue_report.json'),
     launchChecklist: path.join(remoteArtifactRoot, 'launch_checklist.json'),
+    resourcePreflight: path.join(remoteArtifactRoot, 'resource_preflight.json'),
+    scalePreflight: path.join(remoteArtifactRoot, 'scale_preflight.json'),
     locAccounting: path.join(remoteArtifactRoot, 'loc_accounting.json'),
     remoteExecutionLog: path.join(remoteArtifactRoot, 'remote_execution.log'),
     implementationModeStatus: path.join(remoteArtifactRoot, 'implementation_mode_status.json'),
@@ -364,8 +371,9 @@ function buildRemoteFileMap(remoteArtifactRoot, remoteRunRoot) {
     notifierEligibility: path.join(remoteArtifactRoot, 'notifier_eligibility.json'),
     baselineOverlay: path.join(remoteArtifactRoot, 'baseline_overlay.json'),
     dependencyLinks: path.join(remoteArtifactRoot, 'dependency_links.json'),
-    launcherLog: path.join(remoteRunRoot, 'launcher.log'),
-    launcherPid: path.join(remoteRunRoot, 'launcher.pid')
+    launcherLog: path.join(launcherStateRoot, 'launcher.log'),
+    launcherLimits: path.join(launcherStateRoot, 'launcher_limits.json'),
+    launcherPid: path.join(launcherStateRoot, 'launcher.pid')
   };
 }
 
@@ -399,6 +407,8 @@ function mirrorRemoteArtifacts({ repoRoot, remoteExecution, remoteArtifactRoot, 
   const liveExecutionSummaryText = readRemoteFile(remoteExecution, remoteFiles.liveExecutionSummary);
   const patchQueueReportText = readRemoteFile(remoteExecution, remoteFiles.patchQueueReport);
   const launchChecklistText = readRemoteFile(remoteExecution, remoteFiles.launchChecklist);
+  const resourcePreflightText = readRemoteFile(remoteExecution, remoteFiles.resourcePreflight);
+  const scalePreflightText = readRemoteFile(remoteExecution, remoteFiles.scalePreflight);
   const locAccountingText = readRemoteFile(remoteExecution, remoteFiles.locAccounting);
   const remoteLogText = readRemoteFile(remoteExecution, remoteFiles.remoteExecutionLog, { timeoutMs: 60_000 });
   const implementationModeText = readRemoteFile(remoteExecution, remoteFiles.implementationModeStatus);
@@ -407,6 +417,7 @@ function mirrorRemoteArtifacts({ repoRoot, remoteExecution, remoteArtifactRoot, 
   const baselineOverlayText = readRemoteFile(remoteExecution, remoteFiles.baselineOverlay);
   const dependencyLinksText = readRemoteFile(remoteExecution, remoteFiles.dependencyLinks);
   const launcherLogText = readRemoteFile(remoteExecution, remoteFiles.launcherLog, { timeoutMs: 30_000 });
+  const launcherLimitsText = readRemoteFile(remoteExecution, remoteFiles.launcherLimits, { timeoutMs: 20_000 });
   const launcherPidText = readRemoteFile(remoteExecution, remoteFiles.launcherPid, { timeoutMs: 20_000 });
 
   mirrorOptionalFile(completionText, delegateCompletionSummaryPath, 'completionSummaryPath');
@@ -422,6 +433,8 @@ function mirrorRemoteArtifacts({ repoRoot, remoteExecution, remoteArtifactRoot, 
   mirrorOptionalFile(liveExecutionSummaryText, path.join(delegateArtifactRoot, 'live_execution_summary.json'), 'liveExecutionSummaryPath');
   mirrorOptionalFile(patchQueueReportText, path.join(delegateArtifactRoot, 'patch_queue_report.json'), 'patchQueueReportPath');
   mirrorOptionalFile(launchChecklistText, path.join(delegateArtifactRoot, 'launch_checklist.json'), 'launchChecklistPath');
+  mirrorOptionalFile(resourcePreflightText, path.join(delegateArtifactRoot, 'resource_preflight.json'), 'resourcePreflightPath');
+  mirrorOptionalFile(scalePreflightText, path.join(delegateArtifactRoot, 'scale_preflight.json'), 'scalePreflightPath');
   mirrorOptionalFile(locAccountingText, path.join(delegateArtifactRoot, 'loc_accounting.json'), 'locAccountingPath');
   mirrorOptionalFile(remoteLogText, path.join(delegateArtifactRoot, 'remote_execution.log'), 'remoteExecutionLogPath');
   mirrorOptionalFile(implementationModeText, path.join(delegateArtifactRoot, 'implementation_mode_status.json'), 'implementationModeStatusPath');
@@ -430,6 +443,7 @@ function mirrorRemoteArtifacts({ repoRoot, remoteExecution, remoteArtifactRoot, 
   mirrorOptionalFile(baselineOverlayText, path.join(delegateArtifactRoot, 'baseline_overlay.json'), 'baselineOverlayPath');
   mirrorOptionalFile(dependencyLinksText, path.join(delegateArtifactRoot, 'dependency_links.json'), 'dependencyLinksPath');
   mirrorOptionalFile(launcherLogText, path.join(delegateArtifactRoot, 'launcher.log'), 'launcherLogPath');
+  mirrorOptionalFile(launcherLimitsText, path.join(delegateArtifactRoot, 'launcher_limits.json'), 'launcherLimitsPath');
   mirrorOptionalFile(launcherPidText, path.join(delegateArtifactRoot, 'launcher.pid'), 'launcherPidPath');
 
   return {
@@ -439,6 +453,8 @@ function mirrorRemoteArtifacts({ repoRoot, remoteExecution, remoteArtifactRoot, 
     remoteLiveExecutionSummary: parseJson(liveExecutionSummaryText || ''),
     remotePatchQueueReport: parseJson(patchQueueReportText || ''),
     remoteLaunchChecklist: parseJson(launchChecklistText || ''),
+    remoteResourcePreflight: parseJson(resourcePreflightText || ''),
+    remoteScalePreflight: parseJson(scalePreflightText || ''),
     remoteLocAccounting: parseJson(locAccountingText || ''),
     remoteCompletionSummary: parseJson(completionText || ''),    remoteProgramState: parseJson(programText || ''),
     remoteBlocker: parseJson(blockerText || ''),
@@ -446,6 +462,7 @@ function mirrorRemoteArtifacts({ repoRoot, remoteExecution, remoteArtifactRoot, 
     remoteNotifierEligibility: parseJson(notifierEligibilityText || ''),
     remoteBaselineOverlay: parseJson(baselineOverlayText || ''),
     remoteDependencyLinks: parseJson(dependencyLinksText || ''),
+    remoteLauncherLimits: parseJson(launcherLimitsText || ''),
     remoteLauncherPid: launcherPidText ? String(launcherPidText).trim() : null
   };
 }
