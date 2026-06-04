@@ -1,0 +1,1367 @@
+{
+  "generatedAt": "2026-06-04T04:41:18.504Z",
+  "count": 63,
+  "work": [
+    {
+      "id": "signup_onboarding__req_01",
+      "parentSurfaceId": "signup_onboarding",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_onboarding__req_02",
+      "parentSurfaceId": "signup_onboarding",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_onboarding__req_03",
+      "parentSurfaceId": "signup_onboarding",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "account_workspace_setup__req_01",
+      "parentSurfaceId": "account_workspace_setup",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "account_workspace_setup__req_02",
+      "parentSurfaceId": "account_workspace_setup",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "account_workspace_setup__req_03",
+      "parentSurfaceId": "account_workspace_setup",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "dashboard_home__req_01",
+      "parentSurfaceId": "dashboard_home",
+      "lane": "reporting_analytics",
+      "productGoal": "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "dashboard_home__req_02",
+      "parentSurfaceId": "dashboard_home",
+      "lane": "data_model_persistence",
+      "productGoal": "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "dashboard_home__req_03",
+      "parentSurfaceId": "dashboard_home",
+      "lane": "data_model_persistence",
+      "productGoal": "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "audience_overview__req_01",
+      "parentSurfaceId": "audience_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "audience_overview__req_02",
+      "parentSurfaceId": "audience_overview",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "contacts_table__req_01",
+      "parentSurfaceId": "contacts_table",
+      "lane": "data_model_persistence",
+      "productGoal": "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "contacts_table__req_02",
+      "parentSurfaceId": "contacts_table",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "contact_profile__req_01",
+      "parentSurfaceId": "contact_profile",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "contact_profile__req_02",
+      "parentSurfaceId": "contact_profile",
+      "lane": "reporting_analytics",
+      "productGoal": "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "tags_groups_interests__req_01",
+      "parentSurfaceId": "tags_groups_interests",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "tags_groups_interests__req_02",
+      "parentSurfaceId": "tags_groups_interests",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "segments__req_01",
+      "parentSurfaceId": "segments",
+      "lane": "reporting_analytics",
+      "productGoal": "Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "segments__req_02",
+      "parentSurfaceId": "segments",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_forms_popups__req_01",
+      "parentSurfaceId": "signup_forms_popups",
+      "lane": "reporting_analytics",
+      "productGoal": "Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity.",
+      "allowedFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_forms_popups__req_02",
+      "parentSurfaceId": "signup_forms_popups",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth.",
+      "allowedFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_forms_popups__gap_omnichannel_depth",
+      "parentSurfaceId": "signup_forms_popups",
+      "lane": "frontend_product_experience",
+      "productGoal": "Resolve open gap family: omnichannel_depth",
+      "allowedFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_index__req_01",
+      "parentSurfaceId": "campaign_index",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_index__req_02",
+      "parentSurfaceId": "campaign_index",
+      "lane": "data_model_persistence",
+      "productGoal": "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_wizard__req_01",
+      "parentSurfaceId": "campaign_wizard",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_wizard__req_02",
+      "parentSurfaceId": "campaign_wizard",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_wizard__gap_experimentation_depth",
+      "parentSurfaceId": "campaign_wizard",
+      "lane": "reporting_analytics",
+      "productGoal": "Resolve open gap family: experimentation_depth",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "email_builder__req_01",
+      "parentSurfaceId": "email_builder",
+      "lane": "frontend_product_experience",
+      "productGoal": "Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "email_builder__req_02",
+      "parentSurfaceId": "email_builder",
+      "lane": "frontend_product_experience",
+      "productGoal": "Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "template_library__req_01",
+      "parentSurfaceId": "template_library",
+      "lane": "security_account_enterprise",
+      "productGoal": "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance.",
+      "allowedFiles": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "template_library__req_02",
+      "parentSurfaceId": "template_library",
+      "lane": "frontend_product_experience",
+      "productGoal": "Add true template lifecycle management, versioning, duplication, review, and dependency tracking.",
+      "allowedFiles": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "content_studio__req_01",
+      "parentSurfaceId": "content_studio",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows.",
+      "allowedFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "content_studio__req_02",
+      "parentSurfaceId": "content_studio",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations.",
+      "allowedFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "content_studio__gap_content_studio_depth",
+      "parentSurfaceId": "content_studio",
+      "lane": "frontend_product_experience",
+      "productGoal": "Resolve open gap family: content_studio_depth",
+      "allowedFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "send_schedule_review__req_01",
+      "parentSurfaceId": "send_schedule_review",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "send_schedule_review__req_02",
+      "parentSurfaceId": "send_schedule_review",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "reports_overview__req_01",
+      "parentSurfaceId": "reports_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "reports_overview__req_02",
+      "parentSurfaceId": "reports_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Add richer export/sharing/report scheduling and role-aware reporting permissions.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "reports_overview__gap_predictive_optimization_depth",
+      "parentSurfaceId": "reports_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Resolve open gap family: predictive_optimization_depth",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "report_detail__req_01",
+      "parentSurfaceId": "report_detail",
+      "lane": "reporting_analytics",
+      "productGoal": "Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "report_detail__req_02",
+      "parentSurfaceId": "report_detail",
+      "lane": "reporting_analytics",
+      "productGoal": "Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "report_detail__gap_experimentation_depth",
+      "parentSurfaceId": "report_detail",
+      "lane": "reporting_analytics",
+      "productGoal": "Resolve open gap family: experimentation_depth",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "report_detail__gap_predictive_optimization_depth",
+      "parentSurfaceId": "report_detail",
+      "lane": "reporting_analytics",
+      "productGoal": "Resolve open gap family: predictive_optimization_depth",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "automations_overview__req_01",
+      "parentSurfaceId": "automations_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "automations_overview__req_02",
+      "parentSurfaceId": "automations_overview",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match automation governance, ownership, approvals, and diagnostics.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "automation_journey_builder__req_01",
+      "parentSurfaceId": "automation_journey_builder",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "automation_journey_builder__req_02",
+      "parentSurfaceId": "automation_journey_builder",
+      "lane": "reporting_analytics",
+      "productGoal": "Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "landing_pages__req_01",
+      "parentSurfaceId": "landing_pages",
+      "lane": "reporting_analytics",
+      "productGoal": "Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle.",
+      "allowedFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "landing_pages__req_02",
+      "parentSurfaceId": "landing_pages",
+      "lane": "reporting_analytics",
+      "productGoal": "Match domain mapping, asset management, duplication, templates, and conversion reporting.",
+      "allowedFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "website_builder__req_01",
+      "parentSurfaceId": "website_builder",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics.",
+      "allowedFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "website_builder__req_02",
+      "parentSurfaceId": "website_builder",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management.",
+      "allowedFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "website_builder__gap_website_builder_depth",
+      "parentSurfaceId": "website_builder",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Resolve open gap family: website_builder_depth",
+      "allowedFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "integrations_marketplace__req_01",
+      "parentSurfaceId": "integrations_marketplace",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior.",
+      "allowedFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "integrations_marketplace__req_02",
+      "parentSurfaceId": "integrations_marketplace",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems.",
+      "allowedFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "integrations_marketplace__gap_integration_ecosystem_realism",
+      "parentSurfaceId": "integrations_marketplace",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Resolve open gap family: integration_ecosystem_realism",
+      "allowedFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "api_keys_webhooks__req_01",
+      "parentSurfaceId": "api_keys_webhooks",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "api_keys_webhooks__req_02",
+      "parentSurfaceId": "api_keys_webhooks",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "billing_plans__req_01",
+      "parentSurfaceId": "billing_plans",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "billing_plans__req_02",
+      "parentSurfaceId": "billing_plans",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "settings_domains__req_01",
+      "parentSurfaceId": "settings_domains",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "settings_domains__req_02",
+      "parentSurfaceId": "settings_domains",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "team_roles_permissions__req_01",
+      "parentSurfaceId": "team_roles_permissions",
+      "lane": "security_account_enterprise",
+      "productGoal": "Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views.",
+      "allowedFiles": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "team_roles_permissions__req_02",
+      "parentSurfaceId": "team_roles_permissions",
+      "lane": "security_account_enterprise",
+      "productGoal": "Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls.",
+      "allowedFiles": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    }
+  ]
+}

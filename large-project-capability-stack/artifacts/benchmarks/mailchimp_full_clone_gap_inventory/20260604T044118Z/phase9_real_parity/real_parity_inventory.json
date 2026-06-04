@@ -1,0 +1,5981 @@
+{
+  "schemaVersion": "clawd.mailchimp.real_parity_inventory.v1",
+  "generatedAt": "2026-06-04T04:41:18.502Z",
+  "benchmarkId": "mailchimp_full_clone_gap_inventory_phase9",
+  "fidelity": "full_clone",
+  "source": {
+    "canonicalMatrixPath": "/root/clawd/mailchimp-clone/docs/MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json",
+    "strictContractPath": "/root/clawd/mailchimp-clone/strict_1to1_contract.json",
+    "proofMapPath": null,
+    "mailchimpRoot": "/root/clawd/mailchimp-clone"
+  },
+  "inventoryCompleteness": "phase9_seed_from_canonical_audit_and_strict_contract",
+  "negativeSpacePolicy": "unknown_or_uninventoried_real_mailchimp_surfaces_are_red_until_explicitly_mapped",
+  "canonicalSurfaceCount": 26,
+  "leafSurfaceCount": 63,
+  "greenLeafSurfaceCount": 0,
+  "redLeafSurfaceCount": 63,
+  "proofMapStatus": "not_provided",
+  "proofLeafCount": 0,
+  "lanes": {
+    "jobs_delivery_automation": 18,
+    "reporting_analytics": 17,
+    "data_model_persistence": 4,
+    "integrations_api_oauth": 16,
+    "frontend_product_experience": 5,
+    "security_account_enterprise": 3
+  },
+  "proofKinds": {
+    "browser_ui": 63,
+    "db_persistence": 31,
+    "functional": 63,
+    "job_event": 39,
+    "product_diff": 63,
+    "security_policy": 19,
+    "analytics_telemetry": 22,
+    "provider_integration": 16
+  },
+  "productFiles": [
+    {
+      "relPath": "packages/app/domain-audience.mjs",
+      "exists": true,
+      "bytes": 657657,
+      "lineCount": 3095,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/domain-campaigns.mjs",
+      "exists": true,
+      "bytes": 899209,
+      "lineCount": 3343,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/domain-commerce-revenue.mjs",
+      "exists": true,
+      "bytes": 316867,
+      "lineCount": 1317,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/domain-custom-journeys.mjs",
+      "exists": true,
+      "bytes": 175829,
+      "lineCount": 467,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/domain-journeys.mjs",
+      "exists": true,
+      "bytes": 46307,
+      "lineCount": 310,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/domain-leads.mjs",
+      "exists": true,
+      "bytes": 14948,
+      "lineCount": 319,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/domain-notes.mjs",
+      "exists": true,
+      "bytes": 50666,
+      "lineCount": 166,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/index.mjs",
+      "exists": true,
+      "bytes": 46025,
+      "lineCount": 307,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/api-admin.mjs",
+      "exists": true,
+      "bytes": 706162,
+      "lineCount": 2719,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/audience.mjs",
+      "exists": true,
+      "bytes": 565166,
+      "lineCount": 1831,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/automations.mjs",
+      "exists": true,
+      "bytes": 485796,
+      "lineCount": 1582,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/campaigns.mjs",
+      "exists": true,
+      "bytes": 597784,
+      "lineCount": 2416,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/content-library.mjs",
+      "exists": true,
+      "bytes": 24953,
+      "lineCount": 172,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/content-ops.mjs",
+      "exists": true,
+      "bytes": 1662,
+      "lineCount": 15,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/integrations.mjs",
+      "exists": true,
+      "bytes": 26090,
+      "lineCount": 174,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/leads.mjs",
+      "exists": true,
+      "bytes": 154586,
+      "lineCount": 506,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/platform.mjs",
+      "exists": true,
+      "bytes": 306454,
+      "lineCount": 1199,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/public.mjs",
+      "exists": true,
+      "bytes": 266670,
+      "lineCount": 1214,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/reports.mjs",
+      "exists": true,
+      "bytes": 133228,
+      "lineCount": 573,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/templates.mjs",
+      "exists": true,
+      "bytes": 8848,
+      "lineCount": 75,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/routes/websites.mjs",
+      "exists": true,
+      "bytes": 173,
+      "lineCount": 6,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "packages/app/view.mjs",
+      "exists": true,
+      "bytes": 702322,
+      "lineCount": 2082,
+      "hasPlaceholderLanguage": false
+    }
+  ],
+  "targetedTests": [
+    {
+      "relPath": "tests/audience-core.test.mjs",
+      "exists": true,
+      "bytes": 6981,
+      "lineCount": 167,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/audience-funnels.test.mjs",
+      "exists": true,
+      "bytes": 888,
+      "lineCount": 6,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/automation-journeys.test.mjs",
+      "exists": true,
+      "bytes": 4002,
+      "lineCount": 104,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/billing-analytics.test.mjs",
+      "exists": true,
+      "bytes": 936,
+      "lineCount": 15,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/campaign-editor-depth.test.mjs",
+      "exists": true,
+      "bytes": 3591,
+      "lineCount": 96,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/content-library.test.mjs",
+      "exists": true,
+      "bytes": 962,
+      "lineCount": 18,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/current-product-parity.test.mjs",
+      "exists": true,
+      "bytes": 12591,
+      "lineCount": 280,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/forms-landing.test.mjs",
+      "exists": true,
+      "bytes": 3982,
+      "lineCount": 97,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/integrations-marketplace.test.mjs",
+      "exists": true,
+      "bytes": 2470,
+      "lineCount": 58,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/parity-route-aliases.test.mjs",
+      "exists": true,
+      "bytes": 1580,
+      "lineCount": 40,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/platform-spine.test.mjs",
+      "exists": true,
+      "bytes": 7799,
+      "lineCount": 153,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/reports-admin.test.mjs",
+      "exists": true,
+      "bytes": 5592,
+      "lineCount": 133,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/security-ops-hardening.test.mjs",
+      "exists": true,
+      "bytes": 5641,
+      "lineCount": 151,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/template-approvals-routes.test.mjs",
+      "exists": true,
+      "bytes": 1067,
+      "lineCount": 18,
+      "hasPlaceholderLanguage": false
+    },
+    {
+      "relPath": "tests/template-variants-routes.test.mjs",
+      "exists": true,
+      "bytes": 1047,
+      "lineCount": 18,
+      "hasPlaceholderLanguage": false
+    }
+  ],
+  "missingProductFiles": [],
+  "missingTargetedTests": [],
+  "placeholderProductFiles": [],
+  "leafSurfaces": [
+    {
+      "id": "signup_onboarding__req_01",
+      "parentSurfaceId": "signup_onboarding",
+      "label": "Signup and onboarding wizard — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/public.mjs",
+            "exists": true,
+            "bytes": 266670,
+            "lineCount": 1214,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "signup_onboarding__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education."
+        }
+      ]
+    },
+    {
+      "id": "signup_onboarding__req_02",
+      "parentSurfaceId": "signup_onboarding",
+      "label": "Signup and onboarding wizard — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/public.mjs",
+            "exists": true,
+            "bytes": 266670,
+            "lineCount": 1214,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "signup_onboarding__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity."
+        }
+      ]
+    },
+    {
+      "id": "signup_onboarding__req_03",
+      "parentSurfaceId": "signup_onboarding",
+      "label": "Signup and onboarding wizard — requirement 3",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/public.mjs",
+            "exists": true,
+            "bytes": 266670,
+            "lineCount": 1214,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "signup_onboarding__req_03"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel."
+        }
+      ]
+    },
+    {
+      "id": "account_workspace_setup__req_01",
+      "parentSurfaceId": "account_workspace_setup",
+      "label": "Account workspace setup — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "account_workspace_setup__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements."
+        }
+      ]
+    },
+    {
+      "id": "account_workspace_setup__req_02",
+      "parentSurfaceId": "account_workspace_setup",
+      "label": "Account workspace setup — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "account_workspace_setup__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth."
+        }
+      ]
+    },
+    {
+      "id": "account_workspace_setup__req_03",
+      "parentSurfaceId": "account_workspace_setup",
+      "label": "Account workspace setup — requirement 3",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "account_workspace_setup__req_03"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences."
+        }
+      ]
+    },
+    {
+      "id": "dashboard_home__req_01",
+      "parentSurfaceId": "dashboard_home",
+      "label": "Dashboard / home — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/parity-route-aliases.test.mjs",
+            "exists": true,
+            "bytes": 1580,
+            "lineCount": 40,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "dashboard_home__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization."
+        }
+      ]
+    },
+    {
+      "id": "dashboard_home__req_02",
+      "parentSurfaceId": "dashboard_home",
+      "label": "Dashboard / home — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "data_model_persistence",
+      "requiredWork": "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/parity-route-aliases.test.mjs",
+            "exists": true,
+            "bytes": 1580,
+            "lineCount": 40,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "dashboard_home__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas."
+        }
+      ]
+    },
+    {
+      "id": "dashboard_home__req_03",
+      "parentSurfaceId": "dashboard_home",
+      "label": "Dashboard / home — requirement 3",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "data_model_persistence",
+      "requiredWork": "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity.",
+      "productFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/index.mjs",
+            "exists": true,
+            "bytes": 46025,
+            "lineCount": 307,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/view.mjs",
+            "exists": true,
+            "bytes": 702322,
+            "lineCount": 2082,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/parity-route-aliases.test.mjs",
+            "exists": true,
+            "bytes": 1580,
+            "lineCount": 40,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "dashboard_home__req_03"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity."
+        }
+      ]
+    },
+    {
+      "id": "audience_overview__req_01",
+      "parentSurfaceId": "audience_overview",
+      "label": "Audience overview — requirement 1",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-core.test.mjs",
+            "exists": true,
+            "bytes": 6981,
+            "lineCount": 167,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "audience_overview__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights."
+        }
+      ]
+    },
+    {
+      "id": "audience_overview__req_02",
+      "parentSurfaceId": "audience_overview",
+      "label": "Audience overview — requirement 2",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-core.test.mjs",
+            "exists": true,
+            "bytes": 6981,
+            "lineCount": 167,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "audience_overview__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events."
+        }
+      ]
+    },
+    {
+      "id": "contacts_table__req_01",
+      "parentSurfaceId": "contacts_table",
+      "label": "Contacts table — requirement 1",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "data_model_persistence",
+      "requiredWork": "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-core.test.mjs",
+            "exists": true,
+            "bytes": 6981,
+            "lineCount": 167,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "contacts_table__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows."
+        }
+      ]
+    },
+    {
+      "id": "contacts_table__req_02",
+      "parentSurfaceId": "contacts_table",
+      "label": "Contacts table — requirement 2",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-core.test.mjs",
+            "exists": true,
+            "bytes": 6981,
+            "lineCount": 167,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "contacts_table__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration."
+        }
+      ]
+    },
+    {
+      "id": "contact_profile__req_01",
+      "parentSurfaceId": "contact_profile",
+      "label": "Contact profile — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-core.test.mjs",
+            "exists": true,
+            "bytes": 6981,
+            "lineCount": 167,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "contact_profile__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields."
+        }
+      ]
+    },
+    {
+      "id": "contact_profile__req_02",
+      "parentSurfaceId": "contact_profile",
+      "label": "Contact profile — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "reporting_analytics",
+      "requiredWork": "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-core.test.mjs",
+            "exists": true,
+            "bytes": 6981,
+            "lineCount": 167,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "contact_profile__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility."
+        }
+      ]
+    },
+    {
+      "id": "tags_groups_interests__req_01",
+      "parentSurfaceId": "tags_groups_interests",
+      "label": "Tags, groups, and interests management — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-core.test.mjs",
+            "exists": true,
+            "bytes": 6981,
+            "lineCount": 167,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/audience-funnels.test.mjs",
+            "exists": true,
+            "bytes": 888,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "tags_groups_interests__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration."
+        }
+      ]
+    },
+    {
+      "id": "tags_groups_interests__req_02",
+      "parentSurfaceId": "tags_groups_interests",
+      "label": "Tags, groups, and interests management — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-core.test.mjs",
+            "exists": true,
+            "bytes": 6981,
+            "lineCount": 167,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/audience-funnels.test.mjs",
+            "exists": true,
+            "bytes": 888,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "tags_groups_interests__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration."
+        }
+      ]
+    },
+    {
+      "id": "segments__req_01",
+      "parentSurfaceId": "segments",
+      "label": "Segments — requirement 1",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-funnels.test.mjs",
+            "exists": true,
+            "bytes": 888,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "segments__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns."
+        }
+      ]
+    },
+    {
+      "id": "segments__req_02",
+      "parentSurfaceId": "segments",
+      "label": "Segments — requirement 2",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX.",
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-audience.mjs",
+            "exists": true,
+            "bytes": 657657,
+            "lineCount": 3095,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/audience.mjs",
+            "exists": true,
+            "bytes": 565166,
+            "lineCount": 1831,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/audience-funnels.test.mjs",
+            "exists": true,
+            "bytes": 888,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "segments__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX."
+        }
+      ]
+    },
+    {
+      "id": "signup_forms_popups__req_01",
+      "parentSurfaceId": "signup_forms_popups",
+      "label": "Signup forms and popup forms — requirement 1",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity.",
+      "productFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-leads.mjs",
+            "exists": true,
+            "bytes": 14948,
+            "lineCount": 319,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/leads.mjs",
+            "exists": true,
+            "bytes": 154586,
+            "lineCount": 506,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/forms-landing.test.mjs",
+            "exists": true,
+            "bytes": 3982,
+            "lineCount": 97,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "omnichannel_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "signup_forms_popups__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity."
+        }
+      ]
+    },
+    {
+      "id": "signup_forms_popups__req_02",
+      "parentSurfaceId": "signup_forms_popups",
+      "label": "Signup forms and popup forms — requirement 2",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth.",
+      "productFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-leads.mjs",
+            "exists": true,
+            "bytes": 14948,
+            "lineCount": 319,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/leads.mjs",
+            "exists": true,
+            "bytes": 154586,
+            "lineCount": 506,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/forms-landing.test.mjs",
+            "exists": true,
+            "bytes": 3982,
+            "lineCount": 97,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "omnichannel_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "signup_forms_popups__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth."
+        }
+      ]
+    },
+    {
+      "id": "signup_forms_popups__gap_omnichannel_depth",
+      "parentSurfaceId": "signup_forms_popups",
+      "label": "Signup forms and popup forms — omnichannel_depth",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "frontend_product_experience",
+      "requiredWork": "Resolve open gap family: omnichannel_depth",
+      "productFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-leads.mjs",
+            "exists": true,
+            "bytes": 14948,
+            "lineCount": 319,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/leads.mjs",
+            "exists": true,
+            "bytes": 154586,
+            "lineCount": 506,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/forms-landing.test.mjs",
+            "exists": true,
+            "bytes": 3982,
+            "lineCount": 97,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "omnichannel_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "signup_forms_popups__gap_omnichannel_depth"
+        },
+        {
+          "kind": "open_gap_family_not_proven_complete",
+          "family": "omnichannel_depth"
+        }
+      ]
+    },
+    {
+      "id": "campaign_index__req_01",
+      "parentSurfaceId": "campaign_index",
+      "label": "Campaign index — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "campaign_index__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions."
+        }
+      ]
+    },
+    {
+      "id": "campaign_index__req_02",
+      "parentSurfaceId": "campaign_index",
+      "label": "Campaign index — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "data_model_persistence",
+      "requiredWork": "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "campaign_index__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility."
+        }
+      ]
+    },
+    {
+      "id": "campaign_wizard__req_01",
+      "parentSurfaceId": "campaign_wizard",
+      "label": "Campaign creation wizard — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "experimentation_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "campaign_wizard__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types."
+        }
+      ]
+    },
+    {
+      "id": "campaign_wizard__req_02",
+      "parentSurfaceId": "campaign_wizard",
+      "label": "Campaign creation wizard — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "experimentation_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "campaign_wizard__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows."
+        }
+      ]
+    },
+    {
+      "id": "campaign_wizard__gap_experimentation_depth",
+      "parentSurfaceId": "campaign_wizard",
+      "label": "Campaign creation wizard — experimentation_depth",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Resolve open gap family: experimentation_depth",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "experimentation_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "campaign_wizard__gap_experimentation_depth"
+        },
+        {
+          "kind": "open_gap_family_not_proven_complete",
+          "family": "experimentation_depth"
+        }
+      ]
+    },
+    {
+      "id": "email_builder__req_01",
+      "parentSurfaceId": "email_builder",
+      "label": "Email builder — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "frontend_product_experience",
+      "requiredWork": "Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/templates.mjs",
+            "exists": true,
+            "bytes": 8848,
+            "lineCount": 75,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "email_builder__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration."
+        }
+      ]
+    },
+    {
+      "id": "email_builder__req_02",
+      "parentSurfaceId": "email_builder",
+      "label": "Email builder — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "frontend_product_experience",
+      "requiredWork": "Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/templates.mjs",
+            "exists": true,
+            "bytes": 8848,
+            "lineCount": 75,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "email_builder__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity."
+        }
+      ]
+    },
+    {
+      "id": "template_library__req_01",
+      "parentSurfaceId": "template_library",
+      "label": "Template library — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "security_account_enterprise",
+      "requiredWork": "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance.",
+      "productFiles": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/templates.mjs",
+            "exists": true,
+            "bytes": 8848,
+            "lineCount": 75,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/template-variants-routes.test.mjs",
+            "exists": true,
+            "bytes": 1047,
+            "lineCount": 18,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/template-approvals-routes.test.mjs",
+            "exists": true,
+            "bytes": 1067,
+            "lineCount": 18,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "template_library__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance."
+        }
+      ]
+    },
+    {
+      "id": "template_library__req_02",
+      "parentSurfaceId": "template_library",
+      "label": "Template library — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "frontend_product_experience",
+      "requiredWork": "Add true template lifecycle management, versioning, duplication, review, and dependency tracking.",
+      "productFiles": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/templates.mjs",
+            "exists": true,
+            "bytes": 8848,
+            "lineCount": 75,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/template-variants-routes.test.mjs",
+            "exists": true,
+            "bytes": 1047,
+            "lineCount": 18,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/template-approvals-routes.test.mjs",
+            "exists": true,
+            "bytes": 1067,
+            "lineCount": 18,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "template_library__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add true template lifecycle management, versioning, duplication, review, and dependency tracking."
+        }
+      ]
+    },
+    {
+      "id": "content_studio__req_01",
+      "parentSurfaceId": "content_studio",
+      "label": "Content studio / asset manager — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows.",
+      "productFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/content-library.mjs",
+            "exists": true,
+            "bytes": 24953,
+            "lineCount": 172,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/content-ops.mjs",
+            "exists": true,
+            "bytes": 1662,
+            "lineCount": 15,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/content-library.test.mjs",
+            "exists": true,
+            "bytes": 962,
+            "lineCount": 18,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "content_studio_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "content_studio__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows."
+        }
+      ]
+    },
+    {
+      "id": "content_studio__req_02",
+      "parentSurfaceId": "content_studio",
+      "label": "Content studio / asset manager — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations.",
+      "productFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/content-library.mjs",
+            "exists": true,
+            "bytes": 24953,
+            "lineCount": 172,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/content-ops.mjs",
+            "exists": true,
+            "bytes": 1662,
+            "lineCount": 15,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/content-library.test.mjs",
+            "exists": true,
+            "bytes": 962,
+            "lineCount": 18,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "content_studio_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "content_studio__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations."
+        }
+      ]
+    },
+    {
+      "id": "content_studio__gap_content_studio_depth",
+      "parentSurfaceId": "content_studio",
+      "label": "Content studio / asset manager — content_studio_depth",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "frontend_product_experience",
+      "requiredWork": "Resolve open gap family: content_studio_depth",
+      "productFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/content-library.mjs",
+            "exists": true,
+            "bytes": 24953,
+            "lineCount": 172,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/content-ops.mjs",
+            "exists": true,
+            "bytes": 1662,
+            "lineCount": 15,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/content-library.test.mjs",
+            "exists": true,
+            "bytes": 962,
+            "lineCount": 18,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "content_studio_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "content_studio__gap_content_studio_depth"
+        },
+        {
+          "kind": "open_gap_family_not_proven_complete",
+          "family": "content_studio_depth"
+        }
+      ]
+    },
+    {
+      "id": "send_schedule_review__req_01",
+      "parentSurfaceId": "send_schedule_review",
+      "label": "Send / schedule / review — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "send_schedule_review__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization."
+        }
+      ]
+    },
+    {
+      "id": "send_schedule_review__req_02",
+      "parentSurfaceId": "send_schedule_review",
+      "label": "Send / schedule / review — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history.",
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/campaigns.mjs",
+            "exists": true,
+            "bytes": 597784,
+            "lineCount": 2416,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/campaign-editor-depth.test.mjs",
+            "exists": true,
+            "bytes": 3591,
+            "lineCount": 96,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "send_schedule_review__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history."
+        }
+      ]
+    },
+    {
+      "id": "reports_overview__req_01",
+      "parentSurfaceId": "reports_overview",
+      "label": "Reports overview — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis.",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/reports.mjs",
+            "exists": true,
+            "bytes": 133228,
+            "lineCount": 573,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/billing-analytics.test.mjs",
+            "exists": true,
+            "bytes": 936,
+            "lineCount": 15,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "predictive_optimization_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "reports_overview__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis."
+        }
+      ]
+    },
+    {
+      "id": "reports_overview__req_02",
+      "parentSurfaceId": "reports_overview",
+      "label": "Reports overview — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Add richer export/sharing/report scheduling and role-aware reporting permissions.",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/reports.mjs",
+            "exists": true,
+            "bytes": 133228,
+            "lineCount": 573,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/billing-analytics.test.mjs",
+            "exists": true,
+            "bytes": 936,
+            "lineCount": 15,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "predictive_optimization_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "reports_overview__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add richer export/sharing/report scheduling and role-aware reporting permissions."
+        }
+      ]
+    },
+    {
+      "id": "reports_overview__gap_predictive_optimization_depth",
+      "parentSurfaceId": "reports_overview",
+      "label": "Reports overview — predictive_optimization_depth",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Resolve open gap family: predictive_optimization_depth",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/reports.mjs",
+            "exists": true,
+            "bytes": 133228,
+            "lineCount": 573,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/billing-analytics.test.mjs",
+            "exists": true,
+            "bytes": 936,
+            "lineCount": 15,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "predictive_optimization_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "reports_overview__gap_predictive_optimization_depth"
+        },
+        {
+          "kind": "open_gap_family_not_proven_complete",
+          "family": "predictive_optimization_depth"
+        }
+      ]
+    },
+    {
+      "id": "report_detail__req_01",
+      "parentSurfaceId": "report_detail",
+      "label": "Report detail — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "reporting_analytics",
+      "requiredWork": "Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views.",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/reports.mjs",
+            "exists": true,
+            "bytes": 133228,
+            "lineCount": 573,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "experimentation_depth",
+          "predictive_optimization_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "report_detail__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views."
+        }
+      ]
+    },
+    {
+      "id": "report_detail__req_02",
+      "parentSurfaceId": "report_detail",
+      "label": "Report detail — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "reporting_analytics",
+      "requiredWork": "Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations.",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/reports.mjs",
+            "exists": true,
+            "bytes": 133228,
+            "lineCount": 573,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "experimentation_depth",
+          "predictive_optimization_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "report_detail__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations."
+        }
+      ]
+    },
+    {
+      "id": "report_detail__gap_experimentation_depth",
+      "parentSurfaceId": "report_detail",
+      "label": "Report detail — experimentation_depth",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "reporting_analytics",
+      "requiredWork": "Resolve open gap family: experimentation_depth",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/reports.mjs",
+            "exists": true,
+            "bytes": 133228,
+            "lineCount": 573,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "experimentation_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "report_detail__gap_experimentation_depth"
+        },
+        {
+          "kind": "open_gap_family_not_proven_complete",
+          "family": "experimentation_depth"
+        }
+      ]
+    },
+    {
+      "id": "report_detail__gap_predictive_optimization_depth",
+      "parentSurfaceId": "report_detail",
+      "label": "Report detail — predictive_optimization_depth",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "reporting_analytics",
+      "requiredWork": "Resolve open gap family: predictive_optimization_depth",
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/reports.mjs",
+            "exists": true,
+            "bytes": 133228,
+            "lineCount": 573,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-campaigns.mjs",
+            "exists": true,
+            "bytes": 899209,
+            "lineCount": 3343,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "predictive_optimization_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "report_detail__gap_predictive_optimization_depth"
+        },
+        {
+          "kind": "open_gap_family_not_proven_complete",
+          "family": "predictive_optimization_depth"
+        }
+      ]
+    },
+    {
+      "id": "automations_overview__req_01",
+      "parentSurfaceId": "automations_overview",
+      "label": "Automations overview — requirement 1",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls.",
+      "productFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-journeys.mjs",
+            "exists": true,
+            "bytes": 46307,
+            "lineCount": 310,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/automations.mjs",
+            "exists": true,
+            "bytes": 485796,
+            "lineCount": 1582,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/automation-journeys.test.mjs",
+            "exists": true,
+            "bytes": 4002,
+            "lineCount": 104,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "automations_overview__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls."
+        }
+      ]
+    },
+    {
+      "id": "automations_overview__req_02",
+      "parentSurfaceId": "automations_overview",
+      "label": "Automations overview — requirement 2",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Match automation governance, ownership, approvals, and diagnostics.",
+      "productFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-journeys.mjs",
+            "exists": true,
+            "bytes": 46307,
+            "lineCount": 310,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/automations.mjs",
+            "exists": true,
+            "bytes": 485796,
+            "lineCount": 1582,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/automation-journeys.test.mjs",
+            "exists": true,
+            "bytes": 4002,
+            "lineCount": 104,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "automations_overview__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match automation governance, ownership, approvals, and diagnostics."
+        }
+      ]
+    },
+    {
+      "id": "automation_journey_builder__req_01",
+      "parentSurfaceId": "automation_journey_builder",
+      "label": "Customer journey / automation builder — requirement 1",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth.",
+      "productFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-journeys.mjs",
+            "exists": true,
+            "bytes": 46307,
+            "lineCount": 310,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/automations.mjs",
+            "exists": true,
+            "bytes": 485796,
+            "lineCount": 1582,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/automation-journeys.test.mjs",
+            "exists": true,
+            "bytes": 4002,
+            "lineCount": 104,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "automation_journey_builder__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth."
+        }
+      ]
+    },
+    {
+      "id": "automation_journey_builder__req_02",
+      "parentSurfaceId": "automation_journey_builder",
+      "label": "Customer journey / automation builder — requirement 2",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions.",
+      "productFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-journeys.mjs",
+            "exists": true,
+            "bytes": 46307,
+            "lineCount": 310,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/automations.mjs",
+            "exists": true,
+            "bytes": 485796,
+            "lineCount": 1582,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/automation-journeys.test.mjs",
+            "exists": true,
+            "bytes": 4002,
+            "lineCount": 104,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "automation_journey_builder__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions."
+        }
+      ]
+    },
+    {
+      "id": "landing_pages__req_01",
+      "parentSurfaceId": "landing_pages",
+      "label": "Landing pages — requirement 1",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle.",
+      "productFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/leads.mjs",
+            "exists": true,
+            "bytes": 154586,
+            "lineCount": 506,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/websites.mjs",
+            "exists": true,
+            "bytes": 173,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/forms-landing.test.mjs",
+            "exists": true,
+            "bytes": 3982,
+            "lineCount": 97,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "landing_pages__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle."
+        }
+      ]
+    },
+    {
+      "id": "landing_pages__req_02",
+      "parentSurfaceId": "landing_pages",
+      "label": "Landing pages — requirement 2",
+      "canonicalSurfaceStatus": "observed_direct",
+      "confidence": "medium",
+      "lane": "reporting_analytics",
+      "requiredWork": "Match domain mapping, asset management, duplication, templates, and conversion reporting.",
+      "productFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/leads.mjs",
+            "exists": true,
+            "bytes": 154586,
+            "lineCount": 506,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/websites.mjs",
+            "exists": true,
+            "bytes": 173,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/forms-landing.test.mjs",
+            "exists": true,
+            "bytes": 3982,
+            "lineCount": 97,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "landing_pages__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match domain mapping, asset management, duplication, templates, and conversion reporting."
+        }
+      ]
+    },
+    {
+      "id": "website_builder__req_01",
+      "parentSurfaceId": "website_builder",
+      "label": "Website builder — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics.",
+      "productFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/websites.mjs",
+            "exists": true,
+            "bytes": 173,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-commerce-revenue.mjs",
+            "exists": true,
+            "bytes": 316867,
+            "lineCount": 1317,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "website_builder_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "website_builder__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics."
+        }
+      ]
+    },
+    {
+      "id": "website_builder__req_02",
+      "parentSurfaceId": "website_builder",
+      "label": "Website builder — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management.",
+      "productFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/websites.mjs",
+            "exists": true,
+            "bytes": 173,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-commerce-revenue.mjs",
+            "exists": true,
+            "bytes": 316867,
+            "lineCount": 1317,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "website_builder_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "website_builder__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management."
+        }
+      ]
+    },
+    {
+      "id": "website_builder__gap_website_builder_depth",
+      "parentSurfaceId": "website_builder",
+      "label": "Website builder — website_builder_depth",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Resolve open gap family: website_builder_depth",
+      "productFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/websites.mjs",
+            "exists": true,
+            "bytes": 173,
+            "lineCount": 6,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-commerce-revenue.mjs",
+            "exists": true,
+            "bytes": 316867,
+            "lineCount": 1317,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/current-product-parity.test.mjs",
+            "exists": true,
+            "bytes": 12591,
+            "lineCount": 280,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "website_builder_depth"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "website_builder__gap_website_builder_depth"
+        },
+        {
+          "kind": "open_gap_family_not_proven_complete",
+          "family": "website_builder_depth"
+        }
+      ]
+    },
+    {
+      "id": "integrations_marketplace__req_01",
+      "parentSurfaceId": "integrations_marketplace",
+      "label": "Integrations marketplace — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior.",
+      "productFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/integrations.mjs",
+            "exists": true,
+            "bytes": 26090,
+            "lineCount": 174,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-custom-journeys.mjs",
+            "exists": true,
+            "bytes": 175829,
+            "lineCount": 467,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/integrations-marketplace.test.mjs",
+            "exists": true,
+            "bytes": 2470,
+            "lineCount": 58,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "integration_ecosystem_realism"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "integrations_marketplace__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior."
+        }
+      ]
+    },
+    {
+      "id": "integrations_marketplace__req_02",
+      "parentSurfaceId": "integrations_marketplace",
+      "label": "Integrations marketplace — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems.",
+      "productFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/integrations.mjs",
+            "exists": true,
+            "bytes": 26090,
+            "lineCount": 174,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-custom-journeys.mjs",
+            "exists": true,
+            "bytes": 175829,
+            "lineCount": 467,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/integrations-marketplace.test.mjs",
+            "exists": true,
+            "bytes": 2470,
+            "lineCount": 58,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "integration_ecosystem_realism"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "integrations_marketplace__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems."
+        }
+      ]
+    },
+    {
+      "id": "integrations_marketplace__gap_integration_ecosystem_realism",
+      "parentSurfaceId": "integrations_marketplace",
+      "label": "Integrations marketplace — integration_ecosystem_realism",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Resolve open gap family: integration_ecosystem_realism",
+      "productFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/integrations.mjs",
+            "exists": true,
+            "bytes": 26090,
+            "lineCount": 174,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-custom-journeys.mjs",
+            "exists": true,
+            "bytes": 175829,
+            "lineCount": 467,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/integrations-marketplace.test.mjs",
+            "exists": true,
+            "bytes": 2470,
+            "lineCount": 58,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": [
+          "integration_ecosystem_realism"
+        ]
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "integrations_marketplace__gap_integration_ecosystem_realism"
+        },
+        {
+          "kind": "open_gap_family_not_proven_complete",
+          "family": "integration_ecosystem_realism"
+        }
+      ]
+    },
+    {
+      "id": "api_keys_webhooks__req_01",
+      "parentSurfaceId": "api_keys_webhooks",
+      "label": "API keys and webhooks — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "api_keys_webhooks__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs."
+        }
+      ]
+    },
+    {
+      "id": "api_keys_webhooks__req_02",
+      "parentSurfaceId": "api_keys_webhooks",
+      "label": "API keys and webhooks — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/reports-admin.test.mjs",
+            "exists": true,
+            "bytes": 5592,
+            "lineCount": 133,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "api_keys_webhooks__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links."
+        }
+      ]
+    },
+    {
+      "id": "billing_plans__req_01",
+      "parentSurfaceId": "billing_plans",
+      "label": "Billing and plans — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-commerce-revenue.mjs",
+            "exists": true,
+            "bytes": 316867,
+            "lineCount": 1317,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/billing-analytics.test.mjs",
+            "exists": true,
+            "bytes": 936,
+            "lineCount": 15,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "billing_plans__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows."
+        }
+      ]
+    },
+    {
+      "id": "billing_plans__req_02",
+      "parentSurfaceId": "billing_plans",
+      "label": "Billing and plans — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "integrations_api_oauth",
+      "requiredWork": "Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/domain-commerce-revenue.mjs",
+            "exists": true,
+            "bytes": 316867,
+            "lineCount": 1317,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/billing-analytics.test.mjs",
+            "exists": true,
+            "bytes": 936,
+            "lineCount": 15,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "billing_plans__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions."
+        }
+      ]
+    },
+    {
+      "id": "settings_domains__req_01",
+      "parentSurfaceId": "settings_domains",
+      "label": "Settings, domains, and authentication — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/security-ops-hardening.test.mjs",
+            "exists": true,
+            "bytes": 5641,
+            "lineCount": 151,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "settings_domains__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings."
+        }
+      ]
+    },
+    {
+      "id": "settings_domains__req_02",
+      "parentSurfaceId": "settings_domains",
+      "label": "Settings, domains, and authentication — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "jobs_delivery_automation",
+      "requiredWork": "Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes.",
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/routes/api-admin.mjs",
+            "exists": true,
+            "bytes": 706162,
+            "lineCount": 2719,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/security-ops-hardening.test.mjs",
+            "exists": true,
+            "bytes": 5641,
+            "lineCount": 151,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "settings_domains__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes."
+        }
+      ]
+    },
+    {
+      "id": "team_roles_permissions__req_01",
+      "parentSurfaceId": "team_roles_permissions",
+      "label": "Team users, roles, and permissions — requirement 1",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "security_account_enterprise",
+      "requiredWork": "Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views.",
+      "productFiles": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-notes.mjs",
+            "exists": true,
+            "bytes": 50666,
+            "lineCount": 166,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "team_roles_permissions__req_01"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views."
+        }
+      ]
+    },
+    {
+      "id": "team_roles_permissions__req_02",
+      "parentSurfaceId": "team_roles_permissions",
+      "label": "Team users, roles, and permissions — requirement 2",
+      "canonicalSurfaceStatus": "partial_or_shallow",
+      "confidence": "low",
+      "lane": "security_account_enterprise",
+      "requiredWork": "Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls.",
+      "productFiles": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "evidence": {
+        "productFiles": [
+          {
+            "relPath": "packages/app/domain-notes.mjs",
+            "exists": true,
+            "bytes": 50666,
+            "lineCount": 166,
+            "hasPlaceholderLanguage": false
+          },
+          {
+            "relPath": "packages/app/routes/platform.mjs",
+            "exists": true,
+            "bytes": 306454,
+            "lineCount": 1199,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "targetedTests": [
+          {
+            "relPath": "tests/platform-spine.test.mjs",
+            "exists": true,
+            "bytes": 7799,
+            "lineCount": 153,
+            "hasPlaceholderLanguage": false
+          }
+        ],
+        "openGapFamilies": []
+      },
+      "status": "red",
+      "proof": null,
+      "blockers": [
+        {
+          "kind": "leaf_proof_missing",
+          "leafId": "team_roles_permissions__req_02"
+        },
+        {
+          "kind": "required_work_not_proven_complete",
+          "detail": "Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls."
+        }
+      ]
+    }
+  ],
+  "nextWorkQueue": [
+    {
+      "id": "signup_onboarding__req_01",
+      "parentSurfaceId": "signup_onboarding",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_onboarding__req_02",
+      "parentSurfaceId": "signup_onboarding",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_onboarding__req_03",
+      "parentSurfaceId": "signup_onboarding",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "account_workspace_setup__req_01",
+      "parentSurfaceId": "account_workspace_setup",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "account_workspace_setup__req_02",
+      "parentSurfaceId": "account_workspace_setup",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "account_workspace_setup__req_03",
+      "parentSurfaceId": "account_workspace_setup",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "dashboard_home__req_01",
+      "parentSurfaceId": "dashboard_home",
+      "lane": "reporting_analytics",
+      "productGoal": "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "dashboard_home__req_02",
+      "parentSurfaceId": "dashboard_home",
+      "lane": "data_model_persistence",
+      "productGoal": "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "dashboard_home__req_03",
+      "parentSurfaceId": "dashboard_home",
+      "lane": "data_model_persistence",
+      "productGoal": "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity.",
+      "allowedFiles": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "audience_overview__req_01",
+      "parentSurfaceId": "audience_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "audience_overview__req_02",
+      "parentSurfaceId": "audience_overview",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "contacts_table__req_01",
+      "parentSurfaceId": "contacts_table",
+      "lane": "data_model_persistence",
+      "productGoal": "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "contacts_table__req_02",
+      "parentSurfaceId": "contacts_table",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "contact_profile__req_01",
+      "parentSurfaceId": "contact_profile",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "contact_profile__req_02",
+      "parentSurfaceId": "contact_profile",
+      "lane": "reporting_analytics",
+      "productGoal": "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "tags_groups_interests__req_01",
+      "parentSurfaceId": "tags_groups_interests",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Deepen tag/group/interest creation, hierarchy management, assignment at scale, import/export support, and reporting integration.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "tags_groups_interests__req_02",
+      "parentSurfaceId": "tags_groups_interests",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Match Mailchimp-style audience organization workflows including bulk editing, automated assignment, and segment-builder integration.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "segments__req_01",
+      "parentSurfaceId": "segments",
+      "lane": "reporting_analytics",
+      "productGoal": "Expand segment grammar to include richer boolean logic, temporal filters, predictive clauses, and reusable saved segment patterns.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "segments__req_02",
+      "parentSurfaceId": "segments",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match live audience counts, preview samples, eligibility explanations, and segment-to-campaign/journey handoff UX.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_forms_popups__req_01",
+      "parentSurfaceId": "signup_forms_popups",
+      "lane": "reporting_analytics",
+      "productGoal": "Deepen embedded, popup, modal, and hosted signup forms with targeting rules, scheduling, analytics, and branding/theming parity.",
+      "allowedFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_forms_popups__req_02",
+      "parentSurfaceId": "signup_forms_popups",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Add publish lifecycle controls, placement management, consent/compliance states, and audience/journey integration depth.",
+      "allowedFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_forms_popups__gap_omnichannel_depth",
+      "parentSurfaceId": "signup_forms_popups",
+      "lane": "frontend_product_experience",
+      "productGoal": "Resolve open gap family: omnichannel_depth",
+      "allowedFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_index__req_01",
+      "parentSurfaceId": "campaign_index",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match campaign list depth: filtering, saved views, statuses, schedules, approvals, folders, duplication, archiving, and batch actions.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_index__req_02",
+      "parentSurfaceId": "campaign_index",
+      "lane": "data_model_persistence",
+      "productGoal": "Add richer historical context, ownership/approval metadata, and multi-channel campaign visibility.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_wizard__req_01",
+      "parentSurfaceId": "campaign_wizard",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Deepen campaign creation flows for regular, automated, RSS, transactional-adjacent, and multivariate campaign types.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_wizard__req_02",
+      "parentSurfaceId": "campaign_wizard",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match recipient selection, scheduling, approvals, compliance checks, send-time optimization, and review/send workflows.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "campaign_wizard__gap_experimentation_depth",
+      "parentSurfaceId": "campaign_wizard",
+      "lane": "reporting_analytics",
+      "productGoal": "Resolve open gap family: experimentation_depth",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "email_builder__req_01",
+      "parentSurfaceId": "email_builder",
+      "lane": "frontend_product_experience",
+      "productGoal": "Deepen the email builder block system, drag/drop editing, merge tags, conditional content, previews, testing, and collaboration.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "email_builder__req_02",
+      "parentSurfaceId": "email_builder",
+      "lane": "frontend_product_experience",
+      "productGoal": "Match content reuse, asset linking, brand kits, render fidelity, and responsive preview parity.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "packages/app/routes/templates.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "template_library__req_01",
+      "parentSurfaceId": "template_library",
+      "lane": "security_account_enterprise",
+      "productGoal": "Match template gallery taxonomy, previews, filtering, ownership, permissions, approvals, and brand/template inheritance.",
+      "allowedFiles": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "template_library__req_02",
+      "parentSurfaceId": "template_library",
+      "lane": "frontend_product_experience",
+      "productGoal": "Add true template lifecycle management, versioning, duplication, review, and dependency tracking.",
+      "allowedFiles": [
+        "packages/app/routes/templates.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "content_studio__req_01",
+      "parentSurfaceId": "content_studio",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Implement full asset-library depth: folders, metadata, search, tagging, previews, image editing, approvals, and reuse workflows.",
+      "allowedFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "content_studio__req_02",
+      "parentSurfaceId": "content_studio",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match cross-surface content insertion, locking, collaboration, and auditability across campaigns, templates, sites, and automations.",
+      "allowedFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "content_studio__gap_content_studio_depth",
+      "parentSurfaceId": "content_studio",
+      "lane": "frontend_product_experience",
+      "productGoal": "Resolve open gap family: content_studio_depth",
+      "allowedFiles": [
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "send_schedule_review__req_01",
+      "parentSurfaceId": "send_schedule_review",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Deepen send/review parity: audience checks, compliance warnings, subject/preheader validation, render previews, approval gates, and schedule optimization.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "send_schedule_review__req_02",
+      "parentSurfaceId": "send_schedule_review",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Add send-window constraints, timezone behavior, retry/cancel/edit-after-schedule flows, and audit history.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "reports_overview__req_01",
+      "parentSurfaceId": "reports_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Match executive reporting dashboards, trend views, comparisons, benchmarks, attribution, and audience growth synthesis.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "reports_overview__req_02",
+      "parentSurfaceId": "reports_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Add richer export/sharing/report scheduling and role-aware reporting permissions.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "reports_overview__gap_predictive_optimization_depth",
+      "parentSurfaceId": "reports_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Resolve open gap family: predictive_optimization_depth",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "report_detail__req_01",
+      "parentSurfaceId": "report_detail",
+      "lane": "reporting_analytics",
+      "productGoal": "Implement deep single-campaign and journey detail reports: engagement, revenue attribution, cohorting, funnel analysis, and comparison views.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "report_detail__req_02",
+      "parentSurfaceId": "report_detail",
+      "lane": "reporting_analytics",
+      "productGoal": "Match experiment result analysis, link-level drill-downs, device/client detail, and anomaly explanations.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "report_detail__gap_experimentation_depth",
+      "parentSurfaceId": "report_detail",
+      "lane": "reporting_analytics",
+      "productGoal": "Resolve open gap family: experimentation_depth",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "report_detail__gap_predictive_optimization_depth",
+      "parentSurfaceId": "report_detail",
+      "lane": "reporting_analytics",
+      "productGoal": "Resolve open gap family: predictive_optimization_depth",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "automations_overview__req_01",
+      "parentSurfaceId": "automations_overview",
+      "lane": "reporting_analytics",
+      "productGoal": "Add richer automation library, health/status views, run history, template selection, analytics, and operational controls.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "automations_overview__req_02",
+      "parentSurfaceId": "automations_overview",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match automation governance, ownership, approvals, and diagnostics.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "automation_journey_builder__req_01",
+      "parentSurfaceId": "automation_journey_builder",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Deepen journey nodes, triggers, goals, branching, delays, conditions, and debugging views to production-style breadth.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "automation_journey_builder__req_02",
+      "parentSurfaceId": "automation_journey_builder",
+      "lane": "reporting_analytics",
+      "productGoal": "Match reusable journeys, testing/simulation, analytics overlays, and cross-channel actions.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "landing_pages__req_01",
+      "parentSurfaceId": "landing_pages",
+      "lane": "reporting_analytics",
+      "productGoal": "Deepen landing-page builder parity: block library, page settings, SEO, experimentation, analytics, and publish lifecycle.",
+      "allowedFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "landing_pages__req_02",
+      "parentSurfaceId": "landing_pages",
+      "lane": "reporting_analytics",
+      "productGoal": "Match domain mapping, asset management, duplication, templates, and conversion reporting.",
+      "allowedFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "product_diff"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "website_builder__req_01",
+      "parentSurfaceId": "website_builder",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Implement a distinct website object model with navigation, theme system, pages/blog/store depth, publish workflow, and analytics.",
+      "allowedFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "website_builder__req_02",
+      "parentSurfaceId": "website_builder",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Match reusable sections, domain management, SEO, commerce embedding, and site-wide asset/content management.",
+      "allowedFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "website_builder__gap_website_builder_depth",
+      "parentSurfaceId": "website_builder",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Resolve open gap family: website_builder_depth",
+      "allowedFiles": [
+        "packages/app/routes/websites.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "integrations_marketplace__req_01",
+      "parentSurfaceId": "integrations_marketplace",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Deepen real integration lifecycle: discovery, auth/install, sync controls, settings, health, error handling, and uninstall/reconnect behavior.",
+      "allowedFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "integrations_marketplace__req_02",
+      "parentSurfaceId": "integrations_marketplace",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Expand catalog realism, partner metadata, and data sync depth across commerce, CRM, ads, analytics, and support systems.",
+      "allowedFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "db_persistence",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "integrations_marketplace__gap_integration_ecosystem_realism",
+      "parentSurfaceId": "integrations_marketplace",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Resolve open gap family: integration_ecosystem_realism",
+      "allowedFiles": [
+        "packages/app/routes/integrations.mjs",
+        "packages/app/domain-custom-journeys.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs"
+      ],
+      "proofKinds": [
+        "analytics_telemetry",
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "api_keys_webhooks__req_01",
+      "parentSurfaceId": "api_keys_webhooks",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Build a full developer/admin surface for API keys, scopes, revocation, rotation, webhook endpoints, event subscriptions, and logs.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "api_keys_webhooks__req_02",
+      "parentSurfaceId": "api_keys_webhooks",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Add webhook delivery history, retry controls, secrets management, and app-level developer tooling/documentation links.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "provider_integration"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "billing_plans__req_01",
+      "parentSurfaceId": "billing_plans",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Deepen plan/entitlement parity, invoice history, usage tracking, upgrade/downgrade, trials, and billing administration flows.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "billing_plans__req_02",
+      "parentSurfaceId": "billing_plans",
+      "lane": "integrations_api_oauth",
+      "productGoal": "Match billing edge cases, taxation, payment recovery, seat/usage visibility, and role-based billing permissions.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/billing-analytics.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "provider_integration",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "settings_domains__req_01",
+      "parentSurfaceId": "settings_domains",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Expand settings parity across domains, sender reputation, authentication, DNS, branding, notifications, and regional/compliance settings.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "settings_domains__req_02",
+      "parentSurfaceId": "settings_domains",
+      "lane": "jobs_delivery_automation",
+      "productGoal": "Match verification flows, failure recovery, admin controls, and auditability for domain and account settings changes.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "job_event",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "team_roles_permissions__req_01",
+      "parentSurfaceId": "team_roles_permissions",
+      "lane": "security_account_enterprise",
+      "productGoal": "Implement full team/org/workspace permission parity including invite lifecycle, custom roles, scoped permissions, approvals, and admin views.",
+      "allowedFiles": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "team_roles_permissions__req_02",
+      "parentSurfaceId": "team_roles_permissions",
+      "lane": "security_account_enterprise",
+      "productGoal": "Add audit trails, permission inheritance, ownership transfer, and enterprise organization controls.",
+      "allowedFiles": [
+        "packages/app/domain-notes.mjs",
+        "packages/app/routes/platform.mjs"
+      ],
+      "targetedTests": [
+        "tests/platform-spine.test.mjs"
+      ],
+      "proofKinds": [
+        "browser_ui",
+        "functional",
+        "product_diff",
+        "security_policy"
+      ],
+      "stopCondition": "leaf_surface_proven_green_or_blocker_report"
+    }
+  ]
+}

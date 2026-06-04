@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "clawd.mailchimp.strict_1to1_inventory_reduction.v1",
+  "generatedAt": "2026-06-04T04:41:18.135Z",
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "inventoryPath": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/strict_1to1_gap_inventory.json",
+  "baselineGapCount": 26,
+  "baselineRemainingGapCount": 26,
+  "globalCreditAttemptCount": 0,
+  "creditedGapCount": 0,
+  "rejectedCreditCount": 0,
+  "remainingGapCount": 26,
+  "runCreditOk": true,
+  "allInventoryGapsCredited": false,
+  "status": "no_inventory_reduction",
+  "creditedGaps": [],
+  "rejectedCredits": [],
+  "remainingGaps": [
+    {
+      "id": "signup_onboarding",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "account_workspace_setup",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "dashboard_home",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "audience_overview",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "contacts_table",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "contact_profile",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "tags_groups_interests",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "segments",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "signup_forms_popups",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "campaign_index",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "campaign_wizard",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "email_builder",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "template_library",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "content_studio",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "send_schedule_review",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "reports_overview",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "report_detail",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "automations_overview",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "automation_journey_builder",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "landing_pages",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "website_builder",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "integrations_marketplace",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "api_keys_webhooks",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "billing_plans",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "settings_domains",
+      "label": null,
+      "status": "remaining_gap"
+    },
+    {
+      "id": "team_roles_permissions",
+      "label": null,
+      "status": "remaining_gap"
+    }
+  ],
+  "truthBoundary": "This reducer only decrements strict_1to1_gap_inventory entries from admitted global_gap_credit artifacts. It is not by itself a Mailchimp full-clone completion claim."
+}

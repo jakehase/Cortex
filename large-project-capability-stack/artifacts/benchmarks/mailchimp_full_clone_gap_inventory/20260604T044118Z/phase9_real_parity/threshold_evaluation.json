@@ -1,0 +1,24 @@
+{
+  "generatedAt": "2026-06-04T04:41:18.502Z",
+  "thresholdPass": false,
+  "ok": false,
+  "benchmarkTier": "phase9_full_clone_preflight",
+  "failures": [
+    {
+      "metric": "fullCloneParityGreen",
+      "actual": false,
+      "requirement": "= true",
+      "reason": "real_mailchimp_full_clone_matrix_red"
+    }
+  ],
+  "metrics": {
+    "inventoryReady": true,
+    "canonicalSurfaceCount": 26,
+    "leafSurfaceCount": 63,
+    "greenLeafSurfaceCount": 0,
+    "redLeafSurfaceCount": 63,
+    "missingProductFileCount": 0,
+    "missingTargetedTestCount": 0,
+    "placeholderProductFileCount": 0
+  }
+}

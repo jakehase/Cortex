@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "clawd.mailchimp.phase9_program_state.v1",
+  "generatedAt": "2026-06-04T04:41:18.504Z",
+  "status": "blocked",
+  "done": true,
+  "stopAllowed": true,
+  "stopReason": "phase9_preflight_blocker_report_written",
+  "summary": "Phase 9 real Mailchimp parity inventory is built, but full-clone parity remains red."
+}

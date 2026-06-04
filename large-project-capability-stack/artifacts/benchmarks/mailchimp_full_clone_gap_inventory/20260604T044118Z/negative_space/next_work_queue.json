@@ -1,0 +1,472 @@
+{
+  "generatedAt": "2026-06-04T04:41:18.582Z",
+  "count": 28,
+  "work": [
+    {
+      "id": "email_marketing_campaigns__phase10_negative_space",
+      "parentSurfaceId": "email_marketing_campaigns",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Email marketing campaigns. Official source labels: Email Marketing, Email Builder, Campaign Manager.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/phase9-campaign-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "ab_testing_experimentation__phase10_negative_space",
+      "parentSurfaceId": "ab_testing_experimentation",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: A/B testing and experimentation. Official source labels: A/B Testing.",
+      "allowedFiles": [
+        "packages/app/experiment-engine.mjs",
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/routes/reports.mjs"
+      ],
+      "targetedTests": [
+        "tests/experiment-lab.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "marketing_automation_flows__phase10_negative_space",
+      "parentSurfaceId": "marketing_automation_flows",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Marketing automation flows / customer journeys. Official source labels: Marketing Automation Flows, Customer Journeys, Pre-built Automations.",
+      "allowedFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs",
+        "tests/journey-metrics.test.mjs",
+        "tests/journey-annotations.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "content_studio_assets__phase10_negative_space",
+      "parentSurfaceId": "content_studio_assets",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Content Studio and creative assets. Official source labels: Content Studio, Content creation tools.",
+      "allowedFiles": [
+        "packages/app/domain-template-assets.mjs",
+        "packages/app/routes/content-asset-templates.mjs",
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/content-asset-templates.test.mjs",
+        "tests/content-checklists.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "dynamic_content_personalization__phase10_negative_space",
+      "parentSurfaceId": "dynamic_content_personalization",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Dynamic content and personalization. Official source labels: Dynamic Content, Personalization.",
+      "allowedFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "generative_ai_subject_helper__phase10_negative_space",
+      "parentSurfaceId": "generative_ai_subject_helper",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Generative AI and Subject Line Helper. Official source labels: Generative AI, Subject Line Helper, AI marketing tools.",
+      "allowedFiles": [
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-website-builder.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "audience_crm_dashboard__phase10_negative_space",
+      "parentSurfaceId": "audience_crm_dashboard",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Marketing CRM and audience dashboard. Official source labels: Marketing CRM, Audience dashboard, All audience tools.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/phase9-audience-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "predictive_demographics__phase10_negative_space",
+      "parentSurfaceId": "predictive_demographics",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Predictive demographics and contact scoring. Official source labels: Predictive Demographics.",
+      "allowedFiles": [
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/routes/current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs",
+        "tests/segmentation-lab.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "segmentation_advanced__phase10_negative_space",
+      "parentSurfaceId": "segmentation_advanced",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Advanced segmentation. Official source labels: Segmentation.",
+      "allowedFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs",
+        "tests/segmentation-lab.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "signup_forms__phase10_negative_space",
+      "parentSurfaceId": "signup_forms",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Sign-up forms and popup forms. Official source labels: Sign-Up Forms.",
+      "allowedFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/forms.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs",
+        "tests/phase9-lead-capture-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "surveys_feedback__phase10_negative_space",
+      "parentSurfaceId": "surveys_feedback",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Surveys and feedback. Official source labels: Surveys.",
+      "allowedFiles": [
+        "packages/surveys-feedback/index.mjs",
+        "packages/surveys-feedback/domain-surveys-feedback.mjs",
+        "packages/surveys-feedback/routes/surveys-feedback.mjs",
+        "apps/web/server.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/surveys-feedback.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "sms_marketing_native__phase10_negative_space",
+      "parentSurfaceId": "sms_marketing_native",
+      "lane": "omnichannel_messaging",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: SMS marketing. Official source labels: SMS marketing.",
+      "allowedFiles": [
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/sms-orchestration.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "social_posts_publishing__phase10_negative_space",
+      "parentSurfaceId": "social_posts_publishing",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Social posts and social media marketing. Official source labels: Social media marketing, Social Posts.",
+      "allowedFiles": [
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/social-publisher.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "retargeting_digital_ads__phase10_negative_space",
+      "parentSurfaceId": "retargeting_digital_ads",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Retargeting ads / digital ads. Official source labels: Retargeting Ads, Digital ads.",
+      "allowedFiles": [
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "landing_pages__phase10_negative_space",
+      "parentSurfaceId": "landing_pages",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Landing pages. Official source labels: Landing Pages.",
+      "allowedFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs",
+        "packages/app/routes/forms.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "website_builder__phase10_negative_space",
+      "parentSurfaceId": "website_builder",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Website builder. Official source labels: Websites, Landing pages.",
+      "allowedFiles": [
+        "packages/app/domain-website-builder.mjs",
+        "packages/app/routes/website-builder.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "transactional_email__phase10_negative_space",
+      "parentSurfaceId": "transactional_email",
+      "lane": "transactional_messaging",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Transactional email. Official source labels: Transactional Emails, Transactional API, Transactional email.",
+      "allowedFiles": [
+        "packages/customer-journeys/index.mjs",
+        "packages/customer-journeys/domain-customer-journeys.mjs",
+        "packages/customer-journeys/routes/customer-journeys.mjs",
+        "apps/web/server.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/transactional-journeys.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "reporting_analytics__phase10_negative_space",
+      "parentSurfaceId": "reporting_analytics",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Marketing reports and analytics. Official source labels: Marketing Reports, Reports & analytics.",
+      "allowedFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/analytics-events.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "send_time_optimization__phase10_negative_space",
+      "parentSurfaceId": "send_time_optimization",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Send Time Optimization. Official source labels: Send Time Optimization.",
+      "allowedFiles": [
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/routes/current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "smart_recommendations__phase10_negative_space",
+      "parentSurfaceId": "smart_recommendations",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Smart Recommendations. Official source labels: Smart Recommendations.",
+      "allowedFiles": [
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/routes/current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "integrations_300_directory__phase10_negative_space",
+      "parentSurfaceId": "integrations_300_directory",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: 300+ integrations directory and connector ecosystem. Official source labels: 300+ Integrations, Shopify, WooCommerce, Canva, Zapier, Salesforce.",
+      "allowedFiles": [
+        "packages/app/domain-integration-marketplace.mjs",
+        "packages/app/routes/integrations-marketplace.mjs",
+        "packages/app/routes/integrations.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "webhooks_developer_tools__phase10_negative_space",
+      "parentSurfaceId": "webhooks_developer_tools",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Webhooks and developer tools. Official source labels: Webhooks, Developer tools, API docs.",
+      "allowedFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "ecommerce_revenue_coupons__phase10_negative_space",
+      "parentSurfaceId": "ecommerce_revenue_coupons",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: E-commerce products, orders, discounts, and revenue attribution. Official source labels: E-commerce, Shopify, WooCommerce, Create discount codes, Create orders.",
+      "allowedFiles": [
+        "packages/app/domain-commerce-revenue.mjs",
+        "packages/app/routes/commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/commerce-revenue.test.mjs",
+        "tests/commerce-coupons.test.mjs",
+        "tests/ecommerce-insights.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "mobile_app__phase10_negative_space",
+      "parentSurfaceId": "mobile_app",
+      "lane": "native_mobile_gap",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Mobile app experience. Official source labels: Mobile App.",
+      "allowedFiles": [
+        "packages/mobile-app/index.mjs",
+        "packages/mobile-app/domain-mobile-app.mjs",
+        "packages/mobile-app/routes/mobile-app.mjs",
+        "apps/web/server.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/public.mjs"
+      ],
+      "targetedTests": [
+        "tests/mobile-app-experience.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "preferences_consent_center__phase10_negative_space",
+      "parentSurfaceId": "preferences_consent_center",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Preference center, consent, and exports. Official source labels: Tags & Customer Profiles, Sign-Up Forms, GDPR Compliance.",
+      "allowedFiles": [
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/preferences-center.test.mjs",
+        "tests/preference-exports.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "conversation_inbox__phase10_negative_space",
+      "parentSurfaceId": "conversation_inbox",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Conversation inbox / customer-service interaction layer. Official source labels: Mailchimp Inbox, Customer conversations, Conversation messages.",
+      "allowedFiles": [
+        "packages/conversation-inbox/index.mjs",
+        "packages/conversation-inbox/domain-conversation-inbox.mjs",
+        "packages/conversation-inbox/routes/conversation-inbox.mjs",
+        "apps/web/server.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/conversation-inbox.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "deliverability_compliance__phase10_negative_space",
+      "parentSurfaceId": "deliverability_compliance",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Deliverability, compliance, and trust operations. Official source labels: GDPR Compliance, Security, Status.",
+      "allowedFiles": [
+        "packages/app/domain-deliverability-compliance.mjs",
+        "packages/app/routes/deliverability-compliance.mjs"
+      ],
+      "targetedTests": [
+        "tests/deliverability-compliance.test.mjs",
+        "tests/deliverability-labs.test.mjs",
+        "tests/deliverability-war-room.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    },
+    {
+      "id": "collaboration_approvals_calendar__phase10_negative_space",
+      "parentSurfaceId": "collaboration_approvals_calendar",
+      "lane": "full_clone_negative_space",
+      "productGoal": "Close or honestly block Mailchimp negative-space surface: Approvals, collaboration, and marketing calendar. Official source labels: Professional Services, Customer success.",
+      "allowedFiles": [
+        "packages/app/domain-collaboration-approval.mjs",
+        "packages/app/routes/collaboration-approval.mjs"
+      ],
+      "targetedTests": [
+        "tests/collaboration-approval.test.mjs",
+        "tests/approval-batches.test.mjs",
+        "tests/calendar-approvals.test.mjs"
+      ],
+      "status": "negative_space_candidate_existing_unproven",
+      "stopCondition": "negative_space_surface_proven_green_or_blocker_report"
+    }
+  ]
+}

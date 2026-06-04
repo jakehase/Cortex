@@ -1,0 +1,1524 @@
+{
+  "generatedAt": "2026-06-04T04:41:18.582Z",
+  "officialSources": [
+    {
+      "url": "https://mailchimp.com/features/",
+      "observedAt": "2026-05-11T03:14:00Z",
+      "evidence": "Cortex browse observed feature groups: Marketing Essentials, Content Creation, Audience Management, Marketing Automation, Reporting & Analytics Tools, AI Marketing Tools, Integrations."
+    },
+    {
+      "url": "https://mailchimp.com/marketing-platform/",
+      "observedAt": "2026-05-11T03:14:00Z",
+      "evidence": "Cortex browse observed multichannel platform claims: Email, Landing pages, Digital ads, Social Posts, Campaign Manager, Marketing CRM, Audience dashboard, Segmentation, Personalization, Predicted demographics, Customer Journeys, Pre-built Automations, Transactional Email, Reports & analytics, Smart Recommendations, A/B Testing, Mobile App, Webhooks."
+    },
+    {
+      "url": "https://mailchimp.com/features/transactional-email/",
+      "observedAt": "2026-05-11T03:18:00Z",
+      "evidence": "Cortex browse found Mailchimp Transactional Email and Transactional SMS feature surface."
+    },
+    {
+      "url": "https://mailchimp.com/features/mailchimp-mobile/",
+      "observedAt": "2026-05-11T03:18:00Z",
+      "evidence": "Cortex browse found Mailchimp mobile app feature surface."
+    },
+    {
+      "url": "https://mailchimp.com/help/use-surveys-mailchimp/",
+      "observedAt": "2026-05-11T03:18:00Z",
+      "evidence": "Cortex browse found Mailchimp surveys help/product surface."
+    },
+    {
+      "url": "https://mailchimp.com/help/view-and-manage-inbox-messages/",
+      "observedAt": "2026-05-11T03:18:00Z",
+      "evidence": "Cortex browse found Mailchimp Inbox message management surface."
+    }
+  ],
+  "candidates": [
+    {
+      "id": "email_marketing_campaigns",
+      "label": "Email marketing campaigns",
+      "official": [
+        "Email Marketing",
+        "Email Builder",
+        "Campaign Manager"
+      ],
+      "phase9": [
+        "campaign_index",
+        "campaign_wizard",
+        "email_builder",
+        "send_schedule_review"
+      ],
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs"
+      ],
+      "targetedTests": [
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/phase9-campaign-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-campaigns.mjs",
+          "exists": true,
+          "lineCount": 3343,
+          "bytes": 899209
+        },
+        {
+          "relPath": "packages/app/routes/campaigns.mjs",
+          "exists": true,
+          "lineCount": 2416,
+          "bytes": 597784
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/campaign-editor-depth.test.mjs",
+          "exists": true,
+          "lineCount": 96,
+          "bytes": 3591
+        },
+        {
+          "relPath": "tests/phase9-campaign-parity.test.mjs",
+          "exists": true,
+          "lineCount": 130,
+          "bytes": 12202
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "ab_testing_experimentation",
+      "label": "A/B testing and experimentation",
+      "official": [
+        "A/B Testing"
+      ],
+      "phase9": [
+        "campaign_wizard__gap_experimentation_depth",
+        "report_detail__gap_experimentation_depth"
+      ],
+      "productFiles": [
+        "packages/app/experiment-engine.mjs",
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/routes/reports.mjs"
+      ],
+      "targetedTests": [
+        "tests/experiment-lab.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/experiment-engine.mjs",
+          "exists": true,
+          "lineCount": 18,
+          "bytes": 983
+        },
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        },
+        {
+          "relPath": "packages/app/routes/reports.mjs",
+          "exists": true,
+          "lineCount": 573,
+          "bytes": 133228
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/experiment-lab.test.mjs",
+          "exists": true,
+          "lineCount": 18,
+          "bytes": 950
+        },
+        {
+          "relPath": "tests/current-product-parity.test.mjs",
+          "exists": true,
+          "lineCount": 280,
+          "bytes": 12591
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "marketing_automation_flows",
+      "label": "Marketing automation flows / customer journeys",
+      "official": [
+        "Marketing Automation Flows",
+        "Customer Journeys",
+        "Pre-built Automations"
+      ],
+      "phase9": [
+        "automations_overview",
+        "automation_journey_builder"
+      ],
+      "productFiles": [
+        "packages/app/domain-journeys.mjs",
+        "packages/app/routes/automations.mjs"
+      ],
+      "targetedTests": [
+        "tests/automation-journeys.test.mjs",
+        "tests/journey-metrics.test.mjs",
+        "tests/journey-annotations.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-journeys.mjs",
+          "exists": true,
+          "lineCount": 310,
+          "bytes": 46307
+        },
+        {
+          "relPath": "packages/app/routes/automations.mjs",
+          "exists": true,
+          "lineCount": 1582,
+          "bytes": 485796
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/automation-journeys.test.mjs",
+          "exists": true,
+          "lineCount": 104,
+          "bytes": 4002
+        },
+        {
+          "relPath": "tests/journey-metrics.test.mjs",
+          "exists": true,
+          "lineCount": 15,
+          "bytes": 908
+        },
+        {
+          "relPath": "tests/journey-annotations.test.mjs",
+          "exists": true,
+          "lineCount": 6,
+          "bytes": 924
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "content_studio_assets",
+      "label": "Content Studio and creative assets",
+      "official": [
+        "Content Studio",
+        "Content creation tools"
+      ],
+      "phase9": [
+        "content_studio"
+      ],
+      "productFiles": [
+        "packages/app/domain-template-assets.mjs",
+        "packages/app/routes/content-asset-templates.mjs",
+        "packages/app/routes/content-library.mjs",
+        "packages/app/routes/content-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/content-library.test.mjs",
+        "tests/content-asset-templates.test.mjs",
+        "tests/content-checklists.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-template-assets.mjs",
+          "exists": true,
+          "lineCount": 337,
+          "bytes": 15455
+        },
+        {
+          "relPath": "packages/app/routes/content-asset-templates.mjs",
+          "exists": true,
+          "lineCount": 629,
+          "bytes": 182939
+        },
+        {
+          "relPath": "packages/app/routes/content-library.mjs",
+          "exists": true,
+          "lineCount": 172,
+          "bytes": 24953
+        },
+        {
+          "relPath": "packages/app/routes/content-ops.mjs",
+          "exists": true,
+          "lineCount": 15,
+          "bytes": 1662
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/content-library.test.mjs",
+          "exists": true,
+          "lineCount": 18,
+          "bytes": 962
+        },
+        {
+          "relPath": "tests/content-asset-templates.test.mjs",
+          "exists": true,
+          "lineCount": 75,
+          "bytes": 2739
+        },
+        {
+          "relPath": "tests/content-checklists.test.mjs",
+          "exists": true,
+          "lineCount": 6,
+          "bytes": 910
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "dynamic_content_personalization",
+      "label": "Dynamic content and personalization",
+      "official": [
+        "Dynamic Content",
+        "Personalization"
+      ],
+      "phase9": [
+        "email_builder",
+        "content_studio"
+      ],
+      "productFiles": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-campaigns.mjs",
+          "exists": true,
+          "lineCount": 3343,
+          "bytes": 899209
+        },
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/current-product-parity.test.mjs",
+          "exists": true,
+          "lineCount": 280,
+          "bytes": 12591
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "generative_ai_subject_helper",
+      "label": "Generative AI and Subject Line Helper",
+      "official": [
+        "Generative AI",
+        "Subject Line Helper",
+        "AI marketing tools"
+      ],
+      "phase9": [
+        "content_studio",
+        "campaign_wizard__gap_experimentation_depth"
+      ],
+      "productFiles": [
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-website-builder.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        },
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        },
+        {
+          "relPath": "packages/app/domain-website-builder.mjs",
+          "exists": true,
+          "lineCount": 1087,
+          "bytes": 170386
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/current-product-parity.test.mjs",
+          "exists": true,
+          "lineCount": 280,
+          "bytes": 12591
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "audience_crm_dashboard",
+      "label": "Marketing CRM and audience dashboard",
+      "official": [
+        "Marketing CRM",
+        "Audience dashboard",
+        "All audience tools"
+      ],
+      "phase9": [
+        "audience_overview",
+        "contacts_table",
+        "contact_profile"
+      ],
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-core.test.mjs",
+        "tests/phase9-audience-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-audience.mjs",
+          "exists": true,
+          "lineCount": 3095,
+          "bytes": 657657
+        },
+        {
+          "relPath": "packages/app/routes/audience.mjs",
+          "exists": true,
+          "lineCount": 1831,
+          "bytes": 565166
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/audience-core.test.mjs",
+          "exists": true,
+          "lineCount": 167,
+          "bytes": 6981
+        },
+        {
+          "relPath": "tests/phase9-audience-parity.test.mjs",
+          "exists": true,
+          "lineCount": 141,
+          "bytes": 13777
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "predictive_demographics",
+      "label": "Predictive demographics and contact scoring",
+      "official": [
+        "Predictive Demographics"
+      ],
+      "phase9": [
+        "reports_overview__gap_predictive_optimization_depth",
+        "report_detail__gap_predictive_optimization_depth"
+      ],
+      "productFiles": [
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/routes/current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs",
+        "tests/segmentation-lab.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        },
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/current-product-parity.test.mjs",
+          "exists": true,
+          "lineCount": 280,
+          "bytes": 12591
+        },
+        {
+          "relPath": "tests/segmentation-lab.test.mjs",
+          "exists": true,
+          "lineCount": 15,
+          "bytes": 922
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "segmentation_advanced",
+      "label": "Advanced segmentation",
+      "official": [
+        "Segmentation"
+      ],
+      "phase9": [
+        "segments",
+        "tags_groups_interests"
+      ],
+      "productFiles": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs"
+      ],
+      "targetedTests": [
+        "tests/audience-funnels.test.mjs",
+        "tests/segmentation-lab.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-audience.mjs",
+          "exists": true,
+          "lineCount": 3095,
+          "bytes": 657657
+        },
+        {
+          "relPath": "packages/app/routes/audience.mjs",
+          "exists": true,
+          "lineCount": 1831,
+          "bytes": 565166
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/audience-funnels.test.mjs",
+          "exists": true,
+          "lineCount": 6,
+          "bytes": 888
+        },
+        {
+          "relPath": "tests/segmentation-lab.test.mjs",
+          "exists": true,
+          "lineCount": 15,
+          "bytes": 922
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "signup_forms",
+      "label": "Sign-up forms and popup forms",
+      "official": [
+        "Sign-Up Forms"
+      ],
+      "phase9": [
+        "signup_forms_popups"
+      ],
+      "productFiles": [
+        "packages/app/domain-leads.mjs",
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/forms.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs",
+        "tests/phase9-lead-capture-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-leads.mjs",
+          "exists": true,
+          "lineCount": 319,
+          "bytes": 14948
+        },
+        {
+          "relPath": "packages/app/routes/leads.mjs",
+          "exists": true,
+          "lineCount": 506,
+          "bytes": 154586
+        },
+        {
+          "relPath": "packages/app/routes/forms.mjs",
+          "exists": true,
+          "lineCount": 636,
+          "bytes": 188888
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/forms-landing.test.mjs",
+          "exists": true,
+          "lineCount": 97,
+          "bytes": 3982
+        },
+        {
+          "relPath": "tests/phase9-lead-capture-parity.test.mjs",
+          "exists": true,
+          "lineCount": 128,
+          "bytes": 6755
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "surveys_feedback",
+      "label": "Surveys and feedback",
+      "official": [
+        "Surveys"
+      ],
+      "phase9": [],
+      "productFiles": [
+        "packages/surveys-feedback/index.mjs",
+        "packages/surveys-feedback/domain-surveys-feedback.mjs",
+        "packages/surveys-feedback/routes/surveys-feedback.mjs",
+        "apps/web/server.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/surveys-feedback.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/surveys-feedback/index.mjs",
+          "exists": true,
+          "lineCount": 3,
+          "bytes": 405
+        },
+        {
+          "relPath": "packages/surveys-feedback/domain-surveys-feedback.mjs",
+          "exists": true,
+          "lineCount": 239,
+          "bytes": 9616
+        },
+        {
+          "relPath": "packages/surveys-feedback/routes/surveys-feedback.mjs",
+          "exists": true,
+          "lineCount": 82,
+          "bytes": 7963
+        },
+        {
+          "relPath": "apps/web/server.mjs",
+          "exists": true,
+          "lineCount": 2759,
+          "bytes": 916220
+        },
+        {
+          "relPath": "packages/app/storage.mjs",
+          "exists": true,
+          "lineCount": 289,
+          "bytes": 18804
+        },
+        {
+          "relPath": "packages/app/view.mjs",
+          "exists": true,
+          "lineCount": 2082,
+          "bytes": 702322
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/surveys-feedback.test.mjs",
+          "exists": true,
+          "lineCount": 55,
+          "bytes": 1829
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "sms_marketing_native",
+      "label": "SMS marketing",
+      "official": [
+        "SMS marketing"
+      ],
+      "phase9": [
+        "signup_forms_popups__gap_omnichannel_depth"
+      ],
+      "productFiles": [
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/sms-orchestration.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        },
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/sms-orchestration.test.mjs",
+          "exists": true,
+          "lineCount": 15,
+          "bytes": 936
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "social_posts_publishing",
+      "label": "Social posts and social media marketing",
+      "official": [
+        "Social media marketing",
+        "Social Posts"
+      ],
+      "phase9": [
+        "signup_forms_popups__gap_omnichannel_depth"
+      ],
+      "productFiles": [
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/social-publisher.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        },
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/social-publisher.test.mjs",
+          "exists": true,
+          "lineCount": 15,
+          "bytes": 925
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "retargeting_digital_ads",
+      "label": "Retargeting ads / digital ads",
+      "official": [
+        "Retargeting Ads",
+        "Digital ads"
+      ],
+      "phase9": [
+        "signup_forms_popups__gap_omnichannel_depth"
+      ],
+      "productFiles": [
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        },
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/current-product-parity.test.mjs",
+          "exists": true,
+          "lineCount": 280,
+          "bytes": 12591
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "landing_pages",
+      "label": "Landing pages",
+      "official": [
+        "Landing Pages"
+      ],
+      "phase9": [
+        "landing_pages"
+      ],
+      "productFiles": [
+        "packages/app/routes/leads.mjs",
+        "packages/app/routes/websites.mjs",
+        "packages/app/routes/forms.mjs"
+      ],
+      "targetedTests": [
+        "tests/forms-landing.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/routes/leads.mjs",
+          "exists": true,
+          "lineCount": 506,
+          "bytes": 154586
+        },
+        {
+          "relPath": "packages/app/routes/websites.mjs",
+          "exists": true,
+          "lineCount": 6,
+          "bytes": 173
+        },
+        {
+          "relPath": "packages/app/routes/forms.mjs",
+          "exists": true,
+          "lineCount": 636,
+          "bytes": 188888
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/forms-landing.test.mjs",
+          "exists": true,
+          "lineCount": 97,
+          "bytes": 3982
+        },
+        {
+          "relPath": "tests/phase9-remaining-parity.test.mjs",
+          "exists": true,
+          "lineCount": 195,
+          "bytes": 24338
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "website_builder",
+      "label": "Website builder",
+      "official": [
+        "Websites",
+        "Landing pages"
+      ],
+      "phase9": [
+        "website_builder"
+      ],
+      "productFiles": [
+        "packages/app/domain-website-builder.mjs",
+        "packages/app/routes/website-builder.mjs",
+        "packages/app/routes/websites.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-website-builder.mjs",
+          "exists": true,
+          "lineCount": 1087,
+          "bytes": 170386
+        },
+        {
+          "relPath": "packages/app/routes/website-builder.mjs",
+          "exists": true,
+          "lineCount": 647,
+          "bytes": 186359
+        },
+        {
+          "relPath": "packages/app/routes/websites.mjs",
+          "exists": true,
+          "lineCount": 6,
+          "bytes": 173
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/current-product-parity.test.mjs",
+          "exists": true,
+          "lineCount": 280,
+          "bytes": 12591
+        },
+        {
+          "relPath": "tests/phase9-remaining-parity.test.mjs",
+          "exists": true,
+          "lineCount": 195,
+          "bytes": 24338
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "transactional_email",
+      "label": "Transactional email",
+      "official": [
+        "Transactional Emails",
+        "Transactional API",
+        "Transactional email"
+      ],
+      "phase9": [],
+      "productFiles": [
+        "packages/customer-journeys/index.mjs",
+        "packages/customer-journeys/domain-customer-journeys.mjs",
+        "packages/customer-journeys/routes/customer-journeys.mjs",
+        "apps/web/server.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/transactional-journeys.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/customer-journeys/index.mjs",
+          "exists": true,
+          "lineCount": 17,
+          "bytes": 576
+        },
+        {
+          "relPath": "packages/customer-journeys/domain-customer-journeys.mjs",
+          "exists": true,
+          "lineCount": 313,
+          "bytes": 13071
+        },
+        {
+          "relPath": "packages/customer-journeys/routes/customer-journeys.mjs",
+          "exists": true,
+          "lineCount": 118,
+          "bytes": 11424
+        },
+        {
+          "relPath": "apps/web/server.mjs",
+          "exists": true,
+          "lineCount": 2759,
+          "bytes": 916220
+        },
+        {
+          "relPath": "packages/app/storage.mjs",
+          "exists": true,
+          "lineCount": 289,
+          "bytes": 18804
+        },
+        {
+          "relPath": "packages/app/view.mjs",
+          "exists": true,
+          "lineCount": 2082,
+          "bytes": 702322
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/transactional-journeys.test.mjs",
+          "exists": true,
+          "lineCount": 50,
+          "bytes": 1813
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "reporting_analytics",
+      "label": "Marketing reports and analytics",
+      "official": [
+        "Marketing Reports",
+        "Reports & analytics"
+      ],
+      "phase9": [
+        "reports_overview",
+        "report_detail"
+      ],
+      "productFiles": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/analytics-events.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/routes/reports.mjs",
+          "exists": true,
+          "lineCount": 573,
+          "bytes": 133228
+        },
+        {
+          "relPath": "packages/app/analytics-events.mjs",
+          "exists": true,
+          "lineCount": 210,
+          "bytes": 8981
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/reports-admin.test.mjs",
+          "exists": true,
+          "lineCount": 133,
+          "bytes": 5592
+        },
+        {
+          "relPath": "tests/phase9-remaining-parity.test.mjs",
+          "exists": true,
+          "lineCount": 195,
+          "bytes": 24338
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "send_time_optimization",
+      "label": "Send Time Optimization",
+      "official": [
+        "Send Time Optimization"
+      ],
+      "phase9": [
+        "campaign_wizard__gap_experimentation_depth",
+        "reports_overview__gap_predictive_optimization_depth"
+      ],
+      "productFiles": [
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/routes/current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        },
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/current-product-parity.test.mjs",
+          "exists": true,
+          "lineCount": 280,
+          "bytes": 12591
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "smart_recommendations",
+      "label": "Smart Recommendations",
+      "official": [
+        "Smart Recommendations"
+      ],
+      "phase9": [
+        "reports_overview__gap_predictive_optimization_depth"
+      ],
+      "productFiles": [
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/routes/current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/current-product-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        },
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/current-product-parity.test.mjs",
+          "exists": true,
+          "lineCount": 280,
+          "bytes": 12591
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "integrations_300_directory",
+      "label": "300+ integrations directory and connector ecosystem",
+      "official": [
+        "300+ Integrations",
+        "Shopify",
+        "WooCommerce",
+        "Canva",
+        "Zapier",
+        "Salesforce"
+      ],
+      "phase9": [
+        "integrations_marketplace"
+      ],
+      "productFiles": [
+        "packages/app/domain-integration-marketplace.mjs",
+        "packages/app/routes/integrations-marketplace.mjs",
+        "packages/app/routes/integrations.mjs"
+      ],
+      "targetedTests": [
+        "tests/integrations-marketplace.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-integration-marketplace.mjs",
+          "exists": true,
+          "lineCount": 874,
+          "bytes": 198907
+        },
+        {
+          "relPath": "packages/app/routes/integrations-marketplace.mjs",
+          "exists": true,
+          "lineCount": 572,
+          "bytes": 192506
+        },
+        {
+          "relPath": "packages/app/routes/integrations.mjs",
+          "exists": true,
+          "lineCount": 174,
+          "bytes": 26090
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/integrations-marketplace.test.mjs",
+          "exists": true,
+          "lineCount": 58,
+          "bytes": 2470
+        },
+        {
+          "relPath": "tests/phase9-remaining-parity.test.mjs",
+          "exists": true,
+          "lineCount": 195,
+          "bytes": 24338
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "webhooks_developer_tools",
+      "label": "Webhooks and developer tools",
+      "official": [
+        "Webhooks",
+        "Developer tools",
+        "API docs"
+      ],
+      "phase9": [
+        "api_keys_webhooks"
+      ],
+      "productFiles": [
+        "packages/app/routes/api-admin.mjs"
+      ],
+      "targetedTests": [
+        "tests/reports-admin.test.mjs",
+        "tests/phase9-remaining-parity.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/routes/api-admin.mjs",
+          "exists": true,
+          "lineCount": 2719,
+          "bytes": 706162
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/reports-admin.test.mjs",
+          "exists": true,
+          "lineCount": 133,
+          "bytes": 5592
+        },
+        {
+          "relPath": "tests/phase9-remaining-parity.test.mjs",
+          "exists": true,
+          "lineCount": 195,
+          "bytes": 24338
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "ecommerce_revenue_coupons",
+      "label": "E-commerce products, orders, discounts, and revenue attribution",
+      "official": [
+        "E-commerce",
+        "Shopify",
+        "WooCommerce",
+        "Create discount codes",
+        "Create orders"
+      ],
+      "phase9": [
+        "integrations_marketplace",
+        "billing_plans",
+        "website_builder"
+      ],
+      "productFiles": [
+        "packages/app/domain-commerce-revenue.mjs",
+        "packages/app/routes/commerce-revenue.mjs"
+      ],
+      "targetedTests": [
+        "tests/commerce-revenue.test.mjs",
+        "tests/commerce-coupons.test.mjs",
+        "tests/ecommerce-insights.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-commerce-revenue.mjs",
+          "exists": true,
+          "lineCount": 1317,
+          "bytes": 316867
+        },
+        {
+          "relPath": "packages/app/routes/commerce-revenue.mjs",
+          "exists": true,
+          "lineCount": 70,
+          "bytes": 6737
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/commerce-revenue.test.mjs",
+          "exists": true,
+          "lineCount": 62,
+          "bytes": 2575
+        },
+        {
+          "relPath": "tests/commerce-coupons.test.mjs",
+          "exists": true,
+          "lineCount": 15,
+          "bytes": 925
+        },
+        {
+          "relPath": "tests/ecommerce-insights.test.mjs",
+          "exists": true,
+          "lineCount": 16,
+          "bytes": 941
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "mobile_app",
+      "label": "Mobile app experience",
+      "official": [
+        "Mobile App"
+      ],
+      "phase9": [],
+      "productFiles": [
+        "packages/mobile-app/index.mjs",
+        "packages/mobile-app/domain-mobile-app.mjs",
+        "packages/mobile-app/routes/mobile-app.mjs",
+        "apps/web/server.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/public.mjs"
+      ],
+      "targetedTests": [
+        "tests/mobile-app-experience.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/mobile-app/index.mjs",
+          "exists": true,
+          "lineCount": 16,
+          "bytes": 440
+        },
+        {
+          "relPath": "packages/mobile-app/domain-mobile-app.mjs",
+          "exists": true,
+          "lineCount": 309,
+          "bytes": 13134
+        },
+        {
+          "relPath": "packages/mobile-app/routes/mobile-app.mjs",
+          "exists": true,
+          "lineCount": 136,
+          "bytes": 13365
+        },
+        {
+          "relPath": "apps/web/server.mjs",
+          "exists": true,
+          "lineCount": 2759,
+          "bytes": 916220
+        },
+        {
+          "relPath": "packages/app/storage.mjs",
+          "exists": true,
+          "lineCount": 289,
+          "bytes": 18804
+        },
+        {
+          "relPath": "packages/app/view.mjs",
+          "exists": true,
+          "lineCount": 2082,
+          "bytes": 702322
+        },
+        {
+          "relPath": "packages/app/routes/public.mjs",
+          "exists": true,
+          "lineCount": 1214,
+          "bytes": 266670
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/mobile-app-experience.test.mjs",
+          "exists": true,
+          "lineCount": 59,
+          "bytes": 2222
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "preferences_consent_center",
+      "label": "Preference center, consent, and exports",
+      "official": [
+        "Tags & Customer Profiles",
+        "Sign-Up Forms",
+        "GDPR Compliance"
+      ],
+      "phase9": [
+        "contact_profile",
+        "signup_forms_popups",
+        "settings_domains"
+      ],
+      "productFiles": [
+        "packages/app/routes/current-product-ops.mjs",
+        "packages/app/domain-current-product-ops.mjs"
+      ],
+      "targetedTests": [
+        "tests/preferences-center.test.mjs",
+        "tests/preference-exports.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/routes/current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 677,
+          "bytes": 236017
+        },
+        {
+          "relPath": "packages/app/domain-current-product-ops.mjs",
+          "exists": true,
+          "lineCount": 2269,
+          "bytes": 292579
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/preferences-center.test.mjs",
+          "exists": true,
+          "lineCount": 57,
+          "bytes": 2110
+        },
+        {
+          "relPath": "tests/preference-exports.test.mjs",
+          "exists": true,
+          "lineCount": 6,
+          "bytes": 910
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "conversation_inbox",
+      "label": "Conversation inbox / customer-service interaction layer",
+      "official": [
+        "Mailchimp Inbox",
+        "Customer conversations",
+        "Conversation messages"
+      ],
+      "phase9": [],
+      "productFiles": [
+        "packages/conversation-inbox/index.mjs",
+        "packages/conversation-inbox/domain-conversation-inbox.mjs",
+        "packages/conversation-inbox/routes/conversation-inbox.mjs",
+        "apps/web/server.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/view.mjs"
+      ],
+      "targetedTests": [
+        "tests/conversation-inbox.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/conversation-inbox/index.mjs",
+          "exists": true,
+          "lineCount": 3,
+          "bytes": 454
+        },
+        {
+          "relPath": "packages/conversation-inbox/domain-conversation-inbox.mjs",
+          "exists": true,
+          "lineCount": 268,
+          "bytes": 11772
+        },
+        {
+          "relPath": "packages/conversation-inbox/routes/conversation-inbox.mjs",
+          "exists": true,
+          "lineCount": 130,
+          "bytes": 11436
+        },
+        {
+          "relPath": "apps/web/server.mjs",
+          "exists": true,
+          "lineCount": 2759,
+          "bytes": 916220
+        },
+        {
+          "relPath": "packages/app/storage.mjs",
+          "exists": true,
+          "lineCount": 289,
+          "bytes": 18804
+        },
+        {
+          "relPath": "packages/app/view.mjs",
+          "exists": true,
+          "lineCount": 2082,
+          "bytes": 702322
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/conversation-inbox.test.mjs",
+          "exists": true,
+          "lineCount": 55,
+          "bytes": 1954
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "deliverability_compliance",
+      "label": "Deliverability, compliance, and trust operations",
+      "official": [
+        "GDPR Compliance",
+        "Security",
+        "Status"
+      ],
+      "phase9": [
+        "settings_domains",
+        "send_schedule_review"
+      ],
+      "productFiles": [
+        "packages/app/domain-deliverability-compliance.mjs",
+        "packages/app/routes/deliverability-compliance.mjs"
+      ],
+      "targetedTests": [
+        "tests/deliverability-compliance.test.mjs",
+        "tests/deliverability-labs.test.mjs",
+        "tests/deliverability-war-room.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-deliverability-compliance.mjs",
+          "exists": true,
+          "lineCount": 683,
+          "bytes": 126366
+        },
+        {
+          "relPath": "packages/app/routes/deliverability-compliance.mjs",
+          "exists": true,
+          "lineCount": 77,
+          "bytes": 7503
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/deliverability-compliance.test.mjs",
+          "exists": true,
+          "lineCount": 70,
+          "bytes": 2879
+        },
+        {
+          "relPath": "tests/deliverability-labs.test.mjs",
+          "exists": true,
+          "lineCount": 15,
+          "bytes": 967
+        },
+        {
+          "relPath": "tests/deliverability-war-room.test.mjs",
+          "exists": true,
+          "lineCount": 16,
+          "bytes": 999
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    },
+    {
+      "id": "collaboration_approvals_calendar",
+      "label": "Approvals, collaboration, and marketing calendar",
+      "official": [
+        "Professional Services",
+        "Customer success"
+      ],
+      "phase9": [
+        "send_schedule_review",
+        "team_roles_permissions"
+      ],
+      "productFiles": [
+        "packages/app/domain-collaboration-approval.mjs",
+        "packages/app/routes/collaboration-approval.mjs"
+      ],
+      "targetedTests": [
+        "tests/collaboration-approval.test.mjs",
+        "tests/approval-batches.test.mjs",
+        "tests/calendar-approvals.test.mjs"
+      ],
+      "productEvidence": [
+        {
+          "relPath": "packages/app/domain-collaboration-approval.mjs",
+          "exists": true,
+          "lineCount": 89,
+          "bytes": 4379
+        },
+        {
+          "relPath": "packages/app/routes/collaboration-approval.mjs",
+          "exists": true,
+          "lineCount": 43,
+          "bytes": 4075
+        }
+      ],
+      "testEvidence": [
+        {
+          "relPath": "tests/collaboration-approval.test.mjs",
+          "exists": true,
+          "lineCount": 59,
+          "bytes": 2439
+        },
+        {
+          "relPath": "tests/approval-batches.test.mjs",
+          "exists": true,
+          "lineCount": 6,
+          "bytes": 876
+        },
+        {
+          "relPath": "tests/calendar-approvals.test.mjs",
+          "exists": true,
+          "lineCount": 16,
+          "bytes": 941
+        }
+      ],
+      "status": "negative_space_candidate_existing_unproven"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "ok": true,
+  "generatedAt": "2026-06-04T04:41:18.582Z",
+  "benchmarkId": "mailchimp_full_clone_gap_inventory_negative_space",
+  "runId": "mailchimp_full_clone_gap_inventory_negative_space-negative_space",
+  "artifactRoot": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/negative_space",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "fidelity": "full_clone",
+  "scope": "phase10_mailchimp_negative_space_preflight_after_phase9_matrix_green",
+  "anchorArtifactRoot": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/phase9_real_parity",
+  "phase9": {
+    "thresholdPass": false,
+    "parityStatus": "not_full_clone",
+    "greenLeafSurfaceCount": 0,
+    "redLeafSurfaceCount": 63,
+    "nextWorkQueueCount": 63
+  },
+  "officialSources": [
+    {
+      "url": "https://mailchimp.com/features/",
+      "observedAt": "2026-05-11T03:14:00Z",
+      "evidence": "Cortex browse observed feature groups: Marketing Essentials, Content Creation, Audience Management, Marketing Automation, Reporting & Analytics Tools, AI Marketing Tools, Integrations."
+    },
+    {
+      "url": "https://mailchimp.com/marketing-platform/",
+      "observedAt": "2026-05-11T03:14:00Z",
+      "evidence": "Cortex browse observed multichannel platform claims: Email, Landing pages, Digital ads, Social Posts, Campaign Manager, Marketing CRM, Audience dashboard, Segmentation, Personalization, Predicted demographics, Customer Journeys, Pre-built Automations, Transactional Email, Reports & analytics, Smart Recommendations, A/B Testing, Mobile App, Webhooks."
+    },
+    {
+      "url": "https://mailchimp.com/features/transactional-email/",
+      "observedAt": "2026-05-11T03:18:00Z",
+      "evidence": "Cortex browse found Mailchimp Transactional Email and Transactional SMS feature surface."
+    },
+    {
+      "url": "https://mailchimp.com/features/mailchimp-mobile/",
+      "observedAt": "2026-05-11T03:18:00Z",
+      "evidence": "Cortex browse found Mailchimp mobile app feature surface."
+    },
+    {
+      "url": "https://mailchimp.com/help/use-surveys-mailchimp/",
+      "observedAt": "2026-05-11T03:18:00Z",
+      "evidence": "Cortex browse found Mailchimp surveys help/product surface."
+    },
+    {
+      "url": "https://mailchimp.com/help/view-and-manage-inbox-messages/",
+      "observedAt": "2026-05-11T03:18:00Z",
+      "evidence": "Cortex browse found Mailchimp Inbox message management surface."
+    }
+  ],
+  "proofMapPath": null,
+  "candidateSurfaceCount": 28,
+  "phase9MappedGreenCandidateCount": 0,
+  "provenNegativeSpaceCandidateCount": 0,
+  "openNegativeSpaceCandidateCount": 28,
+  "negativeSpaceCandidateCount": 28,
+  "missingProductSurfaceCount": 0,
+  "thresholdPass": false,
+  "parityStatus": "not_full_clone_negative_space_open",
+  "blocker": {
+    "blocker": "Phase 9 matrix is green, but full Mailchimp negative-space inventory remains open beyond the 63-leaf matrix.",
+    "blockerKind": "mailchimp_full_clone_negative_space_open",
+    "nextAction": "Use next_work_queue.json to prove or implement each negative-space candidate with product files, executable tests, and remote validation; do not claim global Mailchimp full clone from Phase 9 alone.",
+    "negativeSpaceCandidateCount": 28,
+    "missingProductSurfaceCount": 0
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "status": "no_inventory_reduction",
+  "creditedGapCount": 0,
+  "remainingGapCount": 26,
+  "rejectedCreditCount": 0,
+  "output": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/strict_1to1_gap_inventory_reduction_from_r4.json"
+}

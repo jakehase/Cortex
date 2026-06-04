@@ -1,0 +1,348 @@
+{
+  "schemaVersion": "clawd.mailchimp.full_clone_gap_inventory.summary.v1",
+  "generatedAt": "2026-06-04T04:41:58.234Z",
+  "artifactRoot": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "sourceCommit": "93468d541",
+  "fidelity": "full_clone",
+  "implementationSurface": "inventory_report_only",
+  "thresholdPass": false,
+  "parityStatus": "not_full_clone",
+  "observed": {
+    "r4ProductionSliceParity": "parity_for_scope",
+    "strict1to1RemainingGapCount": 26,
+    "strict1to1CreditedGapCountFromCurrentR4": 0,
+    "phase9CanonicalSurfaceCount": 26,
+    "phase9LeafSurfaceCount": 63,
+    "phase9GreenLeafSurfaceCount": 0,
+    "phase9RedLeafSurfaceCount": 63,
+    "phase9MissingProductFileCount": 0,
+    "phase9MissingTargetedTestCount": 0,
+    "phase9PlaceholderProductFileCount": 0,
+    "negativeSpaceCandidateSurfaceCount": 28,
+    "openNegativeSpaceCandidateCount": 28,
+    "missingNegativeSpaceProductSurfaceCount": 0
+  },
+  "blockers": [
+    {
+      "kind": "strict_1to1_global_gap_inventory_open_for_current_r4",
+      "detail": "Current r4 production-slice proof credited 0 strict global gaps; 26 strict global gaps remain open in this inventory pass."
+    },
+    {
+      "blocker": "Phase 9 real Mailchimp parity inventory is built, but full-clone parity remains red.",
+      "blockerKind": "real_mailchimp_full_clone_matrix_red",
+      "nextAction": "Launch bounded real-product parity work against nextWorkQueue, require product diffs plus browser/functional/DB/job/integration/security/analytics proof per leaf, and keep unknown surfaces red.",
+      "missingInputs": [],
+      "greenLeafSurfaceCount": 0,
+      "redLeafSurfaceCount": 63,
+      "missingProductFiles": [],
+      "missingTargetedTests": [],
+      "placeholderProductFiles": []
+    },
+    {
+      "kind": "mailchimp_full_clone_negative_space_open",
+      "detail": "Official-source negative-space inventory has 28 open candidate surfaces. Phase9 is not threshold-pass in this fresh inventory (0/63 green), so no full-clone claim is allowed."
+    }
+  ],
+  "distributions": {
+    "phase9RedByLane": {
+      "jobs_delivery_automation": 18,
+      "reporting_analytics": 17,
+      "data_model_persistence": 4,
+      "integrations_api_oauth": 16,
+      "frontend_product_experience": 5,
+      "security_account_enterprise": 3
+    },
+    "negativeSpaceStatus": {
+      "negative_space_candidate_existing_unproven": 28
+    }
+  },
+  "nextWork": {
+    "phase9CanonicalLeavesSample": [
+      {
+        "id": "signup_onboarding__req_01",
+        "lane": "jobs_delivery_automation",
+        "productGoal": "Expand onboarding beyond happy-path account creation into a multi-step production-style wizard with industry/use-case branching, suggested defaults, skipped-step recovery, import prompts, and contextual education.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs",
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "signup_onboarding__req_02",
+        "lane": "jobs_delivery_automation",
+        "productGoal": "Add password reset, email verification, abandoned signup recovery, invite-based onboarding, and workspace bootstrap parity.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs",
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "signup_onboarding__req_03",
+        "lane": "jobs_delivery_automation",
+        "productGoal": "Match validation/error states, loading states, instrumentation, and retry/resume behavior across the full onboarding funnel.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs",
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "account_workspace_setup__req_01",
+        "lane": "jobs_delivery_automation",
+        "productGoal": "Implement richer workspace setup assistants for brand assets, sender settings, contact imports, audience defaults, and compliance acknowledgements.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      {
+        "id": "account_workspace_setup__req_02",
+        "lane": "jobs_delivery_automation",
+        "productGoal": "Add organization/workspace switching, account handoff, ownership transfer, and migration/import tooling depth.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      {
+        "id": "account_workspace_setup__req_03",
+        "lane": "jobs_delivery_automation",
+        "productGoal": "Match initial empty-state UX, first-use education, seeded recommendations, and role-based setup differences.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs"
+        ]
+      },
+      {
+        "id": "dashboard_home__req_01",
+        "lane": "reporting_analytics",
+        "productGoal": "Match the real dashboard widget system, personalization, KPI cards, task queues, and insight prioritization.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs",
+          "tests/parity-route-aliases.test.mjs"
+        ]
+      },
+      {
+        "id": "dashboard_home__req_02",
+        "lane": "data_model_persistence",
+        "productGoal": "Add role-aware dashboard composition for owners, marketers, analysts, developers, and support/admin personas.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs",
+          "tests/parity-route-aliases.test.mjs"
+        ]
+      },
+      {
+        "id": "dashboard_home__req_03",
+        "lane": "data_model_persistence",
+        "productGoal": "Deepen data freshness, drill-through behaviors, saved views, and onboarding-to-dashboard continuity.",
+        "targetedTests": [
+          "tests/platform-spine.test.mjs",
+          "tests/parity-route-aliases.test.mjs"
+        ]
+      },
+      {
+        "id": "audience_overview__req_01",
+        "lane": "reporting_analytics",
+        "productGoal": "Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.",
+        "targetedTests": [
+          "tests/audience-core.test.mjs"
+        ]
+      },
+      {
+        "id": "audience_overview__req_02",
+        "lane": "integrations_api_oauth",
+        "productGoal": "Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events.",
+        "targetedTests": [
+          "tests/audience-core.test.mjs"
+        ]
+      },
+      {
+        "id": "contacts_table__req_01",
+        "lane": "data_model_persistence",
+        "productGoal": "Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.",
+        "targetedTests": [
+          "tests/audience-core.test.mjs"
+        ]
+      },
+      {
+        "id": "contacts_table__req_02",
+        "lane": "integrations_api_oauth",
+        "productGoal": "Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration.",
+        "targetedTests": [
+          "tests/audience-core.test.mjs"
+        ]
+      },
+      {
+        "id": "contact_profile__req_01",
+        "lane": "integrations_api_oauth",
+        "productGoal": "Implement a full contact profile with activity timeline, campaign history, automation participation, ecommerce history, notes, and custom fields.",
+        "targetedTests": [
+          "tests/audience-core.test.mjs"
+        ]
+      },
+      {
+        "id": "contact_profile__req_02",
+        "lane": "reporting_analytics",
+        "productGoal": "Add editing, auditability, source attribution, suppression/consent controls, and related segment/journey visibility.",
+        "targetedTests": [
+          "tests/audience-core.test.mjs"
+        ]
+      }
+    ],
+    "negativeSpaceSample": [
+      {
+        "id": "email_marketing_campaigns__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Email marketing campaigns. Official source labels: Email Marketing, Email Builder, Campaign Manager.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/campaign-editor-depth.test.mjs",
+          "tests/phase9-campaign-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "ab_testing_experimentation__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: A/B testing and experimentation. Official source labels: A/B Testing.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/experiment-lab.test.mjs",
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "marketing_automation_flows__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Marketing automation flows / customer journeys. Official source labels: Marketing Automation Flows, Customer Journeys, Pre-built Automations.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/automation-journeys.test.mjs",
+          "tests/journey-metrics.test.mjs",
+          "tests/journey-annotations.test.mjs"
+        ]
+      },
+      {
+        "id": "content_studio_assets__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Content Studio and creative assets. Official source labels: Content Studio, Content creation tools.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/content-library.test.mjs",
+          "tests/content-asset-templates.test.mjs",
+          "tests/content-checklists.test.mjs"
+        ]
+      },
+      {
+        "id": "dynamic_content_personalization__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Dynamic content and personalization. Official source labels: Dynamic Content, Personalization.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "generative_ai_subject_helper__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Generative AI and Subject Line Helper. Official source labels: Generative AI, Subject Line Helper, AI marketing tools.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "audience_crm_dashboard__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Marketing CRM and audience dashboard. Official source labels: Marketing CRM, Audience dashboard, All audience tools.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/audience-core.test.mjs",
+          "tests/phase9-audience-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "predictive_demographics__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Predictive demographics and contact scoring. Official source labels: Predictive Demographics.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/current-product-parity.test.mjs",
+          "tests/segmentation-lab.test.mjs"
+        ]
+      },
+      {
+        "id": "segmentation_advanced__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Advanced segmentation. Official source labels: Segmentation.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/audience-funnels.test.mjs",
+          "tests/segmentation-lab.test.mjs"
+        ]
+      },
+      {
+        "id": "signup_forms__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Sign-up forms and popup forms. Official source labels: Sign-Up Forms.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/forms-landing.test.mjs",
+          "tests/phase9-lead-capture-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "surveys_feedback__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Surveys and feedback. Official source labels: Surveys.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/surveys-feedback.test.mjs"
+        ]
+      },
+      {
+        "id": "sms_marketing_native__phase10_negative_space",
+        "lane": "omnichannel_messaging",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: SMS marketing. Official source labels: SMS marketing.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/sms-orchestration.test.mjs"
+        ]
+      },
+      {
+        "id": "social_posts_publishing__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Social posts and social media marketing. Official source labels: Social media marketing, Social Posts.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/social-publisher.test.mjs"
+        ]
+      },
+      {
+        "id": "retargeting_digital_ads__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Retargeting ads / digital ads. Official source labels: Retargeting Ads, Digital ads.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/current-product-parity.test.mjs"
+        ]
+      },
+      {
+        "id": "landing_pages__phase10_negative_space",
+        "lane": "full_clone_negative_space",
+        "productGoal": "Close or honestly block Mailchimp negative-space surface: Landing pages. Official source labels: Landing Pages.",
+        "status": "negative_space_candidate_existing_unproven",
+        "targetedTests": [
+          "tests/forms-landing.test.mjs",
+          "tests/phase9-remaining-parity.test.mjs"
+        ]
+      }
+    ]
+  },
+  "artifacts": {
+    "strictReduction": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/strict_1to1_gap_inventory_reduction_from_r4.json",
+    "phase9Completion": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/phase9_real_parity/completion_summary.json",
+    "phase9Inventory": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/phase9_real_parity/real_parity_inventory.json",
+    "phase9NextWorkQueue": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/phase9_real_parity/next_work_queue.json",
+    "negativeSpaceCompletion": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/negative_space/completion_summary.json",
+    "negativeSpaceCandidates": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/negative_space/negative_space_candidates.json",
+    "negativeSpaceNextWorkQueue": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/negative_space/next_work_queue.json"
+  },
+  "truthBoundary": "This is a full-clone gap inventory report from the current checkout. It is not an implementation run and it does not claim Mailchimp full-clone parity."
+}

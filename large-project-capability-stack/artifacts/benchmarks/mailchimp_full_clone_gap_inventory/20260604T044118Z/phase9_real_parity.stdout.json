@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "thresholdPass": false,
+  "inventoryReady": true,
+  "parityStatus": "not_full_clone",
+  "canonicalSurfaceCount": 26,
+  "leafSurfaceCount": 63,
+  "greenLeafSurfaceCount": 0,
+  "redLeafSurfaceCount": 63,
+  "nextWorkQueueCount": 63,
+  "artifactRoot": "/root/clawd/large-project-capability-stack/artifacts/benchmarks/mailchimp_full_clone_gap_inventory/20260604T044118Z/phase9_real_parity",
+  "blocker": {
+    "blocker": "Phase 9 real Mailchimp parity inventory is built, but full-clone parity remains red.",
+    "blockerKind": "real_mailchimp_full_clone_matrix_red",
+    "nextAction": "Launch bounded real-product parity work against nextWorkQueue, require product diffs plus browser/functional/DB/job/integration/security/analytics proof per leaf, and keep unknown surfaces red.",
+    "missingInputs": [],
+    "greenLeafSurfaceCount": 0,
+    "redLeafSurfaceCount": 63,
+    "missingProductFiles": [],
+    "missingTargetedTests": [],
+    "placeholderProductFiles": []
+  }
+}
