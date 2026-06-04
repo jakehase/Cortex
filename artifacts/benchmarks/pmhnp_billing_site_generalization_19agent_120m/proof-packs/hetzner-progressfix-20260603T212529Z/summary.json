@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "claw.benchmark_proof_pack.v1",
+  "generatedAt": "2026-06-03T21:51:26Z",
+  "benchmarkId": "pmhnp_billing_site_generalization_19agent_120m",
+  "runId": "pmhnp_billing_site_generalization_19agent_120m-hetzner-rerun-20260603T212529Z",
+  "truthBoundary": "scored PMHNP billing-site generalization pass at the honest current 19-surface scale; not a 25-surface claim",
+  "executionBoundary": {
+    "executionPlane": "Hetzner VPS jake@37.27.129.239",
+    "controlPlane": "OpenClaw/local workspace for patching, launch, monitoring, artifact reads, and proof-pack writing",
+    "assertion": "Benchmark worker/orchestrator/verifier execution happened on the VPS; local Docker host did not run the worker farm."
+  },
+  "artifactRoot": "/home/jake/clawd-remote/large-project-capability-stack/artifacts/benchmarks/pmhnp_billing_site_generalization_19agent_120m/hetzner-progressfix-20260603T212529Z",
+  "result": {
+    "thresholdPass": true,
+    "mechanicalGreen": true,
+    "scaleProofReady": true,
+    "thresholdFailures": [],
+    "blocker": null,
+    "elapsedMinutes": 120.14,
+    "durationTargetMinutes": 120,
+    "durationTargetMet": true,
+    "peakConcurrency": 19,
+    "shardCount": 19,
+    "mergedShardCount": 19,
+    "patchQueueMerged": 19,
+    "patchQueueRejected": 0
+  },
+  "meaningfulProgress": {
+    "medianMinutesToMeaningfulProgress": 0,
+    "measuredSurfaceCount": 19,
+    "missingSurfaceCount": 0
+  },
+  "transferEvidence": {
+    "totalSurfaceCount": 19,
+    "verifiedSurfaceCount": 19,
+    "productiveSurfaceCount": 19,
+    "transferScore": 1
+  },
+  "prelaunchSpotcheck": {
+    "ok": true,
+    "surfaceCount": 19,
+    "failCount": 0
+  },
+  "blockedPriorScale": {
+    "oldContractRoot": "/home/jake/clawd-remote/large-project-capability-stack/artifacts/benchmarks/pmhnp_billing_site_generalization_25agent_240m/hetzner-rerun-20260603T185452Z",
+    "reason": "Current repo drift left six old 25-surface entries stale/short in zero-duration prelaunch. The 25-surface root has prelaunch_blocker.json.",
+    "passingSurfaceCount": 19,
+    "failingSurfaceCount": 6
+  },
+  "patchThatMadeItPass": {
+    "localCommit": "d8e1f7a20",
+    "summary": "Preserved zero-ms first meaningful progress through verifier/worker wrappers and counted deterministic product-diff implementation progress in threshold evaluation."
+  },
+  "artifactHashes": {
+    "orchestrator_summary.json": "25a0ff989a8c262e3121499b62a34169641f932c6d4b922acfce54795acea666",
+    "completion_summary.json": "9d0fcccf8fb3eafb0bb1074ffb41dce30b2e15fc001187f12209892570262fb0",
+    "threshold_evaluation.json": "1e97ca037605fea32cfac88714dadb95d88f4d1fe9fb8ecc196f3a91ba382867",
+    "transfer_evidence.json": "5c021dddd25063885e99d664097d400da0f77b1b12fd95ef705df7fedf4b5d60",
+    "orchestrator_run/patch_queue.json": "627d0b53465b3c84a11732c1eadd208da2fafbc02c0268e662fbe6c57e534285",
+    "prelaunch-spotcheck.json": "d961ca6508ed7848acb3aabf9ea0afc355dc24ea720baf1e56d197aed2a964a2"
+  },
+  "finalProcessCheck": {
+    "activeBenchmarkOrVerifierProcesses": 0,
+    "processPattern": "run-transfer-orchestrator-benchmark|verify-pmhnp-site-surface"
+  }
+}
