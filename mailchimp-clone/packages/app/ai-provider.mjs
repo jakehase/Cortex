@@ -81,7 +81,15 @@ function averageScore(items = []) {
 
 export function buildProviderRuntimeEnvelope(options = {}) {
   const objective = normalizeGoal(options.objective || options.goal, 'increase audience engagement');
-  return { provider: 'mailclone-ai-runtime', model: options.model || 'mailclone-reasoner-v2', objective, latencyMsEstimate: Number(options.latencyMsEstimate || 180), generatedFrom: options.generatedFrom || ['workspace signals', 'campaign context', 'predictive feature store'], safetyControls: ['deterministic local fallback', 'recommendation confidence scoring', 'auditable payload lineage'] };
+  return {
+    provider: 'mailclone-ai-runtime',
+    model: options.model || 'mailclone-predictive-orchestrator-v2',
+    objective,
+    latencyMsEstimate: Number(options.latencyMsEstimate || 180),
+    generatedFrom: options.generatedFrom || ['workspace signals', 'campaign context', 'predictive feature store'],
+    safetyControls: ['deterministic local fallback', 'recommendation confidence scoring', 'auditable payload lineage'],
+    evidenceContract: ['provider_runtime_ledger', 'feature_store_snapshot', 'recommendation_payload_lineage', 'acceptance_feedback_events', 'campaign_optimization_application']
+  };
 }
 
 export function buildCampaignOptimizationBrief(campaign = {}, aggregateOrOptions = {}, options = {}) {
@@ -94,7 +102,7 @@ export function buildCampaignOptimizationBrief(campaign = {}, aggregateOrOptions
   const blockVariants = (campaign.blocks || [{ title: campaign.name || 'Campaign', body: campaign.previewText || campaign.preheader || 'Explain the offer clearly.' }]).slice(0, 3).flatMap((block) => buildCampaignBlockVariants(block, tone, goal).slice(0, 1));
   const subjectSummary = { count: subjectVariants.length, average: averageScore(subjectVariants), best: subjectVariants.slice().sort((left, right) => right.score - left.score)[0] || null };
   const preheaderSummary = { count: preheaderVariants.length, average: averageScore(preheaderVariants), best: preheaderVariants.slice().sort((left, right) => right.score - left.score)[0] || null };
-  return { label: 'Optimize ' + (campaign.name || 'campaign') + ' for ' + goal, rationale: 'Combines subject, preheader, block, and audience signals to improve ' + goal + '.', subjectSummary, preheaderSummary, blockSummary: { count: blockVariants.length, average: averageScore(blockVariants) }, payload: { campaignId: campaign.id || '', goal, tone, audienceSignalCount: Number(aggregate.totalContacts || aggregate.contactCount || runtimeOptions.contactCount || 0), recommendedSubject: subjectSummary.best?.text || campaign.subject || campaign.name || 'Campaign update', recommendedPreheader: preheaderSummary.best?.text || campaign.preheader || '', subjectVariants, preheaderVariants, blockVariants }, meta: recommendationMeta('campaign_optimization', Math.max(subjectSummary.average, preheaderSummary.average, 86), { generatedFrom: ['campaign content', 'predictive aggregate', 'goal'] }) };
+  return { label: 'Optimize ' + (campaign.name || 'campaign') + ' for ' + goal, rationale: 'Combines subject, preheader, block, and audience signals to improve ' + goal + '.', subjectSummary, preheaderSummary, blockSummary: { count: blockVariants.length, average: averageScore(blockVariants) }, payload: { campaignId: campaign.id || '', goal, tone, audienceSignalCount: Number(aggregate.totalContacts || aggregate.contactCount || runtimeOptions.contactCount || 0), recommendedSubject: subjectSummary.best?.text || campaign.subject || campaign.name || 'Campaign update', recommendedPreheader: preheaderSummary.best?.text || campaign.preheader || '', productRecommendation: runtimeOptions.productRecommendation || 'Top seller bundle', subjectVariants, preheaderVariants, blockVariants }, meta: recommendationMeta('campaign_optimization', Math.max(subjectSummary.average, preheaderSummary.average, 86), { generatedFrom: ['campaign content', 'predictive aggregate', 'goal'] }) };
 }
 
 export function buildJourneyChannelMix(automation = {}, body = {}) {
@@ -114,5 +122,6 @@ export function buildLifecycleNextBestAction(contact = {}, vector = {}, body = {
   const tier = score >= 75 ? 'high_intent' : score >= 50 ? 'warming' : 'nurture';
   const channel = contact.phone || vector.hasPhone ? 'sms_plus_email' : 'email';
   const goal = normalizeGoal(body.goal, 'lifecycle conversion');
-  return { label: tier + ' next best action', rationale: 'Contact ' + (contact.email || vector.email || contact.id || 'unknown') + ' is in ' + tier + '; use ' + channel + ' to move toward ' + goal + '.', payload: { contactId: contact.id || vector.contactId || '', email: contact.email || vector.email || '', tier, channel, action: tier === 'high_intent' ? 'send_offer_followup' : tier === 'warming' ? 'send_education_sequence' : 'monitor_until_next_signal', score }, meta: recommendationMeta('lifecycle_next_best_action', Math.max(65, score), { generatedFrom: ['contact vector', 'engagement score', 'channel consent'] }) };
+  const label = tier === 'high_intent' ? 'High-intent lifecycle contacts' : tier === 'warming' ? 'Warming lifecycle contacts' : 'Nurture lifecycle contacts';
+  return { label, rationale: 'Contact ' + (contact.email || vector.email || contact.id || 'unknown') + ' is in ' + tier + '; use ' + channel + ' to move toward ' + goal + '.', payload: { contactId: contact.id || vector.contactId || '', email: contact.email || vector.email || '', tier, channel, action: tier === 'high_intent' ? 'send_offer_followup' : tier === 'warming' ? 'send_education_sequence' : 'monitor_until_next_signal', score }, meta: recommendationMeta('lifecycle_next_best_action', Math.max(65, score), { generatedFrom: ['contact vector', 'engagement score', 'channel consent'] }) };
 }
