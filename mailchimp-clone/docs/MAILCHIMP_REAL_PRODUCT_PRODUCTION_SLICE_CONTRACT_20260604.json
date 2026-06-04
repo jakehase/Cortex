@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "claw.mailchimp_real_product_campaign_contract.v1",
+  "generatedAt": "2026-06-04T03:14:31Z",
+  "benchmarkId": "mailchimp_real_product_production_slice",
+  "benchmarkClass": "mailchimp_real_product_campaign",
+  "fidelity": "production_slice",
+  "requestedFidelity": "production_slice",
+  "targetProduct": "Mailchimp clone real product surface progress",
+  "anchor": {
+    "conversationAnchor": "After Mailchimp 100-agent/30m and PMHNP 19-agent/120m benchmark passes, Jake approved pivoting from benchmarks back to the real Mailchimp product campaign.",
+    "latestBenchmarkProof": "/root/clawd/artifacts/benchmarks/pmhnp_billing_site_generalization_19agent_120m/proof-packs/hetzner-progressfix-20260603T212529Z/summary.json",
+    "priorMailchimpBlocker": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/completion_summary.json"
+  },
+  "repoPath": "/home/jake/clawd-remote/mailchimp-clone",
+  "controlPlaneRepoPath": "/root/clawd/mailchimp-clone",
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign",
+  "requestedAgentCount": 9,
+  "executionBoundary": "remote_execution_required_hetzner",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "scope": {
+    "mode": "real_product_production_slice_campaign",
+    "productOnly": true,
+    "surfaceMatrixPolicy": "Use the current Mailchimp parity focus work graph; run all currently executable production-slice product work units in parallel where possible.",
+    "expectedCurrentWorkUnits": 9,
+    "expectedCurrentFocusLanes": 4,
+    "truthBoundary": "This run may prove production-slice product progress. It must not claim full Mailchimp clone completion or strict 1:1 parity."
+  },
+  "prelaunchGates": {
+    "minimumExecutableProductShards": 8,
+    "minimumFocusLanes": 4,
+    "requireRealFileContracts": true,
+    "requireRemoteExecution": true,
+    "requireCleanProductBaseline": false
+  },
+  "progressEvidencePolicy": {
+    "requirePromotedLocAccounting": true,
+    "requireSelectedTierAdmittedProductDelta": true,
+    "rejectZeroModifiedFiles": true,
+    "rejectDocsOnlyChanges": true,
+    "rejectTestsOnlyChanges": true,
+    "rejectScriptsOnlyChanges": true,
+    "rejectArtifactOnlyChanges": true,
+    "preserveNegativeSpace": true
+  },
+  "launchEnvironment": {
+    "ORCHESTRATOR_REQUESTED_FIDELITY": "production_slice",
+    "ORCHESTRATOR_IMPLEMENTATION_PROFILE": "mailchimp_parity_focus",
+    "ORCHESTRATOR_TIERS": "8,9",
+    "MAILCHIMP_REQUESTED_AGENT_COUNT": "9",
+    "MAILCHIMP_PARITY_MAX_RUNTIME_HOURS": "6",
+    "MAILCHIMP_PERSISTENT_MAX_RUNTIME_HOURS": "6",
+    "MAILCHIMP_PARITY_NO_PROGRESS_ITERATION_LIMIT": "3",
+    "MAILCHIMP_NO_PROGRESS_ITERATION_LIMIT": "3",
+    "MAILCHIMP_PRODUCT_ONLY": "1",
+    "MAILCHIMP_USE_BENCHMARK_SCOPE": "1",
+    "MAILCHIMP_CONTRACT_SCOPE_PARALLEL_ALL": "1",
+    "MAILCHIMP_BENCHMARK_CARRY_COMPLETED_FOCUS_IDS": "0",
+    "MAILCHIMP_USE_STRICT_GAP_INVENTORY": "0",
+    "MAILCHIMP_STRICT_GAP_SEQUENCE": "0",
+    "MAILCHIMP_COMPLETED_FOCUS_IDS": "",
+    "MAILCHIMP_EXCLUDED_FOCUS_IDS": "",
+    "MAILCHIMP_REMOTE_EXECUTION": "1",
+    "MAILCHIMP_REMOTE_HOST": "37.27.129.239",
+    "MAILCHIMP_REMOTE_USER": "jake",
+    "MAILCHIMP_REMOTE_ROOT": "/home/jake/clawd-remote",
+    "MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR": "1",
+    "MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE": "1"
+  },
+  "launchCommand": "MAILCHIMP_ONE_PASS_CONTRACT_PATH=docs/MAILCHIMP_REAL_PRODUCT_PRODUCTION_SLICE_CONTRACT_20260604.json MAILCHIMP_REMOTE_EXECUTION=1 MAILCHIMP_REMOTE_HOST=37.27.129.239 MAILCHIMP_REMOTE_USER=jake MAILCHIMP_REMOTE_ROOT=/home/jake/clawd-remote node scripts/full-audit-campaign-launch.mjs"
+}
