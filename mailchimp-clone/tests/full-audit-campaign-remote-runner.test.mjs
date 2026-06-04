@@ -205,6 +205,8 @@ test('remote runner stops targeted semantic replays after requested focus ids ve
   assert.match(source, /function requestedSemanticTargetFocusIds\(\) \{/);
   assert.match(source, /MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS/);
   assert.match(source, /entry\.startsWith\('focus\.'\) \? entry : `focus\.\$\{entry\}`/);
+  assert.match(source, /function unresolvedSemanticTargetFocusIds\(verifiedFocusIds = \[\]\) \{/);
+  assert.match(source, /requestedSemanticTargetFocusIds\(\)\.filter\(\(focusId\) => !verified\.has\(focusId\)\)/);
   assert.match(source, /function evaluateTargetedSemanticReplay\(\{ verifiedFocusIds = \[\], iteration = null, progressDelta = \[\], freshProgressDetected = false, selectedTierHadLiveWork = false \} = \{\}\) \{/);
   assert.match(source, /satisfied: active && missingFocusIds\.length === 0,/);
   assert.match(source, /const targetedSemanticReplayStatus = evaluateTargetedSemanticReplay\(\{/);
@@ -215,13 +217,29 @@ test('remote runner stops targeted semantic replays after requested focus ids ve
   assert.match(source, /This is not a full-clone completion claim/);
 });
 
-test('remote runner preflights targeted semantic replay satisfaction before launching a no-op delegate', () => {
+test('remote runner requires live work before preflight target credit in full-clone/global-parity continuation', () => {
+  assert.match(source, /function targetedSemanticLiveWorkRequired\(\) \{/);
+  assert.match(source, /MAILCHIMP_CONTINUE_UNTIL_GLOBAL_PARITY === '1'/);
+  assert.match(source, /ORCHESTRATOR_REQUESTED_FIDELITY === 'full_clone'/);
+  assert.match(source, /MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT === '1'/);
+  assert.match(source, /function targetedSemanticPreflightCreditAllowed\(\) \{/);
+  assert.match(source, /MAILCHIMP_TARGETED_SEMANTIC_PREFLIGHT_CREDIT === '1'/);
+  assert.match(source, /return !targetedSemanticLiveWorkRequired\(\);/);
+  assert.match(source, /const preflightTargetCreditAllowed = targetedSemanticPreflightCreditAllowed\(\);/);
+  assert.match(source, /preflightTargetCreditAllowed\s+\? verifyFocusIdsByTargetedTests\(preflightTargetFocusIds\)\s+: \[\]/);
+  assert.match(source, /if \(preflightTargetCreditAllowed\) \{/);
+  assert.match(source, /preflightTargetStatus\.liveWorkRequired = !preflightTargetCreditAllowed;/);
+});
+
+test('remote runner preflights targeted semantic replay satisfaction only when preflight credit is allowed', () => {
   assert.match(source, /const preflightTargetFocusIds = requestedSemanticTargetFocusIds\(\);/);
-  assert.match(source, /const preflightVerifiedFocusIds = verifyFocusIdsByTargetedTests\(preflightTargetFocusIds\);/);
   assert.match(source, /writeBenchmarkProgress\(\{ progressState, iteration: 0 \}\);/);
   assert.match(source, /const preflightTargetStatus = evaluateTargetedSemanticReplay\(\{/);
+  assert.match(source, /preflightTargetStatus\.preflightCreditAllowed = preflightTargetCreditAllowed;/);
   assert.match(source, /writeJson\(TARGETED_SEMANTIC_REPLAY_STATUS_PATH, preflightTargetStatus\);/);
-  assert.match(source, /if \(preflightTargetStatus\.satisfied\) \{/);
+  assert.match(source, /function targetedSemanticPreflightExitAllowed\(status = null\) \{/);
+  assert.match(source, /Boolean\(status\?\.satisfied\) && targetedSemanticPreflightCreditAllowed\(\)/);
+  assert.match(source, /if \(targetedSemanticPreflightExitAllowed\(preflightTargetStatus\)\) \{/);
   assert.match(source, /phase: 'remote_execution_target_satisfied'/);
   assert.match(source, /stopped before delegate launch because the requested targeted semantic focus set was already verified by targeted tests/);
   assert.match(source, /process\.exit\(0\);/);

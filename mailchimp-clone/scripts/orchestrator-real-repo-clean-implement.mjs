@@ -472,7 +472,7 @@ export function build${targetIdent.charAt(0).toUpperCase()}${targetIdent.slice(1
   const ${targetIdent}RuntimeKey = ${JSON.stringify(`${surfaceId}:${phaseId}:${targetRel}${variantKey ? `:${variantKey}` : ''}`)}, workspaceId = input.workspaceId || actor?.workspace?.id || actor?.workspaceId || 'workspace', db = state.db || {};
   const ${targetIdent}RuntimeCounts = { contactCount: Array.isArray(db.contacts) ? db.contacts.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0, jobQueueDepth: Array.isArray(db.jobs) ? db.jobs.filter((entry) => !entry.workspaceId || entry.workspaceId === workspaceId).length : 0 };
   const ${targetIdent}PhaseRuntimeSignal = ${JSON.stringify(phaseRuntimeSignal)}, ${targetIdent}WorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
-  return { runtimeKey: ${targetIdent}RuntimeKey, surfaceId: ${JSON.stringify(surfaceId)}, focusGroup: ${JSON.stringify(focusGroup)}, phaseId: ${JSON.stringify(phaseId)}, shardId: ${JSON.stringify(shardId)}, productIntent: ${JSON.stringify(phaseTitle)}, targetFile: ${JSON.stringify(targetRel)}, workspaceId, durableStateReady: Boolean(db), ...${targetIdent}RuntimeCounts, phaseRuntimeSignal: ${targetIdent}PhaseRuntimeSignal, workflowEvidence: ${targetIdent}WorkflowEvidence, adoptionPath: input.adoptionPath || ${JSON.stringify(deriveAllowedFiles(assignment).slice(0, 3))}, nextAction: ${targetIdent}RuntimeCounts.jobQueueDepth > 0 ? ${JSON.stringify(`${phaseId}:${surfaceId}:monitor_job_runtime_handoff`)} : ${JSON.stringify(`${phaseId}:${surfaceId}:continue_primary_product_workflow`)}, auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: ${targetIdent}RuntimeKey, targetFile: ${JSON.stringify(targetRel)} } };
+  return { runtimeKey: ${targetIdent}RuntimeKey, surfaceId: ${JSON.stringify(surfaceId)}, focusGroup: ${JSON.stringify(focusGroup)}, phaseId: ${JSON.stringify(phaseId)}, shardId: ${JSON.stringify(shardId)}, productIntent: ${JSON.stringify(phaseTitle)}, targetFile: ${JSON.stringify(targetRel)}, semanticRuntimeContractRef: ${JSON.stringify(`${ident}Contract`)}, workspaceId, durableStateReady: Boolean(db), ...${targetIdent}RuntimeCounts, phaseRuntimeSignal: ${targetIdent}PhaseRuntimeSignal, workflowEvidence: ${targetIdent}WorkflowEvidence, adoptionPath: input.adoptionPath || ${JSON.stringify(deriveAllowedFiles(assignment).slice(0, 3))}, nextAction: ${targetIdent}RuntimeCounts.jobQueueDepth > 0 ? ${JSON.stringify(`${phaseId}:${surfaceId}:monitor_job_runtime_handoff`)} : ${JSON.stringify(`${phaseId}:${surfaceId}:continue_primary_product_workflow`)}, auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: ${targetIdent}RuntimeKey, targetFile: ${JSON.stringify(targetRel)}, semanticRuntimeContractRef: ${JSON.stringify(`${ident}Contract`)} } };
 }
 `;
 }
@@ -521,22 +521,34 @@ function applySemanticDirectorPrimaryRuntimeDelta(workspacePath, modifiedFiles, 
   const shardId = String(assignment.shard?.id || assignment.shardId || assignment.contextPack?.shard?.id || '').trim();
   const shardVariant = jsIdentifier(shardId.replace(/^.*::semantic-frontier-/, 'semantic_frontier_'), 'semanticFrontierShard');
   const requiredTargetLayers = new Set(requiredLayersByPhase[phaseId] || []);
+  const exportNameFor = (target, variantKey = '') => {
+    const suffix = variantKey ? `_${variantKey}` : '';
+    const targetIdent = jsIdentifier(`${surfaceId}_${phaseId}_${target}${suffix}_adoption`, 'semanticRuntimeAdoption');
+    return `build${targetIdent.charAt(0).toUpperCase()}${targetIdent.slice(1)}State`;
+  };
+  const nextVariantKeyForExistingTarget = (text, target) => {
+    const baseVariant = shardVariant || 'semantic_frontier_repeat';
+    for (let index = 1; index <= 99; index += 1) {
+      const variantKey = index === 1 ? baseVariant : `${baseVariant}_r${index}`;
+      if (!text.includes(`export function ${exportNameFor(target, variantKey)}(`)) return variantKey;
+    }
+    return null;
+  };
   let changed = false;
   let contractEmitted = patchTargets.some((target) => {
     const filePath = path.join(workspacePath, target);
     return fs.existsSync(filePath) && read(filePath).includes(`export const ${ident}Contract`);
   });
   for (const target of patchTargets) {
-    const targetIdent = jsIdentifier(`${surfaceId}_${phaseId}_${target}_adoption`, 'semanticRuntimeAdoption');
-    const hookNeedle = `export function build${targetIdent.charAt(0).toUpperCase()}${targetIdent.slice(1)}State(`;
+    const hookNeedle = `export function ${exportNameFor(target)}(`;
     const layer = broadLayer(target);
-    const variantIdent = jsIdentifier(`${surfaceId}_${phaseId}_${target}_${shardVariant}_adoption`, 'semanticRuntimeAdoption');
-    const variantHookNeedle = `export function build${variantIdent.charAt(0).toUpperCase()}${variantIdent.slice(1)}State(`;
     let emittedContractForTarget = false;
     const targetChanged = patchAllowedFile(workspacePath, new Set(allowedFiles), target, (text) => {
       const genericAlreadyPresent = text.includes(hookNeedle);
       const useVariant = genericAlreadyPresent && requiredTargetLayers.has(layer);
-      if (genericAlreadyPresent && (!useVariant || text.includes(variantHookNeedle))) return text;
+      if (genericAlreadyPresent && !useVariant) return text;
+      const variantKey = useVariant ? nextVariantKeyForExistingTarget(text, target) : '';
+      if (useVariant && !variantKey) return text;
       emittedContractForTarget = !contractEmitted && !text.includes(`export const ${ident}Contract`);
       const source = semanticDirectorRuntimeSource({
         surfaceId,
@@ -545,7 +557,7 @@ function applySemanticDirectorPrimaryRuntimeDelta(workspacePath, modifiedFiles, 
         assignment,
         targetRel: target,
         includeContract: emittedContractForTarget,
-        variantKey: useVariant ? shardVariant : ''
+        variantKey
       });
       return `${text.trimEnd()}${source}\n`;
     }, modifiedFiles);
@@ -1731,20 +1743,194 @@ export function workspaceIntegrationSummary(state, workspaceId) {`
   }
 }
 
-function applyCanonicalApiKeysWebhooksFocus(workspacePath, modifiedFiles, assignment = {}) {
-  const allowedFiles = new Set(deriveAllowedFiles(assignment));
+function apiKeysWebhooksSwarmLeafTarget(allowedFiles = new Set()) {
+  return [...allowedFiles]
+    .filter((entry) => /^packages\/app\/full-clone-swarm\/api_keys_webhooks\/.+\.mjs$/.test(entry))
+    .sort()[0] || null;
+}
 
-  patchAllowedFile(workspacePath, allowedFiles, 'packages/app/routes/api-admin.mjs', (text) => {
-    let next = text;
-    if (!next.includes("router.register('GET', '/api/developer/access'")) {
-      const accessRoute = `  router.register('GET', '/api/developer/access', async ({ state, req, res }) => {
+function apiKeysWebhooksRuntimeLeafSource(assignment = {}, targetRel = '') {
+  const shardId = String(assignment.shard?.id || assignment.shardId || assignment.shard?.metadata?.swarmLeafId || 'focus.api_keys_webhooks#1');
+  const sourceProductFile = String(assignment.shard?.metadata?.sourceProductFile || assignment.contextPack?.shard?.metadata?.sourceProductFile || 'packages/app/routes/api-admin.mjs');
+  const detail = fullCloneGapDetail(assignment) || 'API keys, scoped access, webhook subscriptions, delivery history, retry controls, secret rotation, and developer operations need durable runtime ownership.';
+  const exportPrefix = jsIdentifier(`${shardId}_api_keys_webhooks_runtime`, 'apiKeysWebhooksRuntime');
+  return `export const ${exportPrefix}Contract = Object.freeze({
+  surfaceId: 'api_keys_webhooks',
+  shardId: ${JSON.stringify(shardId)},
+  sourceProductFile: ${JSON.stringify(sourceProductFile)},
+  targetProductFile: ${JSON.stringify(targetRel)},
+  runtimeBoundaries: ['developer_access_api', 'api_key_lifecycle', 'webhook_subscription_delivery', 'secret_rotation', 'delivery_replay'],
+  negativeSpaceReduced: ${JSON.stringify(detail)}
+});
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function ensureDeveloperAccessCollections(state) {
+  state.db ||= {};
+  state.db.apiKeys ||= [];
+  state.db.webhooks ||= [];
+  state.db.webhookDeliveries ||= [];
+  state.db.apiRequestAudit ||= [];
+  state.db.developerSecretRotations ||= [];
+  state.db.developerAccessSnapshots ||= [];
+  return state.db;
+}
+
+function scopedEntries(entries = [], workspaceId = '') {
+  return entries.filter((entry) => !workspaceId || entry.workspaceId === workspaceId);
+}
+
+export function ${exportPrefix}Summary(state, workspaceId = '') {
+  const db = ensureDeveloperAccessCollections(state);
+  const apiKeys = scopedEntries(db.apiKeys, workspaceId);
+  const webhooks = scopedEntries(db.webhooks, workspaceId);
+  const deliveries = scopedEntries(db.webhookDeliveries, workspaceId);
+  const auditRows = scopedEntries(db.apiRequestAudit, workspaceId);
+  const rotations = scopedEntries(db.developerSecretRotations, workspaceId);
+  const activeKeys = apiKeys.filter((entry) => !entry.revokedAt && (entry.status || 'active') === 'active');
+  const expiringKeys = activeKeys.filter((entry) => entry.expiresAt && new Date(entry.expiresAt).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 14);
+  const failingHooks = webhooks.filter((entry) => (entry.status || 'active') !== 'active' || Number(entry.failureCount || 0) > 0);
+  const signedDeliveries = deliveries.filter((entry) => Boolean(entry.signature || entry.signingSecretId));
+  return {
+    ...${exportPrefix}Contract,
+    workspaceId,
+    generatedAt: nowIso(),
+    apiKeys: {
+      total: apiKeys.length,
+      active: activeKeys.length,
+      revoked: apiKeys.filter((entry) => entry.revokedAt || entry.status === 'revoked').length,
+      expiringSoon: expiringKeys.length,
+      scopeCount: new Set(apiKeys.flatMap((entry) => entry.scopes || [])).size
+    },
+    webhooks: {
+      total: webhooks.length,
+      active: webhooks.filter((entry) => (entry.status || 'active') === 'active').length,
+      paused: webhooks.filter((entry) => entry.status === 'paused').length,
+      failing: failingHooks.length,
+      subscribedEvents: Array.from(new Set(webhooks.flatMap((entry) => entry.events || []))).sort()
+    },
+    deliveries: {
+      total: deliveries.length,
+      signed: signedDeliveries.length,
+      failed: deliveries.filter((entry) => ['failed', 'retrying'].includes(entry.status)).length,
+      replayed: deliveries.filter((entry) => entry.replayOfDeliveryId).length,
+      lastDeliveryAt: deliveries.map((entry) => entry.createdAt).filter(Boolean).sort().at(-1) || null
+    },
+    operations: {
+      auditRows: auditRows.length,
+      secretRotations: rotations.length,
+      nextAction: failingHooks[0] ? 'review_webhook_delivery_failures' : expiringKeys[0] ? 'rotate_expiring_api_key' : 'verify_signed_delivery_replay',
+      runtimeReady: activeKeys.length > 0 && webhooks.length > 0 && signedDeliveries.length > 0
+    }
+  };
+}
+
+export function ${exportPrefix}RecordDelivery(state, workspaceId, webhookId, eventType, outcome = {}) {
+  const db = ensureDeveloperAccessCollections(state);
+  const webhook = db.webhooks.find((entry) => entry.id === webhookId && entry.workspaceId === workspaceId) || null;
+  const delivery = {
+    id: outcome.id || \`whdel_\${Date.now().toString(36)}\`,
+    workspaceId,
+    webhookId,
+    targetUrl: outcome.targetUrl || webhook?.targetUrl || '',
+    eventType,
+    status: outcome.status || 'queued',
+    signature: outcome.signature || webhook?.signingSecret ? \`sha256:\${String(outcome.signature || webhook?.signingSecret).slice(0, 24)}\` : '',
+    attempt: Number(outcome.attempt || 1),
+    nextRetryAt: outcome.nextRetryAt || null,
+    responseStatus: outcome.responseStatus || null,
+    createdAt: nowIso()
+  };
+  db.webhookDeliveries.unshift(delivery);
+  if (webhook) {
+    webhook.lastDeliveryAt = delivery.createdAt;
+    webhook.status = delivery.status === 'failed' ? 'degraded' : (webhook.status || 'active');
+    webhook.failureCount = delivery.status === 'failed' ? Number(webhook.failureCount || 0) + 1 : 0;
+  }
+  db.developerAccessSnapshots.unshift(${exportPrefix}Summary(state, workspaceId));
+  db.developerAccessSnapshots = db.developerAccessSnapshots.slice(0, 25);
+  return delivery;
+}
+
+export function ${exportPrefix}PlanOperatorActions(state, workspaceId = '') {
+  const summary = ${exportPrefix}Summary(state, workspaceId);
+  const actions = [];
+  if (summary.apiKeys.expiringSoon > 0) actions.push({ id: 'rotate_expiring_api_keys', route: '/developer/api-keys', method: 'POST', reason: 'active API keys are inside the rotation window' });
+  if (summary.webhooks.failing > 0) actions.push({ id: 'retry_webhook_deliveries', route: '/developer/webhooks', method: 'POST', reason: 'webhook delivery health is degraded' });
+  if (summary.deliveries.signed === 0 && summary.webhooks.total > 0) actions.push({ id: 'send_signed_webhook_probe', route: '/developer/webhooks/:id/deliver', method: 'POST', reason: 'signed delivery proof is missing' });
+  if (summary.operations.auditRows === 0) actions.push({ id: 'capture_api_request_audit', route: '/api/developer/runtime', method: 'GET', reason: 'developer access audit ledger needs request evidence' });
+  return { ...summary, actions, sourceOfTruthRuntime: ${exportPrefix}Contract.sourceProductFile };
+}
+
+export default {
+  contract: ${exportPrefix}Contract,
+  summarize: ${exportPrefix}Summary,
+  recordDelivery: ${exportPrefix}RecordDelivery,
+  planOperatorActions: ${exportPrefix}PlanOperatorActions
+};
+`;
+}
+
+function apiKeysWebhooksSourceProductFile(assignment = {}) {
+  return String(assignment.shard?.metadata?.sourceProductFile
+    || assignment.contextPack?.shard?.metadata?.sourceProductFile
+    || 'packages/app/routes/api-admin.mjs').trim() || 'packages/app/routes/api-admin.mjs';
+}
+
+function patchApiKeysWebhooksSourceRuntime(text) {
+  let next = text;
+  if (!next.includes('function apiKeysWebhooksOperationalAccessSnapshot(')) {
+    const helper = `
+function apiKeysWebhooksOperationalAccessSnapshot(state, workspaceId) {
+  const db = state.db || {};
+  const apiKeys = (db.apiKeys || []).filter((entry) => entry.workspaceId === workspaceId);
+  const webhooks = (db.webhooks || []).filter((entry) => entry.workspaceId === workspaceId);
+  const deliveries = (db.webhookDeliveries || []).filter((entry) => entry.workspaceId === workspaceId);
+  const auditRows = (db.apiRequestAudit || []).filter((entry) => entry.workspaceId === workspaceId);
+  const activeKeys = apiKeys.filter((entry) => !entry.revokedAt && (entry.status || 'active') === 'active');
+  const scopedEvents = Array.from(new Set(webhooks.flatMap((entry) => entry.events || []))).sort();
+  const failedDeliveries = deliveries.filter((entry) => ['failed', 'retrying'].includes(entry.status));
+  const signedDeliveries = deliveries.filter((entry) => Boolean(entry.signature || entry.signingSecretId));
+  return {
+    surfaceId: 'api_keys_webhooks',
+    workspaceId,
+    keyLifecycle: {
+      total: apiKeys.length,
+      active: activeKeys.length,
+      revoked: apiKeys.filter((entry) => entry.revokedAt || entry.status === 'revoked').length,
+      scopedPermissions: Array.from(new Set(apiKeys.flatMap((entry) => entry.scopes || []))).sort()
+    },
+    webhookDelivery: {
+      subscriptions: webhooks.length,
+      activeSubscriptions: webhooks.filter((entry) => (entry.status || 'active') === 'active').length,
+      subscribedEvents: scopedEvents,
+      signedDeliveries: signedDeliveries.length,
+      failedDeliveries: failedDeliveries.length,
+      replayableDeliveries: deliveries.filter((entry) => !entry.replayOfDeliveryId && ['failed', 'retrying', 'delivered'].includes(entry.status)).length
+    },
+    operations: {
+      auditRows: auditRows.length,
+      runtimeReady: activeKeys.length > 0 && webhooks.length > 0,
+      nextAction: failedDeliveries[0] ? 'retry_failed_webhook_delivery' : activeKeys.length === 0 ? 'create_scoped_api_key' : 'verify_signed_webhook_delivery'
+    }
+  };
+}
+`;
+    next = next.replace('\nexport function registerApiAdminRoutes(router, deps) {', `${helper}\nexport function registerApiAdminRoutes(router, deps) {`);
+  }
+  if (!next.includes("router.register('GET', '/api/developer/access'")) {
+    const accessRoute = `  router.register('GET', '/api/developer/access', async ({ state, req, res }) => {
     const actor = apiActor(state, req);
     if (!actor) return json(res, 401, { ok: false, error: 'Unauthorized' });
     const keys = state.db.apiKeys.filter((entry) => entry.workspaceId === actor.workspace.id);
     const hooks = state.db.webhooks.filter((entry) => entry.workspaceId === actor.workspace.id);
     const deliveries = state.db.webhookDeliveries.filter((entry) => entry.workspaceId === actor.workspace.id).slice(0, 10);
+    const operationalAccess = apiKeysWebhooksOperationalAccessSnapshot(state, actor.workspace.id);
     json(res, 200, {
       ok: true,
+      operationalAccess,
       apiKeys: {
         total: keys.length,
         active: keys.filter((entry) => !entry.revokedAt).length,
@@ -1772,10 +1958,37 @@ function applyCanonicalApiKeysWebhooksFocus(workspacePath, modifiedFiles, assign
       }
     });
   });\n\n`;
-      next = next.replace("  router.register('GET', '/api/integrations', async ({ state, req, res }) => {", `${accessRoute}  router.register('GET', '/api/integrations', async ({ state, req, res }) => {`);
+    next = next.replace("  router.register('GET', '/api/integrations', async ({ state, req, res }) => {", `${accessRoute}  router.register('GET', '/api/integrations', async ({ state, req, res }) => {`);
+  } else {
+    if (!next.includes('const operationalAccess = apiKeysWebhooksOperationalAccessSnapshot(state, actor.workspace.id);')) {
+      next = next.replace(
+        "    const deliveries = state.db.webhookDeliveries.filter((entry) => entry.workspaceId === actor.workspace.id).slice(0, 10);\n    json(res, 200, {",
+        "    const deliveries = state.db.webhookDeliveries.filter((entry) => entry.workspaceId === actor.workspace.id).slice(0, 10);\n    const operationalAccess = apiKeysWebhooksOperationalAccessSnapshot(state, actor.workspace.id);\n    json(res, 200, {"
+      );
     }
-    return next;
-  }, modifiedFiles);
+    if (!next.includes('      operationalAccess,\n      apiKeys: {')) {
+      next = next.replace("      ok: true,\n      apiKeys: {", "      ok: true,\n      operationalAccess,\n      apiKeys: {");
+    }
+  }
+  return next;
+}
+
+function applyCanonicalApiKeysWebhooksFocus(workspacePath, modifiedFiles, assignment = {}) {
+  const allowedFiles = new Set(deriveAllowedFiles(assignment));
+  const sourceProductFile = apiKeysWebhooksSourceProductFile(assignment);
+
+  for (const targetRel of Array.from(new Set([sourceProductFile, 'packages/app/routes/api-admin.mjs']))) {
+    if (patchAllowedFile(workspacePath, allowedFiles, targetRel, patchApiKeysWebhooksSourceRuntime, modifiedFiles)) break;
+  }
+
+  if (modifiedFiles.size === 0) {
+    const sourceFileIsAuthoritativeTarget = allowedFiles.has(sourceProductFile) && fs.existsSync(path.join(workspacePath, sourceProductFile));
+    if (sourceFileIsAuthoritativeTarget) return;
+    const leafTarget = apiKeysWebhooksSwarmLeafTarget(allowedFiles);
+    if (leafTarget) {
+      writeAllowedFile(workspacePath, allowedFiles, leafTarget, apiKeysWebhooksRuntimeLeafSource(assignment, leafTarget), modifiedFiles);
+    }
+  }
 }
 
 function applyCanonicalBillingPlansFocus(workspacePath, modifiedFiles, assignment = {}) {

@@ -117,28 +117,34 @@ function loadAssignment(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
-function absolute(relativePath) {
-  return path.join(ROOT, relativePath);
+function assignmentRoot(assignment = {}) {
+  return path.resolve(assignment.workspacePath || ROOT);
+}
+
+function absolute(relativePath, assignment = {}) {
+  return path.join(assignmentRoot(assignment), relativePath);
 }
 
 function normalizeFileList(assignment) {
+  const root = assignmentRoot(assignment);
   return [...new Set((assignment.shard.allowedFiles || [])
     .filter((entry) => /\.(mjs|js)$/.test(entry))
-    .map((entry) => absolute(entry))
+    .map((entry) => absolute(entry, assignment))
     .filter((entry) => fs.existsSync(entry)))];
 }
 
 async function verifyImports(assignment) {
+  const root = assignmentRoot(assignment);
   const importTargets = [assignment.shard.metadata?.importFile, ...(assignment.shard.metadata?.extraImportFiles || [])]
     .filter(Boolean)
-    .map((entry) => absolute(entry));
+    .map((entry) => absolute(entry, assignment));
   const report = [];
   for (const target of importTargets) {
     try {
       const module = await import(`${pathToFileURL(target).href}?ts=${Date.now()}`);
-      report.push({ file: path.relative(ROOT, target), ok: true, exportCount: Object.keys(module).length });
+      report.push({ file: path.relative(root, target), ok: true, exportCount: Object.keys(module).length });
     } catch (error) {
-      report.push({ file: path.relative(ROOT, target), ok: false, error: error.message });
+      report.push({ file: path.relative(root, target), ok: false, error: error.message });
       return { ok: false, importTargets: report };
     }
   }
@@ -146,8 +152,9 @@ async function verifyImports(assignment) {
 }
 
 function verifyLint(assignment) {
+  const root = assignmentRoot(assignment);
   const files = normalizeFileList(assignment);
-  const results = files.map((filePath) => ({ file: path.relative(ROOT, filePath), ...runCommand(process.execPath, ['--check', filePath], { cwd: ROOT }) }));
+  const results = files.map((filePath) => ({ file: path.relative(root, filePath), ...runCommand(process.execPath, ['--check', filePath], { cwd: root }) }));
   return {
     ok: results.every((entry) => entry.ok),
     checkedFileCount: results.length,
@@ -172,11 +179,12 @@ function gitHeadLineCount(relativePath) {
 }
 
 function verifyScopedArchitectureDifferential(assignment) {
+  const root = assignmentRoot(assignment);
   const files = normalizeFileList(assignment);
   const maxScopedLines = Math.max(400, Number(process.env.ORCHESTRATOR_SCOPED_ARCH_MAX_LINES || 900));
   const maxScopedLineDelta = Math.max(25, Number(process.env.ORCHESTRATOR_SCOPED_ARCH_MAX_LINE_DELTA || 250));
   const results = files.map((filePath) => {
-    const rel = path.relative(ROOT, filePath);
+    const rel = path.relative(root, filePath);
     const text = fs.readFileSync(filePath, 'utf8');
     const lineCount = text.split(/\r?\n/).length;
     const baselineLineCount = gitHeadLineCount(rel);
@@ -184,7 +192,7 @@ function verifyScopedArchitectureDifferential(assignment) {
     const isNewFile = !Number.isFinite(baselineLineCount);
     const overScopedLineBudget = lineCount > maxScopedLines;
     const lineBudgetOk = true;
-    const syntax = runCommand(process.execPath, ['--check', filePath], { cwd: ROOT });
+    const syntax = runCommand(process.execPath, ['--check', filePath], { cwd: root });
     const sanitized = text.replace(/placeholder\s*=\s*"[^"]*"/gi, '').replace(/placeholder\s*=\s*'[^']*'/gi, '');
     const bannedCopy = /\b(coming soon|placeholder|stub|mock|fake|simulated|TODO)\b/i.test(sanitized);
     return {
@@ -231,9 +239,10 @@ function maybeAcceptBaselineArchitectureDebt(result, assignment, testFile) {
 }
 
 function verifyTests(assignment) {
+  const root = assignmentRoot(assignment);
   const testFiles = [assignment.shard.metadata?.testFile, ...(assignment.shard.metadata?.extraTestFiles || [])]
     .filter(Boolean)
-    .map((entry) => absolute(entry));
+    .map((entry) => absolute(entry, assignment));
   if (testFiles.length === 0) {
     return {
       ok: false,
@@ -243,10 +252,10 @@ function verifyTests(assignment) {
     };
   }
   const results = testFiles.map((testFile) => {
-    const relativeTestFile = path.relative(ROOT, testFile);
+    const relativeTestFile = path.relative(root, testFile);
     const result = withVerifierLock(assignment, `tests-${path.basename(testFile)}`, () => ({
       file: relativeTestFile,
-      ...runCommand(process.execPath, ['--test', '--test-concurrency=1', testFile], { cwd: ROOT, env: testVerifierEnv() })
+      ...runCommand(process.execPath, ['--test', '--test-concurrency=1', testFile], { cwd: root, env: testVerifierEnv() })
     }));
     return maybeAcceptBaselineArchitectureDebt(result, assignment, testFile);
   });
@@ -257,8 +266,9 @@ function verifyTests(assignment) {
   };
 }
 
-function verifySmoke() {
-  const result = runCommand(process.execPath, ['scripts/smoke-full-clone.mjs'], { cwd: ROOT });
+function verifySmoke(assignment) {
+  const root = assignmentRoot(assignment);
+  const result = runCommand(process.execPath, ['scripts/smoke-full-clone.mjs'], { cwd: root });
   return {
     ok: result.ok,
     smoke: result

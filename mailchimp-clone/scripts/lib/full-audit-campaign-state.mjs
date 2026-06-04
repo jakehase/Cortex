@@ -150,6 +150,9 @@ export function deriveCanonicalStatuses({ completionSummary = null, programState
 }
 
 export function deriveProductThroughputEvidence({ liveExecutionSummary = null, patchQueueReport = null, syncStatus = null } = {}) {
+  const targetedReplay = syncStatus?.remoteRuntimeStatus?.targetedSemanticReplay || null;
+  const targetedSemanticReplaySatisfied = String(syncStatus?.remoteRuntimeStatus?.phase || '') === 'remote_execution_target_satisfied'
+    && targetedReplay?.satisfied === true;
   const shardCount = Number(liveExecutionSummary?.shardCount ?? 0);
   const mergedShardCount = Number(liveExecutionSummary?.mergedShardCount ?? 0);
   const workerSpawnCount = Number(liveExecutionSummary?.metrics?.workerSpawnCount ?? 0);
@@ -171,8 +174,12 @@ export function deriveProductThroughputEvidence({ liveExecutionSummary = null, p
     alreadyMatchedProductFileCount,
     admittedProductWork,
     zeroWork,
+    targetedSemanticReplaySatisfied,
+    targetedSemanticReplay: targetedReplay,
     note: zeroWork
-      ? 'No admitted selected-tier product patch landed in the canonical checkout.'
+      ? (targetedSemanticReplaySatisfied
+          ? 'No new product patch landed because the requested targeted semantic replay focus was already verified.'
+          : 'No admitted selected-tier product patch landed in the canonical checkout.')
       : 'Selected-tier admitted product-work throughput evidence was observed.'
   };
 }
@@ -211,7 +218,10 @@ export function deriveRequestedOutcome({ requestedFidelity = null, orchestration
       note: 'Delegate/orchestration run is still blocked or incomplete.'
     };
   }
-  if (orchestrationTruth.green && productThroughput?.zeroWork === true && truthPreflight?.memoryTruth?.assumeAbundantRemainingWork === true) {
+  if (orchestrationTruth.green
+    && productThroughput?.zeroWork === true
+    && productThroughput?.targetedSemanticReplaySatisfied !== true
+    && truthPreflight?.memoryTruth?.assumeAbundantRemainingWork === true) {
     const zeroWorkBlocker = buildZeroWorkScopedGreenBlocker({ productThroughput, truthPreflight });
     return {
       requestedFidelity: fidelity || null,
@@ -261,14 +271,18 @@ export function deriveRequestedOutcome({ requestedFidelity = null, orchestration
     green: Boolean(orchestrationTruth.green),
     blocker: null,
     blockerKind: null,
+    targetedSemanticReplaySatisfied: productThroughput?.targetedSemanticReplaySatisfied === true,
     note: orchestrationTruth.green
-      ? 'Delegate/orchestration run passed.'
+      ? (productThroughput?.targetedSemanticReplaySatisfied === true
+          ? 'Requested targeted semantic replay focus was already verified; scoped repair is satisfied without claiming broad Mailchimp parity.'
+          : 'Delegate/orchestration run passed.')
       : 'Delegate/orchestration run remains partial.'
   };
 }
 
 export function buildOutcomeHeadline({ orchestration = null, requestedOutcome = null } = {}) {
   if (requestedOutcome?.blockerKind === 'zero_work_scoped_green') return 'Scoped matrix passed, but no product-work throughput was proven.';
+  if (requestedOutcome?.green && requestedOutcome?.targetedSemanticReplaySatisfied === true) return 'Targeted semantic replay scope satisfied.';
   if (requestedOutcome?.green) return 'Full-audit campaign complete.';
   if (requestedOutcome?.blockerKind === 'strict_1to1_ceiling' && orchestration?.green) {
     return 'Orchestration passed, full-clone strict 1:1 ceiling still red.';

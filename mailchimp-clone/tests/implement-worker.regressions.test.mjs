@@ -253,6 +253,43 @@ test('implement worker: full-clone swarm leaf does not create isolated declarati
   assert.equal(fs.existsSync(path.join(workspacePath, leafFile)), false, 'isolated full-clone swarm modules must not be created for product credit');
 });
 
+test('implement worker: api keys webhooks full-clone swarm leaf emits durable source-runtime product diff', () => {
+  const sourceProductFile = 'packages/app/routes/api-admin.mjs';
+  const workspacePath = mkWorkspace([sourceProductFile]);
+  const leafFile = 'packages/app/full-clone-swarm/api_keys_webhooks/001-api_admin.mjs';
+  const { output } = runAssignmentInWorkspace(workspacePath, {
+    shardId: 'focus.api_keys_webhooks#1',
+    shard: {
+      id: 'focus.api_keys_webhooks#1',
+      title: 'API keys and webhooks — api admin leaf',
+      lane: 'frontend_architecture',
+      allowedFiles: [leafFile, sourceProductFile],
+      metadata: {
+        strictGap: true,
+        surfaceFocusId: 'api_keys_webhooks',
+        swarmLeafId: 'focus.api_keys_webhooks#1',
+        sourceProductFile,
+        sourceBackedSwarmLeaf: true,
+        primaryProductAdoptionRequired: true,
+        importFile: sourceProductFile,
+        strictGapDetail: 'Expose developer access, scoped API key lifecycle, signed webhook delivery, retry controls, secret rotation, and developer audit logs.'
+      }
+    },
+    contract: { requestedFidelity: 'full_clone' }
+  }, { env: { ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone' } });
+
+  assert.deepEqual(output.modifiedFiles, [sourceProductFile]);
+  assert.equal(output.surfaceFocusId, 'api_keys_webhooks');
+  assert.equal(output.metadata.claimIntegrityKind, 'substantive_product_delta');
+  assert.equal(output.metadata.semanticBloatAudit.runtimeIntegrationEvidence.ok, true);
+  assert.equal(fs.existsSync(path.join(workspacePath, leafFile)), false, 'api keys/webhooks swarm leaf must not fall back to an isolated generated module when the source runtime is available');
+  const sourceText = fs.readFileSync(path.join(workspacePath, sourceProductFile), 'utf8');
+  assert.match(sourceText, /apiKeysWebhooksOperationalAccessSnapshot/, 'source runtime should own the developer access operational snapshot');
+  assert.match(sourceText, /operationalAccess/, 'developer access API should expose the runtime snapshot');
+  const syntax = spawnSync(process.execPath, ['--check', path.join(workspacePath, sourceProductFile)], { encoding: 'utf8' });
+  assert.equal(syntax.status, 0, `source runtime should remain syntactically valid\nstdout:\n${syntax.stdout}\nstderr:\n${syntax.stderr}`);
+});
+
 test('implement worker: structural full-clone leaf does not create isolated declarative product modules by default', () => {
   const workspacePath = mkWorkspace([]);
   const structuralFile = 'packages/app/full-clone-structural/frontend_client_shell_state/001-client_runtime_state.mjs';
@@ -2059,6 +2096,68 @@ test('implement worker: semantic director operational persistence shards modify 
   const touchedJobRuntime = output.modifiedFiles.find((filePath) => /packages\/app\/(?:jobs|job-runtime|job-handlers)\.mjs$/.test(filePath));
   const jobSource = fs.readFileSync(path.join(workspacePath, touchedJobRuntime), 'utf8');
   assert.match(jobSource, /semantic_frontier_product_runtime_evaluated/);
+});
+
+test('implement worker: repeated semantic director shards keep producing multi-layer architecture deltas', () => {
+  const workspacePath = mkWorkspace([
+    'surface-honesty.json',
+    'packages/app/domain-growth.mjs',
+    'packages/app/routes/forms.mjs',
+    'packages/app/jobs.mjs',
+    'packages/app/job-runtime.mjs',
+    'packages/app/job-handlers.mjs',
+    'packages/app/persistence-io.mjs',
+    'packages/app/storage.mjs'
+  ], { source: 'working-tree' });
+  const assignment = {
+    shardId: 'focus.signup_forms_popups::semantic-frontier-001#07-operational_persistence_and_jobs',
+    inputs: {
+      focusId: 'focus.signup_forms_popups',
+      surfaceId: 'signup_forms_popups',
+      semanticPhaseId: 'operational_persistence_and_jobs',
+      semanticIntent: 'Connect signup forms to durable persistence and background jobs.'
+    },
+    issue: { inputs: { focusGroup: 'forms_growth' } },
+    shard: {
+      id: 'focus.signup_forms_popups::semantic-frontier-001#07-operational_persistence_and_jobs',
+      allowedFiles: [
+        'packages/app/domain-growth.mjs',
+        'packages/app/routes/forms.mjs',
+        'packages/app/jobs.mjs',
+        'packages/app/job-runtime.mjs',
+        'packages/app/job-handlers.mjs',
+        'packages/app/persistence-io.mjs',
+        'packages/app/storage.mjs'
+      ],
+      metadata: {
+        focusId: 'focus.signup_forms_popups',
+        rootFocusId: 'focus.signup_forms_popups',
+        surfaceId: 'signup_forms_popups',
+        focusGroup: 'forms_growth',
+        semanticDirector: true,
+        architectureFrontier: true,
+        semanticPhaseId: 'operational_persistence_and_jobs',
+        primaryProductAdoptionRequired: true,
+        primaryAdoptionFiles: [
+          'packages/app/domain-growth.mjs',
+          'packages/app/routes/forms.mjs',
+          'packages/app/jobs.mjs',
+          'packages/app/job-runtime.mjs',
+          'packages/app/job-handlers.mjs',
+          'packages/app/persistence-io.mjs',
+          'packages/app/storage.mjs'
+        ]
+      }
+    }
+  };
+
+  const first = runAssignmentInWorkspace(workspacePath, assignment, { source: 'working-tree' }).output;
+  const second = runAssignmentInWorkspace(workspacePath, assignment, { source: 'working-tree' }).output;
+  assert.equal(first.metadata.architectureEvidence.ok, true);
+  assert.equal(second.metadata.architectureEvidence.ok, true, 'same semantic shard rerun should not collapse into zero/no-op after prior adoption markers exist');
+  assert.ok(second.modifiedFiles.some((filePath) => /packages\/app\/(?:domain-|storage|persistence-io)/.test(filePath)), `expected repeated semantic shard to modify a domain/persistence layer, got ${second.modifiedFiles.join(', ')}`);
+  assert.ok(second.modifiedFiles.some((filePath) => /packages\/app\/(?:jobs|job-runtime|job-handlers)\.mjs$/.test(filePath)), `expected repeated semantic shard to modify a jobs layer, got ${second.modifiedFiles.join(', ')}`);
+  assert.deepEqual(second.metadata.architectureEvidence.modifiedRequiredLayers.sort(), ['domain_or_persistence', 'jobs_runtime'].sort());
 });
 
 test('implement worker: settings domains integrated user-path shards keep a domain/persistence adoption layer', () => {

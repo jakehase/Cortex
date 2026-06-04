@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { MAILCHIMP_CANONICAL_ONE_PASS_PLAN as CANONICAL_ONE_PASS_PLAN } from './mailchimp-canonical-one-pass-plan-data.mjs';
 import { bindStrictHierarchicalPlanToWorkUnits, buildStrictHierarchicalPlan } from './strict-hierarchical-planner.mjs';
+import { buildObjectiveExpansionPlan, decomposeObjectiveToArchitectureEpics } from '../../../large-project-capability-stack/packages/objective-surface-decomposer/index.mjs';
 
 export const ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
 const PRODUCT_ONLY_OVERRIDE = String(process.env.MAILCHIMP_PRODUCT_ONLY || '').trim();
@@ -1092,6 +1093,34 @@ function existingProductFiles(filePaths = []) {
   })));
 }
 
+function sourceBackedSwarmLeafRuntimeTarget(gap = {}, sourceFilePath = '', leafModulePath = '') {
+  const normalizedGapId = String(gap.id || '').trim();
+  const normalizedSource = String(sourceFilePath || '').trim();
+  const defaultTarget = {
+    sourceBacked: false,
+    fileAreas: [leafModulePath],
+    allowedFiles: [leafModulePath],
+    importFile: leafModulePath,
+    extraImportFiles: [],
+    primaryProductAdoptionRequired: false,
+    primaryAdoptionFiles: []
+  };
+  if (normalizedGapId !== 'api_keys_webhooks') return defaultTarget;
+  if (!/^(apps|packages|src|public)\/.+\.(?:mjs|js|jsx|css|ts|tsx)$/.test(normalizedSource)) return defaultTarget;
+  if (normalizedSource.startsWith('packages/app/full-clone-')) return defaultTarget;
+  if (!fs.existsSync(path.join(ROOT, normalizedSource))) return defaultTarget;
+  const allowedFiles = Array.from(new Set([leafModulePath, normalizedSource].filter(Boolean)));
+  return {
+    sourceBacked: true,
+    fileAreas: allowedFiles,
+    allowedFiles,
+    importFile: normalizedSource,
+    extraImportFiles: [],
+    primaryProductAdoptionRequired: true,
+    primaryAdoptionFiles: [normalizedSource]
+  };
+}
+
 function remediationPrimaryAdoptionFiles({ sourceFiles = [], phase = {} } = {}) {
   const phaseTargets = remediationPhasePrimaryRuntimeTargets(phase.id);
   const preferredSourceFiles = sourceFiles.filter((filePath) => !String(filePath || '').startsWith('packages/app/full-clone-'));
@@ -1112,8 +1141,11 @@ function expandStrictGapIntoSwarmLeaves(gap = {}, index = 0) {
   return sourceFiles.map((sourceFilePath, leafIndex) => {
     const shardFocusId = `${focusId}#${leafIndex + 1}`;
     const leafModulePath = swarmLeafProductModulePath(gap, sourceFilePath, leafIndex);
+    const runtimeTarget = sourceBackedSwarmLeafRuntimeTarget(gap, sourceFilePath, leafModulePath);
     const acceptanceChecks = [
-      `Create or modify ${leafModulePath} for ${gap.title}`,
+      runtimeTarget.sourceBacked
+        ? `Modify source runtime ${sourceFilePath} for ${gap.title}; do not credit an isolated leaf-only module`
+        : `Create or modify ${leafModulePath} for ${gap.title}`,
       `Ground the leaf in source product area ${sourceFilePath}`,
       `Keep the change grounded to ${gap.id} full-clone parity`,
       ...targetedTests.slice(0, 2).map((testPath) => `Produce executable evidence for ${testPath}`)
@@ -1124,8 +1156,8 @@ function expandStrictGapIntoSwarmLeaves(gap = {}, index = 0) {
       wave: `swarm_gap_${String(index + 1).padStart(2, '0')}`,
       lane: focusGroup,
       domain: 'mailchimp_full_clone_swarm',
-      fileAreas: [leafModulePath],
-      allowedFiles: [leafModulePath],
+      fileAreas: runtimeTarget.fileAreas,
+      allowedFiles: runtimeTarget.allowedFiles,
       acceptanceChecks,
       requiredVerifiers: Array.from(new Set(['lint', 'imports', ...requiredVerifiers])),
       evidence: targetedTests,
@@ -1137,9 +1169,13 @@ function expandStrictGapIntoSwarmLeaves(gap = {}, index = 0) {
         rootFocusId: focusId,
         swarmLeafId: shardFocusId,
         swarmRole: 'implementer',
-        importFile: leafModulePath,
+        importFile: runtimeTarget.importFile,
         sourceProductFile: sourceFilePath,
-        extraImportFiles: [],
+        extraImportFiles: runtimeTarget.extraImportFiles,
+        sourceBackedSwarmLeaf: runtimeTarget.sourceBacked,
+        primaryProductAdoptionRequired: runtimeTarget.primaryProductAdoptionRequired,
+        primaryAdoptionFile: runtimeTarget.primaryAdoptionFiles[0] || null,
+        primaryAdoptionFiles: runtimeTarget.primaryAdoptionFiles,
         testFile: targetedTests[0] || null,
         focusGroup,
         strictGap: true,
@@ -1148,8 +1184,8 @@ function expandStrictGapIntoSwarmLeaves(gap = {}, index = 0) {
         candidateAreas: gap.candidateAreas || [],
         assignmentContract: buildGroundedAssignmentContract({
           artifactKind: 'product_diff',
-          allowedFiles: [leafModulePath],
-          fileAreas: [leafModulePath],
+          allowedFiles: runtimeTarget.allowedFiles,
+          fileAreas: runtimeTarget.fileAreas,
           requiredVerifiers: Array.from(new Set(['lint', 'imports', ...requiredVerifiers])),
           acceptanceChecks
         })
@@ -1487,6 +1523,7 @@ function fullCloneStrictInventoryRemediationExpansionActive({ remediationMode = 
 function semanticWorkDirectorEnabled() {
   if (process.env.MAILCHIMP_DISABLE_SEMANTIC_WORK_DIRECTOR === '1') return false;
   if (process.env.MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR !== '1') return false;
+  if (requestedFidelity() === 'full_clone' && architectureEpicTargetIds().length > 0) return true;
   if (requestedFidelity() === 'full_clone' && fullCloneSwarmRequested()) return true;
   return requestedFidelity() === 'production_slice'
     && process.env.MAILCHIMP_PRODUCT_ONLY === '1'
@@ -1576,6 +1613,211 @@ const SEMANTIC_PHASE_RUNTIME_FILE_AREAS = Object.freeze({
   ],
   integrated_user_path_evidence: []
 });
+
+const MAILCHIMP_ARCHITECTURE_EPIC_FOCUS_IDS = Object.freeze({
+  rich_client_editor_architecture: [
+    'frontend_client_shell_state',
+    'campaign_editor_template_workflows',
+    'campaign_wizard',
+    'email_builder',
+    'template_library',
+    'content_studio'
+  ],
+  visual_website_builder: [
+    'website_builder_editor_realism',
+    'website_builder',
+    'landing_pages',
+    'signup_forms_popups'
+  ],
+  production_data_persistence: [
+    'persistence_jobs_operational_db',
+    'audience_sync_warehouse',
+    'audience_identity_lifecycle',
+    'auth_session_security_hardening'
+  ],
+  workflow_automation_runtime: [
+    'automation_journey_execution',
+    'automation_journey_builder',
+    'automations_overview',
+    'campaign_ops_calendar_workflow',
+    'send_schedule_review'
+  ],
+  reporting_analytics_evidence: [
+    'reporting_metrics_pipeline',
+    'reports_overview',
+    'report_detail'
+  ],
+  provider_service_integrations: [
+    'integration_provider_sync',
+    'integrations_marketplace',
+    'api_keys_webhooks',
+    'ai_predictive_ops_realism'
+  ]
+});
+
+function architectureEpicTargetIds() {
+  return String(process.env.MAILCHIMP_ARCHITECTURE_EPIC_TARGET_IDS || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function mailchimpArchitectureEpicPlan() {
+  if (process.env.MAILCHIMP_DISABLE_ARCHITECTURE_EPIC_PLANNER === '1') return null;
+  try {
+    return decomposeObjectiveToArchitectureEpics({
+      repoPath: ROOT,
+      objective: {
+        id: 'mailchimp_full_clone',
+        title: 'Full Mailchimp clone: rich client editor, visual builder, production persistence, workflow automation, reporting evidence, and provider-backed services',
+        requestedFidelity: requestedFidelity()
+      },
+      requestedAgentCount: requestedAgentCount(),
+      targetEpicIds: architectureEpicTargetIds(),
+      maxEpics: Number(process.env.MAILCHIMP_ARCHITECTURE_EPIC_MAX_EPICS || 0) || null,
+      stage: process.env.MAILCHIMP_ARCHITECTURE_EPIC_STAGE || 'full_clone_relaunch_readiness'
+    }).architectureEpicPlan;
+  } catch (error) {
+    return {
+      status: 'blocked',
+      blocker: {
+        type: 'architecture_epic_planner_error',
+        error: String(error?.message || error)
+      },
+      epics: [],
+      summary: { architectureEpicPlannerError: String(error?.message || error) }
+    };
+  }
+}
+
+function mailchimpSharedObjectiveExpansionPlan({ currentWorkCount = 0, scopeAlreadySatisfied = false, supervisorState = {} } = {}) {
+  if (process.env.MAILCHIMP_DISABLE_SHARED_OBJECTIVE_EXPANSION === '1') return null;
+  if (requestedFidelity() !== 'full_clone') return null;
+  try {
+    return buildObjectiveExpansionPlan({
+      repoPath: ROOT,
+      objective: {
+        id: 'mailchimp_full_clone',
+        title: 'Full Mailchimp clone: dynamically expand missing rich-client, workflow, persistence, provider, analytics, security, and browser-evidence architecture until the strict supervisor is green or a real blocker is documented.',
+        requestedFidelity: requestedFidelity()
+      },
+      requestedAgentCount: requestedAgentCount(),
+      architectureEpics: true,
+      targetEpicIds: architectureEpicTargetIds(),
+      maxEpics: Number(process.env.MAILCHIMP_OBJECTIVE_EXPANSION_MAX_EPICS || process.env.MAILCHIMP_ARCHITECTURE_EPIC_MAX_EPICS || 5) || 5,
+      stage: process.env.MAILCHIMP_OBJECTIVE_EXPANSION_STAGE || 'dynamic_final_boss_expansion',
+      currentWorkCount,
+      scopeAlreadySatisfied,
+      supervisorState: {
+        status: 'red',
+        matrixStatus: scopeAlreadySatisfied ? 'all_complete' : 'partial',
+        parityStatus: 'blocked',
+        blockerKind: scopeAlreadySatisfied ? 'queue_exhausted_objective_remaining' : null,
+        requestedFidelity: requestedFidelity(),
+        ...supervisorState
+      }
+    });
+  } catch (error) {
+    return {
+      schemaVersion: 'claw.objective_expansion_plan.v1',
+      generatedAt: new Date().toISOString(),
+      shouldExpand: false,
+      reason: 'objective_expansion_planner_error',
+      blocker: {
+        type: 'objective_expansion_planner_error',
+        error: String(error?.message || error),
+        nextAction: 'Repair shared objective expansion planner before treating queue exhaustion as terminal.'
+      },
+      expansionWorkUnitCount: 0,
+      remainingObjectiveIds: [],
+      truthBoundary: 'Planner errors are blockers, not completion evidence.'
+    };
+  }
+}
+
+function adaptSharedObjectiveExpansionWorkUnit(unit = {}, index = 0) {
+  const safeId = sanitizeShardLabel(unit.id || `objective_expansion_${index + 1}`);
+  const id = `focus.shared_objective_expansion.${safeId}`;
+  const allowedFiles = Array.from(new Set((unit.allowedFiles || unit.fileAreas || []).filter(Boolean)));
+  const fileAreas = Array.from(new Set((unit.fileAreas || allowedFiles).filter(Boolean)));
+  return {
+    ...unit,
+    id,
+    originalSharedObjectiveExpansionId: unit.id || null,
+    wave: unit.wave || `shared_objective_expansion_${String(index + 1).padStart(3, '0')}`,
+    lane: unit.lane || 'shared_objective_expansion',
+    domain: unit.domain || 'mailchimp_full_clone_shared_objective_expansion',
+    allowedFiles,
+    fileAreas,
+    evidence: unit.evidence || unit.testFiles || [],
+    metadata: {
+      ...(unit.metadata || {}),
+      focusId: id,
+      sharedObjectiveExpansion: true,
+      originalSharedObjectiveExpansionId: unit.id || null,
+      assignmentContract: unit.metadata?.assignmentContract || buildGroundedAssignmentContract({
+        artifactKind: 'product_diff',
+        allowedFiles,
+        fileAreas,
+        requiredVerifiers: unit.requiredVerifiers || productOnlyVerifiers(['tests']),
+        acceptanceChecks: unit.acceptanceChecks || ['Produce direct product-code evidence for the expanded objective surface.']
+      })
+    }
+  };
+}
+
+function isExecutableProductRuntimeFile(filePath = '') {
+  const value = String(filePath || '').trim();
+  if (!/^(?:apps|packages|public|src)\//.test(value)) return false;
+  if (/(^|\/)(?:tests?|__tests__|docs?|scripts?|artifacts?|fixtures?|mocks?|benchmarks?)\//i.test(value)) return false;
+  if (/(?:^|\/)README\.md$/i.test(value)) return false;
+  if (/\.(?:test|spec)\.(?:mjs|js|jsx|ts|tsx)$/i.test(value)) return false;
+  return true;
+}
+
+function hasExecutableProductRuntimeContract(unit = {}) {
+  const assignment = unit?.metadata?.assignmentContract || {};
+  const candidateFiles = [
+    ...(Array.isArray(unit.fileAreas) ? unit.fileAreas : []),
+    ...(Array.isArray(unit.allowedFiles) ? unit.allowedFiles : []),
+    ...(Array.isArray(assignment.targetFiles) ? assignment.targetFiles : []),
+    ...(Array.isArray(assignment.targetModules) ? assignment.targetModules : [])
+  ];
+  return assignment.artifactKind === 'product_diff'
+    && candidateFiles.some((filePath) => isExecutableProductRuntimeFile(filePath));
+}
+
+function architectureEpicForGap(architectureEpicPlan = null, gap = {}) {
+  const gapId = String(gap?.id || '').trim();
+  if (!gapId) return null;
+  const epics = Array.isArray(architectureEpicPlan?.epics) ? architectureEpicPlan.epics : [];
+  for (const epic of epics) {
+    const mapped = MAILCHIMP_ARCHITECTURE_EPIC_FOCUS_IDS[epic.id] || [];
+    if (mapped.includes(gapId)) return epic;
+  }
+  for (const [epicId, focusIds] of Object.entries(MAILCHIMP_ARCHITECTURE_EPIC_FOCUS_IDS)) {
+    if (!focusIds.includes(gapId)) continue;
+    return epics.find((epic) => epic.id === epicId) || { id: epicId, title: epicId.replace(/_/g, ' '), roles: [] };
+  }
+  return null;
+}
+
+function architectureEpicTargetFocusIds(architectureEpicPlan = null) {
+  const ids = new Set();
+  for (const epic of Array.isArray(architectureEpicPlan?.epics) ? architectureEpicPlan.epics : []) {
+    for (const focusId of MAILCHIMP_ARCHITECTURE_EPIC_FOCUS_IDS[epic.id] || []) ids.add(`focus.${focusId}`);
+  }
+  return ids;
+}
+
+function architectureRoleForSemanticPhase(phaseId = '', epic = null) {
+  const roles = Array.isArray(epic?.roles) ? epic.roles : [];
+  const pick = (pattern, fallback) => roles.find((role) => pattern.test(role)) || fallback;
+  if (phaseId === 'interactive_state_and_commands') return pick(/frontend|editor|browser/, 'editor_runtime_builder');
+  if (phaseId === 'operational_persistence_and_jobs') return pick(/persistence|database|workflow|runtime/, 'persistence_database_agent');
+  if (phaseId === 'integrated_user_path_evidence') return pick(/browser|truth|audit|verifier/, 'browser_parity_verifier');
+  return pick(/frontend|workflow|provider|analytics|persistence/, 'frontend_architect');
+}
 
 const SEMANTIC_LAYER_FALLBACK_FILES = Object.freeze({
   client_shell: [
@@ -1720,21 +1962,23 @@ function semanticDirectorRemainingPhasesForGap(gap = {}) {
   return SEMANTIC_ARCHITECTURE_PHASES.filter((phase) => !semanticDirectorPhaseAlreadyAdopted(gap, phase));
 }
 
-function buildSemanticDirectorWorkUnit({ gap, phase, gapIndex, phaseIndex, continuationWaveIndex = null, reason = null }) {
+function buildSemanticDirectorWorkUnit({ gap, phase, gapIndex, phaseIndex, continuationWaveIndex = null, reason = null, architectureEpic = null }) {
   const focusId = strictGapFocusId(gap);
   const focusGroup = resolveStrictGapFocusGroup(gap.id);
   const primaryFiles = semanticDirectorFilesForPhase(gap, phase);
   const targetedTests = resolveStrictGapTargetedTests(gap.id);
+  const architectureRole = architectureRoleForSemanticPhase(phase.id, architectureEpic);
   const wave = String(continuationWaveIndex || Number(process.env.MAILCHIMP_FULL_CLONE_CONTINUATION_MIN_WAVE || 1) || 1).padStart(3, '0');
   const id = `${focusId}::semantic-frontier-${wave}#${String(gapIndex + 1).padStart(2, '0')}-${phase.id}`;
   const acceptanceChecks = Array.from(new Set([
+    architectureEpic ? `Execute architecture epic ${architectureEpic.title || architectureEpic.id} as ${architectureRole}` : null,
     `Semantically advance ${gap.title}: ${phase.intent}`,
     'Modify primary runtime product files; do not add isolated full-clone marker modules as the main deliverable',
     'Wire the new capability into a user-visible route, shell, server, job, analytics, persistence, or provider path',
     'Leave executable evidence that the capability is adopted by the primary app runtime',
     ...(phase.checks || []),
     ...targetedTests.map((testPath) => `Preserve or extend executable evidence for ${testPath}`)
-  ]));
+  ].filter(Boolean)));
   const requiredVerifiers = productOnlyVerifiers(['lint', 'imports', ...(targetedTests.length > 0 ? ['tests'] : [])]);
   return {
     id,
@@ -1751,6 +1995,8 @@ function buildSemanticDirectorWorkUnit({ gap, phase, gapIndex, phaseIndex, conti
       surfaceId: gap.id,
       semanticPhaseId: phase.id,
       semanticIntent: phase.intent,
+      architectureEpicId: architectureEpic?.id || null,
+      architectureRole,
       strictGapDetail: gap.detail || null
     },
     acceptanceChecks,
@@ -1767,6 +2013,10 @@ function buildSemanticDirectorWorkUnit({ gap, phase, gapIndex, phaseIndex, conti
       broadFullCloneObjective: gap.broadFullCloneObjective === true,
       semanticDirector: true,
       architectureFrontier: true,
+      architectureEpic: Boolean(architectureEpic),
+      architectureEpicId: architectureEpic?.id || null,
+      architectureEpicTitle: architectureEpic?.title || null,
+      architectureRole,
       semanticDirectorReason: reason,
       semanticPhaseId: phase.id,
       semanticPhaseTitle: phase.title,
@@ -1801,26 +2051,38 @@ function semanticDirectorTargetFocusIds() {
 
 function buildSemanticWorkDirectorPlan({ gaps = [], completed = new Set(), hardCompleted = new Set(), excluded = new Set(), continuationMode = false, remediationMode = false, continuationWaveIndex = null, workUnits = [], allExecutableLeafCount = 0, allSaturatedExecutableLeafCount = 0 } = {}) {
   const decision = semanticDirectorShouldTakeOver({ continuationMode, remediationMode, workUnits, allExecutableLeafCount, allSaturatedExecutableLeafCount });
+  const architectureEpicPlan = mailchimpArchitectureEpicPlan();
   const targetFocusIds = semanticDirectorTargetFocusIds();
+  const explicitArchitectureEpicTargeting = architectureEpicTargetIds().length > 0;
+  const targetEpicFocusIds = architectureEpicTargetFocusIds(architectureEpicPlan);
+  const effectiveTargetFocusIds = targetFocusIds.size > 0 ? targetFocusIds : (explicitArchitectureEpicTargeting ? targetEpicFocusIds : new Set());
   const gapIsHardCompleted = (gap) => hardCompleted.has(strictGapFocusId(gap));
-  const gapIsCompletedForCurrentDirectorPass = (gap) => gapIsHardCompleted(gap) || (completed.has(strictGapFocusId(gap)) && targetFocusIds.size === 0);
+  const gapIsCompletedForCurrentDirectorPass = (gap) => gapIsHardCompleted(gap) || (completed.has(strictGapFocusId(gap)) && effectiveTargetFocusIds.size === 0);
   const candidateGaps = Array.from(new Map((Array.isArray(gaps) ? gaps : [])
     .filter((gap) => gap && gap.id)
     .filter((gap) => !gapIsHardCompleted(gap))
-    .filter((gap) => targetFocusIds.size === 0 || targetFocusIds.has(strictGapFocusId(gap)))
+    .filter((gap) => effectiveTargetFocusIds.size === 0 || effectiveTargetFocusIds.has(strictGapFocusId(gap)))
     .filter((gap) => !gapIsCompletedForCurrentDirectorPass(gap))
     .filter((gap) => !excluded.has(strictGapFocusId(gap)))
     .filter((gap) => semanticDirectorPrimaryFilesForGap(gap).length >= 2)
     .filter((gap) => semanticDirectorRemainingPhasesForGap(gap).length > 0)
-    .sort((left, right) => targetFocusIds.size > 0
-      ? Array.from(targetFocusIds).indexOf(strictGapFocusId(left)) - Array.from(targetFocusIds).indexOf(strictGapFocusId(right))
+    .sort((left, right) => effectiveTargetFocusIds.size > 0
+      ? Array.from(effectiveTargetFocusIds).indexOf(strictGapFocusId(left)) - Array.from(effectiveTargetFocusIds).indexOf(strictGapFocusId(right))
       : semanticDirectorRankGap(right) - semanticDirectorRankGap(left) || String(left.id).localeCompare(String(right.id)))
     .map((gap) => [gap.id, gap])).values());
   const requestedMaxGaps = Number(process.env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_MAX_GAPS || candidateGaps.length) || candidateGaps.length;
-  const maxGaps = targetFocusIds.size > 0 ? Math.max(1, requestedMaxGaps) : Math.max(8, requestedMaxGaps);
+  const maxGaps = effectiveTargetFocusIds.size > 0 ? Math.max(1, requestedMaxGaps) : Math.max(8, requestedMaxGaps);
   const selectedGaps = candidateGaps.slice(0, maxGaps);
   const semanticWorkUnits = decision.shouldDirect
-    ? selectedGaps.flatMap((gap, gapIndex) => semanticDirectorRemainingPhasesForGap(gap).map((phase, phaseIndex) => buildSemanticDirectorWorkUnit({ gap, phase, gapIndex, phaseIndex, continuationWaveIndex, reason: decision.reason })))
+    ? selectedGaps.flatMap((gap, gapIndex) => semanticDirectorRemainingPhasesForGap(gap).map((phase, phaseIndex) => buildSemanticDirectorWorkUnit({
+      gap,
+      phase,
+      gapIndex,
+      phaseIndex,
+      continuationWaveIndex,
+      reason: decision.reason,
+      architectureEpic: architectureEpicForGap(architectureEpicPlan, gap)
+    })))
     : [];
   return {
     enabled: semanticWorkDirectorEnabled(),
@@ -1833,6 +2095,21 @@ function buildSemanticWorkDirectorPlan({ gaps = [], completed = new Set(), hardC
     completedFocusCount: completed.size,
     selectedFocusIds: selectedGaps.map((gap) => strictGapFocusId(gap)),
     targetFocusIds: Array.from(targetFocusIds),
+    targetEpicFocusIds: Array.from(targetEpicFocusIds),
+    architectureEpicPlan: architectureEpicPlan ? {
+      status: architectureEpicPlan.status,
+      stage: architectureEpicPlan.stage,
+      summary: architectureEpicPlan.summary || null,
+      epics: (architectureEpicPlan.epics || []).map((epic) => ({
+        id: epic.id,
+        title: epic.title,
+        ready: epic.ready,
+        roles: epic.roles,
+        targetFiles: epic.targetFiles,
+        missingLayers: epic.missingLayers
+      })),
+      blocker: architectureEpicPlan.blocker || null
+    } : null,
     policy: 'Select semantic architecture frontiers from remaining full-clone gaps; require primary-runtime adoption and executable evidence before returning to saturated continuation leaves.',
     workUnits: semanticWorkUnits
   };
@@ -2118,6 +2395,8 @@ export const paths = {
   workerEvents: path.join(ARTIFACT_ROOT, 'worker_events.json'),
   liveExecutionSummary: path.join(ARTIFACT_ROOT, 'live_execution_summary.json'),
   scaleQualification: path.join(ARTIFACT_ROOT, 'scale_qualification.json'),
+  scalePreflight: path.join(ARTIFACT_ROOT, 'scale_preflight.json'),
+  resourcePreflight: path.join(ARTIFACT_ROOT, 'resource_preflight.json'),
   validationIndex: path.join(VALIDATION_DIR, 'validation_index.json'),
   mergeReport: path.join(MERGE_DIR, 'merge_report.json'),
   recoveryReport: path.join(RECOVERY_DIR, 'recovery_report.json'),
@@ -2550,8 +2829,24 @@ export function buildMailchimpParityFocusWorkGraph() {
     const remediationMode = frontierMode && strictGapState.remediationMode === true;
     const strictInventoryRemediationMode = remediationMode && strictGapState.strictInventoryRemediationMode === true;
     const continuationMode = remediationMode && strictGapState.continuationMode === true;
+    const allContinuationExpansionGaps = continuationMode
+      ? strictGapState.allGaps.filter((gap) => strictGapInCurrentExpansionPool(gap, { structuralMode, remediationMode, strictInventoryRemediationMode }))
+      : [];
     const currentExpansionGaps = strictGapState.allGaps.filter((gap) => !gapIsHardCompleted(gap) && strictGapInCurrentExpansionPool(gap, { structuralMode, remediationMode, strictInventoryRemediationMode }));
-    const continuationWaveIndex = continuationMode ? nextFullCloneContinuationWaveIndex(currentExpansionGaps) : null;
+    const continuationWaveIndex = continuationMode ? nextFullCloneContinuationWaveIndex(allContinuationExpansionGaps.length > 0 ? allContinuationExpansionGaps : currentExpansionGaps) : null;
+    const continuationWaveStillOpen = (gap) => continuationMode
+      && strictGapInCurrentExpansionPool(gap, { structuralMode, remediationMode, strictInventoryRemediationMode })
+      && !strictGapContinuationAlreadySatisfied(gap, continuationWaveIndex);
+    const unsatisfiedContinuationExpansionGaps = continuationMode
+      ? allContinuationExpansionGaps.filter((gap) => continuationWaveStillOpen(gap))
+      : [];
+    const reopenVerifiedContinuationRoots = continuationMode
+      && currentExpansionGaps.length === 0
+      && strictGapState.selectedGaps.length === 0
+      && unsatisfiedContinuationExpansionGaps.length > 0;
+    const activeContinuationExpansionGaps = continuationMode
+      ? (currentExpansionGaps.length > 0 ? currentExpansionGaps : unsatisfiedContinuationExpansionGaps)
+      : currentExpansionGaps;
     const expandExecutableLeaves = continuationMode
       ? ((gap, index) => expandStrictGapIntoRemediationLeaves(gap, index, { phases: fullCloneContinuationPhases(continuationWaveIndex), continuationWaveIndex }))
       : remediationMode ? expandStrictGapIntoRemediationLeaves : frontierMode ? expandStrictGapIntoFrontierLeaves : structuralMode ? expandStrictGapIntoStructuralLeaves : expandStrictGapIntoSwarmLeaves;
@@ -2630,17 +2925,17 @@ export function buildMailchimpParityFocusWorkGraph() {
       ? Array.from(new Set(currentExpansionGaps.map((gap) => resolveStrictGapFocusGroup(gap.id)).filter(Boolean)))
       : [];
     const allContinuationLeafCount = continuationMode
-      ? currentExpansionGaps.reduce((total, gap, index) => total + expandStrictGapIntoRemediationLeaves(gap, index, { phases: fullCloneContinuationPhases(continuationWaveIndex), continuationWaveIndex }).length, 0)
+      ? activeContinuationExpansionGaps.reduce((total, gap, index) => total + expandStrictGapIntoRemediationLeaves(gap, index, { phases: fullCloneContinuationPhases(continuationWaveIndex), continuationWaveIndex }).length, 0)
       : 0;
     const allSaturatedContinuationLeafCount = continuationMode
-      ? currentExpansionGaps.reduce((total, gap, index) => total + expandStrictGapIntoRemediationLeaves(gap, index, { phases: fullCloneContinuationPhases(continuationWaveIndex), continuationWaveIndex }).filter((unit) => remediationLeafUnitAlreadySatisfied(unit)).length, 0)
+      ? activeContinuationExpansionGaps.reduce((total, gap, index) => total + expandStrictGapIntoRemediationLeaves(gap, index, { phases: fullCloneContinuationPhases(continuationWaveIndex), continuationWaveIndex }).filter((unit) => remediationLeafUnitAlreadySatisfied(unit)).length, 0)
       : 0;
     const allContinuationFocusLanes = continuationMode
-      ? Array.from(new Set(currentExpansionGaps.map((gap) => resolveStrictGapFocusGroup(gap.id)).filter(Boolean)))
+      ? Array.from(new Set(activeContinuationExpansionGaps.map((gap) => resolveStrictGapFocusGroup(gap.id)).filter(Boolean)))
       : [];
     const allExecutableLeafCount = continuationMode ? allContinuationLeafCount : remediationMode ? allRemediationLeafCount : frontierMode ? allFrontierLeafCount : structuralMode ? allStructuralLeafCount : allSwarmLeafCount;
     const allSaturatedExecutableLeafCount = continuationMode ? allSaturatedContinuationLeafCount : remediationMode ? allSaturatedRemediationLeafCount : frontierMode ? allSaturatedFrontierLeafCount : structuralMode ? allSaturatedStructuralLeafCount : allSaturatedSwarmLeafCount;
-    const allExecutableFocusLanes = remediationMode ? allRemediationFocusLanes : frontierMode ? allFrontierFocusLanes : structuralMode ? allStructuralFocusLanes : allSwarmFocusLanes;
+    const allExecutableFocusLanes = continuationMode ? allContinuationFocusLanes : remediationMode ? allRemediationFocusLanes : frontierMode ? allFrontierFocusLanes : structuralMode ? allStructuralFocusLanes : allSwarmFocusLanes;
     let workUnits = strictGapState.swarmMode === true
       ? strictGapState.selectedGaps.flatMap((gap, index) => expandExecutableLeaves(gap, index)
         .filter((unit) => !executableLeafAlreadySatisfied(unit) && !executableLeafIsTemporarilyExcluded(unit)))
@@ -2695,8 +2990,10 @@ export function buildMailchimpParityFocusWorkGraph() {
       // continuation wave still has unsatisfied executable leaves. Returning an
       // empty graph lets the live tier look mechanically green with zero shard
       // work even though the matrix is red/partial. Reopen the unsaturated
-      // continuation leaves from the current expansion pool instead.
-      workUnits = currentExpansionGaps.flatMap((gap, index) => expandStrictGapIntoRemediationLeaves(gap, index, {
+      // continuation leaves from the active expansion pool instead, including
+      // verified-complete roots only when every ordinary lane has been
+      // exhausted and the strict full-clone objective is still red.
+      workUnits = activeContinuationExpansionGaps.flatMap((gap, index) => expandStrictGapIntoRemediationLeaves(gap, index, {
         phases: fullCloneContinuationPhases(continuationWaveIndex),
         continuationWaveIndex
       }).filter((unit) => !remediationLeafUnitAlreadySatisfied(unit) && !executableLeafIsTemporarilyExcluded(unit)));
@@ -2716,6 +3013,26 @@ export function buildMailchimpParityFocusWorkGraph() {
     if (semanticDirector.active && semanticDirector.workUnits.length > 0) {
       workUnits = semanticDirector.workUnits.filter((unit) => !executableLeafIsTemporarilyExcluded(unit));
     }
+    const sharedObjectiveExpansionPlan = mailchimpSharedObjectiveExpansionPlan({
+      currentWorkCount: workUnits.length,
+      scopeAlreadySatisfied: continuationMode && workUnits.length === 0,
+      supervisorState: {
+        status: 'red',
+        matrixStatus: workUnits.length === 0 ? 'all_complete' : 'partial',
+        parityStatus: 'blocked',
+        blockerKind: continuationMode && workUnits.length === 0 ? 'queue_exhausted_objective_remaining' : null,
+        requestedFidelity: requestedFidelity()
+      }
+    });
+    const sharedObjectiveExpansionFallbackActive = sharedObjectiveExpansionPlan?.shouldExpand === true && workUnits.length === 0;
+    let sharedObjectiveExpansionDroppedNonExecutableCount = 0;
+    if (sharedObjectiveExpansionFallbackActive) {
+      const adaptedExpansionUnits = (sharedObjectiveExpansionPlan.workGraph?.workUnits || [])
+        .map((unit, index) => adaptSharedObjectiveExpansionWorkUnit(unit, index))
+        .filter((unit) => !executableLeafIsTemporarilyExcluded(unit));
+      workUnits = adaptedExpansionUnits.filter((unit) => hasExecutableProductRuntimeContract(unit));
+      sharedObjectiveExpansionDroppedNonExecutableCount = adaptedExpansionUnits.length - workUnits.length;
+    }
     const semanticDirectorFocusIds = new Set(semanticDirector.active ? semanticDirector.selectedFocusIds : []);
     const rolePlan = strictGapState.swarmMode === true ? swarmRolePlan() : null;
     const strictHierarchicalPlan = buildStrictHierarchicalPlan({
@@ -2733,7 +3050,9 @@ export function buildMailchimpParityFocusWorkGraph() {
       const focusId = strictGapFocusId(gap);
       const gapRequiresCurrentExpansion = strictGapInCurrentExpansionPool(gap, { structuralMode, remediationMode, strictInventoryRemediationMode });
       const continuationSatisfied = continuationMode && gapRequiresCurrentExpansion && strictGapContinuationAlreadySatisfied(gap, continuationWaveIndex);
-      const durableCompleted = hardCompleted.has(focusId) || (completed.has(focusId) && (!continuationMode || !gapRequiresCurrentExpansion || continuationSatisfied));
+      const freshContinuationOpen = reopenVerifiedContinuationRoots && continuationMode && gapRequiresCurrentExpansion && !continuationSatisfied;
+      const durableCompleted = !freshContinuationOpen
+        && (hardCompleted.has(focusId) || (completed.has(focusId) && (!continuationMode || !gapRequiresCurrentExpansion || continuationSatisfied)));
       return durableCompleted
         || (strictGapSatisfactionCreditApplies() && strictGapAlreadySatisfied(gap.id))
         || (strictGapState.swarmMode === true && (!structuralMode || !gapRequiresCurrentExpansion) && strictGapSwarmAlreadySatisfied(gap))
@@ -2802,6 +3121,10 @@ export function buildMailchimpParityFocusWorkGraph() {
           allExecutableLeafCount,
           allSaturatedExecutableLeafCount,
           allExecutableFocusLanes,
+          reopenVerifiedContinuationRoots,
+          continuationFallbackRootFocusIds: reopenVerifiedContinuationRoots
+            ? activeContinuationExpansionGaps.map((gap) => strictGapFocusId(gap))
+            : [],
           semanticDirector: {
             enabled: semanticDirector.enabled,
             active: semanticDirector.active,
@@ -2812,8 +3135,24 @@ export function buildMailchimpParityFocusWorkGraph() {
             phaseCount: semanticDirector.phaseCount,
             selectedFocusIds: semanticDirector.selectedFocusIds,
             targetFocusIds: semanticDirector.targetFocusIds,
+            targetEpicFocusIds: semanticDirector.targetEpicFocusIds,
+            architectureEpicPlan: semanticDirector.architectureEpicPlan,
             policy: semanticDirector.policy
           },
+          sharedObjectiveExpansion: sharedObjectiveExpansionPlan ? {
+            enabled: true,
+            fallbackActive: sharedObjectiveExpansionFallbackActive,
+            shouldExpand: sharedObjectiveExpansionPlan.shouldExpand,
+            reason: sharedObjectiveExpansionPlan.reason,
+            mode: sharedObjectiveExpansionPlan.mode,
+            expansionSurfaceCount: sharedObjectiveExpansionPlan.expansionSurfaceCount,
+            expansionWorkUnitCount: sharedObjectiveExpansionPlan.expansionWorkUnitCount,
+            executableWorkUnitCount: sharedObjectiveExpansionFallbackActive ? workUnits.length : 0,
+            droppedNonExecutableWorkUnitCount: sharedObjectiveExpansionDroppedNonExecutableCount,
+            remainingObjectiveIds: sharedObjectiveExpansionPlan.remainingObjectiveIds,
+            truthBoundary: sharedObjectiveExpansionPlan.truthBoundary,
+            blocker: sharedObjectiveExpansionPlan.blocker || null
+          } : { enabled: false },
           strictHierarchicalPlan: {
             enabled: true,
             planId: strictHierarchicalPlan.planId,
@@ -2833,7 +3172,7 @@ export function buildMailchimpParityFocusWorkGraph() {
       verifierCatalog: buildVerifierCatalog(),
       surfaceMatrix: {
         generatedAt: new Date().toISOString(),
-        status: semanticDirector.active ? 'partial' : (strictGapState.allGaps.length > 0 && strictGapState.allGaps.every((gap) => gapSatisfiedForCurrentMode(gap)) ? 'all_complete' : 'partial'),
+        status: (semanticDirector.active || sharedObjectiveExpansionFallbackActive || sharedObjectiveExpansionPlan?.shouldExpand === true) ? 'partial' : (strictGapState.allGaps.length > 0 && strictGapState.allGaps.every((gap) => gapSatisfiedForCurrentMode(gap)) ? 'all_complete' : 'partial'),
         surfaces: strictGapState.allGaps.map((gap) => {
           const focusId = strictGapFocusId(gap);
           const gapRequiresCurrentExpansion = strictGapInCurrentExpansionPool(gap, { structuralMode, remediationMode, strictInventoryRemediationMode });
@@ -2846,7 +3185,9 @@ export function buildMailchimpParityFocusWorkGraph() {
           const saturated = strictSatisfied || swarmSatisfied || structuralSatisfied || frontierSatisfied || remediationSatisfied || continuationSatisfied;
           const excluded = strictGapState.excludedFocusIds?.has(focusId);
           const repairActive = strictGapState.repairFocusIds?.has(focusId) && selectedIds.has(focusId);
-          const durableCompleted = hardCompleted.has(focusId) || (completed.has(focusId) && (!continuationMode || !gapRequiresCurrentExpansion || continuationSatisfied));
+          const freshContinuationOpen = reopenVerifiedContinuationRoots && continuationMode && gapRequiresCurrentExpansion && !continuationSatisfied;
+          const durableCompleted = !freshContinuationOpen
+            && (hardCompleted.has(focusId) || (completed.has(focusId) && (!continuationMode || !gapRequiresCurrentExpansion || continuationSatisfied)));
           const done = durableCompleted || saturated;
           return {
             id: gap.id,

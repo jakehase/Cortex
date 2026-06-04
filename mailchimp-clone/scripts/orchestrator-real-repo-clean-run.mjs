@@ -1,9 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { compileTaskContract, saveContract } from '../../large-project-capability-stack/packages/task-contract/index.mjs';
 import { dirtyEntryAllowedByOverlay, parsePorcelainStatus } from './lib/full-audit-campaign-sync-pathspecs.mjs';
-import { parsePositiveIntegerList, resolveAdaptiveConcurrencyTiers, resolveRequestedAgentCount } from './lib/orchestrator-adaptive-concurrency.mjs';
+import { parsePositiveIntegerList, resolveAdaptiveConcurrencyTiers, resolveRequestedAgentCount, resolveScaleProofPreflight, scaleProofMinimumsForAgentCount } from './lib/orchestrator-adaptive-concurrency.mjs';
 import { createIssueGraph, upsertIssue, linkDependency, saveGraph, setIssueStatus } from '../../large-project-capability-stack/packages/issue-dag/index.mjs';
 import { compileSurfaceMatrix, saveMatrix } from '../../large-project-capability-stack/packages/surface-matrix/index.mjs';
 import { initializeCampaign, recoverCampaign, claimWorkerIteration, updateWorker, completeWorkerIteration } from '../../large-project-capability-stack/packages/campaign-runtime/index.mjs';
@@ -41,6 +42,8 @@ function resetQualificationArtifacts() {
   }
   for (const filePath of [
     paths.liveExecutionSummary,
+    paths.resourcePreflight,
+    paths.scalePreflight,
     paths.patchQueueReport,
     paths.scaleQualification,
     paths.selectedTierSummary,
@@ -87,6 +90,101 @@ function runCommand(command, args, { cwd = ROOT, logPath, allowFailure = false }
     if (!allowFailure) throw error;
     return { ok: false, command: rendered, output, durationMs: Date.now() - startedAt, logPath };
   }
+}
+
+function safeCommand(command, args = [], fallback = '') {
+  try {
+    return execFileSync(command, args, { cwd: ROOT, encoding: 'utf8', stdio: 'pipe', timeout: 15_000 }).trim();
+  } catch {
+    return fallback;
+  }
+}
+
+function parseDfOutput(output = '') {
+  const lines = String(output || '').trim().split(/\n+/).filter(Boolean);
+  const fields = String(lines.at(-1) || '').trim().split(/\s+/);
+  if (fields.length < 6) return null;
+  const sizeKb = Number(fields[1]);
+  const usedKb = Number(fields[2]);
+  const availableKb = Number(fields[3]);
+  const usePct = Number(String(fields[4] || '').replace('%', ''));
+  return {
+    filesystem: fields[0],
+    sizeKb: Number.isFinite(sizeKb) ? sizeKb : null,
+    usedKb: Number.isFinite(usedKb) ? usedKb : null,
+    availableKb: Number.isFinite(availableKb) ? availableKb : null,
+    usePct: Number.isFinite(usePct) ? usePct : null,
+    mount: fields.slice(5).join(' ')
+  };
+}
+
+function numberFromEnv(name, fallback) {
+  const raw = String(process.env[name] ?? '').trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function buildResourcePreflight({ requestedAgentCount = 0, requestedTiers = [], requestedFidelity = '' } = {}) {
+  const requested = Math.max(0, Math.floor(Number(requestedAgentCount) || 0));
+  const highScaleRequested = requested >= 80 || Math.max(0, ...requestedTiers) >= 80;
+  const fullClone = String(requestedFidelity || process.env.ORCHESTRATOR_REQUESTED_FIDELITY || '').trim() === 'full_clone';
+  const disabled = ['0', 'false', 'off', 'no'].includes(String(process.env.MAILCHIMP_RESOURCE_PREFLIGHT || '1').trim().toLowerCase());
+  const scaleResourceGateRequired = fullClone && highScaleRequested && !disabled;
+  const cpus = os.cpus()?.length || os.availableParallelism?.() || 1;
+  const loadAvg = os.loadavg?.() || [];
+  const freeMemMb = Math.floor(os.freemem() / 1024 / 1024);
+  const totalMemMb = Math.floor(os.totalmem() / 1024 / 1024);
+  const disk = parseDfOutput(safeCommand('df', ['-Pk', ROOT]));
+  const inodes = parseDfOutput(safeCommand('df', ['-Pi', ROOT]));
+  const fileDescriptorLimit = Number(safeCommand('bash', ['-lc', 'ulimit -n'], '0')) || 0;
+  const processLimit = Number(safeCommand('bash', ['-lc', 'ulimit -u'], '0')) || 0;
+  const minimums = {
+    minAvailableMemoryMb: numberFromEnv('MAILCHIMP_RESOURCE_MIN_AVAILABLE_MB', highScaleRequested ? 4096 : 1024),
+    minDiskAvailableMb: numberFromEnv('MAILCHIMP_RESOURCE_MIN_DISK_FREE_MB', highScaleRequested ? 10240 : 2048),
+    maxDiskUsePct: numberFromEnv('MAILCHIMP_RESOURCE_MAX_DISK_USE_PCT', 90),
+    maxInodeUsePct: numberFromEnv('MAILCHIMP_RESOURCE_MAX_INODE_USE_PCT', 85),
+    minFileDescriptorLimit: numberFromEnv('MAILCHIMP_RESOURCE_MIN_FILE_DESCRIPTORS', highScaleRequested ? Math.max(2048, requested * 32) : 1024),
+    maxLoadPerCpu: numberFromEnv('MAILCHIMP_RESOURCE_MAX_LOAD_PER_CPU', highScaleRequested ? 4 : 8)
+  };
+  const diskAvailableMb = disk?.availableKb != null ? Math.floor(disk.availableKb / 1024) : null;
+  const failures = [];
+  const warnings = [];
+  if (scaleResourceGateRequired) {
+    if (cpus < Math.min(requested || 1, 4)) warnings.push({ reason: 'low_vcpu_count_for_high_scale', cpus, requestedAgentCount: requested });
+    if (freeMemMb < minimums.minAvailableMemoryMb) failures.push({ reason: 'insufficient_available_memory', freeMemMb, minimumAvailableMemoryMb: minimums.minAvailableMemoryMb });
+    if (diskAvailableMb != null && diskAvailableMb < minimums.minDiskAvailableMb) failures.push({ reason: 'insufficient_disk_free_mb', diskAvailableMb, minimumDiskAvailableMb: minimums.minDiskAvailableMb });
+    if (disk?.usePct != null && disk.usePct > minimums.maxDiskUsePct) failures.push({ reason: 'disk_usage_too_high', diskUsePct: disk.usePct, maxDiskUsePct: minimums.maxDiskUsePct });
+    if (inodes?.usePct != null && inodes.usePct > minimums.maxInodeUsePct) failures.push({ reason: 'inode_usage_too_high', inodeUsePct: inodes.usePct, maxInodeUsePct: minimums.maxInodeUsePct });
+    if (fileDescriptorLimit > 0 && fileDescriptorLimit < minimums.minFileDescriptorLimit) failures.push({ reason: 'file_descriptor_limit_too_low', fileDescriptorLimit, minimumFileDescriptorLimit: minimums.minFileDescriptorLimit });
+    if ((loadAvg[0] || 0) / Math.max(cpus, 1) > minimums.maxLoadPerCpu) failures.push({ reason: 'host_load_too_high', loadAvg1: loadAvg[0] || 0, cpus, maxLoadPerCpu: minimums.maxLoadPerCpu });
+  }
+  return {
+    schemaVersion: 'mailchimp.resource_preflight.v1',
+    generatedAt: new Date().toISOString(),
+    ok: failures.length === 0,
+    status: failures.length === 0 ? 'resource_preflight_ready' : 'resource_preflight_blocked',
+    disabled,
+    scaleResourceGateRequired,
+    requestedFidelity: requestedFidelity || process.env.ORCHESTRATOR_REQUESTED_FIDELITY || null,
+    requestedAgentCount: requested,
+    requestedTiers,
+    host: os.hostname(),
+    cpus,
+    loadAvg,
+    memory: { totalMb: totalMemMb, freeMb: freeMemMb },
+    disk,
+    inodes,
+    limits: { fileDescriptorLimit, processLimit },
+    minimums,
+    failures,
+    warnings,
+    blocker: failures.length ? {
+      blocker: 'Execution-plane resource preflight failed before high-scale Mailchimp worker launch.',
+      nextAction: 'Free/resize execution-plane resources or lower the declared concurrency tier before rerunning the broad final-boss proof.',
+      failures
+    } : null
+  };
 }
 
 
@@ -281,7 +379,44 @@ const launchLocBaseline = writeLaunchLocBaseline();
 const requestedTiers = parsePositiveIntegerList(process.env.ORCHESTRATOR_TIERS || '8,16,32,64,100');
 const requestedAgentCount = resolveRequestedAgentCount({ env: process.env, requestedTiers });
 let concurrencyPlan = null;
+let scalePreflight = null;
+let resourcePreflight = null;
 let tiers = requestedTiers;
+
+function resolveTierSpawnBurst(tier) {
+  const explicit = Number(String(process.env.ORCHESTRATOR_MAX_SPAWNS_PER_TICK || '').trim());
+  if (Number.isFinite(explicit) && explicit > 0) return Math.max(1, Math.floor(explicit));
+  if (tier >= 80 && String(process.env.ORCHESTRATOR_REQUESTED_FIDELITY || contract.requestedFidelity || '').trim() === 'full_clone') return tier;
+  const { minimumPeakConcurrentWorkers } = scaleProofMinimumsForAgentCount(tier);
+  if (tier >= 80) return Math.min(tier, Math.max(12, minimumPeakConcurrentWorkers + 2, Math.ceil(tier * 0.12)));
+  if (tier >= 64) return Math.min(tier, Math.max(8, minimumPeakConcurrentWorkers + 1));
+  if (tier >= 32) return Math.min(tier, Math.max(4, minimumPeakConcurrentWorkers + 1));
+  return tier;
+}
+
+function resolveTierWorkerWorkspaceMode(tier) {
+  const explicit = String(process.env.ORCHESTRATOR_WORKER_WORKSPACE_MODE || '').trim();
+  if (explicit) return explicit;
+  const fullClone = String(process.env.ORCHESTRATOR_REQUESTED_FIDELITY || contract.requestedFidelity || '').trim() === 'full_clone';
+  return tier >= 80 && fullClone ? 'isolated_product_copy' : 'shared';
+}
+
+function resolveTierWorkerWorkspaceCopyPaths(mode) {
+  const explicit = String(process.env.ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS || '').trim();
+  if (explicit) return explicit.split(',').map((entry) => entry.trim()).filter(Boolean);
+  return mode === 'isolated_product_copy'
+    ? [
+      'apps',
+      'packages',
+      'plugins',
+      'tests/helpers.mjs',
+      'tests/phase9-proof-helpers.mjs',
+      'surface-honesty.json',
+      'package.json',
+      'package-lock.json'
+    ]
+    : [];
+}
 
 function buildLaunchChecklist({ baselineRepoTests }) {
   const items = [
@@ -322,6 +457,16 @@ function buildLaunchChecklist({ baselineRepoTests }) {
         : 'pending'
     },
     {
+      id: 'scale_preflight_guard',
+      ok: Boolean(scalePreflight?.ok),
+      detail: scalePreflight || 'pending'
+    },
+    {
+      id: 'resource_preflight_guard',
+      ok: Boolean(resourcePreflight?.ok),
+      detail: resourcePreflight || 'pending'
+    },
+    {
       id: 'loc_accounting_required',
       ok: true,
       detail: path.relative(ROOT, paths.locAccounting)
@@ -343,6 +488,7 @@ function buildLaunchChecklist({ baselineRepoTests }) {
     originallyRequestedTiers: requestedTiers,
     requestedAgentCount,
     adaptiveConcurrency: concurrencyPlan,
+    resourcePreflight,
     locAccountingPath: paths.locAccounting,
     strictHierarchicalPlanPath: paths.strictHierarchicalPlan,
     strictHierarchicalPlanSummary: seed.strictHierarchicalPlan?.summary || null,
@@ -372,10 +518,25 @@ concurrencyPlan = resolveAdaptiveConcurrencyTiers({
   env: process.env
 });
 tiers = concurrencyPlan.resolvedTiers;
+resourcePreflight = buildResourcePreflight({
+  requestedAgentCount,
+  requestedTiers: tiers,
+  requestedFidelity: contract.requestedFidelity
+});
+scalePreflight = resolveScaleProofPreflight({
+  requestedTiers: tiers,
+  requestedAgentCount,
+  shardPlan,
+  requestedFidelity: contract.requestedFidelity,
+  resourcePreflight,
+  env: process.env
+});
 writeJson(path.join(ARTIFACT_ROOT, 'adaptive_concurrency.json'), {
   generatedAt: new Date().toISOString(),
   ...concurrencyPlan
 });
+writeJson(paths.resourcePreflight, resourcePreflight);
+writeJson(paths.scalePreflight, scalePreflight);
 
 const contextPacks = compileContextPacks({
   contract,
@@ -414,6 +575,22 @@ const baselineRepoTests = PRODUCT_ONLY_MODE
 validationIndex.baseline = { ok: baselineRepoTests.ok, skipped: Boolean(baselineRepoTests.skipped), reason: baselineRepoTests.reason || null, command: baselineRepoTests.command, logPath: baselineLog, durationMs: baselineRepoTests.durationMs };
 writeJson(paths.validationIndex, validationIndex);
 writeJson(paths.launchChecklist, buildLaunchChecklist({ baselineRepoTests }));
+if (!scalePreflight.ok) {
+  const blocker = {
+    generatedAt: new Date().toISOString(),
+    ...scalePreflight.blocker,
+    requestedTiers,
+    resolvedTiers: tiers,
+    requestedAgentCount,
+    shardCount: shardPlan.summary.shardCount,
+    scalePreflightPath: paths.scalePreflight
+  };
+  writeJson(paths.blockerReport, blocker);
+  updateWorker(paths.campaignState, { id: 'qualification.scale_preflight', ok: false, note: blocker.blocker });
+  completeWorkerIteration(paths.campaignState, { ok: false, note: blocker.blocker, outcome: blocker });
+  console.log(JSON.stringify({ ok: false, artifactRoot: ARTIFACT_ROOT, blocker }, null, 2));
+  process.exit(1);
+}
 if (concurrencyPlan.blocker) {
   const blocker = {
     generatedAt: new Date().toISOString(),
@@ -456,12 +633,18 @@ let blockerReport = null;
 let stopReason = null;
 
 for (const tier of tiers) {
+  const maxSpawnsPerTick = resolveTierSpawnBurst(tier);
+  const workerWorkspaceMode = resolveTierWorkerWorkspaceMode(tier);
+  const workerWorkspaceCopyPaths = resolveTierWorkerWorkspaceCopyPaths(workerWorkspaceMode);
   updateTierTrace({
     stage: 'tier_start',
     tier,
     attemptedTiers: [...tierResults.map((entry) => entry.tier), tier],
     highestPassingTier,
-    runRoot: tierRunDir(tier)
+    runRoot: tierRunDir(tier),
+    maxSpawnsPerTick,
+    workerWorkspaceMode,
+    workerWorkspaceCopyPaths
   });
 
   const liveRun = await runLiveWorkerFarm({
@@ -478,7 +661,11 @@ for (const tier of tiers) {
     maxRuntimeMs: 900000,
     pollMs: 50,
     workerMemoryLimitMb: tier >= 64 ? 48 : 64,
-    maxSpawnsPerTick: tier >= 100 ? 2 : tier >= 64 ? 2 : tier >= 32 ? 4 : tier,
+    maxSpawnsPerTick,
+    workerWorkspaceMode,
+    workerWorkspaceCopyPaths,
+    promoteMergedWorkerWorkspaceChanges: workerWorkspaceMode !== 'shared',
+    relaxLeaseFileAreasForIsolatedWorkspaces: true,
     plannerOptions: {
       maxFileAreasPerShard: 8,
       maxFilesPerShard: 128,
@@ -513,12 +700,19 @@ for (const tier of tiers) {
   validationIndex.perTierRepoTests.push({ tier, ok: repoTests.ok, skipped: Boolean(repoTests.skipped), reason: repoTests.reason || null, command: repoTests.command, logPath: repoTestLog, durationMs: repoTests.durationMs });
   writeJson(paths.validationIndex, validationIndex);
 
+  const tierScaleCredit = liveRun.schedulerTruth?.scaleCredit || null;
+  const tierScaleCreditOk = tier >= 80 ? tierScaleCredit?.eligible === true : true;
+
   const tierSummary = {
     tier,
-    ok: liveRun.ok && repoTests.ok,
+    ok: liveRun.ok && repoTests.ok && tierScaleCreditOk,
     liveRunOk: liveRun.ok,
+    scaleCreditOk: tierScaleCreditOk,
+    scaleCredit: tierScaleCredit,
     repoTestsOk: repoTests.ok,
     executionMode: liveRun.executionMode,
+    maxSpawnsPerTick,
+    workerWorkspaceMode,
     shardCount: liveRun.shardPlan.shards.length,
     mergedShardCount: liveRun.patchQueue.merged.length,
     supervisorStatus: liveRun.supervisor.topLevel.status,
@@ -547,18 +741,22 @@ for (const tier of tiers) {
     continue;
   }
 
-  if (!repoTests.ok || liveRun.metrics.stateLossEvents > 0 || liveRun.patchQueue.rejected.length > 0 || highestPassingTier === null) {
+  if (!repoTests.ok || !tierScaleCreditOk || liveRun.metrics.stateLossEvents > 0 || liveRun.patchQueue.rejected.length > 0 || highestPassingTier === null) {
     blockerReport = {
       generatedAt: new Date().toISOString(),
       blocker: !repoTests.ok
         ? `Repo tests failed after attempting tier ${tier}.`
-        : liveRun.metrics.stateLossEvents > 0
-          ? `State loss or continuity failures were detected at tier ${tier}.`
-          : liveRun.patchQueue.rejected.length > 0
-            ? `Patch queue rejected work at tier ${tier}, indicating ownership or verifier instability.`
-            : `No live tier could be honestly proven; first attempted tier ${tier} failed.`,
+        : !tierScaleCreditOk
+          ? `Tier ${tier} did not satisfy scheduler scale-credit truth.`
+          : liveRun.metrics.stateLossEvents > 0
+            ? `State loss or continuity failures were detected at tier ${tier}.`
+            : liveRun.patchQueue.rejected.length > 0
+              ? `Patch queue rejected work at tier ${tier}, indicating ownership or verifier instability.`
+              : `No live tier could be honestly proven; first attempted tier ${tier} failed.`,
       nextAction: !repoTests.ok
         ? `Inspect ${repoTestLog} and ${path.join(liveRun.runRoot, 'summary.json')} before retrying.`
+        : !tierScaleCreditOk
+          ? `Inspect ${path.join(liveRun.runRoot, 'scheduler_truth.json')} and rerun only after peak concurrency can satisfy the requested tier.`
         : `Inspect ${path.join(liveRun.runRoot, 'summary.json')} and ${path.join(liveRun.runRoot, 'supervisor.json')} to fix live worker failures before rerunning.`
     };
     stopReason = blockerReport.blocker;
@@ -645,6 +843,8 @@ const scaleQualification = {
     originallyRequestedTiers: requestedTiers,
     requestedAgentCount,
     adaptiveConcurrency: concurrencyPlan,
+    resourcePreflight,
+    scalePreflight,
     attemptedTiers: tierResults.map((entry) => entry.tier),
     qualificationMode: 'real_mailchimp_repo_live_worker_farm',
     highestPassingTier,

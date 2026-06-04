@@ -312,6 +312,47 @@ test('deriveRequestedOutcome blocks zero-work scoped green when Mailchimp truth 
   assert.match(requested.blocker.blocker, /no live product-work throughput/i);
 });
 
+test('deriveRequestedOutcome allows targeted semantic replay to satisfy scoped repair without product-delta overclaiming', () => {
+  const productThroughput = deriveProductThroughputEvidence({
+    liveExecutionSummary: { shardCount: 0, mergedShardCount: 0, metrics: { workerSpawnCount: 0, mergedPatchCount: 0 } },
+    patchQueueReport: { merged: [] },
+    syncStatus: {
+      remoteRuntimeStatus: {
+        phase: 'remote_execution_target_satisfied',
+        targetedSemanticReplay: {
+          active: true,
+          satisfied: true,
+          verifiedTargetFocusIds: ['focus.api_keys_webhooks'],
+          liveWorkRequired: false
+        }
+      },
+      canonicalLandingEvidence: { newlyLandedProductFileCount: 0, canonicalSynchronizedProductFileCount: 0, alreadyMatchedProductFileCount: 0 }
+    }
+  });
+  assert.equal(productThroughput.zeroWork, true);
+  assert.equal(productThroughput.targetedSemanticReplaySatisfied, true);
+  const requested = deriveRequestedOutcome({
+    requestedFidelity: 'parity_for_scope',
+    orchestration: {
+      supervisorStatus: 'green',
+      matrixStatus: 'all_complete',
+      parityStatus: 'parity_for_scope',
+      green: true
+    },
+    productThroughput,
+    truthPreflight: {
+      ok: true,
+      memoryTruth: { assumeAbundantRemainingWork: true, strictGapGreenIsNotFullParity: true },
+      guardrail: 'Scoped matrix green must not be reported as full product parity.'
+    }
+  });
+  assert.equal(requested.green, true);
+  assert.equal(requested.blocker, null);
+  assert.equal(requested.parityStatus, 'parity_for_scope');
+  assert.equal(requested.targetedSemanticReplaySatisfied, true);
+  assert.match(requested.note, /without claiming broad Mailchimp parity/i);
+});
+
 test('buildOutcomeHeadline names zero-work scoped green without calling the campaign complete', () => {
   const headline = buildOutcomeHeadline({
     orchestration: { green: true },
@@ -415,6 +456,11 @@ test('sync script mirrors live execution and patch queue artifacts for the activ
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-sync-remote-worktree.mjs'), 'utf8');
   assert.match(source, /live_execution_summary: 'live_execution_summary\.json'/);
   assert.match(source, /patch_queue_report: 'patch_queue_report\.json'/);
+  assert.match(source, /selected_tier_summary: 'selected_tier_summary\.json'/);
+  assert.match(source, /scale_qualification: 'scale_qualification\.json'/);
+  assert.match(source, /resource_preflight: 'resource_preflight\.json'/);
+  assert.match(source, /scale_preflight: 'scale_preflight\.json'/);
+  assert.match(source, /work_graph: 'work_graph\.json'/);
 });
 
 test('sync script promotes Mailchimp product surfaces only and rejects script-only churn', () => {
@@ -422,6 +468,9 @@ test('sync script promotes Mailchimp product surfaces only and rejects script-on
   const helper = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'lib', 'full-audit-campaign-sync-pathspecs.mjs'), 'utf8');
   assert.match(source, /buildProductSurfaceSyncPathspecs/);
   assert.match(source, /applyError = 'no_product_surface_changes_to_promote'/);
+  assert.match(source, /function isTargetedSemanticReplaySatisfied\(remoteRuntimeStatus = null\)/);
+  assert.match(source, /targetedSemanticReplayLandingEvidence\(resolved\.status \|\| null\)/);
+  assert.match(source, /Targeted semantic replay verified the requested focus set before delegate launch/);
   assert.match(helper, /DEFAULT_PRODUCT_SYNC_INCLUDES/);
   assert.match(helper, /':\(exclude\)scripts'/);
 });
@@ -562,7 +611,7 @@ test('product-only supervisor derives nextFocus from verified focus merges inste
   assert.match(runSource, /PRODUCT_ONLY_MODE,/);
   assert.match(source, /mailchimpParityFocusIds/);
   assert.match(source, /function resolveMatrixStatus\(/);
-  assert.match(source, /highestPassingTier,/);
+  assert.match(source, /const provenCoordinationScaleTier = PRODUCT_ONLY_MODE && selectedTierHadLiveWork && selectedTierScaleProofOk/);
   assert.match(source, /const selectedTierHadLiveWork = selectedTierShardCount > 0 \|\| selectedTierMergedShardCount > 0 \|\| selectedTierMergedPatchCount > 0;/);
   assert.match(source, /const focusSurfaces = surfaceDefinitions\(\);/);
   assert.match(source, /graph = \{\n    version: priorGraph\?\.version \|\| 1,/);
@@ -583,6 +632,10 @@ test('product-only supervisor derives nextFocus from verified focus merges inste
   assert.match(source, /productOnlyFocusEvidence = \{/);
   assert.match(source, /function extractVerifiedFocusIdsFromResultFiles\(/);
   assert.match(source, /function resolveFocusIdFromPatchEntry\(/);
+  assert.match(source, /rejected_patch_quarantine_report\.json/);
+  assert.match(source, /function buildRejectedPatchQuarantine\(/);
+  assert.match(source, /saturated_duplicate_noop_leaf_after_focus_proof/);
+  assert.match(source, /transient_verifier_failure_superseded_by_final_targeted_tests/);
   assert.match(source, /const mergedFocusIds = Array\.from\(new Set\(\s*extractVerifiedFocusIdsFromPatchQueue\(patchQueue\)\s*\)\);/);
   assert.doesNotMatch(source, /const mergedFocusIds = Array\.from\(new Set\(\[[\s\S]*extractVerifiedFocusIdsFromResultFiles\(runForArtifacts\?\.runRoot\)/);
   assert.match(source, /const issueSatisfied = \(issueId\) => provenFocusIds\.has\(issueId\) \|\| !parityFocusIds\.includes\(issueId\);/);
@@ -600,7 +653,7 @@ test('product-only supervisor derives nextFocus from verified focus merges inste
   assert.match(source, /const allFocusComplete = openUnprovenFocusIds.length === 0 && focusIssues\.every\(\(issue\) => issueSatisfied\(issue\.id\)\);/);
   assert.match(source, /selectedTier: Boolean\(selectedTier \|\| scaleQualification\?\.highestPassingTier \|\| scaleQualification\?\.provenCoordinationScaleTier\)/);
   assert.match(source, /selected_tier_had_live_work: selectedTierHadLiveWork/);
-  assert.match(source, /unresolvedRejectedCount > 0 && mergedFocusIds\.length === 0/);
+  assert.match(source, /effectiveUnresolvedRejectedCount > 0 && mergedFocusIds\.length === 0/);
   assert.match(source, /rejected patch candidate\(s\) remain after all focus lanes were otherwise proven/);
   assert.match(source, /Selected live qualification tier reported green without any live shard work for this run\./);
   assert.match(source, /if \(!blocker && !allFocusComplete && priorBlockerReport\?\.blocker\) blocker = priorBlockerReport;/);
@@ -620,6 +673,8 @@ test('clean run resets per-invocation qualification artifacts before rebuilding 
   assert.match(source, /function resetQualificationArtifacts\(/);
   assert.match(source, /for \(const target of \[RUNS_DIR, MERGE_DIR, RECOVERY_DIR\]\)/);
   assert.match(source, /paths\.liveExecutionSummary/);
+  assert.match(source, /paths\.resourcePreflight/);
+  assert.match(source, /paths\.scalePreflight/);
   assert.match(source, /paths\.patchQueueReport/);
   assert.match(source, /paths\.scaleQualification/);
   assert.match(source, /resetQualificationArtifacts\(\);\nensureDirs\(\);/);
@@ -629,11 +684,50 @@ test('clean run resets per-invocation qualification artifacts before rebuilding 
   assert.match(source, /allowProductOnlyVerifierSkip: PRODUCT_ONLY_MODE/);
 });
 
+test('clean run guards high-scale final-boss launch with scale preflight and spawn burst', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'orchestrator-real-repo-clean-run.mjs'), 'utf8');
+  const planSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'lib', 'orchestrator-real-repo-clean-plan.mjs'), 'utf8');
+  const adaptiveSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'lib', 'orchestrator-adaptive-concurrency.mjs'), 'utf8');
+  const remoteRunnerSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'full-audit-campaign-remote-runner.mjs'), 'utf8');
+  const supervisorSource = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'orchestrator-real-repo-clean-supervisor.mjs'), 'utf8');
+  assert.match(source, /resolveScaleProofPreflight/);
+  assert.match(source, /function resolveTierSpawnBurst\(tier\)/);
+  assert.match(source, /function resolveTierWorkerWorkspaceMode\(tier\)/);
+  assert.match(source, /isolated_product_copy/);
+  assert.match(source, /promoteMergedWorkerWorkspaceChanges: workerWorkspaceMode !== 'shared'/);
+  assert.match(source, /relaxLeaseFileAreasForIsolatedWorkspaces: true/);
+  assert.match(source, /if \(tier >= 80 && String\(process\.env\.ORCHESTRATOR_REQUESTED_FIDELITY \|\| contract\.requestedFidelity \|\| ''\)\.trim\(\) === 'full_clone'\) return tier;/);
+  assert.match(source, /writeJson\(paths\.scalePreflight, scalePreflight\);/);
+  assert.match(source, /writeJson\(paths\.resourcePreflight, resourcePreflight\);/);
+  assert.match(source, /function buildResourcePreflight\(/);
+  assert.match(source, /if \(!raw\) return fallback;/);
+  assert.match(source, /id: 'scale_preflight_guard'/);
+  assert.match(source, /id: 'resource_preflight_guard'/);
+  assert.match(source, /if \(!scalePreflight\.ok\) \{/);
+  assert.match(source, /tierScaleCredit\?\.eligible === true/);
+  assert.match(adaptiveSource, /MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS/);
+  assert.match(adaptiveSource, /targeted_focus_set_active_for_high_scale_full_clone/);
+  assert.match(adaptiveSource, /resource_preflight_failed/);
+  assert.match(source, /maxSpawnsPerTick: resolveTierSpawnBurst\(tier\)|maxSpawnsPerTick,/);
+  assert.match(source, /workerWorkspaceMode,/);
+  assert.match(source, /'tests\/helpers\.mjs'/);
+  assert.match(source, /'tests\/phase9-proof-helpers\.mjs'/);
+  assert.match(planSource, /scalePreflight: path\.join\(ARTIFACT_ROOT, 'scale_preflight\.json'\)/);
+  assert.match(planSource, /resourcePreflight: path\.join\(ARTIFACT_ROOT, 'resource_preflight\.json'\)/);
+  assert.match(remoteRunnerSource, /'scale_preflight\.json'/);
+  assert.match(remoteRunnerSource, /'resource_preflight\.json'/);
+  assert.match(supervisorSource, /const selectedTierScaleCredit = selectedTierSchedulerTruth\?\.scaleCredit \|\| null;/);
+  assert.match(supervisorSource, /selectedTierHighScale\s+\? selectedTierScaleCredit\?\.eligible === true/);
+  assert.match(supervisorSource, /insufficient_peak_concurrency/);
+});
+
 test('product-only verifier still runs targeted tests and refuses empty test configs', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'orchestrator-real-repo-clean-verifier.mjs'), 'utf8');
   assert.doesNotMatch(source, /skipped in product-only mode/);
   assert.match(source, /tests verifier requested but no shard test files were configured/);
   assert.match(source, /\['--test', '--test-concurrency=1', testFile\]/);
+  assert.match(source, /function assignmentRoot\(assignment = \{\}\)/);
+  assert.match(source, /assignment\.workspacePath \|\| ROOT/);
   assert.match(source, /scoped_architecture_differential/);
   assert.match(source, /baselineFailureWaived/);
 });
@@ -648,7 +742,10 @@ test('full-audit supervisor reads delegate program state and prefers it over sta
   assert.match(source, /const workerBlockerPath = freshRunBoundArtifactPath\(BLOCKER_PATH/);
   assert.match(source, /const workerBlocker = workerBlockerPath \? readJson\(workerBlockerPath, null\) : null;/);
   assert.match(source, /resolveCampaignBlocker\(\{ canonicalSummary, programState: delegateProgramState, blockerReport: delegateBlocker \|\| workerBlocker, workerStatus \}\)/);
-  assert.match(source, /const orchestration = deriveCanonicalStatuses\(\{ canonicalSummary, programState: delegateProgramState, blocker: orchestrationBlocker \}\)/);
+  assert.match(source, /const targetedSemanticReplaySatisfied = String\(syncStatus\?\.remoteRuntimeStatus\?\.phase \|\| ''\) === 'remote_execution_target_satisfied'/);
+  assert.match(source, /if \(targetedSemanticReplaySatisfied\) \{\n    orchestrationBlocker = null;\n  \}/);
+  assert.match(source, /const orchestration = targetedSemanticReplaySatisfied/);
+  assert.match(source, /deriveCanonicalStatuses\(\{ canonicalSummary, programState: delegateProgramState, blocker: orchestrationBlocker \}\)/);
   assert.match(source, /const requestedOutcome = deriveRequestedOutcome\(\{/);
   assert.match(source, /let continuation = deriveCampaignContinuation\(\{/);
   assert.match(source, /if \(shouldContinueAutonomySoak\(\{ orchestration, benchmarkThresholdGate, currentRun \}\)\) \{/);
@@ -864,8 +961,11 @@ test('persistent runner carries completed Mailchimp surfaces forward across shar
   assert.match(source, /const seededVerifiedCompletedFocusIds = normalizeFocusIds\(String\(process\.env\[PROGRAM_ENV\.verifiedCompletedFocusIds\] \|\| ''\)\.split\(','\)\);/);
   assert.match(source, /CANONICAL_SURFACE_NEXT_FOCUS_ALIASES/);
   assert.match(source, /function normalizeContinuationFocusIds\(values = \[\]\) \{/);
-  assert.match(source, /MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS: directedNextFocusIds\.join\(','\)/);
+  assert.match(source, /function keepBroadFullCloneSemanticDirectorUnscoped\(contract = readJson\(CONTRACT_PATH, null\)\) \{/);
+  assert.match(source, /initialDirectedNextFocusIds\.length === 0/);
+  assert.match(source, /MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS: keepBroadFullCloneSemanticDirectorUnscoped\(\) \? '' : directedNextFocusIds\.join\(','\)/);
   assert.match(source, /const mappedNextFocusIds = normalizeContinuationFocusIds\(iterationRecord\.nextFocus\);/);
+  assert.match(source, /if \(mappedNextFocusIds\.length > 0 && !keepBroadFullCloneSemanticDirectorUnscoped\(\)\) directedNextFocusIds = mappedNextFocusIds;/);
   assert.match(source, /const seededCompletedFocusIds = new Set\(seededVerifiedCompletedFocusIds\);/);
   assert.match(source, /discardedLegacyCompletedFocusIds/);
   assert.match(source, /function deriveIterationContinuation\(/);
@@ -919,9 +1019,13 @@ test('remote execution mirrors live execution and patch queue artifacts for cont
   assert.match(source, /remoteExecutionTerminal: path.join\(remoteArtifactRoot, 'remote_execution_terminal\.json'\)/);
   assert.match(source, /liveExecutionSummary: path.join\(remoteArtifactRoot, 'live_execution_summary\.json'\)/);
   assert.match(source, /patchQueueReport: path.join\(remoteArtifactRoot, 'patch_queue_report\.json'\)/);
+  assert.match(source, /resourcePreflight: path.join\(remoteArtifactRoot, 'resource_preflight\.json'\)/);
+  assert.match(source, /scalePreflight: path.join\(remoteArtifactRoot, 'scale_preflight\.json'\)/);
   assert.match(source, /mirrorOptionalFile\(remoteTerminalText, path.join\(delegateArtifactRoot, 'remote_execution_terminal\.json'\), 'remoteExecutionTerminalPath'\)/);
   assert.match(source, /mirrorOptionalFile\(liveExecutionSummaryText, path.join\(delegateArtifactRoot, 'live_execution_summary\.json'\), 'liveExecutionSummaryPath'\)/);
   assert.match(source, /mirrorOptionalFile\(patchQueueReportText, path.join\(delegateArtifactRoot, 'patch_queue_report\.json'\), 'patchQueueReportPath'\)/);
+  assert.match(source, /mirrorOptionalFile\(resourcePreflightText, path.join\(delegateArtifactRoot, 'resource_preflight\.json'\), 'resourcePreflightPath'\)/);
+  assert.match(source, /mirrorOptionalFile\(scalePreflightText, path.join\(delegateArtifactRoot, 'scale_preflight\.json'\), 'scalePreflightPath'\)/);
   assert.match(source, /try \{ fs\.rmSync\(localPath, \{ force: true \}\); \} catch \{\}/);
   assert.match(source, /mirrorOptionalFile\(programText, delegateProgramStatePath, 'programStatePath'\)/);
   assert.match(writeRemoteFileSource, /python3 -c/);

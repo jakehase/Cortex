@@ -253,7 +253,8 @@ test('persistent runner does not treat a generic blocker with no next focus as a
 test('persistent runner synthesizes a real blocker when the worker exits before fresh delegate evidence arrives', () => {
   assert.match(source, /const workerFailureBlocker = worker\.status !== 0 \? \{/);
   assert.match(source, /100-agent worker failed before the control plane received fresh delegate evidence\./);
-  assert.match(source, /const blocker = syncFailureBlocker \|\| landingFailureBlocker \|\| blockerReport\?\.blocker \|\| summary\?\.blocker \|\| programState\?\.supervisor\?\.blocker \|\| workerFailureBlocker \|\| null;/);
+  assert.match(source, /const effectiveWorkerFailureBlocker = targetedSemanticReplaySatisfied \? null : workerFailureBlocker;/);
+  assert.match(source, /let blocker = effectiveSyncFailureBlocker \|\| landingFailureBlocker \|\| artifactContractBlocker \|\| blockerReport\?\.blocker \|\| summary\?\.blocker \|\| programState\?\.supervisor\?\.blocker \|\| effectiveWorkerFailureBlocker \|\| null;/);
 });
 
 test('persistent runner treats a strict 1:1 ceiling blocker with no next focus as stop-claim-blocked', () => {
@@ -283,7 +284,7 @@ test('persistent runner falls back to remaining surface-matrix lanes when blocke
   assert.match(source, /function deriveNextFocusFromSurfaceMatrix\(surfaceMatrix = null\)/);
   assert.match(source, /blockerKind: summary\?\.blockerKind \|\| programState\?\.supervisor\?\.blockerKind \|\| null,/);
   assert.match(source, /function firstNonEmptyFocusList\(\.\.\.candidates\)/);
-  assert.match(source, /nextFocus: firstNonEmptyFocusList\(summary\?\.nextFocus, blockerReport\?\.nextFocus, deriveNextFocusFromSurfaceMatrix\(surfaceMatrix\)\)/);
+  assert.match(source, /nextFocus: targetedSemanticReplaySatisfied \? \[\] : firstNonEmptyFocusList\(summary\?\.nextFocus, blockerReport\?\.nextFocus, deriveNextFocusFromSurfaceMatrix\(surfaceMatrix\)\)/);
 });
 
 test('persistent runner writes a no-progress audit and stops after repeated unchanged no-landing iterations', () => {
@@ -293,8 +294,8 @@ test('persistent runner writes a no-progress audit and stops after repeated unch
   assert.match(source, /return canonicalLandingDelta\(record\) > 0;/);
   assert.match(source, /entry\?\.changedInCanonicalCheckout === true \|\| entry\?\.alreadyMatchedBeforeSync === true/);
   assert.match(source, /control-plane sync step failed after the remote audit iteration completed/i);
-  assert.match(source, /canonicalLandingOk: syncStatus\?\.canonicalLandingEvidence\?\.ok === true,/);
-  assert.match(source, /canonicalLandedProductFileCount: Number\(syncStatus\?\.canonicalLandingEvidence\?\.newlyLandedProductFileCount \|\| 0\),/);
+  assert.match(source, /canonicalLandingOk: targetedSemanticReplaySatisfied \|\| syncStatus\?\.canonicalLandingEvidence\?\.ok === true,/);
+  assert.match(source, /canonicalLandedProductFileCount: targetedSemanticReplaySatisfied \? 0 : Number\(syncStatus\?\.canonicalLandingEvidence\?\.newlyLandedProductFileCount \|\| 0\),/);
   assert.match(source, /const noProgressStreak = consecutiveNoProgressIterations\(iterations\);/);
   assert.match(source, /const noProgressAudit = buildNoProgressAudit\(iterations\);/);
   assert.match(source, /if \(noProgressAudit\.terminal\) \{/);
@@ -316,13 +317,38 @@ test('persistent runner lets terminal no-progress truth override delegate contin
 
 test('persistent runner installs terminal persistence hooks and records claim-blocked stops distinctly', () => {
   assert.match(source, /import \{ ORCHESTRATION_PROGRAM_SPEC, resolveProgramEnvKeys, resolveProgramPaths, resolveProgramScriptPath \} from '\.\/lib\/orchestration-program-config\.mjs';/);
+  assert.match(source, /deriveTopLevelIterationDecision, reduceRunState/);
   assert.match(source, /initializeCampaign, installProcessTerminationPersistence/);
   assert.match(source, /initializeCampaign\(PROGRAM_STATE_PATH, \{/);
   assert.match(source, /continuationDecision: 'continue_next_iteration',/);
   assert.match(source, /installProcessTerminationPersistence\(/);
+  assert.match(source, /artifactRoot: ARTIFACT_DIR/);
+  assert.match(source, /getRunStateInput: buildTerminationRunStateInput/);
+  assert.match(source, /runStateName: 'run_state_truth\.json'/);
+  assert.match(source, /terminalPersistenceError/);
   assert.match(source, /status: 'terminated'/);
   assert.match(source, /overallStatus = continuation\.decision === 'stop_claim_blocked' \? 'claim_blocked' : 'blocked';/);
   assert.match(source, /Orchestration stopped cleanly because only the final full-clone claim remains blocked\./);
+});
+
+test('persistent runner gates new iterations through shared run-state truth before worker spawn', () => {
+  assert.match(source, /const RUN_STATE_TRUTH_NAME = 'run_state_truth\.json';/);
+  assert.match(source, /const ITERATION_LAUNCH_GATE_PATH = path\.join\(ARTIFACT_DIR, 'iteration_launch_gate\.json'\);/);
+  assert.match(source, /function evaluateIterationLaunchGate\(\{ iteration, runId, runDir \} = \{\}\) \{/);
+  assert.match(source, /deriveTopLevelIterationDecision\(\{/);
+  assert.match(source, /blockingDecisions = new Set\(\['must_wait_active_run', 'must_stop_truth_contradiction', 'must_stop_claim_blocked'\]\)/);
+  assert.match(source, /if \(launchGate\.ok === false\) blockBeforeSpawnFromLaunchGate\(\{ gate: launchGate, runId, iteration \}\);/);
+  assert.match(source, /const worker = spawnSync\(process\.execPath, \[WORKER_SCRIPT\]/);
+});
+
+test('persistent runner writes run-state truth and enforces the iteration artifact contract', () => {
+  assert.match(source, /function evaluateIterationArtifactContract\(\{ runDir, includeRunState = true \} = \{\}\) \{/);
+  assert.match(source, /remote_execution_status\.json/);
+  assert.match(source, /function writeIterationRunStateTruth\(\{ runDir, runId, iteration, input = \{\}, phase = 'post_iteration' \} = \{\}\) \{/);
+  assert.match(source, /reduceRunState\(input, \{ generatedAt \}\)/);
+  assert.match(source, /writeJson\(path\.join\(runDir, RUN_STATE_TRUTH_NAME\), payload\);/);
+  assert.match(source, /Iteration artifact contract is incomplete, so supervisor green cannot be credited\./);
+  assert.match(source, /runStateTruth\.terminalState === 'contradiction_blocked'/);
 });
 
 test('launch wrapper has an opt-in full-clone autopilot relaunch guard without child recursion', () => {
@@ -369,10 +395,26 @@ test('persistent runner keeps full-clone campaigns moving only after clean canon
 
 test('persistent runner carries remote benchmark progress across wave boundaries', () => {
   assert.match(source, /function deriveCompletedFocusIdsFromDelegateProgress\(runDir = null, syncStatus = null\) \{/);
+  assert.match(source, /function isTargetedSemanticReplaySatisfied\(remoteExecutionStatus = null\) \{/);
+  assert.match(source, /remote_execution_target_satisfied/);
+  assert.match(source, /targetedSemanticReplay\?\.satisfied === true/);
+  assert.match(source, /targetedSemanticReplayFocusIds\(remoteExecutionStatus\)/);
   assert.match(source, /path\.join\(runDir, 'delegate', 'benchmark_progress\.json'\)/);
   assert.match(source, /progress\?\.verifiedFocusIds/);
   assert.doesNotMatch(source, /progress\?\.completedFocusIds/);
   assert.match(source, /for \(const focusId of deriveCompletedFocusIdsFromDelegateProgress\(runDir, syncStatus\)\) completedFocusIds\.add\(focusId\);/);
+});
+
+test('persistent runner treats pre-verified targeted semantic replay as scoped green without requiring a fresh patch', () => {
+  assert.match(source, /const targetedSemanticReplaySatisfied = isTargetedSemanticReplaySatisfied\(remoteExecutionStatus\);/);
+  assert.match(source, /const effectiveSyncFailureBlocker = targetedSemanticReplaySatisfied \? null : syncFailureBlocker;/);
+  assert.match(source, /syncExitCode: targetedSemanticReplaySatisfied \? 0 : sync\.status/);
+  assert.match(source, /supervisorStatus: targetedSemanticReplaySatisfied \? 'green'/);
+  assert.match(source, /matrixStatus: targetedSemanticReplaySatisfied \? 'all_complete'/);
+  assert.match(source, /parityStatus: targetedSemanticReplaySatisfied \? 'parity_for_scope'/);
+  assert.match(source, /targetedSemanticReplayLandingEvidence\(remoteExecutionStatus\)/);
+  assert.match(source, /record\?\.targetedSemanticReplaySatisfied === true/);
+  assert.match(source, /requestedFullClone\(activeContract\) && CONTINUE_UNTIL_GLOBAL_PARITY && remainingGlobalFocusIds\.length > 0/);
 });
 
 test('persistent runner preserves credited focus ids in in-flight status snapshots', () => {

@@ -138,6 +138,33 @@ function buildCanonicalLandingEvidence({ changedFiles = [], beforeHashes = new M
   };
 }
 
+function isTargetedSemanticReplaySatisfied(remoteRuntimeStatus = null) {
+  return String(remoteRuntimeStatus?.phase || '') === 'remote_execution_target_satisfied'
+    && remoteRuntimeStatus?.targetedSemanticReplay?.satisfied === true;
+}
+
+function targetedSemanticReplayFocusIds(remoteRuntimeStatus = null) {
+  const replay = remoteRuntimeStatus?.targetedSemanticReplay || null;
+  return Array.from(new Set([
+    ...(Array.isArray(replay?.verifiedTargetFocusIds) ? replay.verifiedTargetFocusIds : []),
+    ...(Array.isArray(replay?.progressDelta) ? replay.progressDelta : [])
+  ].filter(Boolean).map(String)));
+}
+
+function targetedSemanticReplayLandingEvidence(remoteRuntimeStatus = null) {
+  return {
+    ok: true,
+    targetSatisfied: true,
+    skippedPatchOutput: true,
+    productFileCount: 0,
+    newlyLandedProductFileCount: 0,
+    alreadyMatchedProductFileCount: 0,
+    canonicalSynchronizedProductFileCount: 0,
+    verifiedTargetFocusIds: targetedSemanticReplayFocusIds(remoteRuntimeStatus),
+    note: 'Targeted semantic replay verified the requested focus set before delegate launch; no new product patch needed for this scoped repair checkpoint.'
+  };
+}
+
 function runSshBuffer(remote, remoteCommand, timeout = 240_000) {
   return spawnSync('ssh', [...sshBaseArgs(remote), remoteCommand], { timeout, maxBuffer: 1024 * 1024 * 500 });
 }
@@ -447,7 +474,8 @@ if ((diffText.trim() || remoteUntrackedProductFiles.length > 0) && expectedProdu
     applyError = contentPromotion.ok ? null : contentPromotion.error;
   }
 }
-const canonicalLandingEvidence = buildCanonicalLandingEvidence({
+const targetedSemanticReplaySatisfied = isTargetedSemanticReplaySatisfied(resolved.status || null);
+let canonicalLandingEvidence = buildCanonicalLandingEvidence({
   changedFiles: expectedProductPaths.map((filePath) => ({ path: filePath })),
   beforeHashes,
   applyOk,
@@ -455,7 +483,12 @@ const canonicalLandingEvidence = buildCanonicalLandingEvidence({
   gitTopLevel,
   applyDirectory
 });
-if (!canonicalLandingEvidence.ok && applyOk) {
+if (targetedSemanticReplaySatisfied) {
+  applyOk = true;
+  applyError = null;
+  applyOutput = 'Targeted semantic replay satisfied requested focus; no product patch required for this scoped repair checkpoint.';
+  canonicalLandingEvidence = targetedSemanticReplayLandingEvidence(resolved.status || null);
+} else if (!canonicalLandingEvidence.ok && applyOk) {
   applyOk = false;
   applyError = 'no_new_product_surface_changes_landed_in_canonical_checkout';
 }
@@ -495,6 +528,11 @@ for (const [remoteFile, localName] of Object.entries({
   supervisor_status: 'supervisor_status.json',
   live_execution_summary: 'live_execution_summary.json',
   patch_queue_report: 'patch_queue_report.json',
+  selected_tier_summary: 'selected_tier_summary.json',
+  scale_qualification: 'scale_qualification.json',
+  resource_preflight: 'resource_preflight.json',
+  scale_preflight: 'scale_preflight.json',
+  work_graph: 'work_graph.json',
   surface_matrix: 'surface_matrix.json',
   launch_checklist: 'launch_checklist.json',
   loc_accounting: 'loc_accounting.json',

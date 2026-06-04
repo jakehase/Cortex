@@ -27,6 +27,27 @@ function isFullCloneRequest({ requestedFidelity = '', env = {} } = {}) {
   return String(requestedFidelity || env.ORCHESTRATOR_REQUESTED_FIDELITY || '').trim() === 'full_clone';
 }
 
+export function normalizeFocusTargetList(value = '') {
+  return [...new Set(String(value || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => entry.startsWith('focus.') ? entry : `focus.${entry}`))]
+    .sort();
+}
+
+export function scaleProofMinimumsForAgentCount(agentCount = 0) {
+  const requested = Math.max(0, Math.floor(Number(agentCount) || 0));
+  if (!requested) {
+    return { requestedAgentCount: 0, minimumObservedAgents: 0, minimumPeakConcurrentWorkers: 0 };
+  }
+  return {
+    requestedAgentCount: requested,
+    minimumObservedAgents: Math.min(requested, Math.max(2, Math.ceil(requested * 0.2))),
+    minimumPeakConcurrentWorkers: Math.min(requested, Math.max(2, Math.ceil(requested * 0.1)))
+  };
+}
+
 function highestTierAtOrBelow(tiers = [], cap = 0) {
   return [...tiers].filter((tier) => tier <= cap).at(-1) || null;
 }
@@ -115,4 +136,93 @@ export function resolveAdaptiveConcurrencyTiers({
   }
 
   return base;
+}
+
+export function resolveScaleProofPreflight({
+  requestedTiers = [],
+  requestedAgentCount = 0,
+  shardPlan = {},
+  requestedFidelity = '',
+  resourcePreflight = null,
+  env = {}
+} = {}) {
+  const normalizedRequestedTiers = parsePositiveIntegerList(requestedTiers);
+  const requested = Math.max(0, Math.floor(Number(requestedAgentCount) || 0));
+  const highScaleRequested = requested >= 80 || Math.max(0, ...normalizedRequestedTiers) >= 80;
+  const fullClone = isFullCloneRequest({ requestedFidelity, env });
+  const disabled = isTruthyEnvDisabled(env.MAILCHIMP_SCALE_PREFLIGHT);
+  const scaleProofRequired = fullClone && highScaleRequested && !disabled;
+  const summary = shardPlan?.summary || {};
+  const shardCount = Math.max(0, Math.floor(Number(summary.shardCount ?? shardPlan?.shards?.length ?? 0) || 0));
+  const initialReadyCount = Math.max(0, Math.floor(Number(summary.initialReadyCount ?? shardPlan?.frontier?.initialReadyCount ?? shardCount) || 0));
+  const laneCount = Math.max(0, Math.floor(Number(summary.laneCount ?? Object.keys(shardPlan?.byLane || {}).length) || 0));
+  const domainCount = Math.max(0, Math.floor(Number(summary.domainCount ?? Object.keys(shardPlan?.byDomain || {}).length) || 0));
+  const targetFocusIds = normalizeFocusTargetList(env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS || '');
+  const targetedRepairMode = targetFocusIds.length > 0;
+  const allowTargetedScaleProof = String(env.MAILCHIMP_ALLOW_TARGETED_SCALE_PROOF || env.MAILCHIMP_ALLOW_TARGETED_FINAL_BOSS_SCALE_PROOF || '').trim() === '1';
+  const minimums = scaleProofMinimumsForAgentCount(requested || Math.max(0, ...normalizedRequestedTiers));
+  const minimumShardCount = minimums.minimumObservedAgents;
+  const minimumInitialReadyCount = minimums.minimumPeakConcurrentWorkers;
+  const minimumDistinctLanes = Math.min(minimumInitialReadyCount, 3);
+  const failures = [];
+
+  if (scaleProofRequired) {
+    if (targetedRepairMode && !allowTargetedScaleProof) {
+      failures.push({
+        reason: 'targeted_focus_set_active_for_high_scale_full_clone',
+        targetFocusIds,
+        nextAction: 'Clear MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS before a broad final-boss scale proof, or set MAILCHIMP_ALLOW_TARGETED_SCALE_PROOF=1 only for an explicitly labeled repair run.'
+      });
+    }
+    if (shardCount < minimumShardCount) {
+      failures.push({ reason: 'insufficient_total_shards_for_scale_proof', shardCount, minimumShardCount });
+    }
+    if (initialReadyCount < minimumInitialReadyCount) {
+      failures.push({ reason: 'insufficient_initial_ready_shards_for_concurrency', initialReadyCount, minimumInitialReadyCount });
+    }
+    if (laneCount < minimumDistinctLanes) {
+      failures.push({ reason: 'insufficient_distinct_lanes_for_balanced_scale', laneCount, minimumDistinctLanes });
+    }
+    if (resourcePreflight?.ok === false) {
+      failures.push({
+        reason: 'resource_preflight_failed',
+        resourcePreflightStatus: resourcePreflight.status || null,
+        resourceFailures: Array.isArray(resourcePreflight.failures) ? resourcePreflight.failures : [],
+        nextAction: resourcePreflight.blocker?.nextAction || 'Free/resize execution-plane resources or lower the declared concurrency tier before rerunning.'
+      });
+    }
+  }
+
+  return {
+    schemaVersion: 'mailchimp.scale_proof_preflight.v1',
+    generatedAt: new Date().toISOString(),
+    ok: failures.length === 0,
+    status: failures.length === 0 ? 'scale_preflight_ready' : 'scale_preflight_blocked',
+    scaleProofRequired,
+    disabled,
+    requestedFidelity: requestedFidelity || env.ORCHESTRATOR_REQUESTED_FIDELITY || null,
+    requestedAgentCount: requested,
+    requestedTiers: normalizedRequestedTiers,
+    highScaleRequested,
+    shardCount,
+    initialReadyCount,
+    laneCount,
+    domainCount,
+    targetFocusIds,
+    targetedRepairMode,
+    allowTargetedScaleProof,
+    resourcePreflight,
+    minimums: {
+      ...minimums,
+      minimumShardCount,
+      minimumInitialReadyCount,
+      minimumDistinctLanes
+    },
+    failures,
+    blocker: failures.length ? {
+      blocker: 'High-scale full-clone launch preflight failed before VM worker execution.',
+      nextAction: failures[0]?.nextAction || 'Repair shard breadth, ready-work depth, lane diversity, or targeted-mode configuration before rerunning the final-boss scale proof.',
+      failures
+    } : null
+  };
 }

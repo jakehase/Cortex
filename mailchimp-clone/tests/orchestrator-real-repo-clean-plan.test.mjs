@@ -21,6 +21,7 @@ import { deriveHierarchicalReplanDirectives } from '../scripts/lib/strict-hierar
 import { MAILCHIMP_CANONICAL_ONE_PASS_PLAN } from '../scripts/lib/mailchimp-canonical-one-pass-plan-data.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const PLAN_SOURCE = fs.readFileSync(path.join(ROOT, 'scripts/lib/orchestrator-real-repo-clean-plan.mjs'), 'utf8');
 
 function withTemporarySatisfactionMarkers(fn) {
   const markersByFile = new Map([
@@ -76,6 +77,14 @@ test('canonical one-pass plan productFiles all bind to real product surfaces', (
     }
   }
   assert.deepEqual(missing, []);
+});
+
+test('shared objective expansion fallback requires executable product-runtime work units', () => {
+  assert.match(PLAN_SOURCE, /function hasExecutableProductRuntimeContract\(unit = \{\}\)/);
+  assert.match(PLAN_SOURCE, /assignment\.artifactKind === 'product_diff'/);
+  assert.match(PLAN_SOURCE, /isExecutableProductRuntimeFile\(filePath\)/);
+  assert.match(PLAN_SOURCE, /workUnits = adaptedExpansionUnits\.filter\(\(unit\) => hasExecutableProductRuntimeContract\(unit\)\)/);
+  assert.match(PLAN_SOURCE, /droppedNonExecutableWorkUnitCount/);
 });
 
 test('strict gap targeted test selection never points a worker at a missing test file', () => {
@@ -353,12 +362,17 @@ test('full-clone 100-agent swarm overrides strict sequence into many executable 
     assert.ok(graph.workGraph.summary.rolePlan.implementers > graph.workGraph.summary.rolePlan.planners);
     assert.ok(graph.workGraph.summary.rolePlan.verifiers >= 8);
     if (graph.workGraph.workUnits.length > 0) {
+      const sourceBackedApiKeyUnits = graph.workGraph.workUnits.filter((unit) => unit.metadata.surfaceFocusId === 'api_keys_webhooks' && unit.metadata.sourceBackedSwarmLeaf === true);
+      const isolatedLeafUnits = graph.workGraph.workUnits.filter((unit) => !(unit.metadata.surfaceFocusId === 'api_keys_webhooks' && unit.metadata.sourceBackedSwarmLeaf === true));
       assert.ok(graph.workGraph.workUnits.every((unit) => unit.metadata.swarmRole === 'implementer'));
-      assert.ok(graph.workGraph.workUnits.every((unit) => unit.allowedFiles.length === 1));
+      assert.ok(isolatedLeafUnits.every((unit) => unit.allowedFiles.length === 1));
       assert.ok(graph.workGraph.workUnits.every((unit) => unit.allowedFiles[0].startsWith('packages/app/full-clone-swarm/')), 'swarm leaves should target unique product modules instead of colliding on the same source files');
       assert.equal(new Set(graph.workGraph.workUnits.map((unit) => unit.allowedFiles[0])).size, graph.workGraph.workUnits.length, 'swarm leaf product modules should be unique per executable shard');
       assert.ok(graph.workGraph.workUnits.every((unit) => unit.metadata.sourceProductFile && unit.metadata.sourceProductFile !== unit.allowedFiles[0]), 'swarm leaves should retain the source product grounding separately from their unique output module');
-      assert.ok(graph.workGraph.workUnits.every((unit) => unit.metadata.importFile === unit.allowedFiles[0]), 'imports verifier should target the generated leaf product module');
+      assert.ok(isolatedLeafUnits.every((unit) => unit.metadata.importFile === unit.allowedFiles[0]), 'imports verifier should target the generated leaf product module for isolated leaves');
+      assert.ok(sourceBackedApiKeyUnits.every((unit) => unit.allowedFiles.includes(unit.metadata.sourceProductFile)), 'api key/webhook swarm repair should admit the source product runtime as a landing target');
+      assert.ok(sourceBackedApiKeyUnits.every((unit) => unit.metadata.importFile === unit.metadata.sourceProductFile), 'api key/webhook source-backed leaves should import-check the existing runtime instead of a generated leaf');
+      assert.ok(sourceBackedApiKeyUnits.every((unit) => unit.metadata.assignmentContract?.targetFiles?.includes(unit.metadata.sourceProductFile)), 'api key/webhook assignment contract should allow surviving source-runtime product diffs');
       assert.ok(graph.workGraph.workUnits.every((unit) => unit.requiredVerifiers.includes('lint') && unit.requiredVerifiers.includes('imports') && unit.requiredVerifiers.includes('tests')), 'swarm leaves need non-skipped verifier evidence beyond tests');
       assert.ok(graph.workGraph.workUnits.every((unit) => !unit.title.includes('undefined')), 'swarm leaf titles should be grounded in the source file name');
       assert.ok(graph.workGraph.workUnits.some((unit) => /#\d+$/.test(unit.id)));
@@ -1207,6 +1221,149 @@ test('full-clone continuation hard-skips verified completed roots before selecti
       MAILCHIMP_ENABLE_FULL_CLONE_CONTINUATION_EXPANSION: previous.continuation,
       MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR: previous.semantic,
       MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE: previous.semanticForce
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('full-clone continuation reopens verified roots only after every ordinary lane is exhausted', () => {
+  const previous = {
+    use: process.env.MAILCHIMP_USE_STRICT_GAP_INVENTORY,
+    seq: process.env.MAILCHIMP_STRICT_GAP_SEQUENCE,
+    profile: process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE,
+    completed: process.env.MAILCHIMP_COMPLETED_FOCUS_IDS,
+    verified: process.env.MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS,
+    excluded: process.env.MAILCHIMP_EXCLUDED_FOCUS_IDS,
+    ignoreSatisfied: process.env.MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION,
+    fidelity: process.env.ORCHESTRATOR_REQUESTED_FIDELITY,
+    agentCount: process.env.MAILCHIMP_REQUESTED_AGENT_COUNT,
+    structural: process.env.MAILCHIMP_ENABLE_STRUCTURAL_FULL_CLONE_EXPANSION,
+    frontier: process.env.MAILCHIMP_ENABLE_FULL_CLONE_FRONTIER_EXPANSION,
+    remediation: process.env.MAILCHIMP_ENABLE_FULL_CLONE_REMEDIATION_EXPANSION,
+    strictRemediation: process.env.MAILCHIMP_ENABLE_FULL_CLONE_STRICT_REMEDIATION_EXPANSION,
+    continuation: process.env.MAILCHIMP_ENABLE_FULL_CLONE_CONTINUATION_EXPANSION,
+    semantic: process.env.MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR,
+    semanticForce: process.env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE
+  };
+  Object.assign(process.env, {
+    MAILCHIMP_USE_STRICT_GAP_INVENTORY: '1',
+    MAILCHIMP_STRICT_GAP_SEQUENCE: '0',
+    ORCHESTRATOR_IMPLEMENTATION_PROFILE: 'mailchimp_parity_focus',
+    ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone',
+    MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION: '1',
+    MAILCHIMP_EXCLUDED_FOCUS_IDS: '',
+    MAILCHIMP_REQUESTED_AGENT_COUNT: '100',
+    MAILCHIMP_ENABLE_STRUCTURAL_FULL_CLONE_EXPANSION: '1',
+    MAILCHIMP_ENABLE_FULL_CLONE_FRONTIER_EXPANSION: '1',
+    MAILCHIMP_ENABLE_FULL_CLONE_REMEDIATION_EXPANSION: '1',
+    MAILCHIMP_ENABLE_FULL_CLONE_STRICT_REMEDIATION_EXPANSION: '1',
+    MAILCHIMP_ENABLE_FULL_CLONE_CONTINUATION_EXPANSION: '1',
+    MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR: '1',
+    MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE: '0'
+  });
+  try {
+    const allFocusIds = fullCloneObjectiveInventory().map((gap) => `focus.${gap.id}`).join(',');
+    process.env.MAILCHIMP_COMPLETED_FOCUS_IDS = allFocusIds;
+    process.env.MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS = allFocusIds;
+
+    const graph = buildMailchimpParityFocusWorkGraph();
+    assert.equal(graph.workGraph.summary.continuationMode, true);
+    assert.equal(graph.workGraph.summary.reopenVerifiedContinuationRoots, true);
+    assert.equal(graph.surfaceMatrix.status, 'partial');
+    assert.ok(graph.workGraph.summary.allContinuationLeafCount >= 100, 'verified-root fallback should still create a 100-agent-sized architecture-epic graph');
+    assert.ok(graph.workGraph.workUnits.length > 0, 'verified completed roots must not collapse full-clone-red continuation into zero work');
+    assert.ok(graph.workGraph.workUnits.every((unit) => unit.id.includes('::continuation-')));
+    assert.ok(graph.workGraph.summary.continuationFallbackRootFocusIds.length > 0);
+  } finally {
+    for (const [key, value] of Object.entries({
+      MAILCHIMP_USE_STRICT_GAP_INVENTORY: previous.use,
+      MAILCHIMP_STRICT_GAP_SEQUENCE: previous.seq,
+      ORCHESTRATOR_IMPLEMENTATION_PROFILE: previous.profile,
+      MAILCHIMP_COMPLETED_FOCUS_IDS: previous.completed,
+      MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS: previous.verified,
+      MAILCHIMP_EXCLUDED_FOCUS_IDS: previous.excluded,
+      MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION: previous.ignoreSatisfied,
+      ORCHESTRATOR_REQUESTED_FIDELITY: previous.fidelity,
+      MAILCHIMP_REQUESTED_AGENT_COUNT: previous.agentCount,
+      MAILCHIMP_ENABLE_STRUCTURAL_FULL_CLONE_EXPANSION: previous.structural,
+      MAILCHIMP_ENABLE_FULL_CLONE_FRONTIER_EXPANSION: previous.frontier,
+      MAILCHIMP_ENABLE_FULL_CLONE_REMEDIATION_EXPANSION: previous.remediation,
+      MAILCHIMP_ENABLE_FULL_CLONE_STRICT_REMEDIATION_EXPANSION: previous.strictRemediation,
+      MAILCHIMP_ENABLE_FULL_CLONE_CONTINUATION_EXPANSION: previous.continuation,
+      MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR: previous.semantic,
+      MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE: previous.semanticForce
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test('semantic director can target one architecture epic for staged rich-client/editor proof', () => {
+  const previous = {
+    use: process.env.MAILCHIMP_USE_STRICT_GAP_INVENTORY,
+    seq: process.env.MAILCHIMP_STRICT_GAP_SEQUENCE,
+    profile: process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE,
+    completed: process.env.MAILCHIMP_COMPLETED_FOCUS_IDS,
+    verified: process.env.MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS,
+    excluded: process.env.MAILCHIMP_EXCLUDED_FOCUS_IDS,
+    ignoreSatisfied: process.env.MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION,
+    fidelity: process.env.ORCHESTRATOR_REQUESTED_FIDELITY,
+    agentCount: process.env.MAILCHIMP_REQUESTED_AGENT_COUNT,
+    semantic: process.env.MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR,
+    semanticForce: process.env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE,
+    semanticMax: process.env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_MAX_GAPS,
+    epicTargets: process.env.MAILCHIMP_ARCHITECTURE_EPIC_TARGET_IDS,
+    epicStage: process.env.MAILCHIMP_ARCHITECTURE_EPIC_STAGE,
+    epicMax: process.env.MAILCHIMP_ARCHITECTURE_EPIC_MAX_EPICS
+  };
+  Object.assign(process.env, {
+    MAILCHIMP_USE_STRICT_GAP_INVENTORY: '1',
+    MAILCHIMP_STRICT_GAP_SEQUENCE: '0',
+    ORCHESTRATOR_IMPLEMENTATION_PROFILE: 'mailchimp_parity_focus',
+    ORCHESTRATOR_REQUESTED_FIDELITY: 'full_clone',
+    MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION: '1',
+    MAILCHIMP_COMPLETED_FOCUS_IDS: '',
+    MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS: '',
+    MAILCHIMP_EXCLUDED_FOCUS_IDS: '',
+    MAILCHIMP_REQUESTED_AGENT_COUNT: '12',
+    MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR: '1',
+    MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE: '1',
+    MAILCHIMP_SEMANTIC_WORK_DIRECTOR_MAX_GAPS: '3',
+    MAILCHIMP_ARCHITECTURE_EPIC_TARGET_IDS: 'rich_client_editor_architecture',
+    MAILCHIMP_ARCHITECTURE_EPIC_STAGE: 'single_epic',
+    MAILCHIMP_ARCHITECTURE_EPIC_MAX_EPICS: '1'
+  });
+  try {
+    const graph = buildMailchimpParityFocusWorkGraph();
+    const semantic = graph.workGraph.summary.semanticDirector;
+    assert.equal(semantic.active, true);
+    assert.equal(semantic.architectureEpicPlan.status, 'planned');
+    assert.equal(semantic.architectureEpicPlan.epics.length, 1);
+    assert.equal(semantic.architectureEpicPlan.epics[0].id, 'rich_client_editor_architecture');
+    assert.ok(graph.workGraph.workUnits.length > 0);
+    assert.ok(graph.workGraph.workUnits.every((unit) => unit.metadata.architectureEpicId === 'rich_client_editor_architecture'));
+    assert.ok(graph.workGraph.workUnits.some((unit) => unit.metadata.architectureRole === 'editor_runtime_builder'));
+    assert.ok(graph.workGraph.workUnits.every((unit) => unit.metadata.assignmentContract.artifactKind === 'product_diff'));
+  } finally {
+    for (const [key, value] of Object.entries({
+      MAILCHIMP_USE_STRICT_GAP_INVENTORY: previous.use,
+      MAILCHIMP_STRICT_GAP_SEQUENCE: previous.seq,
+      ORCHESTRATOR_IMPLEMENTATION_PROFILE: previous.profile,
+      MAILCHIMP_COMPLETED_FOCUS_IDS: previous.completed,
+      MAILCHIMP_VERIFIED_COMPLETED_FOCUS_IDS: previous.verified,
+      MAILCHIMP_EXCLUDED_FOCUS_IDS: previous.excluded,
+      MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION: previous.ignoreSatisfied,
+      ORCHESTRATOR_REQUESTED_FIDELITY: previous.fidelity,
+      MAILCHIMP_REQUESTED_AGENT_COUNT: previous.agentCount,
+      MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR: previous.semantic,
+      MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE: previous.semanticForce,
+      MAILCHIMP_SEMANTIC_WORK_DIRECTOR_MAX_GAPS: previous.semanticMax,
+      MAILCHIMP_ARCHITECTURE_EPIC_TARGET_IDS: previous.epicTargets,
+      MAILCHIMP_ARCHITECTURE_EPIC_STAGE: previous.epicStage,
+      MAILCHIMP_ARCHITECTURE_EPIC_MAX_EPICS: previous.epicMax
     })) {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;

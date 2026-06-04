@@ -65,6 +65,8 @@ const ITERATION_EPHEMERAL_ARTIFACTS = Object.freeze([
   'loc_accounting.json',
   'implementation_mode_status.json',
   'notifier_eligibility.json',
+  'resource_preflight.json',
+  'scale_preflight.json',
   'scale_qualification.json',
   'selected_tier_summary.json',
   'selected_tier_supervisor.json',
@@ -81,6 +83,8 @@ const HEARTBEAT_ARTIFACTS = [
   'notifier_eligibility.json',
   'implementation_mode_status.json',
   'launch_checklist.json',
+  'resource_preflight.json',
+  'scale_preflight.json',
   'loc_accounting.json'
 ].map((name) => path.join(ARTIFACT_ROOT, name));
 const OVERLAY_PATHSPECS = buildRepoWideSyncPathspecs();
@@ -590,6 +594,28 @@ function requestedSemanticTargetFocusIds() {
     .map((entry) => String(entry || '').trim())
     .filter(Boolean)
     .map((entry) => entry.startsWith('focus.') ? entry : `focus.${entry}`));
+}
+
+function unresolvedSemanticTargetFocusIds(verifiedFocusIds = []) {
+  const verified = new Set(normalizeCompletedFocusIds(verifiedFocusIds));
+  return requestedSemanticTargetFocusIds().filter((focusId) => !verified.has(focusId));
+}
+
+function targetedSemanticLiveWorkRequired() {
+  return process.env.MAILCHIMP_TARGETED_SEMANTIC_PREFLIGHT_CREDIT === '0'
+    || process.env.MAILCHIMP_CONTINUE_UNTIL_GLOBAL_PARITY === '1'
+    || process.env.ORCHESTRATOR_REQUESTED_FIDELITY === 'full_clone'
+    || process.env.MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT === '1'
+    || process.env.MAILCHIMP_ARCHITECTURE_ONLY_CREDIT === '1';
+}
+
+function targetedSemanticPreflightCreditAllowed() {
+  if (process.env.MAILCHIMP_TARGETED_SEMANTIC_PREFLIGHT_CREDIT === '1') return true;
+  return !targetedSemanticLiveWorkRequired();
+}
+
+function targetedSemanticPreflightExitAllowed(status = null) {
+  return Boolean(status?.satisfied) && targetedSemanticPreflightCreditAllowed();
 }
 
 function evaluateTargetedSemanticReplay({ verifiedFocusIds = [], iteration = null, progressDelta = [], freshProgressDetected = false, selectedTierHadLiveWork = false } = {}) {
@@ -1333,6 +1359,8 @@ async function runIteration({ iteration, iterationResults, baselineOverlay, depe
   if (iterationBenchmarkContractPath) iterationEnv.MAILCHIMP_ONE_PASS_CONTRACT_PATH = iterationBenchmarkContractPath;
   if (process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE) iterationEnv.ORCHESTRATOR_IMPLEMENTATION_PROFILE = process.env.ORCHESTRATOR_IMPLEMENTATION_PROFILE;
   if (process.env.ORCHESTRATOR_TIERS) iterationEnv.ORCHESTRATOR_TIERS = process.env.ORCHESTRATOR_TIERS;
+  if (process.env.ORCHESTRATOR_FORCE_STAGED_LADDER) iterationEnv.ORCHESTRATOR_FORCE_STAGED_LADDER = process.env.ORCHESTRATOR_FORCE_STAGED_LADDER;
+  if (process.env.ORCHESTRATOR_MAX_SPAWNS_PER_TICK) iterationEnv.ORCHESTRATOR_MAX_SPAWNS_PER_TICK = process.env.ORCHESTRATOR_MAX_SPAWNS_PER_TICK;
   if (process.env.ORCHESTRATOR_REQUESTED_FIDELITY) iterationEnv.ORCHESTRATOR_REQUESTED_FIDELITY = process.env.ORCHESTRATOR_REQUESTED_FIDELITY;
   if (process.env.MAILCHIMP_PRODUCT_ONLY) iterationEnv.MAILCHIMP_PRODUCT_ONLY = process.env.MAILCHIMP_PRODUCT_ONLY;
   if (process.env.MAILCHIMP_USE_STRICT_GAP_INVENTORY) iterationEnv.MAILCHIMP_USE_STRICT_GAP_INVENTORY = process.env.MAILCHIMP_USE_STRICT_GAP_INVENTORY;
@@ -1345,8 +1373,14 @@ async function runIteration({ iteration, iterationResults, baselineOverlay, depe
     'MAILCHIMP_IGNORE_STRICT_GAP_SATISFACTION',
     'MAILCHIMP_ALLOW_SYNTHETIC_PARITY_DELTAS',
     'MAILCHIMP_ALLOW_CANONICAL_RUNTIME_FALLBACK',
+    'MAILCHIMP_SCALE_PREFLIGHT',
+    'MAILCHIMP_ALLOW_TARGETED_SCALE_PROOF',
     'MAILCHIMP_REQUIRE_DEEP_ARCHITECTURE_CREDIT',
     'MAILCHIMP_ARCHITECTURE_ONLY_CREDIT',
+    'MAILCHIMP_ARCHITECTURE_EPIC_TARGET_IDS',
+    'MAILCHIMP_ARCHITECTURE_EPIC_STAGE',
+    'MAILCHIMP_ARCHITECTURE_EPIC_MAX_EPICS',
+    'MAILCHIMP_DISABLE_ARCHITECTURE_EPIC_PLANNER',
     'MAILCHIMP_ENABLE_SEMANTIC_WORK_DIRECTOR',
     'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_FORCE',
     'MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS',
@@ -1359,6 +1393,14 @@ async function runIteration({ iteration, iterationResults, baselineOverlay, depe
     'MAILCHIMP_ENABLE_FULL_CLONE_CONTINUATION_EXPANSION'
   ]) {
     if (process.env[key]) iterationEnv[key] = process.env[key];
+  }
+  if (process.env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS) {
+    const unresolvedTargetFocusIds = unresolvedSemanticTargetFocusIds(progressState?.verifiedCompletedFocusIds || []);
+    if (unresolvedTargetFocusIds.length > 0) {
+      iterationEnv.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS = unresolvedTargetFocusIds.join(',');
+    } else {
+      delete iterationEnv.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS;
+    }
   }
   writeJson(ITERATION_LAUNCH_ENV_PATH, {
     generatedAt: new Date().toISOString(),
@@ -1499,14 +1541,19 @@ let progressState = loadProgressState();
 
 const preflightTargetFocusIds = requestedSemanticTargetFocusIds();
 if (preflightTargetFocusIds.length > 0) {
-  const preflightVerifiedFocusIds = verifyFocusIdsByTargetedTests(preflightTargetFocusIds);
-  const preflightProgressState = saveProgressState({
-    ...progressState,
-    completedFocusIds: Array.from(new Set([...(progressState.completedFocusIds || []), ...preflightVerifiedFocusIds])),
-    verifiedCompletedFocusIds: Array.from(new Set([...(progressState.verifiedCompletedFocusIds || []), ...preflightVerifiedFocusIds])),
-    lastIteration: 0
-  });
-  progressState = preflightProgressState;
+  const preflightTargetCreditAllowed = targetedSemanticPreflightCreditAllowed();
+  const preflightVerifiedFocusIds = preflightTargetCreditAllowed
+    ? verifyFocusIdsByTargetedTests(preflightTargetFocusIds)
+    : [];
+  if (preflightTargetCreditAllowed) {
+    const preflightProgressState = saveProgressState({
+      ...progressState,
+      completedFocusIds: Array.from(new Set([...(progressState.completedFocusIds || []), ...preflightVerifiedFocusIds])),
+      verifiedCompletedFocusIds: Array.from(new Set([...(progressState.verifiedCompletedFocusIds || []), ...preflightVerifiedFocusIds])),
+      lastIteration: 0
+    });
+    progressState = preflightProgressState;
+  }
   writeBenchmarkProgress({ progressState, iteration: 0 });
   const preflightTargetStatus = evaluateTargetedSemanticReplay({
     verifiedFocusIds: progressState.verifiedCompletedFocusIds,
@@ -1515,8 +1562,10 @@ if (preflightTargetFocusIds.length > 0) {
     freshProgressDetected: false,
     selectedTierHadLiveWork: false
   });
+  preflightTargetStatus.preflightCreditAllowed = preflightTargetCreditAllowed;
+  preflightTargetStatus.liveWorkRequired = !preflightTargetCreditAllowed;
   writeJson(TARGETED_SEMANTIC_REPLAY_STATUS_PATH, preflightTargetStatus);
-  if (preflightTargetStatus.satisfied) {
+  if (targetedSemanticPreflightExitAllowed(preflightTargetStatus)) {
     persistTerminalStatus({
       ok: true,
       phase: 'remote_execution_target_satisfied',

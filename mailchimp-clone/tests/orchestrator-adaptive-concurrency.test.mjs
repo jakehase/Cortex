@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   parsePositiveIntegerList,
   resolveAdaptiveConcurrencyTiers,
-  resolveRequestedAgentCount
+  resolveRequestedAgentCount,
+  resolveScaleProofPreflight,
+  scaleProofMinimumsForAgentCount
 } from '../scripts/lib/orchestrator-adaptive-concurrency.mjs';
 
 test('adaptive concurrency starts at 100 when a full-clone run requests 100 and the backlog is huge', () => {
@@ -84,4 +86,62 @@ test('non full-clone runs keep the staged ladder unchanged', () => {
 
   assert.equal(plan.mode, 'staged_ladder');
   assert.deepEqual(plan.resolvedTiers, [8, 16, 32]);
+});
+
+test('scale proof preflight blocks targeted repair config before high-scale final-boss launch', () => {
+  const preflight = resolveScaleProofPreflight({
+    requestedTiers: [100],
+    requestedAgentCount: 100,
+    requestedFidelity: 'full_clone',
+    shardPlan: { summary: { shardCount: 188, initialReadyCount: 144, laneCount: 11, domainCount: 11 } },
+    env: { MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS: 'focus.api_keys_webhooks' }
+  });
+
+  assert.equal(preflight.ok, false);
+  assert.equal(preflight.scaleProofRequired, true);
+  assert.deepEqual(preflight.targetFocusIds, ['focus.api_keys_webhooks']);
+  assert.equal(preflight.failures[0].reason, 'targeted_focus_set_active_for_high_scale_full_clone');
+});
+
+test('scale proof preflight accepts broad final-boss launch with enough ready shards and lane diversity', () => {
+  const preflight = resolveScaleProofPreflight({
+    requestedTiers: [100],
+    requestedAgentCount: 100,
+    requestedFidelity: 'full_clone',
+    shardPlan: { summary: { shardCount: 188, initialReadyCount: 144, laneCount: 11, domainCount: 11 } },
+    env: {}
+  });
+
+  assert.equal(preflight.ok, true);
+  assert.equal(preflight.minimums.minimumObservedAgents, 20);
+  assert.equal(preflight.minimums.minimumPeakConcurrentWorkers, 10);
+});
+
+test('scale proof preflight blocks high-scale launch when execution-plane resources are below gate', () => {
+  const preflight = resolveScaleProofPreflight({
+    requestedTiers: [100],
+    requestedAgentCount: 100,
+    requestedFidelity: 'full_clone',
+    shardPlan: { summary: { shardCount: 188, initialReadyCount: 144, laneCount: 11, domainCount: 11 } },
+    resourcePreflight: {
+      ok: false,
+      status: 'resource_preflight_blocked',
+      failures: [{ reason: 'file_descriptor_limit_too_low', fileDescriptorLimit: 1024, minimumFileDescriptorLimit: 3200 }],
+      blocker: { nextAction: 'Raise ulimit before relaunch.' }
+    },
+    env: {}
+  });
+
+  assert.equal(preflight.ok, false);
+  assert.equal(preflight.resourcePreflight.status, 'resource_preflight_blocked');
+  assert.equal(preflight.failures.at(-1).reason, 'resource_preflight_failed');
+  assert.match(preflight.blocker.nextAction, /Raise ulimit/);
+});
+
+test('scale proof minimums mirror supervisor truth thresholds', () => {
+  assert.deepEqual(scaleProofMinimumsForAgentCount(100), {
+    requestedAgentCount: 100,
+    minimumObservedAgents: 20,
+    minimumPeakConcurrentWorkers: 10
+  });
 });

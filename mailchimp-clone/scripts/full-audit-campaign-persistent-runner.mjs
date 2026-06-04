@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { deriveCampaignContinuation, deriveObjectiveExpansion, initializeCampaign, installProcessTerminationPersistence } from '../../large-project-capability-stack/packages/campaign-runtime/index.mjs';
+import { deriveTopLevelIterationDecision, reduceRunState } from '../../large-project-capability-stack/packages/orchestrator-run-state/index.mjs';
 import { buildMailchimpParityFocusWorkGraph, extractVerifiedFocusIdsFromPatchQueue, fullCloneObjectiveInventory, mailchimpParityFocusIds, strictGapAlreadySatisfied, strictGapStructuralAlreadySatisfied, strictGapSwarmAlreadySatisfied } from './lib/orchestrator-real-repo-clean-plan.mjs';
 import { ORCHESTRATION_PROGRAM_SPEC, resolveProgramEnvKeys, resolveProgramPaths, resolveProgramScriptPath } from './lib/orchestration-program-config.mjs';
 
@@ -15,6 +16,9 @@ const ARTIFACT_DIR = PROGRAM_PATHS.artifactDir;
 const RUNS_DIR = path.join(ARTIFACT_DIR, 'runs');
 const CURRENT_RUN_PATH = PROGRAM_PATHS.currentRunPath;
 const STATUS_PATH = PROGRAM_PATHS.persistentRunnerStatusPath;
+const RUN_STATE_TRUTH_NAME = 'run_state_truth.json';
+const RUN_STATE_TRUTH_PATH = path.join(ARTIFACT_DIR, RUN_STATE_TRUTH_NAME);
+const ITERATION_LAUNCH_GATE_PATH = path.join(ARTIFACT_DIR, 'iteration_launch_gate.json');
 const LOG_PATH = path.join(ARTIFACT_DIR, 'persistent_runner.log');
 const CONTRACT_PATH = path.join(ARTIFACT_DIR, 'one_pass_run_contract.latest.json');
 const PRELAUNCH_GATE_PATH = path.join(ARTIFACT_DIR, 'prelaunch_gate_evaluation.json');
@@ -265,12 +269,40 @@ function deriveCompletedFocusIdsFromSurfaceMatrix(surfaceMatrix = null) {
       : [`focus.${String(surface.id || '').trim()}`]))
     .filter((focusId) => parityFocusIds.has(focusId));
 }
+function isTargetedSemanticReplaySatisfied(remoteExecutionStatus = null) {
+  return String(remoteExecutionStatus?.phase || '') === 'remote_execution_target_satisfied'
+    && remoteExecutionStatus?.targetedSemanticReplay?.satisfied === true;
+}
+function targetedSemanticReplayFocusIds(remoteExecutionStatus = null) {
+  const replay = remoteExecutionStatus?.targetedSemanticReplay || null;
+  return normalizeFocusIds([
+    ...(Array.isArray(replay?.verifiedTargetFocusIds) ? replay.verifiedTargetFocusIds : []),
+    ...(Array.isArray(replay?.progressDelta) ? replay.progressDelta : [])
+  ]);
+}
+function targetedSemanticReplayLandingEvidence(remoteExecutionStatus = null) {
+  return {
+    ok: true,
+    targetSatisfied: true,
+    skippedPatchOutput: true,
+    productFileCount: 0,
+    newlyLandedProductFileCount: 0,
+    alreadyMatchedProductFileCount: 0,
+    canonicalSynchronizedProductFileCount: 0,
+    verifiedTargetFocusIds: targetedSemanticReplayFocusIds(remoteExecutionStatus),
+    note: 'Targeted semantic replay verified the requested focus set before delegate launch; no new product patch needed for this scoped repair checkpoint.'
+  };
+}
 function deriveCompletedFocusIdsFromDelegateProgress(runDir = null, syncStatus = null) {
-  if (!runDir || syncStatus?.canonicalLandingEvidence?.ok !== true) return [];
+  if (!runDir) return [];
+  const remoteExecutionStatus = readJson(path.join(runDir, 'delegate', 'remote_execution_status.json'), null);
+  if (isTargetedSemanticReplaySatisfied(remoteExecutionStatus)) return targetedSemanticReplayFocusIds(remoteExecutionStatus);
+  if (syncStatus?.canonicalLandingEvidence?.ok !== true) return [];
   const progress = readJson(path.join(runDir, 'delegate', 'benchmark_progress.json'), null);
   return normalizeFocusIds(Array.isArray(progress?.verifiedFocusIds) ? progress.verifiedFocusIds : []);
 }
 function hasControlPlaneSyncOrLandingFailure(record = null) {
+  if (record?.targetedSemanticReplaySatisfied === true) return false;
   return Number(record?.syncExitCode || 0) !== 0
     || Boolean(record?.syncError)
     || record?.canonicalLandingOk === false
@@ -937,10 +969,235 @@ const legacyEnvCompletedFocusIds = normalizeFocusIds(String(process.env[PROGRAM_
 const completedFocusIds = new Set(normalizeFocusIds(String(process.env[PROGRAM_ENV.verifiedCompletedFocusIds] || '').split(',')));
 const discardedLegacyCompletedFocusIds = legacyEnvCompletedFocusIds.filter((focusId) => !completedFocusIds.has(focusId));
 const excludedFocusIds = new Set(normalizeFocusIds(String(process.env.MAILCHIMP_EXCLUDED_FOCUS_IDS || '').split(',')));
-let directedNextFocusIds = normalizeContinuationFocusIds(String(process.env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS || '').split(','));
+const initialDirectedNextFocusIds = normalizeContinuationFocusIds(String(process.env.MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS || '').split(','));
+const targetedScaleProofExplicitlyAllowed = String(process.env.MAILCHIMP_ALLOW_TARGETED_SCALE_PROOF || process.env.MAILCHIMP_ALLOW_TARGETED_FINAL_BOSS_SCALE_PROOF || '').trim() === '1';
+function keepBroadFullCloneSemanticDirectorUnscoped(contract = readJson(CONTRACT_PATH, null)) {
+  return requestedFullClone(contract)
+    && initialDirectedNextFocusIds.length === 0
+    && !targetedScaleProofExplicitlyAllowed;
+}
+let directedNextFocusIds = initialDirectedNextFocusIds;
+
+function resolveCurrentRunDir() {
+  const current = readJson(CURRENT_RUN_PATH, null);
+  const runDir = current?.runDir || current?.artifactRoot || null;
+  return runDir ? path.resolve(ROOT, runDir) : null;
+}
+
+function readCurrentDelegateJson(fileName, fallback = null) {
+  const runDir = resolveCurrentRunDir();
+  return runDir ? readJson(path.join(runDir, 'delegate', fileName), fallback) : fallback;
+}
+
+function buildTerminationRunStateInput() {
+  const programState = readJson(PROGRAM_STATE_PATH, null);
+  const runnerStatus = readJson(STATUS_PATH, null);
+  const completionSummary = readJson(SUMMARY_PATH, null) || readCurrentDelegateJson('completion_summary.json', null);
+  const supervisorStatus = readJson(SUPERVISOR_STATUS_PATH, null) || programState?.supervisor || readCurrentDelegateJson('supervisor_status.json', null);
+  const blockerReport = readJson(BLOCKER_PATH, null) || readCurrentDelegateJson('blocker_report.json', null);
+  const remoteExecutionStatus = readCurrentDelegateJson('remote_execution_status.json', null);
+  return {
+    programState: programState || runnerStatus || { running: true, status: 'terminating' },
+    localRunnerStatus: runnerStatus || programState || { running: true, status: 'terminating' },
+    remoteExecutionStatus,
+    completionSummary,
+    supervisorStatus,
+    blocker: blockerReport?.blocker ? blockerReport : programState?.supervisor?.blocker || completionSummary?.blocker || null,
+    blockerKind: blockerReport?.blockerKind || programState?.supervisor?.blockerKind || completionSummary?.blockerKind || null,
+    requestedFidelity: readJson(CONTRACT_PATH, null)?.fidelity || process.env.ORCHESTRATOR_REQUESTED_FIDELITY || null
+  };
+}
+
+function buildPreSpawnRunStateInput() {
+  const current = readJson(CURRENT_RUN_PATH, null);
+  if (!current?.runId) return null;
+  const runnerStatus = readJson(STATUS_PATH, null);
+  const programState = readJsonForRun(PROGRAM_STATE_PATH, current.runId, null) || readJson(PROGRAM_STATE_PATH, null);
+  const completionSummary = readJsonForRun(SUMMARY_PATH, current.runId, null) || readCurrentDelegateJson('completion_summary.json', null);
+  const supervisorStatus = readJsonForRun(SUPERVISOR_STATUS_PATH, current.runId, null) || programState?.supervisor || readCurrentDelegateJson('supervisor_status.json', null);
+  const blockerReport = readJsonForRun(BLOCKER_PATH, current.runId, null) || readCurrentDelegateJson('blocker_report.json', null);
+  const remoteExecutionStatus = readCurrentDelegateJson('remote_execution_status.json', null);
+  const thresholdEvaluation = readJson(path.join(ARTIFACT_DIR, 'threshold_evaluation.json'), null) || readCurrentDelegateJson('threshold_evaluation.json', null);
+  return {
+    priorRunId: current.runId,
+    remoteExecutionStatus,
+    completionSummary,
+    supervisorStatus,
+    thresholdEvaluation,
+    blocker: blockerReport?.blocker ? blockerReport : programState?.supervisor?.blocker || completionSummary?.blocker || null,
+    blockerKind: blockerReport?.blockerKind || programState?.supervisor?.blockerKind || completionSummary?.blockerKind || null,
+    requestedFidelity: readJson(CONTRACT_PATH, null)?.fidelity || readJson(CONTRACT_PATH, null)?.requestedFidelity || process.env.ORCHESTRATOR_REQUESTED_FIDELITY || null,
+    objectiveExpansion: runnerStatus?.objectiveExpansion || programState?.supervisor?.objectiveExpansionPlan || null
+  };
+}
+
+function summarizeRunStateForArtifact(runState = null) {
+  return runState ? {
+    terminalState: runState.terminalState,
+    terminal: runState.terminal,
+    running: runState.running,
+    ok: runState.ok,
+    stopAllowed: runState.stopAllowed,
+    truth: runState.truth,
+    contradictions: runState.contradictions
+  } : null;
+}
+
+function evaluateIterationLaunchGate({ iteration, runId, runDir } = {}) {
+  if (iteration <= 1) {
+    const report = {
+      generatedAt: new Date().toISOString(),
+      ok: true,
+      phase: 'pre_spawn_gate',
+      decision: 'first_iteration_no_prior_gate',
+      runId,
+      iteration,
+      note: 'First iteration has no previous run-state truth to gate.'
+    };
+    writeJson(ITERATION_LAUNCH_GATE_PATH, report);
+    writeJson(path.join(runDir, 'iteration_launch_gate.json'), report);
+    return report;
+  }
+  const runStateInput = buildPreSpawnRunStateInput();
+  if (!runStateInput) {
+    const report = {
+      generatedAt: new Date().toISOString(),
+      ok: true,
+      phase: 'pre_spawn_gate',
+      decision: 'no_prior_run_state_artifacts',
+      runId,
+      iteration,
+      note: 'No current-run artifact pointer existed before this iteration.'
+    };
+    writeJson(ITERATION_LAUNCH_GATE_PATH, report);
+    writeJson(path.join(runDir, 'iteration_launch_gate.json'), report);
+    return report;
+  }
+  const remainingGlobalFocusIds = remainingGlobalParityFocusIds(completedFocusIds, excludedFocusIds);
+  const previousIteration = iterations.at(-1) || null;
+  const productProgressOverride = previousIteration?.blockerKind === 'strict_1to1_ceiling'
+    && !hasControlPlaneSyncOrLandingFailure(previousIteration)
+    && hasCanonicalLandingProgress(previousIteration);
+  const decision = deriveTopLevelIterationDecision({
+    ...runStateInput,
+    nextFocus: directedNextFocusIds,
+    remainingObjectiveIds: remainingGlobalFocusIds,
+    objectiveExpansion: runStateInput.objectiveExpansion,
+    productProgressOverride,
+    safeToLaunch: true
+  });
+  const blockingDecisions = new Set(['must_wait_active_run', 'must_stop_truth_contradiction', 'must_stop_claim_blocked']);
+  const report = {
+    generatedAt: new Date().toISOString(),
+    ok: !blockingDecisions.has(decision.decision),
+    phase: 'pre_spawn_gate',
+    runId,
+    iteration,
+    priorRunId: runStateInput.priorRunId || null,
+    decision: decision.decision,
+    reason: decision.reason,
+    mayStart: decision.mayStart,
+    shouldStop: decision.shouldStop,
+    shouldContinue: decision.shouldContinue,
+    nextFocus: decision.nextFocus,
+    remainingGlobalFocusIds,
+    productProgressOverride,
+    objectiveExpansion: runStateInput.objectiveExpansion || null,
+    runState: summarizeRunStateForArtifact(decision.runState),
+    artifactContract: {
+      requiredBeforeSpawn: [RUN_STATE_TRUTH_NAME, 'remote_execution_status.json', ORCHESTRATION_PROGRAM_SPEC.files.programState, ORCHESTRATION_PROGRAM_SPEC.files.blockerReport],
+      truthBoundary: 'A new top-level iteration may not start while the previous remote run is active, truth is contradictory, or the previous state is claim-blocked.'
+    }
+  };
+  writeJson(ITERATION_LAUNCH_GATE_PATH, report);
+  writeJson(path.join(runDir, 'iteration_launch_gate.json'), report);
+  return report;
+}
+
+function evaluateIterationArtifactContract({ runDir, includeRunState = true } = {}) {
+  const required = [
+    { name: 'remote_execution_status.json', path: path.join(runDir, 'delegate', 'remote_execution_status.json') },
+    { name: ORCHESTRATION_PROGRAM_SPEC.files.programState, path: PROGRAM_STATE_PATH },
+    { name: ORCHESTRATION_PROGRAM_SPEC.files.blockerReport, path: BLOCKER_PATH }
+  ];
+  if (includeRunState) required.unshift({ name: RUN_STATE_TRUTH_NAME, path: path.join(runDir, RUN_STATE_TRUTH_NAME) });
+  const artifacts = required.map((artifact) => {
+    const value = readJson(artifact.path, null);
+    return {
+      name: artifact.name,
+      path: path.relative(ROOT, artifact.path),
+      present: fs.existsSync(artifact.path),
+      readableJson: value !== null
+    };
+  });
+  return {
+    ok: artifacts.every((artifact) => artifact.present && artifact.readableJson),
+    artifacts,
+    missing: artifacts.filter((artifact) => !(artifact.present && artifact.readableJson)).map((artifact) => artifact.name)
+  };
+}
+
+function writeIterationRunStateTruth({ runDir, runId, iteration, input = {}, phase = 'post_iteration' } = {}) {
+  const generatedAt = new Date().toISOString();
+  const runState = reduceRunState(input, { generatedAt });
+  const payload = {
+    ...runState,
+    runId,
+    iteration,
+    phase,
+    artifactContract: evaluateIterationArtifactContract({ runDir, includeRunState: false })
+  };
+  writeJson(path.join(runDir, RUN_STATE_TRUTH_NAME), payload);
+  writeJson(RUN_STATE_TRUTH_PATH, payload);
+  return payload;
+}
+
+function blockBeforeSpawnFromLaunchGate({ gate, runId, iteration } = {}) {
+  const blocker = {
+    blocker: 'Persistent runner refused to start a new top-level iteration because the shared run-state gate is not launch-ready.',
+    nextAction: gate?.decision === 'must_wait_active_run'
+      ? 'Wait for the prior remote execution to write a terminal status, then rerun sync/supervisor before starting another iteration.'
+      : 'Audit run_state_truth.json, remote_execution_status.json, program_state.json, and blocker_report.json before launching another iteration.',
+    phase: 'pre_spawn_gate',
+    status: 'blocked_pre_spawn_gate',
+    runId,
+    iteration,
+    gatePath: path.relative(ROOT, ITERATION_LAUNCH_GATE_PATH),
+    gate
+  };
+  writeJson(BLOCKER_PATH, { generatedAt: new Date().toISOString(), ...blocker });
+  writeJson(STATUS_PATH, {
+    generatedAt: new Date().toISOString(),
+    running: false,
+    campaignRunId: CAMPAIGN_RUN_ID,
+    runId,
+    iteration,
+    maxIterations: MAX_ITERATIONS,
+    maxRuntimeHours: MAX_RUNTIME_HOURS,
+    deadlineAt: new Date(DEADLINE_AT_MS).toISOString(),
+    iterations,
+    completedFocusIds: Array.from(completedFocusIds),
+    verifiedCompletedFocusIds: Array.from(completedFocusIds),
+    discardedLegacyCompletedFocusIds,
+    excludedFocusIds: Array.from(excludedFocusIds),
+    status: 'blocked_pre_spawn_gate',
+    blocker,
+    note: 'The shared run-state launch gate blocked this iteration before worker spawn.'
+  });
+  runTerminalWatch();
+  process.exit(1);
+}
 
 installProcessTerminationPersistence({
-  persist: ({ type = 'signal', signal = null, error = null } = {}) => {
+  artifactRoot: ARTIFACT_DIR,
+  getRunStateInput: buildTerminationRunStateInput,
+  terminalArtifacts: {
+    artifactRoot: ARTIFACT_DIR,
+    programStateName: ORCHESTRATION_PROGRAM_SPEC.files.programState,
+    runStateName: 'run_state_truth.json',
+    blockerName: ORCHESTRATION_PROGRAM_SPEC.files.blockerReport
+  },
+  persist: ({ type = 'signal', signal = null, error = null, terminalPersistence = null, terminalPersistenceError = null } = {}) => {
     writeJson(STATUS_PATH, {
       generatedAt: new Date().toISOString(),
       running: false,
@@ -958,7 +1215,9 @@ installProcessTerminationPersistence({
       termination: {
         type,
         signal,
-        error
+        error,
+        terminalPersistence,
+        terminalPersistenceError
       }
     });
   }
@@ -1059,6 +1318,17 @@ function seedIterationTruth({ runId, iteration, runDir }) {
       summary: 'Worker launching for current iteration.'
     });
   }
+  writeIterationRunStateTruth({
+    runDir,
+    runId,
+    iteration,
+    phase: 'seeded_iteration',
+    input: {
+      workerFarmStatus: { running: true, phase: 'launching' },
+      supervisorStatus: { status: 'running' },
+      completionSummary: { running: true, status: 'iteration_seeded' }
+    }
+  });
 }
 
 for (let iteration = 1; ; iteration += 1) {
@@ -1067,6 +1337,8 @@ for (let iteration = 1; ; iteration += 1) {
   const runId = runIdFor(iteration);
   const runDir = path.join(RUNS_DIR, runId);
   ensureDir(runDir);
+  const launchGate = evaluateIterationLaunchGate({ iteration, runId, runDir });
+  if (launchGate.ok === false) blockBeforeSpawnFromLaunchGate({ gate: launchGate, runId, iteration });
   seedIterationTruth({ runId, iteration, runDir });
   writeJson(path.join(runDir, 'run_manifest.json'), {
     campaignRunId: CAMPAIGN_RUN_ID,
@@ -1123,7 +1395,7 @@ for (let iteration = 1; ; iteration += 1) {
     [PROGRAM_ENV.completedFocusIds]: Array.from(completedFocusIds).join(','),
     [PROGRAM_ENV.verifiedCompletedFocusIds]: Array.from(completedFocusIds).join(','),
     MAILCHIMP_EXCLUDED_FOCUS_IDS: Array.from(excludedFocusIds).join(','),
-    MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS: directedNextFocusIds.join(',')
+    MAILCHIMP_SEMANTIC_WORK_DIRECTOR_TARGET_FOCUS_IDS: keepBroadFullCloneSemanticDirectorUnscoped() ? '' : directedNextFocusIds.join(',')
   };
   const worker = spawnSync(process.execPath, [WORKER_SCRIPT], { cwd: ROOT, encoding: 'utf8', maxBuffer: 1024 * 1024 * 200, env: sharedEnv });
   appendLog(`\n===== persistent parity iteration ${iteration} (${runId}): worker =====\n${worker.stdout || ''}${worker.stderr || ''}${worker.error ? `\n[spawn-error] ${String(worker.error.message || worker.error)}` : ''}`);
@@ -1157,7 +1429,12 @@ for (let iteration = 1; ; iteration += 1) {
   const blockerReport = readJsonForRun(BLOCKER_PATH, runId, null);
   const surfaceMatrix = readJsonForRun(SURFACE_MATRIX_PATH, runId, null);
   const syncStatus = readJsonForRun(SYNC_STATUS_PATH, runId, null);
-  const landingFailureBlocker = sync.status === 0 && syncStatus?.canonicalLandingEvidence?.ok === false ? {
+  const remoteExecutionStatus = readJson(path.join(runDir, 'delegate', 'remote_execution_status.json'), null);
+  const targetedSemanticReplaySatisfied = isTargetedSemanticReplaySatisfied(remoteExecutionStatus);
+  const targetedSemanticReplayEvidence = targetedSemanticReplaySatisfied
+    ? targetedSemanticReplayLandingEvidence(remoteExecutionStatus)
+    : null;
+  const landingFailureBlocker = !targetedSemanticReplaySatisfied && sync.status === 0 && syncStatus?.canonicalLandingEvidence?.ok === false ? {
     blocker: 'Remote patch sync did not land new product-surface changes in the canonical checkout.',
     nextAction: 'Verify remote baseline freshness and patch path mapping before crediting parity objectives, then rerun with a clean canonical baseline.',
     phase: 'sync_remote_worktree',
@@ -1165,11 +1442,23 @@ for (let iteration = 1; ; iteration += 1) {
     iteration,
     canonicalLandingEvidence: syncStatus.canonicalLandingEvidence
   } : null;
-  const blocker = syncFailureBlocker || landingFailureBlocker || blockerReport?.blocker || summary?.blocker || programState?.supervisor?.blocker || workerFailureBlocker || null;
-  if ((workerFailureBlocker || syncFailureBlocker || landingFailureBlocker) && !blockerReport?.blocker) {
+  const effectiveSyncFailureBlocker = targetedSemanticReplaySatisfied ? null : syncFailureBlocker;
+  const effectiveWorkerFailureBlocker = targetedSemanticReplaySatisfied ? null : workerFailureBlocker;
+  const artifactContractPrecheck = evaluateIterationArtifactContract({ runDir, includeRunState: false });
+  const artifactContractBlocker = artifactContractPrecheck.ok ? null : {
+    blocker: 'Iteration artifact contract is incomplete, so supervisor green cannot be credited.',
+    nextAction: 'Require readable remote_execution_status.json, program_state.json, blocker_report.json, and run_state_truth.json before green or next-iteration credit.',
+    phase: 'artifact_contract',
+    runId,
+    iteration,
+    missingArtifacts: artifactContractPrecheck.missing,
+    artifactContract: artifactContractPrecheck
+  };
+  let blocker = effectiveSyncFailureBlocker || landingFailureBlocker || artifactContractBlocker || blockerReport?.blocker || summary?.blocker || programState?.supervisor?.blocker || effectiveWorkerFailureBlocker || null;
+  if ((effectiveWorkerFailureBlocker || effectiveSyncFailureBlocker || landingFailureBlocker || artifactContractBlocker) && !blockerReport?.blocker) {
     writeJson(BLOCKER_PATH, {
       generatedAt: new Date().toISOString(),
-      ...(workerFailureBlocker || syncFailureBlocker || landingFailureBlocker)
+      ...(effectiveWorkerFailureBlocker || effectiveSyncFailureBlocker || landingFailureBlocker || artifactContractBlocker)
     });
   }
   const delegatePatchQueueReport = readJson(path.join(runDir, 'delegate', 'patch_queue_report.json'), { merged: [] });
@@ -1177,26 +1466,78 @@ for (let iteration = 1; ; iteration += 1) {
     iteration,
     runId,
     workerExitCode: worker.status,
-    syncExitCode: sync.status,
-    supervisorExitCode: supervisor.status,
+    syncExitCode: targetedSemanticReplaySatisfied ? 0 : sync.status,
+    supervisorExitCode: targetedSemanticReplaySatisfied ? 0 : supervisor.status,
     workerError: worker.error ? String(worker.error.message || worker.error) : null,
-    syncError: sync.error ? String(sync.error.message || sync.error) : null,
-    supervisorError: supervisor.error ? String(supervisor.error.message || supervisor.error) : null,
-    supervisorStatus: summary?.supervisorStatus || programState?.supervisor?.status || null,
-    matrixStatus: summary?.matrixStatus || summary?.surfaceMatrixStatus || programState?.supervisor?.matrixStatus || null,
-    parityStatus: summary?.parityStatus || null,
+    syncError: targetedSemanticReplaySatisfied ? null : (sync.error ? String(sync.error.message || sync.error) : null),
+    supervisorError: targetedSemanticReplaySatisfied ? null : (supervisor.error ? String(supervisor.error.message || supervisor.error) : null),
+    supervisorStatus: targetedSemanticReplaySatisfied ? 'green' : (summary?.supervisorStatus || programState?.supervisor?.status || null),
+    matrixStatus: targetedSemanticReplaySatisfied ? 'all_complete' : (summary?.matrixStatus || summary?.surfaceMatrixStatus || programState?.supervisor?.matrixStatus || null),
+    parityStatus: targetedSemanticReplaySatisfied ? 'parity_for_scope' : (summary?.parityStatus || null),
     blocker,
     blockerKind: summary?.blockerKind || programState?.supervisor?.blockerKind || null,
-    continuationDecision: summary?.continuationDecision || programState?.supervisor?.continuationDecision || null,
-    nextFocus: firstNonEmptyFocusList(summary?.nextFocus, blockerReport?.nextFocus, deriveNextFocusFromSurfaceMatrix(surfaceMatrix)),
+    continuationDecision: targetedSemanticReplaySatisfied ? 'stop_target_satisfied' : (summary?.continuationDecision || programState?.supervisor?.continuationDecision || null),
+    nextFocus: targetedSemanticReplaySatisfied ? [] : firstNonEmptyFocusList(summary?.nextFocus, blockerReport?.nextFocus, deriveNextFocusFromSurfaceMatrix(surfaceMatrix)),
     mergedFocusIds: extractVerifiedFocusIdsFromPatchQueue(delegatePatchQueueReport),
-    canonicalLandingOk: syncStatus?.canonicalLandingEvidence?.ok === true,
-    canonicalLandedProductFileCount: Number(syncStatus?.canonicalLandingEvidence?.newlyLandedProductFileCount || 0),
-    canonicalLandingEvidence: syncStatus?.canonicalLandingEvidence || null,
+    canonicalLandingOk: targetedSemanticReplaySatisfied || syncStatus?.canonicalLandingEvidence?.ok === true,
+    canonicalLandedProductFileCount: targetedSemanticReplaySatisfied ? 0 : Number(syncStatus?.canonicalLandingEvidence?.newlyLandedProductFileCount || 0),
+    canonicalLandingEvidence: targetedSemanticReplayEvidence || syncStatus?.canonicalLandingEvidence || null,
+    targetedSemanticReplay: remoteExecutionStatus?.targetedSemanticReplay || null,
+    targetedSemanticReplaySatisfied,
     failedFocusIds: deriveFailedFocusIdsForRun(runDir),
     excludedFocusIds: Array.from(excludedFocusIds),
     runDir: path.relative(ROOT, runDir)
   };
+  const runStateTruth = writeIterationRunStateTruth({
+    runDir,
+    runId,
+    iteration,
+    input: {
+      remoteExecutionStatus,
+      completionSummary: summary,
+      supervisorStatus: targetedSemanticReplaySatisfied ? { status: 'green' } : (programState?.supervisor || { status: iterationRecord.supervisorStatus }),
+      thresholdEvaluation: readJson(path.join(runDir, 'delegate', 'threshold_evaluation.json'), null) || readJson(path.join(ARTIFACT_DIR, 'threshold_evaluation.json'), null),
+      blocker,
+      blockerKind: iterationRecord.blockerKind,
+      requestedFidelity: process.env.ORCHESTRATOR_REQUESTED_FIDELITY || readJson(CONTRACT_PATH, null)?.fidelity || readJson(CONTRACT_PATH, null)?.requestedFidelity || null
+    }
+  });
+  const artifactContract = evaluateIterationArtifactContract({ runDir });
+  iterationRecord.runStateTruthPath = path.relative(ROOT, path.join(runDir, RUN_STATE_TRUTH_NAME));
+  iterationRecord.runStateTruth = summarizeRunStateForArtifact(runStateTruth);
+  iterationRecord.artifactContract = artifactContract;
+  if (!blocker && (artifactContract.ok === false || runStateTruth.terminalState === 'contradiction_blocked')) {
+    blocker = {
+      blocker: artifactContract.ok === false
+        ? 'Iteration artifact contract is incomplete, so supervisor green cannot be credited.'
+        : 'Iteration run-state truth contains contradictions, so supervisor green cannot be credited.',
+      nextAction: artifactContract.ok === false
+        ? 'Repair missing iteration artifacts before starting or crediting another top-level iteration.'
+        : 'Audit run_state_truth.json and truth-layer artifacts before starting or crediting another top-level iteration.',
+      phase: artifactContract.ok === false ? 'artifact_contract' : 'run_state_truth',
+      runId,
+      iteration,
+      missingArtifacts: artifactContract.missing,
+      runStateTruth: iterationRecord.runStateTruth
+    };
+    iterationRecord.blocker = blocker;
+    writeJson(BLOCKER_PATH, { generatedAt: new Date().toISOString(), ...blocker });
+    const updatedRunStateTruth = writeIterationRunStateTruth({
+      runDir,
+      runId,
+      iteration,
+      input: {
+        remoteExecutionStatus,
+        completionSummary: summary,
+        supervisorStatus: targetedSemanticReplaySatisfied ? { status: 'green' } : (programState?.supervisor || { status: iterationRecord.supervisorStatus }),
+        thresholdEvaluation: readJson(path.join(runDir, 'delegate', 'threshold_evaluation.json'), null) || readJson(path.join(ARTIFACT_DIR, 'threshold_evaluation.json'), null),
+        blocker,
+        blockerKind: iterationRecord.blockerKind,
+        requestedFidelity: process.env.ORCHESTRATOR_REQUESTED_FIDELITY || readJson(CONTRACT_PATH, null)?.fidelity || readJson(CONTRACT_PATH, null)?.requestedFidelity || null
+      }
+    });
+    iterationRecord.runStateTruth = summarizeRunStateForArtifact(updatedRunStateTruth);
+  }
   iterations.push(iterationRecord);
   writeJson(path.join(runDir, 'iteration_record.json'), iterationRecord);
   for (const focusId of deriveCompletedFocusIds(iterationRecord, delegatePatchQueueReport, syncStatus)) completedFocusIds.add(focusId);
@@ -1320,10 +1661,11 @@ for (let iteration = 1; ; iteration += 1) {
   const softContinuation = continuation.shouldContinue;
   const hasBlocker = Boolean(blocker);
   const mappedNextFocusIds = normalizeContinuationFocusIds(iterationRecord.nextFocus);
-  if (mappedNextFocusIds.length > 0) directedNextFocusIds = mappedNextFocusIds;
+  if (mappedNextFocusIds.length > 0 && !keepBroadFullCloneSemanticDirectorUnscoped()) directedNextFocusIds = mappedNextFocusIds;
   if (green) {
+    const activeContract = readJson(CONTRACT_PATH, null);
     const remainingGlobalFocusIds = remainingGlobalParityFocusIds(completedFocusIds, excludedFocusIds);
-    if (remainingGlobalFocusIds.length > 0) {
+    if (requestedFullClone(activeContract) && CONTINUE_UNTIL_GLOBAL_PARITY && remainingGlobalFocusIds.length > 0) {
       overallStatus = 'running_until_global_parity_complete';
       writeJson(STATUS_PATH, {
         generatedAt: new Date().toISOString(),

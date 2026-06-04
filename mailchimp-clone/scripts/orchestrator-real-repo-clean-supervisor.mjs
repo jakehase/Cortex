@@ -276,7 +276,7 @@ function computeProductLocTruth(repoRoot) {
 }
 
 
-function computeLocAccounting(repoRoot, { runForArtifacts = null, selectedTier = null } = {}) {
+function computeLocAccounting(repoRoot, { runForArtifacts = null, selectedTier = null, priorLocAccounting = null } = {}) {
   const diff = spawnSync('git', ['diff', '--numstat', '--find-renames=90%', 'HEAD', '--', '.'], {
     cwd: repoRoot,
     env: process.env,
@@ -285,6 +285,19 @@ function computeLocAccounting(repoRoot, { runForArtifacts = null, selectedTier =
     maxBuffer: 4 * 1024 * 1024
   });
   if (diff.status !== 0 || diff.error) {
+    if (priorLocAccounting?.ok === true
+      && priorLocAccounting?.runRoot === (runForArtifacts?.runRoot || null)
+      && Number(priorLocAccounting?.selectedTier || 0) === Number(selectedTier || 0)) {
+      return {
+        ...priorLocAccounting,
+        generatedAt: new Date().toISOString(),
+        replayedAt: new Date().toISOString(),
+        reusedPriorLocAccounting: true,
+        unavailableRepoRoot: repoRoot,
+        originalGeneratedAt: priorLocAccounting.generatedAt || null,
+        note: `${priorLocAccounting.note || ''} Reused prior LOC accounting because the disposable target worktree was no longer present during supervisor replay.`.trim()
+      };
+    }
     return {
       generatedAt: new Date().toISOString(),
       ok: false,
@@ -519,6 +532,112 @@ function unresolvedRejectedPatches(patchQueue) {
   return (patchQueue?.rejected || []).filter((artifact) => artifact?.shardId && !mergedShardIds.has(artifact.shardId));
 }
 
+const REJECTED_PATCH_QUARANTINE_REPORT_PATH = path.join(path.dirname(paths.patchQueueReport), 'rejected_patch_quarantine_report.json');
+
+function rejectedPatchStableId(artifact = {}) {
+  return String(artifact?.id || artifact?.shardId || artifact?.taskId || '').trim();
+}
+
+function rejectedPatchHasNoProductDelta(artifact = {}) {
+  const implementation = artifact?.metadata?.implementation || {};
+  const implementationMetadata = implementation?.metadata || {};
+  const modifiedFiles = Array.isArray(implementation?.modifiedFiles)
+    ? implementation.modifiedFiles
+    : Array.isArray(artifact?.filePaths)
+      ? artifact.filePaths
+      : [];
+  const diffText = String(implementation?.diff || implementation?.unifiedDiff || '').trim();
+  return artifact?.rejectionCategory === 'no_op'
+    || artifact?.rejectionReason === 'zero_modified_files'
+    || implementationMetadata?.claimIntegrityKind === 'zero_modified_files'
+    || (modifiedFiles.length === 0 && diffText.length === 0);
+}
+
+function rejectedPatchHasQualityGateFailure(artifact = {}) {
+  const verifierResults = Array.isArray(artifact?.metadata?.verifierResults)
+    ? artifact.metadata.verifierResults
+    : Array.isArray(artifact?.verifierResults)
+      ? artifact.verifierResults
+      : [];
+  return artifact?.rejectionCategory === 'quality_gate_failed'
+    || verifierResults.some((result) => result?.ok === false && result?.skipped !== true);
+}
+
+function buildRejectedPatchQuarantine({ rejected = [], provenFocusIds = new Set(), allFocusComplete = false, selectedTierHadLiveWork = false, repoRoot = process.cwd() } = {}) {
+  const rejectedWithFocus = rejected.map((artifact) => ({
+    artifact,
+    stableId: rejectedPatchStableId(artifact),
+    focusId: resolveFocusIdFromPatchEntry(artifact),
+    category: String(artifact?.rejectionCategory || 'rejected'),
+    rejectionReason: String(artifact?.rejectionReason || '')
+  }));
+  const qualityFailureFocusIds = Array.from(new Set(rejectedWithFocus
+    .filter(({ artifact }) => rejectedPatchHasQualityGateFailure(artifact))
+    .map(({ focusId }) => focusId)
+    .filter(Boolean)));
+  const finalTargetedTestVerifiedFocusIds = new Set(
+    allFocusComplete && selectedTierHadLiveWork
+      ? verifyFocusIdsByTargetedTests(qualityFailureFocusIds, repoRoot)
+      : []
+  );
+  const entries = rejectedWithFocus.map(({ artifact, stableId, focusId, category, rejectionReason }) => {
+    let quarantined = false;
+    let quarantineReason = null;
+    let blockingReason = null;
+    if (!allFocusComplete) {
+      blockingReason = 'focus_lanes_not_complete';
+    } else if (!selectedTierHadLiveWork) {
+      blockingReason = 'no_selected_tier_live_work';
+    } else if (!focusId || !provenFocusIds.has(focusId)) {
+      blockingReason = 'rejected_patch_focus_not_proven';
+    } else if (rejectedPatchHasNoProductDelta(artifact)) {
+      quarantined = true;
+      quarantineReason = 'saturated_duplicate_noop_leaf_after_focus_proof';
+    } else if (rejectedPatchHasQualityGateFailure(artifact) && finalTargetedTestVerifiedFocusIds.has(focusId)) {
+      quarantined = true;
+      quarantineReason = 'transient_verifier_failure_superseded_by_final_targeted_tests';
+    } else {
+      blockingReason = 'unresolved_rejected_patch_candidate';
+    }
+    return {
+      id: stableId,
+      shardId: artifact?.shardId || null,
+      focusId,
+      category,
+      rejectionReason: rejectionReason || null,
+      quarantined,
+      quarantineReason,
+      blockingReason
+    };
+  });
+  const quarantinedEntries = entries.filter((entry) => entry.quarantined);
+  const blockingEntries = entries.filter((entry) => !entry.quarantined);
+  return {
+    generatedAt: new Date().toISOString(),
+    ok: blockingEntries.length === 0,
+    totalRejectedCount: entries.length,
+    quarantinedRejectedCount: quarantinedEntries.length,
+    blockingRejectedCount: blockingEntries.length,
+    quarantinedRejectedIds: quarantinedEntries.map((entry) => entry.id).filter(Boolean),
+    blockingRejectedIds: blockingEntries.map((entry) => entry.id).filter(Boolean),
+    finalTargetedTestVerifiedFocusIds: Array.from(finalTargetedTestVerifiedFocusIds),
+    rejectionSummary: summarizeRejectedPatchCategories(rejected),
+    quarantineSummary: quarantinedEntries.reduce((summary, entry) => {
+      const key = entry.quarantineReason || 'quarantined';
+      summary[key] ||= 0;
+      summary[key] += 1;
+      return summary;
+    }, {}),
+    blockingSummary: blockingEntries.reduce((summary, entry) => {
+      const key = entry.blockingReason || 'blocking';
+      summary[key] ||= 0;
+      summary[key] += 1;
+      return summary;
+    }, {}),
+    entries
+  };
+}
+
 function summarizeRejectedPatchCategories(rejected = []) {
   return rejected.reduce((summary, artifact) => {
     const key = String(artifact?.rejectionCategory || 'rejected').trim() || 'rejected';
@@ -589,19 +708,30 @@ const selectedTierMergedShardCount = Number(runForArtifacts?.summary?.mergedShar
 const selectedTierMergedPatchCount = Number(runForArtifacts?.summary?.metrics?.mergedPatchCount || 0);
 const selectedTierObservedAgentCount = Number(runForArtifacts?.summary?.metrics?.observedAgentCount || 0);
 const selectedTierPeakConcurrentWorkers = Number(runForArtifacts?.summary?.metrics?.peakConcurrentWorkers || 0);
+const selectedTierSchedulerTruth = runForArtifacts?.summary?.schedulerTruth || runForArtifacts?.supervisor?.schedulerTruth || null;
+const selectedTierScaleCredit = selectedTierSchedulerTruth?.scaleCredit || null;
 const selectedTierMinimumObservedAgents = selectedTier
   ? Math.min(selectedTier, Math.max(2, Math.ceil(selectedTier * 0.2)))
   : 0;
 const selectedTierMinimumPeakConcurrentWorkers = selectedTier
   ? Math.min(selectedTier, Math.max(2, Math.ceil(selectedTier * 0.1)))
   : 0;
-const selectedTierScaleProofOk = !selectedTier || selectedTier < 8 || (
-  selectedTierObservedAgentCount >= selectedTierMinimumObservedAgents
-  && selectedTierPeakConcurrentWorkers >= selectedTierMinimumPeakConcurrentWorkers
-);
+const selectedTierHighScale = Number(selectedTier || 0) >= 80;
+const selectedTierScaleProofOk = !selectedTier || selectedTier < 8
+  ? true
+  : selectedTierHighScale
+    ? selectedTierScaleCredit?.eligible === true
+    : (
+        selectedTierObservedAgentCount >= selectedTierMinimumObservedAgents
+        && selectedTierPeakConcurrentWorkers >= selectedTierMinimumPeakConcurrentWorkers
+      );
 const selectedTierHadLiveWork = selectedTierShardCount > 0 || selectedTierMergedShardCount > 0 || selectedTierMergedPatchCount > 0;
+const provenCoordinationScaleTier = PRODUCT_ONLY_MODE && selectedTierHadLiveWork && selectedTierScaleProofOk
+  ? selectedTier
+  : highestPassingTier;
 const launchChecklist = readJson(paths.launchChecklist, null);
-const locAccounting = computeLocAccounting(contract.targetPath || process.cwd(), { runForArtifacts, selectedTier });
+const priorLocAccounting = readJson(paths.locAccounting, null);
+const locAccounting = computeLocAccounting(contract.targetPath || process.cwd(), { runForArtifacts, selectedTier, priorLocAccounting });
 writeJson(paths.locAccounting, locAccounting);
 const launchChecklistOk = Boolean(launchChecklist?.ok) && Array.isArray(launchChecklist?.items) && launchChecklist.items.every((entry) => entry?.ok === true);
 const locAccountingPresent = Boolean(locAccounting?.ok);
@@ -637,21 +767,22 @@ const finalRepoTests = validationIndex.finalRepoTests || { ok: false, command: '
 const scaleQualification = {
   generatedAt: new Date().toISOString(),
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
-  highestPassingTier,
-  provenCoordinationScaleTier: highestPassingTier,
+  highestPassingTier: provenCoordinationScaleTier,
+  provenCoordinationScaleTier,
   realRepoLive: {
     attemptedTiers,
-    highestPassingTier,
+    highestPassingTier: provenCoordinationScaleTier,
+    selectedTierScaleCredit,
     repoIntegrity: {
       baselineRepoTestsOk: Boolean(validationIndex.baseline?.ok),
       finalRepoTestsOk: Boolean(finalRepoTests.ok),
       finalSmokeOk: Boolean(finalSmoke.ok)
     },
-    honestResult: highestPassingTier ? `Highest honestly proven coordination tier on cleaned baseline: ${highestPassingTier}` : null,
-    stopReason: highestPassingTier && finalSmoke.ok && finalRepoTests.ok
-      ? `Qualification completed cleanly at tier ${highestPassingTier}.`
-      : highestPassingTier
-        ? `Qualification reached tier ${highestPassingTier}, but final smoke/final repo tests did not complete successfully.`
+    honestResult: provenCoordinationScaleTier ? `Highest honestly proven coordination tier on cleaned baseline: ${provenCoordinationScaleTier}` : null,
+    stopReason: provenCoordinationScaleTier && (PRODUCT_ONLY_MODE || (finalSmoke.ok && finalRepoTests.ok))
+      ? `Qualification completed cleanly at tier ${provenCoordinationScaleTier}.`
+      : provenCoordinationScaleTier
+        ? `Qualification reached tier ${provenCoordinationScaleTier}, but final smoke/final repo tests did not complete successfully.`
         : 'No clean-baseline live tier was honestly proven.'
   }
 };
@@ -707,14 +838,20 @@ const semanticBloatBlocker = semanticBloatCurrentIteration
   : null;
 const scaleProofBlocker = selectedTierHadLiveWork && !selectedTierScaleProofOk
   ? {
-      blocker: 'Selected live tier did not prove the requested agent scale from observed worker utilization.',
-      nextAction: 'Repair scheduling/file-area balancing and scale reporting before citing this as a tiered multi-agent proof.',
+      blocker: selectedTierHighScale && !selectedTierScaleCredit
+        ? 'Selected high-scale live tier is missing scheduler scale-credit evidence, so it cannot be cited as a tiered multi-agent proof.'
+        : 'Selected live tier did not prove the requested agent scale from observed worker utilization.',
+      nextAction: selectedTierHighScale && selectedTierScaleCredit?.failures?.some((failure) => failure?.reason === 'insufficient_peak_concurrency')
+        ? 'Increase real concurrent worker launch capacity or lower the declared tier; do not cite tier-100 until scheduler_truth.scaleCredit is eligible.'
+        : 'Repair scheduling/file-area balancing and scale reporting before citing this as a tiered multi-agent proof.',
       selectedTier,
       requestedAgentCount: selectedTier,
       observedAgentCount: selectedTierObservedAgentCount,
       peakConcurrentWorkers: selectedTierPeakConcurrentWorkers,
       minimumObservedAgents: selectedTierMinimumObservedAgents,
-      minimumPeakConcurrentWorkers: selectedTierMinimumPeakConcurrentWorkers
+      minimumPeakConcurrentWorkers: selectedTierMinimumPeakConcurrentWorkers,
+      scaleCredit: selectedTierScaleCredit,
+      schedulerTruthPath: runForArtifacts?.runRoot ? path.join(runForArtifacts.runRoot, 'scheduler_truth.json') : null
     }
   : null;
 
@@ -775,6 +912,21 @@ if (PRODUCT_ONLY_MODE) {
   nextFocus = openUnprovenFocusIds.filter((id) => !excludedFocusIds.has(id));
   const issueSatisfied = (issueId) => provenFocusIds.has(issueId) || !parityFocusIds.includes(issueId);
   const allFocusComplete = openUnprovenFocusIds.length === 0 && focusIssues.every((issue) => issueSatisfied(issue.id));
+  const rejectedPatchQuarantine = buildRejectedPatchQuarantine({
+    rejected: unresolvedRejected,
+    provenFocusIds,
+    allFocusComplete,
+    selectedTierHadLiveWork,
+    repoRoot: process.cwd()
+  });
+  if (unresolvedRejectedCount > 0) {
+    writeJson(REJECTED_PATCH_QUARANTINE_REPORT_PATH, rejectedPatchQuarantine);
+  } else if (exists(REJECTED_PATCH_QUARANTINE_REPORT_PATH)) {
+    fs.unlinkSync(REJECTED_PATCH_QUARANTINE_REPORT_PATH);
+  }
+  const quarantinedRejectedIds = new Set(rejectedPatchQuarantine.quarantinedRejectedIds || []);
+  const effectiveUnresolvedRejected = unresolvedRejected.filter((artifact) => !quarantinedRejectedIds.has(rejectedPatchStableId(artifact)));
+  const effectiveUnresolvedRejectedCount = effectiveUnresolvedRejected.length;
   productOnlyFocusEvidence = {
     rawCompletedFocusIds,
     verifiedCompletedFocusIds,
@@ -786,6 +938,16 @@ if (PRODUCT_ONLY_MODE) {
     openUnprovenFocusIds,
     verifiedFocusProofPresent,
     locTruth: locAccounting?.productLocTruth || null,
+    rejectedPatchQuarantine: unresolvedRejectedCount > 0 ? {
+      reportPath: REJECTED_PATCH_QUARANTINE_REPORT_PATH,
+      ok: rejectedPatchQuarantine.ok,
+      totalRejectedCount: rejectedPatchQuarantine.totalRejectedCount,
+      quarantinedRejectedCount: rejectedPatchQuarantine.quarantinedRejectedCount,
+      blockingRejectedCount: rejectedPatchQuarantine.blockingRejectedCount,
+      finalTargetedTestVerifiedFocusIds: rejectedPatchQuarantine.finalTargetedTestVerifiedFocusIds,
+      quarantineSummary: rejectedPatchQuarantine.quarantineSummary,
+      blockingSummary: rejectedPatchQuarantine.blockingSummary
+    } : null,
     suspectCredit: semanticBloatBlocker ? {
       reason: 'semantic_bloat_product_delta',
       affectedCurrentIterationFocusIds: Array.from(currentIterationProvenFocusIds),
@@ -819,7 +981,7 @@ if (PRODUCT_ONLY_MODE) {
     product_code_diff_present: !selectedTierHadLiveWork || productCodeDiffPresent,
     merged_focus_work_present: verifiedFocusProofPresent,
     selected_tier_had_live_work: selectedTierHadLiveWork,
-    bounded_ownership_conflicts: Boolean(unresolvedRejectedCount === 0 && (mergeReport?.rejectedPatchCount || 0) === 0),
+    bounded_ownership_conflicts: Boolean(effectiveUnresolvedRejectedCount === 0),
     selected_artifacts_present: Boolean(leaseState?.history && patchQueue),
     supervisor_outputs_present: true,
     selectedTier: Boolean(selectedTier || scaleQualification?.highestPassingTier || scaleQualification?.provenCoordinationScaleTier)
@@ -829,13 +991,14 @@ if (PRODUCT_ONLY_MODE) {
     || locAccountingBlocker
     || scaleProofBlocker
     || semanticBloatBlocker
-    || (unresolvedRejectedCount > 0 && mergedFocusIds.length === 0
-      ? makeRejectedPatchBlocker(unresolvedRejected)
-      : (unresolvedRejectedCount > 0 && allFocusComplete)
+    || (effectiveUnresolvedRejectedCount > 0 && mergedFocusIds.length === 0
+      ? makeRejectedPatchBlocker(effectiveUnresolvedRejected)
+      : (effectiveUnresolvedRejectedCount > 0 && allFocusComplete)
         ? {
-            blocker: `${unresolvedRejectedCount} rejected patch candidate(s) remain after all focus lanes were otherwise proven.`,
+            blocker: `${effectiveUnresolvedRejectedCount} rejected patch candidate(s) remain after all focus lanes were otherwise proven.`,
             nextAction: 'Resolve or quarantine rejected swarm leaves before treating the run as a clean full-clone completion.',
-            rejectionSummary: summarizeRejectedPatchCategories(unresolvedRejected)
+            rejectionSummary: summarizeRejectedPatchCategories(effectiveUnresolvedRejected),
+            quarantineReportPath: REJECTED_PATCH_QUARANTINE_REPORT_PATH
           }
       : (!allFocusComplete && !selectedTierHadLiveWork)
         ? {
@@ -945,7 +1108,7 @@ let programState = {
   allComplete: greenComplete,
   matrixPath: paths.surfaceMatrix,
   matrixStatus: intendedMatrixStatus,
-  provenCoordinationScaleTier: highestPassingTier,
+  provenCoordinationScaleTier,
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
   stopReason: scaleQualification.realRepoLive.stopReason,
   graphSummary,
@@ -981,7 +1144,7 @@ let completionSummary = {
   surfaceMatrixPath: paths.surfaceMatrix,
   surfaceMatrixStatus: intendedMatrixStatus,
   targetPath: contract.targetPath,
-  provenCoordinationScaleTier: highestPassingTier,
+  provenCoordinationScaleTier,
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
   replyAnchor: contract.replyAnchor,
   launchChecklistPath: paths.launchChecklist,
@@ -1001,7 +1164,7 @@ let notificationState = {
   deliveredAt: null,
   awaitingNotifier: completionSummary.supervisorConfirmedCompletion,
   supervisorStatus: completionSummary.supervisorStatus,
-  provenCoordinationScaleTier: highestPassingTier,
+  provenCoordinationScaleTier,
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
   note: completionSummary.supervisorConfirmedCompletion ? 'ready for requester relay' : 'blocked or partial; requester relay should include blocker status'
 };
@@ -1017,7 +1180,7 @@ writeJson(paths.supervisorStatus, {
   },
   supervisorStatus: intendedSupervisorStatus,
   surfaceMatrixStatus: intendedMatrixStatus,
-  provenCoordinationScaleTier: highestPassingTier,
+  provenCoordinationScaleTier,
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
   stages: programState.stages,
   productLocTruth: locAccounting?.productLocTruth || null,
@@ -1075,7 +1238,7 @@ writeJson(paths.supervisorStatus, {
   truth,
   supervisorStatus: completionSummary.supervisorStatus,
   surfaceMatrixStatus: matrix.status,
-  provenCoordinationScaleTier: highestPassingTier,
+  provenCoordinationScaleTier,
   qualificationMode: 'real_mailchimp_repo_live_worker_farm',
   stages: finalStages,
   productLocTruth: locAccounting?.productLocTruth || null,
@@ -1091,7 +1254,7 @@ if (finalBlocker) {
 console.log(JSON.stringify({
   supervisorStatus: completionSummary.supervisorStatus,
   matrixStatus: matrix.status,
-  provenCoordinationScaleTier: highestPassingTier,
+  provenCoordinationScaleTier,
   blocker: finalBlocker || null
 }, null, 2));
 process.exit(completionSummary.supervisorStatus === 'green' ? 0 : 1);

@@ -23,6 +23,7 @@ test('buildRemoteLaunchEnvironment returns the run-scoped execution-plane env', 
       MAILCHIMP_REMOTE_RUNS_ROOT: '/remote/runs',
       MAILCHIMP_ORCHESTRATOR_ARTIFACT_ROOT: '/remote/runs/run-123/artifacts',
       ORCHESTRATOR_IMPLEMENTATION_PROFILE: 'mailchimp_parity_focus',
+      MAILCHIMP_REMOTE_NOFILE_LIMIT: '65535',
       MAILCHIMP_PRODUCT_ONLY: '1',
       MAILCHIMP_REQUESTED_AGENT_COUNT: '100',
       MAILCHIMP_USE_STRICT_GAP_INVENTORY: '1',
@@ -46,6 +47,7 @@ test('buildRemoteLaunchCommand attaches env to the actual remote runner command'
   assert.match(command, /MAILCHIMP_FULL_AUDIT_RUN_ID='run-123'/);
   assert.match(command, /MAILCHIMP_ORCHESTRATOR_ARTIFACT_ROOT='\/srv\/remote\/mailchimp-runs\/run-123\/artifacts\/implementation_runs\/run-123'/);
   assert.match(command, /ORCHESTRATOR_IMPLEMENTATION_PROFILE='mailchimp_parity_focus'/);
+  assert.match(command, /MAILCHIMP_REMOTE_NOFILE_LIMIT='65535'/);
   assert.match(command, /MAILCHIMP_USE_STRICT_GAP_INVENTORY='1'/);
   assert.match(command, /MAILCHIMP_STRICT_GAP_SEQUENCE='1'/);
   assert.match(command, /node 'mailchimp-clone\/scripts\/full-audit-campaign-remote-runner\.mjs'$/);
@@ -65,6 +67,7 @@ test('buildDetachedRemoteLaunchCommand detaches execution and returns launcher p
   assert.equal(detached.launcherStateRoot, '/srv/remote/mailchimp-runs/_launcher/run-123');
   assert.equal(detached.launchLogPath, '/srv/remote/mailchimp-runs/_launcher/run-123/launcher.log');
   assert.equal(detached.launchPidPath, '/srv/remote/mailchimp-runs/_launcher/run-123/launcher.pid');
+  assert.equal(detached.launchLimitsPath, '/srv/remote/mailchimp-runs/_launcher/run-123/launcher_limits.json');
   assert.deepEqual(detached.launchEnv, {
     MAILCHIMP_REMOTE_EXECUTION_CONTEXT: '1',
     MAILCHIMP_HOST_ROLE: 'execution_plane',
@@ -72,12 +75,16 @@ test('buildDetachedRemoteLaunchCommand detaches execution and returns launcher p
     MAILCHIMP_REMOTE_RUNS_ROOT: '/srv/remote/mailchimp-runs',
     MAILCHIMP_ORCHESTRATOR_ARTIFACT_ROOT: '/srv/remote/mailchimp-runs/run-123/artifacts/implementation_runs/run-123',
     ORCHESTRATOR_IMPLEMENTATION_PROFILE: 'mailchimp_parity_focus',
+    MAILCHIMP_REMOTE_NOFILE_LIMIT: '65535',
     MAILCHIMP_PRODUCT_ONLY: '1',
     MAILCHIMP_REQUESTED_AGENT_COUNT: '100',
     MAILCHIMP_USE_STRICT_GAP_INVENTORY: '1',
     MAILCHIMP_STRICT_GAP_SEQUENCE: '1'
   });
   assert.match(detached.command, /python3 - <<'PY'/);
+  assert.match(detached.command, /resource\.setrlimit\(resource\.RLIMIT_NOFILE/);
+  assert.match(detached.command, /MAILCHIMP_REMOTE_NOFILE_LIMIT/);
+  assert.match(detached.command, /launcher_limits\.json/);
   assert.match(detached.command, /subprocess\.Popen/);
   assert.match(detached.command, /launcher\.log/);
   assert.match(detached.command, /launcher\.pid/);

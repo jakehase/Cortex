@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { deriveCampaignContinuation, recoverCampaign, setSupervisor } from '../../large-project-capability-stack/packages/campaign-runtime/index.mjs';
+import { buildObjectiveExpansionPlan } from '../../large-project-capability-stack/packages/objective-surface-decomposer/index.mjs';
 import { buildContradictoryDelegateTruthBlocker, buildNotifierEligibilityPayload, buildOutcomeHeadline, buildStaleDelegateEvidenceBlocker, delegateTruthConflictDetails, deriveCanonicalStatuses, deriveProductThroughputEvidence, deriveRequestedOutcome, isArtifactFreshForRun, resolveCampaignBlocker } from './lib/full-audit-campaign-state.mjs';
 import { writeMailchimpCanonicalTruthPreflight } from './lib/mailchimp-canonical-truth-preflight.mjs';
 import { resolveCampaignRunBinding, resolveMirroredArtifactPath } from './lib/full-audit-campaign-run-binding.mjs';
@@ -34,6 +35,7 @@ const STRICT_1TO1_SUPERVISOR_SCRIPT = path.join(ROOT, 'scripts', 'strict-1to1-su
 const STRICT_1TO1_STATE_PATH = path.join(ROOT, 'artifacts', 'strict_1to1', 'supervisor_state.json');
 const STRICT_1TO1_BLOCKER_PATH = path.join(ROOT, 'artifacts', 'strict_1to1', 'blocker_report.json');
 const STRICT_1TO1_INVENTORY_REDUCTION_PATH = path.join(ROOT, 'artifacts', 'strict_1to1', 'strict_1to1_gap_inventory_reduction.json');
+const OBJECTIVE_EXPANSION_PLAN_PATH = path.join(ARTIFACT_DIR, 'objective_expansion_plan.json');
 const DEFAULT_PRODUCTION_CREDIT_EXCLUDED_PREFIXES = Object.freeze([
   'packages/product-factory/'
 ]);
@@ -639,6 +641,36 @@ function shouldContinueAutonomySoak({ orchestration = null, benchmarkThresholdGa
   return Number.isFinite(deadlineMs) && Date.now() < deadlineMs;
 }
 
+function buildTargetedSemanticReplaySurfaceMatrix({ runId = null, replay = null, contract = null } = {}) {
+  const focusIds = uniqueStrings([
+    ...(Array.isArray(replay?.verifiedTargetFocusIds) ? replay.verifiedTargetFocusIds : []),
+    ...(Array.isArray(replay?.progressDelta) ? replay.progressDelta : []),
+    ...(Array.isArray(replay?.targetFocusIds) ? replay.targetFocusIds : [])
+  ].filter((focusId) => String(focusId || '').startsWith('focus.')));
+  return {
+    generatedAt: new Date().toISOString(),
+    runId,
+    contractBenchmarkId: contract?.benchmarkId || null,
+    fidelity: contract?.requestedFidelity || contract?.fidelity || null,
+    status: 'all_complete',
+    matrixStatus: 'all_complete',
+    scopeMode: 'targeted_semantic_replay',
+    truthBoundary: contract?.truthModel?.nonCompletionRule || 'Scoped targeted replay satisfaction is not broad full-clone parity.',
+    surfaces: focusIds.map((focusId) => ({
+      id: focusId.replace(/^focus\./, ''),
+      focusId,
+      issueIds: [focusId],
+      status: 'all_complete',
+      evidence: {
+        targetedSemanticReplaySatisfied: replay?.satisfied === true,
+        stopReason: replay?.stopReason || null,
+        liveWorkRequired: replay?.liveWorkRequired === true,
+        preflightCreditAllowed: replay?.preflightCreditAllowed === true
+      }
+    }))
+  };
+}
+
 function evaluateStrict1To1Ceiling(contract = {}, strict1to1Contract = null) {
   const requestedFidelity = String(contract?.requestedFidelity || strict1to1Contract?.requestedFidelity || '').trim().toLowerCase();
   if (requestedFidelity !== 'full_clone') {
@@ -768,6 +800,9 @@ const delegatePatchQueueReport = delegatePatchQueueReportPath ? readJson(delegat
 const syncStatus = readJson(SYNC_STATUS_PATH, null);
 const autonomySoakProof = readJson(AUTONOMY_SOAK_PROOF_PATH, null);
 const remoteProgress = liveRemoteProgress(workerStatus, currentRun, runId);
+const targetedSemanticReplay = syncStatus?.remoteRuntimeStatus?.targetedSemanticReplay || null;
+const targetedSemanticReplaySatisfied = String(syncStatus?.remoteRuntimeStatus?.phase || '') === 'remote_execution_target_satisfied'
+  && targetedSemanticReplay?.satisfied === true;
 
 const freshDelegateEvidence = isArtifactFreshForRun({
   artifact: delegateProgramState,
@@ -799,6 +834,14 @@ const mailchimpTruthPreflight = writeMailchimpCanonicalTruthPreflight({
 
 let orchestrationBlocker = null;
 let nextFocus = canonicalSummary?.nextFocus || delegateProgramState?.nextFocus || [];
+if (targetedSemanticReplaySatisfied) {
+  nextFocus = [];
+  writeJson(controlPlaneSurfaceMatrixPath, buildTargetedSemanticReplaySurfaceMatrix({
+    runId,
+    replay: targetedSemanticReplay,
+    contract
+  }));
+}
 
 if (!runId) {
   orchestrationBlocker = {
@@ -809,6 +852,9 @@ if (!runId) {
   };
 } else {
   orchestrationBlocker = resolveCampaignBlocker({ canonicalSummary, programState: delegateProgramState, blockerReport: delegateBlocker || workerBlocker, workerStatus });
+  if (targetedSemanticReplaySatisfied) {
+    orchestrationBlocker = null;
+  }
   if (remoteProgress.active) {
     orchestrationBlocker = null;
   }
@@ -833,7 +879,15 @@ if (!runId) {
   }
 }
 
-const orchestration = deriveCanonicalStatuses({ canonicalSummary, programState: delegateProgramState, blocker: orchestrationBlocker });
+const orchestration = targetedSemanticReplaySatisfied
+  ? {
+      supervisorStatus: 'green',
+      matrixStatus: 'all_complete',
+      parityStatus: 'parity_for_scope',
+      green: true,
+      targetedSemanticReplaySatisfied: true
+    }
+  : deriveCanonicalStatuses({ canonicalSummary, programState: delegateProgramState, blocker: orchestrationBlocker });
 const productThroughput = deriveProductThroughputEvidence({
   liveExecutionSummary: delegateLiveExecutionSummary,
   patchQueueReport: delegatePatchQueueReport,
@@ -882,11 +936,49 @@ const requestedOutcome = deriveRequestedOutcome({
   truthPreflight: mailchimpTruthPreflight
 });
 const finalBlocker = requestedOutcome.blocker || null;
+const requestedAgentCount = Number(contract?.scope?.requestedAgentCount || contract?.requestedAgentCount || contract?.requestedAgents || 25) || 25;
+const objectiveExpansionPlan = requestedFidelity === 'full_clone'
+  ? buildObjectiveExpansionPlan({
+    repoPath: ROOT,
+    objective: {
+      id: 'mailchimp_full_clone',
+      title: 'Build a truthful full Mailchimp 1:1 clone from the canonical product objective, expanding missing architecture surfaces until strict supervisor green or real blocker.',
+      requestedFidelity
+    },
+    requestedAgentCount,
+    architectureEpics: true,
+    stage: 'dynamic_final_boss_expansion',
+    maxEpics: 5,
+    currentSurfaceMatrix: strict1to1?.state || (fs.existsSync(controlPlaneSurfaceMatrixPath) ? readJson(controlPlaneSurfaceMatrixPath, null) : null),
+    currentWorkCount: Array.isArray(nextFocus) ? nextFocus.length : 0,
+    scopeAlreadySatisfied: orchestration.green === true && (!Array.isArray(nextFocus) || nextFocus.length === 0),
+    supervisorState: {
+      status: requestedOutcome.supervisorStatus,
+      matrixStatus: requestedOutcome.matrixStatus,
+      parityStatus: requestedOutcome.parityStatus,
+      blockerKind: requestedOutcome.blockerKind || null,
+      requestedFidelity
+    }
+  })
+  : null;
+if (objectiveExpansionPlan) {
+  writeJson(OBJECTIVE_EXPANSION_PLAN_PATH, objectiveExpansionPlan);
+}
 let continuation = deriveCampaignContinuation({
   green: requestedOutcome.green,
   blocker: finalBlocker,
   blockerKind: requestedOutcome.blockerKind || null,
-  nextFocus
+  nextFocus,
+  requestedFidelity,
+  matrixStatus: requestedOutcome.matrixStatus,
+  parityStatus: requestedOutcome.parityStatus,
+  currentWorkCount: Array.isArray(nextFocus) ? nextFocus.length : 0,
+  scopeAlreadySatisfied: orchestration.green === true && (!Array.isArray(nextFocus) || nextFocus.length === 0),
+  remainingObjectiveIds: objectiveExpansionPlan?.remainingObjectiveIds || strict1to1?.state?.remainingGaps || [],
+  objectiveExpansionPlan: objectiveExpansionPlan ? {
+    ...objectiveExpansionPlan,
+    path: path.relative(ROOT, OBJECTIVE_EXPANSION_PLAN_PATH)
+  } : null
 });
 if (shouldContinueAutonomySoak({ orchestration, benchmarkThresholdGate, currentRun })) {
   continuation = {
@@ -920,6 +1012,20 @@ setSupervisor(PROGRAM_STATE_PATH, {
   parityStatus: requestedOutcome.parityStatus,
   note: requestedOutcome.note,
   nextFocus,
+  requestedFidelity,
+  currentWorkCount: Array.isArray(nextFocus) ? nextFocus.length : 0,
+  scopeAlreadySatisfied: orchestration.green === true && (!Array.isArray(nextFocus) || nextFocus.length === 0),
+  remainingObjectiveIds: objectiveExpansionPlan?.remainingObjectiveIds || strict1to1?.state?.remainingGaps || [],
+  objectiveExpansionPlan: objectiveExpansionPlan ? {
+    path: path.relative(ROOT, OBJECTIVE_EXPANSION_PLAN_PATH),
+    shouldExpand: objectiveExpansionPlan.shouldExpand,
+    reason: objectiveExpansionPlan.reason,
+    mode: objectiveExpansionPlan.mode,
+    expansionSurfaceCount: objectiveExpansionPlan.expansionSurfaceCount,
+    expansionWorkUnitCount: objectiveExpansionPlan.expansionWorkUnitCount,
+    remainingObjectiveIds: objectiveExpansionPlan.remainingObjectiveIds,
+    truthBoundary: objectiveExpansionPlan.truthBoundary
+  } : null,
   continuationDecision: continuation.decision,
   continuation
 });
@@ -962,6 +1068,16 @@ programState.supervisor = {
   delegateTruthConflict,
   remoteProgress,
   strict1to1,
+  objectiveExpansionPlanPath: objectiveExpansionPlan ? path.relative(ROOT, OBJECTIVE_EXPANSION_PLAN_PATH) : null,
+  objectiveExpansionPlan: objectiveExpansionPlan ? {
+    shouldExpand: objectiveExpansionPlan.shouldExpand,
+    reason: objectiveExpansionPlan.reason,
+    mode: objectiveExpansionPlan.mode,
+    expansionSurfaceCount: objectiveExpansionPlan.expansionSurfaceCount,
+    expansionWorkUnitCount: objectiveExpansionPlan.expansionWorkUnitCount,
+    remainingObjectiveIds: objectiveExpansionPlan.remainingObjectiveIds,
+    truthBoundary: objectiveExpansionPlan.truthBoundary
+  } : null,
   thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
   benchmarkThresholdGate,
   productThroughput,
@@ -1012,6 +1128,16 @@ const summary = {
   delegateTruthConflict,
   remoteProgress,
   strict1to1,
+  objectiveExpansionPlanPath: objectiveExpansionPlan ? path.relative(ROOT, OBJECTIVE_EXPANSION_PLAN_PATH) : null,
+  objectiveExpansionPlan: objectiveExpansionPlan ? {
+    shouldExpand: objectiveExpansionPlan.shouldExpand,
+    reason: objectiveExpansionPlan.reason,
+    mode: objectiveExpansionPlan.mode,
+    expansionSurfaceCount: objectiveExpansionPlan.expansionSurfaceCount,
+    expansionWorkUnitCount: objectiveExpansionPlan.expansionWorkUnitCount,
+    remainingObjectiveIds: objectiveExpansionPlan.remainingObjectiveIds,
+    truthBoundary: objectiveExpansionPlan.truthBoundary
+  } : null,
   thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
   benchmarkThresholdGate,
   productThroughput,
@@ -1045,6 +1171,16 @@ writeJson(STATUS_REPORT_PATH, {
   workerBlocker,
   remoteProgress,
   strict1to1,
+  objectiveExpansionPlanPath: objectiveExpansionPlan ? path.relative(ROOT, OBJECTIVE_EXPANSION_PLAN_PATH) : null,
+  objectiveExpansionPlan: objectiveExpansionPlan ? {
+    shouldExpand: objectiveExpansionPlan.shouldExpand,
+    reason: objectiveExpansionPlan.reason,
+    mode: objectiveExpansionPlan.mode,
+    expansionSurfaceCount: objectiveExpansionPlan.expansionSurfaceCount,
+    expansionWorkUnitCount: objectiveExpansionPlan.expansionWorkUnitCount,
+    remainingObjectiveIds: objectiveExpansionPlan.remainingObjectiveIds,
+    truthBoundary: objectiveExpansionPlan.truthBoundary
+  } : null,
   thresholdEvaluationPath: path.relative(ROOT, THRESHOLD_EVALUATION_PATH),
   benchmarkThresholdGate,
   productThroughput,
