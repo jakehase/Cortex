@@ -1,0 +1,965 @@
+{
+  "generatedAt": "2026-06-04T03:43:42.716Z",
+  "contractSummary": {
+    "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+    "requestedFidelity": "production_slice",
+    "requestedScope": [
+      "Signup and onboarding wizard",
+      "Account workspace setup",
+      "Dashboard / home",
+      "Audience overview",
+      "Contacts table",
+      "Contact profile",
+      "Tags, groups, and interests management",
+      "Segments",
+      "Signup forms and popup forms",
+      "Campaign index",
+      "Campaign creation wizard",
+      "Email builder",
+      "Template library",
+      "Content studio / asset manager",
+      "Send / schedule / review",
+      "Reports overview",
+      "Report detail",
+      "Automations overview",
+      "Customer journey / automation builder",
+      "Landing pages",
+      "Website builder",
+      "Integrations marketplace",
+      "API keys and webhooks",
+      "Billing and plans",
+      "Settings, domains, and authentication",
+      "Team users, roles, and permissions"
+    ]
+  },
+  "status": "partial",
+  "surfaces": [
+    {
+      "id": "signup_onboarding",
+      "label": "Signup and onboarding wizard",
+      "issueIds": [
+        "focus.signup_onboarding"
+      ],
+      "lane": "wave_1_core_funnel_and_audience",
+      "requiredArtifacts": [
+        "packages/app/index.mjs",
+        "packages/app/routes/public.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/persistence-io.mjs",
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.signup_onboarding",
+          "title": "Signup and onboarding wizard parity",
+          "lane": "wave_1_core_funnel_and_audience",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/platform-spine.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "account_workspace_setup",
+      "label": "Account workspace setup",
+      "issueIds": [
+        "focus.account_workspace_setup"
+      ],
+      "lane": "wave_1_core_funnel_and_audience",
+      "requiredArtifacts": [
+        "packages/app/index.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/view.mjs",
+        "packages/app/storage.mjs",
+        "packages/app/persistence-io.mjs",
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.account_workspace_setup",
+          "title": "Account workspace setup parity",
+          "lane": "wave_1_core_funnel_and_audience",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/platform-spine.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "dashboard_home",
+      "label": "Dashboard / home",
+      "issueIds": [
+        "focus.dashboard_home"
+      ],
+      "lane": "wave_1_core_funnel_and_audience",
+      "requiredArtifacts": [
+        "packages/app/index.mjs",
+        "packages/app/view.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/domain-current-product-ops.mjs",
+        "packages/app/storage.mjs",
+        "tests/platform-spine.test.mjs",
+        "tests/parity-route-aliases.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.dashboard_home",
+          "title": "Dashboard / home parity",
+          "lane": "wave_1_core_funnel_and_audience",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/platform-spine.test.mjs",
+            "tests/parity-route-aliases.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "audience_overview",
+      "label": "Audience overview",
+      "issueIds": [
+        "focus.audience_overview"
+      ],
+      "lane": "wave_1_core_funnel_and_audience",
+      "requiredArtifacts": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs",
+        "tests/audience-core.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.audience_overview",
+          "title": "Audience overview parity",
+          "lane": "wave_1_core_funnel_and_audience",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/audience-core.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "contacts_table",
+      "label": "Contacts table",
+      "issueIds": [
+        "focus.contacts_table"
+      ],
+      "lane": "wave_1_core_funnel_and_audience",
+      "requiredArtifacts": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs",
+        "tests/audience-core.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.contacts_table",
+          "title": "Contacts table parity",
+          "lane": "wave_1_core_funnel_and_audience",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/audience-core.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/patch_queue_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/merge/merge_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/live_runs/tier-008/results/focus.contacts_table__attempt-1.json"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "contact_profile",
+      "label": "Contact profile",
+      "issueIds": [
+        "focus.contact_profile"
+      ],
+      "lane": "wave_1_core_funnel_and_audience",
+      "requiredArtifacts": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs",
+        "tests/audience-core.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.contact_profile",
+          "title": "Contact profile parity",
+          "lane": "wave_1_core_funnel_and_audience",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/audience-core.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "tags_groups_interests",
+      "label": "Tags, groups, and interests management",
+      "issueIds": [
+        "focus.tags_groups_interests"
+      ],
+      "lane": "wave_1_core_funnel_and_audience",
+      "requiredArtifacts": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs",
+        "tests/audience-core.test.mjs",
+        "tests/audience-funnels.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.tags_groups_interests",
+          "title": "Tags, groups, and interests management parity",
+          "lane": "wave_1_core_funnel_and_audience",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/audience-core.test.mjs",
+            "tests/audience-funnels.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "segments",
+      "label": "Segments",
+      "issueIds": [
+        "focus.segments"
+      ],
+      "lane": "wave_1_core_funnel_and_audience",
+      "requiredArtifacts": [
+        "packages/app/domain-audience.mjs",
+        "packages/app/routes/audience.mjs",
+        "tests/audience-funnels.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.segments",
+          "title": "Segments parity",
+          "lane": "wave_1_core_funnel_and_audience",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/audience-funnels.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "signup_forms_popups",
+      "label": "Signup forms and popup forms",
+      "issueIds": [
+        "focus.signup_forms_popups"
+      ],
+      "lane": "wave_2_campaign_authoring_content_and_send",
+      "requiredArtifacts": [
+        "packages/app/routes/forms.mjs",
+        "packages/app/domain-growth.mjs",
+        "tests/forms-landing.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.signup_forms_popups",
+          "title": "Signup forms and popup forms parity",
+          "lane": "wave_2_campaign_authoring_content_and_send",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/forms-landing.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/patch_queue_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/merge/merge_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/live_runs/tier-008/results/focus.signup_forms_popups__attempt-1.json"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "campaign_index",
+      "label": "Campaign index",
+      "issueIds": [
+        "focus.campaign_index"
+      ],
+      "lane": "wave_2_campaign_authoring_content_and_send",
+      "requiredArtifacts": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.campaign_index",
+          "title": "Campaign index parity",
+          "lane": "wave_2_campaign_authoring_content_and_send",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/campaign-editor-depth.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "campaign_wizard",
+      "label": "Campaign creation wizard",
+      "issueIds": [
+        "focus.campaign_wizard"
+      ],
+      "lane": "wave_2_campaign_authoring_content_and_send",
+      "requiredArtifacts": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.campaign_wizard",
+          "title": "Campaign creation wizard parity",
+          "lane": "wave_2_campaign_authoring_content_and_send",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/campaign-editor-depth.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "email_builder",
+      "label": "Email builder",
+      "issueIds": [
+        "focus.email_builder"
+      ],
+      "lane": "wave_2_campaign_authoring_content_and_send",
+      "requiredArtifacts": [
+        "packages/app/routes/content-asset-templates.mjs",
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.email_builder",
+          "title": "Email builder parity",
+          "lane": "wave_2_campaign_authoring_content_and_send",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/campaign-editor-depth.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "template_library",
+      "label": "Template library",
+      "issueIds": [
+        "focus.template_library"
+      ],
+      "lane": "wave_2_campaign_authoring_content_and_send",
+      "requiredArtifacts": [
+        "packages/app/routes/content-asset-templates.mjs",
+        "packages/app/domain-template-assets.mjs",
+        "tests/template-variants-routes.test.mjs",
+        "tests/template-approvals-routes.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.template_library",
+          "title": "Template library parity",
+          "lane": "wave_2_campaign_authoring_content_and_send",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/template-variants-routes.test.mjs",
+            "tests/template-approvals-routes.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "content_studio",
+      "label": "Content studio / asset manager",
+      "issueIds": [
+        "focus.content_studio"
+      ],
+      "lane": "wave_2_campaign_authoring_content_and_send",
+      "requiredArtifacts": [
+        "packages/app/routes/content-asset-templates.mjs",
+        "packages/app/domain-content-ecosystem-depth.mjs",
+        "tests/content-library.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.content_studio",
+          "title": "Content studio / asset manager parity",
+          "lane": "wave_2_campaign_authoring_content_and_send",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/content-library.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "send_schedule_review",
+      "label": "Send / schedule / review",
+      "issueIds": [
+        "focus.send_schedule_review"
+      ],
+      "lane": "wave_2_campaign_authoring_content_and_send",
+      "requiredArtifacts": [
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/routes/campaigns.mjs",
+        "tests/campaign-editor-depth.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.send_schedule_review",
+          "title": "Send / schedule / review parity",
+          "lane": "wave_2_campaign_authoring_content_and_send",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/campaign-editor-depth.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/patch_queue_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/merge/merge_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/live_runs/tier-008/results/focus.send_schedule_review__attempt-1.json"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "reports_overview",
+      "label": "Reports overview",
+      "issueIds": [
+        "focus.reports_overview"
+      ],
+      "lane": "wave_3_reporting_automation_and_growth",
+      "requiredArtifacts": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-growth.mjs",
+        "packages/app/domain-commerce-revenue.mjs",
+        "tests/reports-admin.test.mjs",
+        "tests/billing-analytics.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.reports_overview",
+          "title": "Reports overview parity",
+          "lane": "wave_3_reporting_automation_and_growth",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/reports-admin.test.mjs",
+            "tests/billing-analytics.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "report_detail",
+      "label": "Report detail",
+      "issueIds": [
+        "focus.report_detail"
+      ],
+      "lane": "wave_3_reporting_automation_and_growth",
+      "requiredArtifacts": [
+        "packages/app/routes/reports.mjs",
+        "packages/app/domain-campaigns.mjs",
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.report_detail",
+          "title": "Report detail parity",
+          "lane": "wave_3_reporting_automation_and_growth",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/reports-admin.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "automations_overview",
+      "label": "Automations overview",
+      "issueIds": [
+        "focus.automations_overview"
+      ],
+      "lane": "wave_3_reporting_automation_and_growth",
+      "requiredArtifacts": [
+        "packages/app/routes/automations.mjs",
+        "packages/app/domain-campaigns.mjs",
+        "packages/app/domain-growth.mjs",
+        "tests/automation-journeys.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.automations_overview",
+          "title": "Automations overview parity",
+          "lane": "wave_3_reporting_automation_and_growth",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/automation-journeys.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "automation_journey_builder",
+      "label": "Customer journey / automation builder",
+      "issueIds": [
+        "focus.automation_journey_builder"
+      ],
+      "lane": "wave_3_reporting_automation_and_growth",
+      "requiredArtifacts": [
+        "packages/app/routes/automations.mjs",
+        "packages/app/domain-campaigns.mjs",
+        "tests/automation-journeys.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.automation_journey_builder",
+          "title": "Customer journey / automation builder parity",
+          "lane": "wave_3_reporting_automation_and_growth",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/automation-journeys.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "landing_pages",
+      "label": "Landing pages",
+      "issueIds": [
+        "focus.landing_pages"
+      ],
+      "lane": "wave_3_reporting_automation_and_growth",
+      "requiredArtifacts": [
+        "packages/app/routes/website-builder.mjs",
+        "packages/app/domain-growth.mjs",
+        "tests/forms-landing.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.landing_pages",
+          "title": "Landing pages parity",
+          "lane": "wave_3_reporting_automation_and_growth",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/forms-landing.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/patch_queue_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/merge/merge_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/live_runs/tier-008/results/focus.landing_pages__attempt-1.json"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "website_builder",
+      "label": "Website builder",
+      "issueIds": [
+        "focus.website_builder"
+      ],
+      "lane": "wave_3_reporting_automation_and_growth",
+      "requiredArtifacts": [
+        "packages/app/domain-website-builder.mjs",
+        "packages/app/routes/website-builder.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "all_complete",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.website_builder",
+          "title": "Website builder parity",
+          "lane": "wave_3_reporting_automation_and_growth",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "complete",
+          "artifacts": [
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/patch_queue_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/merge/merge_report.json",
+            "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/live_runs/tier-008/results/focus.website_builder__attempt-1.json"
+          ],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "integrations_marketplace",
+      "label": "Integrations marketplace",
+      "issueIds": [
+        "focus.integrations_marketplace"
+      ],
+      "lane": "wave_4_admin_integrations_revenue_and_governance",
+      "requiredArtifacts": [
+        "packages/app/routes/integrations-marketplace.mjs",
+        "packages/app/domain-integration-marketplace.mjs",
+        "tests/integrations-marketplace.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.integrations_marketplace",
+          "title": "Integrations marketplace parity",
+          "lane": "wave_4_admin_integrations_revenue_and_governance",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/integrations-marketplace.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "api_keys_webhooks",
+      "label": "API keys and webhooks",
+      "issueIds": [
+        "focus.api_keys_webhooks"
+      ],
+      "lane": "wave_4_admin_integrations_revenue_and_governance",
+      "requiredArtifacts": [
+        "packages/app/routes/api-admin.mjs",
+        "tests/reports-admin.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.api_keys_webhooks",
+          "title": "API keys and webhooks parity",
+          "lane": "wave_4_admin_integrations_revenue_and_governance",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/reports-admin.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "billing_plans",
+      "label": "Billing and plans",
+      "issueIds": [
+        "focus.billing_plans"
+      ],
+      "lane": "wave_4_admin_integrations_revenue_and_governance",
+      "requiredArtifacts": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/domain-commerce-revenue.mjs",
+        "tests/billing-analytics.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.billing_plans",
+          "title": "Billing and plans parity",
+          "lane": "wave_4_admin_integrations_revenue_and_governance",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/billing-analytics.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "settings_domains",
+      "label": "Settings, domains, and authentication",
+      "issueIds": [
+        "focus.settings_domains"
+      ],
+      "lane": "wave_4_admin_integrations_revenue_and_governance",
+      "requiredArtifacts": [
+        "packages/app/domain-deliverability-compliance.mjs",
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs",
+        "tests/security-ops-hardening.test.mjs",
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.settings_domains",
+          "title": "Settings, domains, and authentication parity",
+          "lane": "wave_4_admin_integrations_revenue_and_governance",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/security-ops-hardening.test.mjs",
+            "tests/platform-spine.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "team_roles_permissions",
+      "label": "Team users, roles, and permissions",
+      "issueIds": [
+        "focus.team_roles_permissions"
+      ],
+      "lane": "wave_4_admin_integrations_revenue_and_governance",
+      "requiredArtifacts": [
+        "packages/app/routes/api-admin.mjs",
+        "packages/app/routes/platform.mjs",
+        "packages/app/storage.mjs",
+        "tests/platform-spine.test.mjs",
+        "tests/current-product-parity.test.mjs"
+      ],
+      "status": "partial",
+      "artifactsPresent": true,
+      "issues": [
+        {
+          "id": "focus.team_roles_permissions",
+          "title": "Team users, roles, and permissions parity",
+          "lane": "wave_4_admin_integrations_revenue_and_governance",
+          "owner": "orchestrator",
+          "deps": [],
+          "parentId": null,
+          "children": [],
+          "acceptanceCriteria": [
+            "tests/platform-spine.test.mjs",
+            "tests/current-product-parity.test.mjs"
+          ],
+          "status": "pending",
+          "artifacts": [],
+          "notes": ""
+        }
+      ]
+    }
+  ]
+}

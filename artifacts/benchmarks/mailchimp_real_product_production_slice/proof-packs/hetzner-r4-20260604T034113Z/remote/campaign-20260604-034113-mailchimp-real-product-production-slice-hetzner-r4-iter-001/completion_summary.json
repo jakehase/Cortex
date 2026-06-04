@@ -1,0 +1,789 @@
+{
+  "generatedAt": "2026-06-04T03:43:42.714Z",
+  "supervisorConfirmedCompletion": false,
+  "supervisorStatus": "red",
+  "surfaceMatrixPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/surface_matrix.json",
+  "surfaceMatrixStatus": "partial",
+  "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "provenCoordinationScaleTier": 8,
+  "qualificationMode": "real_mailchimp_repo_live_worker_farm",
+  "replyAnchor": "Jake asked for the next threshold-focused Mailchimp production-creation run to launch against the benchmark scope surfaces.",
+  "launchChecklistPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/launch_checklist.json",
+  "locAccountingPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/loc_accounting.json",
+  "locAccountingSummary": {
+    "all": {
+      "files": 7,
+      "added": 89,
+      "deleted": 1244,
+      "net": -1155,
+      "binaryFiles": 0
+    },
+    "productCode": {
+      "files": 5,
+      "added": 20,
+      "deleted": 3,
+      "net": 17,
+      "binaryFiles": 0
+    },
+    "tests": {
+      "files": 0,
+      "added": 0,
+      "deleted": 0,
+      "net": 0,
+      "binaryFiles": 0
+    },
+    "scripts": {
+      "files": 0,
+      "added": 0,
+      "deleted": 0,
+      "net": 0,
+      "binaryFiles": 0
+    },
+    "docs": {
+      "files": 0,
+      "added": 0,
+      "deleted": 0,
+      "net": 0,
+      "binaryFiles": 0
+    },
+    "artifacts": {
+      "files": 0,
+      "added": 0,
+      "deleted": 0,
+      "net": 0,
+      "binaryFiles": 0
+    },
+    "other": {
+      "files": 2,
+      "added": 69,
+      "deleted": 1241,
+      "net": -1172,
+      "binaryFiles": 0
+    }
+  },
+  "incrementalLocAccountingSummary": {
+    "all": {
+      "files": 7,
+      "added": 89,
+      "deleted": 1244,
+      "net": -1155,
+      "binaryFiles": 0
+    },
+    "productCode": {
+      "files": 5,
+      "added": 20,
+      "deleted": 3,
+      "net": 17,
+      "binaryFiles": 0
+    },
+    "tests": {
+      "files": 0,
+      "added": 0,
+      "deleted": 0,
+      "net": 0,
+      "binaryFiles": 0
+    },
+    "scripts": {
+      "files": 0,
+      "added": 0,
+      "deleted": 0,
+      "net": 0,
+      "binaryFiles": 0
+    },
+    "docs": {
+      "files": 0,
+      "added": 0,
+      "deleted": 0,
+      "net": 0,
+      "binaryFiles": 0
+    },
+    "artifacts": {
+      "files": 0,
+      "added": 0,
+      "deleted": 0,
+      "net": 0,
+      "binaryFiles": 0
+    },
+    "other": {
+      "files": 2,
+      "added": 69,
+      "deleted": 1241,
+      "net": -1172,
+      "binaryFiles": 0
+    }
+  },
+  "productLocTruth": {
+    "generatedAt": "2026-06-04T03:43:41.583Z",
+    "roots": [
+      "apps",
+      "packages",
+      "plugins"
+    ],
+    "baselineProductLOC": 57332,
+    "baselineTrackedFiles": 794,
+    "currentProductLOC": 57349,
+    "currentProductFiles": 794,
+    "trackedProductLOC": 57349,
+    "trackedProductFiles": 794,
+    "untrackedProductLOC": 0,
+    "untrackedProductFiles": 0,
+    "currentNonblankLines": 46254,
+    "currentUniqueNormalizedLines": 28667,
+    "currentDuplicateNormalizedInstances": 17587,
+    "addedNonblankLinesApprox": 19,
+    "addedUniqueNormalizedLinesApprox": 19,
+    "addedDuplicateNormalizedLineInstancesApprox": 0,
+    "duplicateAddedLineRatio": 0,
+    "markerCounts": {
+      "full_clone_remediation_leaf_evaluated": 0,
+      "compact primary-product adoption marker": 0,
+      "remaining-work remediation product slice for strict Mailchimp clone blockers": 0,
+      "\"fidelity\": \"full_clone\"": 0,
+      "\"requirements\": [": 0,
+      "\"remediationContracts\": [": 0
+    },
+    "markerLineCount": 0,
+    "topRepeatedAddedLines": [],
+    "topFilesByLOC": [
+      {
+        "path": "packages/app/domain-campaigns.mjs",
+        "loc": 3342,
+        "nonblank": 2460,
+        "uniqueNormalized": 1826,
+        "duplicateNormalizedInstances": 634,
+        "maxRepeat": 434,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-audience.mjs",
+        "loc": 3094,
+        "nonblank": 2430,
+        "uniqueNormalized": 1602,
+        "duplicateNormalizedInstances": 828,
+        "maxRepeat": 361,
+        "untracked": false
+      },
+      {
+        "path": "apps/web/server.mjs",
+        "loc": 2758,
+        "nonblank": 1901,
+        "uniqueNormalized": 1548,
+        "duplicateNormalizedInstances": 353,
+        "maxRepeat": 289,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/api-admin.mjs",
+        "loc": 2718,
+        "nonblank": 2016,
+        "uniqueNormalized": 1411,
+        "duplicateNormalizedInstances": 605,
+        "maxRepeat": 283,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/campaigns.mjs",
+        "loc": 2415,
+        "nonblank": 1879,
+        "uniqueNormalized": 1208,
+        "duplicateNormalizedInstances": 671,
+        "maxRepeat": 197,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-current-product-ops.mjs",
+        "loc": 2268,
+        "nonblank": 1986,
+        "uniqueNormalized": 1359,
+        "duplicateNormalizedInstances": 627,
+        "maxRepeat": 198,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/view.mjs",
+        "loc": 2081,
+        "nonblank": 1427,
+        "uniqueNormalized": 1184,
+        "duplicateNormalizedInstances": 243,
+        "maxRepeat": 231,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-growth.mjs",
+        "loc": 1979,
+        "nonblank": 1529,
+        "uniqueNormalized": 1133,
+        "duplicateNormalizedInstances": 396,
+        "maxRepeat": 183,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/audience.mjs",
+        "loc": 1830,
+        "nonblank": 1298,
+        "uniqueNormalized": 976,
+        "duplicateNormalizedInstances": 322,
+        "maxRepeat": 168,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/automations.mjs",
+        "loc": 1581,
+        "nonblank": 1156,
+        "uniqueNormalized": 835,
+        "duplicateNormalizedInstances": 321,
+        "maxRepeat": 148,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-commerce-revenue.mjs",
+        "loc": 1316,
+        "nonblank": 1022,
+        "uniqueNormalized": 810,
+        "duplicateNormalizedInstances": 212,
+        "maxRepeat": 118,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/public.mjs",
+        "loc": 1213,
+        "nonblank": 970,
+        "uniqueNormalized": 716,
+        "duplicateNormalizedInstances": 254,
+        "maxRepeat": 79,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/platform.mjs",
+        "loc": 1198,
+        "nonblank": 901,
+        "uniqueNormalized": 611,
+        "duplicateNormalizedInstances": 290,
+        "maxRepeat": 80,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-core.mjs",
+        "loc": 1117,
+        "nonblank": 1044,
+        "uniqueNormalized": 749,
+        "duplicateNormalizedInstances": 295,
+        "maxRepeat": 75,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-website-builder.mjs",
+        "loc": 1086,
+        "nonblank": 942,
+        "uniqueNormalized": 564,
+        "duplicateNormalizedInstances": 378,
+        "maxRepeat": 116,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-integration-marketplace.mjs",
+        "loc": 873,
+        "nonblank": 691,
+        "uniqueNormalized": 516,
+        "duplicateNormalizedInstances": 175,
+        "maxRepeat": 95,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/security.mjs",
+        "loc": 779,
+        "nonblank": 701,
+        "uniqueNormalized": 467,
+        "duplicateNormalizedInstances": 234,
+        "maxRepeat": 86,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-deliverability-compliance.mjs",
+        "loc": 682,
+        "nonblank": 572,
+        "uniqueNormalized": 399,
+        "duplicateNormalizedInstances": 173,
+        "maxRepeat": 53,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/current-product-ops.mjs",
+        "loc": 676,
+        "nonblank": 518,
+        "uniqueNormalized": 407,
+        "duplicateNormalizedInstances": 111,
+        "maxRepeat": 48,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/website-builder.mjs",
+        "loc": 646,
+        "nonblank": 490,
+        "uniqueNormalized": 341,
+        "duplicateNormalizedInstances": 149,
+        "maxRepeat": 50,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/forms.mjs",
+        "loc": 635,
+        "nonblank": 471,
+        "uniqueNormalized": 342,
+        "duplicateNormalizedInstances": 129,
+        "maxRepeat": 55,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/content-asset-templates.mjs",
+        "loc": 628,
+        "nonblank": 462,
+        "uniqueNormalized": 348,
+        "duplicateNormalizedInstances": 114,
+        "maxRepeat": 54,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/reports.mjs",
+        "loc": 572,
+        "nonblank": 430,
+        "uniqueNormalized": 317,
+        "duplicateNormalizedInstances": 113,
+        "maxRepeat": 72,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/routes/integrations-marketplace.mjs",
+        "loc": 571,
+        "nonblank": 410,
+        "uniqueNormalized": 319,
+        "duplicateNormalizedInstances": 91,
+        "maxRepeat": 55,
+        "untracked": false
+      },
+      {
+        "path": "packages/app/domain-content-ecosystem-depth.mjs",
+        "loc": 541,
+        "nonblank": 415,
+        "uniqueNormalized": 320,
+        "duplicateNormalizedInstances": 95,
+        "maxRepeat": 52,
+        "untracked": false
+      }
+    ],
+    "semanticBloatSuspect": false,
+    "semanticBloatReasons": [],
+    "note": "Raw LOC truth separates physical line growth from meaningful architecture/parity credit. semanticBloatSuspect blocks completion credit until inspected."
+  },
+  "productOnlyFocusEvidence": {
+    "rawCompletedFocusIds": [],
+    "verifiedCompletedFocusIds": [],
+    "discardedLegacyCompletedFocusIds": [],
+    "mergedFocusIds": [
+      "focus.landing_pages",
+      "focus.website_builder",
+      "focus.signup_forms_popups",
+      "focus.contacts_table",
+      "focus.send_schedule_review"
+    ],
+    "targetedTestVerifiedFocusIds": [
+      "focus.landing_pages",
+      "focus.website_builder",
+      "focus.signup_forms_popups",
+      "focus.contacts_table",
+      "focus.send_schedule_review"
+    ],
+    "currentIterationProvenFocusIds": [
+      "focus.landing_pages",
+      "focus.website_builder",
+      "focus.signup_forms_popups",
+      "focus.contacts_table",
+      "focus.send_schedule_review"
+    ],
+    "provenFocusIds": [
+      "focus.landing_pages",
+      "focus.website_builder",
+      "focus.signup_forms_popups",
+      "focus.contacts_table",
+      "focus.send_schedule_review"
+    ],
+    "openUnprovenFocusIds": [
+      "focus.signup_onboarding",
+      "focus.account_workspace_setup",
+      "focus.dashboard_home",
+      "focus.audience_overview",
+      "focus.contact_profile",
+      "focus.tags_groups_interests",
+      "focus.segments",
+      "focus.campaign_index",
+      "focus.campaign_wizard",
+      "focus.email_builder",
+      "focus.template_library",
+      "focus.content_studio",
+      "focus.reports_overview",
+      "focus.report_detail",
+      "focus.automations_overview",
+      "focus.automation_journey_builder",
+      "focus.integrations_marketplace",
+      "focus.api_keys_webhooks",
+      "focus.billing_plans",
+      "focus.settings_domains",
+      "focus.team_roles_permissions"
+    ],
+    "verifiedFocusProofPresent": true,
+    "locTruth": {
+      "generatedAt": "2026-06-04T03:43:41.583Z",
+      "roots": [
+        "apps",
+        "packages",
+        "plugins"
+      ],
+      "baselineProductLOC": 57332,
+      "baselineTrackedFiles": 794,
+      "currentProductLOC": 57349,
+      "currentProductFiles": 794,
+      "trackedProductLOC": 57349,
+      "trackedProductFiles": 794,
+      "untrackedProductLOC": 0,
+      "untrackedProductFiles": 0,
+      "currentNonblankLines": 46254,
+      "currentUniqueNormalizedLines": 28667,
+      "currentDuplicateNormalizedInstances": 17587,
+      "addedNonblankLinesApprox": 19,
+      "addedUniqueNormalizedLinesApprox": 19,
+      "addedDuplicateNormalizedLineInstancesApprox": 0,
+      "duplicateAddedLineRatio": 0,
+      "markerCounts": {
+        "full_clone_remediation_leaf_evaluated": 0,
+        "compact primary-product adoption marker": 0,
+        "remaining-work remediation product slice for strict Mailchimp clone blockers": 0,
+        "\"fidelity\": \"full_clone\"": 0,
+        "\"requirements\": [": 0,
+        "\"remediationContracts\": [": 0
+      },
+      "markerLineCount": 0,
+      "topRepeatedAddedLines": [],
+      "topFilesByLOC": [
+        {
+          "path": "packages/app/domain-campaigns.mjs",
+          "loc": 3342,
+          "nonblank": 2460,
+          "uniqueNormalized": 1826,
+          "duplicateNormalizedInstances": 634,
+          "maxRepeat": 434,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-audience.mjs",
+          "loc": 3094,
+          "nonblank": 2430,
+          "uniqueNormalized": 1602,
+          "duplicateNormalizedInstances": 828,
+          "maxRepeat": 361,
+          "untracked": false
+        },
+        {
+          "path": "apps/web/server.mjs",
+          "loc": 2758,
+          "nonblank": 1901,
+          "uniqueNormalized": 1548,
+          "duplicateNormalizedInstances": 353,
+          "maxRepeat": 289,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/api-admin.mjs",
+          "loc": 2718,
+          "nonblank": 2016,
+          "uniqueNormalized": 1411,
+          "duplicateNormalizedInstances": 605,
+          "maxRepeat": 283,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/campaigns.mjs",
+          "loc": 2415,
+          "nonblank": 1879,
+          "uniqueNormalized": 1208,
+          "duplicateNormalizedInstances": 671,
+          "maxRepeat": 197,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-current-product-ops.mjs",
+          "loc": 2268,
+          "nonblank": 1986,
+          "uniqueNormalized": 1359,
+          "duplicateNormalizedInstances": 627,
+          "maxRepeat": 198,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/view.mjs",
+          "loc": 2081,
+          "nonblank": 1427,
+          "uniqueNormalized": 1184,
+          "duplicateNormalizedInstances": 243,
+          "maxRepeat": 231,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-growth.mjs",
+          "loc": 1979,
+          "nonblank": 1529,
+          "uniqueNormalized": 1133,
+          "duplicateNormalizedInstances": 396,
+          "maxRepeat": 183,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/audience.mjs",
+          "loc": 1830,
+          "nonblank": 1298,
+          "uniqueNormalized": 976,
+          "duplicateNormalizedInstances": 322,
+          "maxRepeat": 168,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/automations.mjs",
+          "loc": 1581,
+          "nonblank": 1156,
+          "uniqueNormalized": 835,
+          "duplicateNormalizedInstances": 321,
+          "maxRepeat": 148,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-commerce-revenue.mjs",
+          "loc": 1316,
+          "nonblank": 1022,
+          "uniqueNormalized": 810,
+          "duplicateNormalizedInstances": 212,
+          "maxRepeat": 118,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/public.mjs",
+          "loc": 1213,
+          "nonblank": 970,
+          "uniqueNormalized": 716,
+          "duplicateNormalizedInstances": 254,
+          "maxRepeat": 79,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/platform.mjs",
+          "loc": 1198,
+          "nonblank": 901,
+          "uniqueNormalized": 611,
+          "duplicateNormalizedInstances": 290,
+          "maxRepeat": 80,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-core.mjs",
+          "loc": 1117,
+          "nonblank": 1044,
+          "uniqueNormalized": 749,
+          "duplicateNormalizedInstances": 295,
+          "maxRepeat": 75,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-website-builder.mjs",
+          "loc": 1086,
+          "nonblank": 942,
+          "uniqueNormalized": 564,
+          "duplicateNormalizedInstances": 378,
+          "maxRepeat": 116,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-integration-marketplace.mjs",
+          "loc": 873,
+          "nonblank": 691,
+          "uniqueNormalized": 516,
+          "duplicateNormalizedInstances": 175,
+          "maxRepeat": 95,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/security.mjs",
+          "loc": 779,
+          "nonblank": 701,
+          "uniqueNormalized": 467,
+          "duplicateNormalizedInstances": 234,
+          "maxRepeat": 86,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-deliverability-compliance.mjs",
+          "loc": 682,
+          "nonblank": 572,
+          "uniqueNormalized": 399,
+          "duplicateNormalizedInstances": 173,
+          "maxRepeat": 53,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/current-product-ops.mjs",
+          "loc": 676,
+          "nonblank": 518,
+          "uniqueNormalized": 407,
+          "duplicateNormalizedInstances": 111,
+          "maxRepeat": 48,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/website-builder.mjs",
+          "loc": 646,
+          "nonblank": 490,
+          "uniqueNormalized": 341,
+          "duplicateNormalizedInstances": 149,
+          "maxRepeat": 50,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/forms.mjs",
+          "loc": 635,
+          "nonblank": 471,
+          "uniqueNormalized": 342,
+          "duplicateNormalizedInstances": 129,
+          "maxRepeat": 55,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/content-asset-templates.mjs",
+          "loc": 628,
+          "nonblank": 462,
+          "uniqueNormalized": 348,
+          "duplicateNormalizedInstances": 114,
+          "maxRepeat": 54,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/reports.mjs",
+          "loc": 572,
+          "nonblank": 430,
+          "uniqueNormalized": 317,
+          "duplicateNormalizedInstances": 113,
+          "maxRepeat": 72,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/routes/integrations-marketplace.mjs",
+          "loc": 571,
+          "nonblank": 410,
+          "uniqueNormalized": 319,
+          "duplicateNormalizedInstances": 91,
+          "maxRepeat": 55,
+          "untracked": false
+        },
+        {
+          "path": "packages/app/domain-content-ecosystem-depth.mjs",
+          "loc": 541,
+          "nonblank": 415,
+          "uniqueNormalized": 320,
+          "duplicateNormalizedInstances": 95,
+          "maxRepeat": 52,
+          "untracked": false
+        }
+      ],
+      "semanticBloatSuspect": false,
+      "semanticBloatReasons": [],
+      "note": "Raw LOC truth separates physical line growth from meaningful architecture/parity credit. semanticBloatSuspect blocks completion credit until inspected."
+    },
+    "rejectedPatchQuarantine": {
+      "reportPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/rejected_patch_quarantine_report.json",
+      "ok": false,
+      "totalRejectedCount": 21,
+      "quarantinedRejectedCount": 0,
+      "blockingRejectedCount": 21,
+      "finalTargetedTestVerifiedFocusIds": [],
+      "quarantineSummary": {},
+      "blockingSummary": {
+        "focus_lanes_not_complete": 21
+      }
+    },
+    "suspectCredit": null
+  },
+  "blocker": {
+    "blocker": "Partial parity-surface reduction was proven, but remaining red surfaces are still open.",
+    "nextAction": "Continue with the remaining focus lanes named in surface_matrix.json instead of re-running the same completed focus patches."
+  },
+  "nextFocus": [
+    "focus.signup_onboarding",
+    "focus.account_workspace_setup",
+    "focus.dashboard_home",
+    "focus.audience_overview",
+    "focus.contact_profile",
+    "focus.tags_groups_interests",
+    "focus.segments",
+    "focus.campaign_index",
+    "focus.campaign_wizard",
+    "focus.email_builder",
+    "focus.template_library",
+    "focus.content_studio",
+    "focus.reports_overview",
+    "focus.report_detail",
+    "focus.automations_overview",
+    "focus.automation_journey_builder",
+    "focus.integrations_marketplace",
+    "focus.api_keys_webhooks",
+    "focus.billing_plans",
+    "focus.settings_domains",
+    "focus.team_roles_permissions"
+  ],
+  "stopReason": "Qualification completed cleanly at tier 8.",
+  "stages": [
+    {
+      "id": "contract_compiled",
+      "complete": true
+    },
+    {
+      "id": "launch_checklist_present",
+      "complete": true
+    },
+    {
+      "id": "loc_accounting_present",
+      "complete": true
+    },
+    {
+      "id": "semantic_bloat_clean",
+      "complete": true
+    },
+    {
+      "id": "selected_tier_scale_proven",
+      "complete": true
+    },
+    {
+      "id": "product_code_diff_present",
+      "complete": true
+    },
+    {
+      "id": "merged_focus_work_present",
+      "complete": true
+    },
+    {
+      "id": "selected_tier_had_live_work",
+      "complete": true
+    },
+    {
+      "id": "bounded_ownership_conflicts",
+      "complete": false
+    },
+    {
+      "id": "selected_artifacts_present",
+      "complete": true
+    },
+    {
+      "id": "supervisor_outputs_present",
+      "complete": true
+    },
+    {
+      "id": "selectedTier",
+      "complete": true
+    }
+  ]
+}

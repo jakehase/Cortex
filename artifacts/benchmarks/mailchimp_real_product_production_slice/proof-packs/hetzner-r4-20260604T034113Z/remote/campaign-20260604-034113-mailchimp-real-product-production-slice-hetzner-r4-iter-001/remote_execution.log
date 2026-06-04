@@ -1,0 +1,250 @@
+===== git worktree remove =====
+fatal: '/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001' is not a working tree
+
+===== iteration 0 workspace refresh =====
+===== git worktree remove =====
+fatal: '/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001' is not a working tree
+
+===== stale disposable worktree cleanup =====
+{
+  "found": 1,
+  "retained": 1,
+  "removed": 0,
+  "retain": 10,
+  "minAgeMs": 1800000,
+  "inodeState": {
+    "ok": true,
+    "path": "/home/jake/clawd-remote",
+    "filesystem": "/dev/md2",
+    "inodes": 61374464,
+    "used": 1750846,
+    "free": 59623618,
+    "usePercent": "3%",
+    "raw": "/dev/md2       61374464 1750846 59623618    3% /"
+  }
+}
+
+===== product baseline cleanliness =====
+{
+  "generatedAt": "2026-06-04T03:43:29.923Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+  "pathspecs": [
+    "apps",
+    "packages",
+    "public",
+    "src"
+  ],
+  "ok": true,
+  "allowDirtyProductBaseline": false,
+  "dirtyProductFileCount": 0,
+  "dirtyProductFiles": [],
+  "addedNonblankLinesApprox": 0,
+  "addedUniqueNormalizedLinesApprox": 0,
+  "duplicateAddedLineRatio": 0,
+  "semanticBloatSuspect": false,
+  "semanticBloatReasons": [],
+  "statusExitCode": 0,
+  "diffExitCode": 0
+}
+
+===== baseline overlay status =====
+?? execution-boundary-policy.json.bak-vm102-20260604T032209Z
+
+===== strict gap inventory mirror =====
+{
+  "generatedAt": "2026-06-04T03:43:30.021Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/artifacts/full_audit_campaign/strict_1to1_gap_inventory.json",
+  "destinationPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/full_audit_campaign/strict_1to1_gap_inventory.json"
+}
+
+===== benchmark contract mirror =====
+{
+  "generatedAt": "2026-06-04T03:43:30.022Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/artifacts/full_audit_campaign/one_pass_run_contract.latest.json",
+  "destinationPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/full_audit_campaign/one_pass_run_contract.latest.json"
+}
+
+===== worktree dependency links =====
+{
+  "generatedAt": "2026-06-04T03:43:30.022Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+  "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "links": [
+    {
+      "name": "node_modules",
+      "linked": true,
+      "reused": false,
+      "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/node_modules",
+      "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/node_modules"
+    },
+    {
+      "name": "artifacts",
+      "linked": true,
+      "reused": false,
+      "sourcePath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+      "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts"
+    }
+  ]
+}
+
+===== remote runner iteration 1 =====
+
+===== iteration 1 workspace refresh =====
+===== git worktree remove =====
+
+===== stale disposable worktree cleanup =====
+{
+  "found": 1,
+  "retained": 1,
+  "removed": 0,
+  "retain": 10,
+  "minAgeMs": 1800000,
+  "inodeState": {
+    "ok": true,
+    "path": "/home/jake/clawd-remote",
+    "filesystem": "/dev/md2",
+    "inodes": 61374464,
+    "used": 1750851,
+    "free": 59623613,
+    "usePercent": "3%",
+    "raw": "/dev/md2       61374464 1750851 59623613    3% /"
+  }
+}
+
+===== product baseline cleanliness =====
+{
+  "generatedAt": "2026-06-04T03:43:30.052Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+  "pathspecs": [
+    "apps",
+    "packages",
+    "public",
+    "src"
+  ],
+  "ok": true,
+  "allowDirtyProductBaseline": false,
+  "dirtyProductFileCount": 0,
+  "dirtyProductFiles": [],
+  "addedNonblankLinesApprox": 0,
+  "addedUniqueNormalizedLinesApprox": 0,
+  "duplicateAddedLineRatio": 0,
+  "semanticBloatSuspect": false,
+  "semanticBloatReasons": [],
+  "statusExitCode": 0,
+  "diffExitCode": 0
+}
+
+===== baseline overlay status =====
+?? execution-boundary-policy.json.bak-vm102-20260604T032209Z
+
+===== strict gap inventory mirror =====
+{
+  "generatedAt": "2026-06-04T03:43:30.137Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/artifacts/full_audit_campaign/strict_1to1_gap_inventory.json",
+  "destinationPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/full_audit_campaign/strict_1to1_gap_inventory.json"
+}
+
+===== benchmark contract mirror =====
+{
+  "generatedAt": "2026-06-04T03:43:30.137Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/artifacts/full_audit_campaign/one_pass_run_contract.latest.json",
+  "destinationPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/full_audit_campaign/one_pass_run_contract.latest.json"
+}
+
+===== worktree dependency links =====
+{
+  "generatedAt": "2026-06-04T03:43:30.137Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+  "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "links": [
+    {
+      "name": "node_modules",
+      "linked": true,
+      "reused": false,
+      "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/node_modules",
+      "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/node_modules"
+    },
+    {
+      "name": "artifacts",
+      "linked": true,
+      "reused": false,
+      "sourcePath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+      "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts"
+    }
+  ]
+}
+{
+  "ok": false,
+  "artifactRoot": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "highestPassingTier": null,
+  "qualificationMode": "real_mailchimp_repo_live_worker_farm",
+  "blocker": {
+    "blocker": "Partial parity-surface reduction was proven, but remaining red surfaces are still open.",
+    "nextAction": "Continue with the remaining focus lanes named in surface_matrix.json instead of re-running the same completed focus patches."
+  },
+  "supervisorLog": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/validation/supervisor.log",
+  "notifierOk": null
+}
+
+===== remote partial-progress control-plane promotion manifest =====
+{
+  "generatedAt": "2026-06-04T03:43:44.609Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+  "mode": "control_plane_sync_from_disposable_worktree",
+  "presentCount": 5,
+  "missingCount": 0,
+  "productFiles": [
+    "packages/app/routes/website-builder.mjs",
+    "packages/app/domain-website-builder.mjs",
+    "packages/app/routes/forms.mjs",
+    "packages/app/domain-audience.mjs",
+    "packages/app/routes/campaigns.mjs"
+  ],
+  "missing": [],
+  "diffStats": {
+    "ok": true,
+    "added": 20,
+    "deleted": 3,
+    "changedLines": 23,
+    "files": 5,
+    "entries": [
+      {
+        "path": "packages/app/domain-audience.mjs",
+        "added": 15,
+        "deleted": 0
+      },
+      {
+        "path": "packages/app/domain-website-builder.mjs",
+        "added": 2,
+        "deleted": 0
+      },
+      {
+        "path": "packages/app/routes/campaigns.mjs",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "packages/app/routes/forms.mjs",
+        "added": 1,
+        "deleted": 1
+      },
+      {
+        "path": "packages/app/routes/website-builder.mjs",
+        "added": 1,
+        "deleted": 1
+      }
+    ],
+    "error": null
+  },
+  "note": "Verified partial-progress product files are left in the disposable worktree for the control-plane sync step; the remote baseline repo is not mutated."
+}

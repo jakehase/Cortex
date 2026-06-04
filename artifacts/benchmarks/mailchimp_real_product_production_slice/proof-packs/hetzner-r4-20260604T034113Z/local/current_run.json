@@ -1,0 +1,21 @@
+{
+  "campaignRunId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "iteration": 2,
+  "runDir": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "artifactRoot": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "reportsDir": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/reports",
+  "generatedAt": "2026-06-04T03:46:22.952Z",
+  "startedAt": "2026-06-04T03:46:22.925Z",
+  "campaignStartedAt": "2026-06-04T03:41:46.996Z",
+  "campaignDeadlineAt": "2026-06-04T09:41:46.996Z",
+  "maxRuntimeHours": 6,
+  "soakFullRuntime": false,
+  "remoteArtifactRoot": null,
+  "remoteWorktree": null,
+  "remoteBaselineRepo": null,
+  "blockerPath": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/blocker_report.json",
+  "programStatePath": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/worker_state.json",
+  "workerStatusPath": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/reports/100_agent_worker_status.json",
+  "transportStatusPath": "/root/clawd/mailchimp-clone/artifacts/full_audit_campaign/cortex_transport/transport_status.json"
+}

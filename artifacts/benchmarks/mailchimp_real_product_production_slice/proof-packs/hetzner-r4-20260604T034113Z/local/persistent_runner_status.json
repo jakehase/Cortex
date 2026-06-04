@@ -1,0 +1,469 @@
+{
+  "generatedAt": "2026-06-04T03:49:44.346Z",
+  "running": false,
+  "campaignRunId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4",
+  "iteration": 2,
+  "maxIterations": null,
+  "maxRuntimeHours": 6,
+  "deadlineAt": "2026-06-04T09:41:46.996Z",
+  "iterations": [
+    {
+      "iteration": 1,
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+      "workerExitCode": 1,
+      "syncExitCode": 0,
+      "supervisorExitCode": 1,
+      "workerError": null,
+      "syncError": null,
+      "supervisorError": null,
+      "supervisorStatus": "red",
+      "matrixStatus": "partial",
+      "parityStatus": "partial",
+      "blocker": {
+        "blocker": "Iteration artifact contract is incomplete, so supervisor green cannot be credited.",
+        "nextAction": "Require readable remote_execution_status.json, program_state.json, blocker_report.json, and run_state_truth.json before green or next-iteration credit.",
+        "phase": "artifact_contract",
+        "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+        "iteration": 1,
+        "missingArtifacts": [
+          "blocker_report.json"
+        ],
+        "artifactContract": {
+          "ok": false,
+          "artifacts": [
+            {
+              "name": "remote_execution_status.json",
+              "path": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/delegate/remote_execution_status.json",
+              "present": true,
+              "readableJson": true
+            },
+            {
+              "name": "program_state.json",
+              "path": "artifacts/full_audit_campaign/program_state.json",
+              "present": true,
+              "readableJson": true
+            },
+            {
+              "name": "blocker_report.json",
+              "path": "artifacts/full_audit_campaign/blocker_report.json",
+              "present": false,
+              "readableJson": false
+            }
+          ],
+          "missing": [
+            "blocker_report.json"
+          ]
+        }
+      },
+      "blockerKind": "orchestration",
+      "continuationDecision": "continue_next_iteration",
+      "nextFocus": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "mergedFocusIds": [
+        "focus.landing_pages",
+        "focus.website_builder",
+        "focus.signup_forms_popups",
+        "focus.contacts_table",
+        "focus.send_schedule_review"
+      ],
+      "canonicalLandingOk": true,
+      "canonicalLandedProductFileCount": 5,
+      "canonicalLandingEvidence": {
+        "ok": true,
+        "gitTopLevel": "/root/clawd",
+        "applyDirectory": "mailchimp-clone",
+        "skippedPatchOutput": false,
+        "productFileCount": 5,
+        "newlyLandedProductFileCount": 5,
+        "alreadyMatchedProductFileCount": 0,
+        "canonicalSynchronizedProductFileCount": 5,
+        "files": [
+          {
+            "path": "packages/app/domain-audience.mjs",
+            "beforeHash": "6c270328bfa76232f47777df7189dc4e16cc9c33530e2041505ad18da598db16",
+            "afterHash": "a3e6fe7b6ff4e25346dea0026f6ae0b46f12efde0aef53fc0a1541bfdb526fa4",
+            "existsAfter": true,
+            "changedInCanonicalCheckout": true,
+            "alreadyMatchedBeforeSync": false
+          },
+          {
+            "path": "packages/app/domain-website-builder.mjs",
+            "beforeHash": "b44352bd200c4a32cdaf2d637c6e575c889012998c342c4fe75fdf6372fe2893",
+            "afterHash": "e0f6da8aa6f1b07ee631852f6f080f7f09ff95aac8ccb65e10bd68d8a3d94bc6",
+            "existsAfter": true,
+            "changedInCanonicalCheckout": true,
+            "alreadyMatchedBeforeSync": false
+          },
+          {
+            "path": "packages/app/routes/campaigns.mjs",
+            "beforeHash": "fdb6e96bce9ace855bf3a6b00d047235e6658a78ee1c8d35cdbb62f8ca50d4f5",
+            "afterHash": "edcd4933871667176ba12bcf43897cf074f697cd49fefa51ad3003ca4f1a5f89",
+            "existsAfter": true,
+            "changedInCanonicalCheckout": true,
+            "alreadyMatchedBeforeSync": false
+          },
+          {
+            "path": "packages/app/routes/forms.mjs",
+            "beforeHash": "0cfddfa8008ab1c4b6049ccd8ceb06687428a2795fe74a4fae6f9bfd00fe3105",
+            "afterHash": "27da21fcb431fbb9ca87b6949ddce9deb93b9aa672cc5da021dc20ab825bf402",
+            "existsAfter": true,
+            "changedInCanonicalCheckout": true,
+            "alreadyMatchedBeforeSync": false
+          },
+          {
+            "path": "packages/app/routes/website-builder.mjs",
+            "beforeHash": "15091aa18d2f72ae9617993158b6da3b8f4eef9cbbd176fa8470c48fc4243dcb",
+            "afterHash": "b66da0b44eb188c85f2cb67467a772c932baa20e1f304e38be5ea22dc3aa97bc",
+            "existsAfter": true,
+            "changedInCanonicalCheckout": true,
+            "alreadyMatchedBeforeSync": false
+          }
+        ]
+      },
+      "targetedSemanticReplay": null,
+      "targetedSemanticReplaySatisfied": false,
+      "failedFocusIds": [],
+      "excludedFocusIds": [],
+      "runDir": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+      "runStateTruthPath": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/run_state_truth.json",
+      "runStateTruth": {
+        "terminalState": "blocked_terminal",
+        "terminal": true,
+        "running": false,
+        "ok": false,
+        "stopAllowed": true,
+        "truth": {
+          "mechanicalGreen": false,
+          "scaleProofReady": false,
+          "supervisorGreen": false,
+          "thresholdPass": false,
+          "blockerPresent": true,
+          "contradictionCount": 0
+        },
+        "contradictions": []
+      },
+      "artifactContract": {
+        "ok": true,
+        "artifacts": [
+          {
+            "name": "run_state_truth.json",
+            "path": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/run_state_truth.json",
+            "present": true,
+            "readableJson": true
+          },
+          {
+            "name": "remote_execution_status.json",
+            "path": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/delegate/remote_execution_status.json",
+            "present": true,
+            "readableJson": true
+          },
+          {
+            "name": "program_state.json",
+            "path": "artifacts/full_audit_campaign/program_state.json",
+            "present": true,
+            "readableJson": true
+          },
+          {
+            "name": "blocker_report.json",
+            "path": "artifacts/full_audit_campaign/blocker_report.json",
+            "present": true,
+            "readableJson": true
+          }
+        ],
+        "missing": []
+      },
+      "green": false,
+      "blockerSemantics": "terminal"
+    },
+    {
+      "iteration": 2,
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "workerExitCode": 0,
+      "syncExitCode": 0,
+      "supervisorExitCode": 0,
+      "workerError": null,
+      "syncError": null,
+      "supervisorError": null,
+      "supervisorStatus": "green",
+      "matrixStatus": "all_complete",
+      "parityStatus": "parity_for_scope",
+      "blocker": {
+        "blocker": "Iteration artifact contract is incomplete, so supervisor green cannot be credited.",
+        "nextAction": "Require readable remote_execution_status.json, program_state.json, blocker_report.json, and run_state_truth.json before green or next-iteration credit.",
+        "phase": "artifact_contract",
+        "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+        "iteration": 2,
+        "missingArtifacts": [
+          "blocker_report.json"
+        ],
+        "artifactContract": {
+          "ok": false,
+          "artifacts": [
+            {
+              "name": "remote_execution_status.json",
+              "path": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/delegate/remote_execution_status.json",
+              "present": true,
+              "readableJson": true
+            },
+            {
+              "name": "program_state.json",
+              "path": "artifacts/full_audit_campaign/program_state.json",
+              "present": true,
+              "readableJson": true
+            },
+            {
+              "name": "blocker_report.json",
+              "path": "artifacts/full_audit_campaign/blocker_report.json",
+              "present": false,
+              "readableJson": false
+            }
+          ],
+          "missing": [
+            "blocker_report.json"
+          ]
+        }
+      },
+      "blockerKind": null,
+      "continuationDecision": "stop_target_satisfied",
+      "nextFocus": [],
+      "mergedFocusIds": [],
+      "canonicalLandingOk": true,
+      "canonicalLandedProductFileCount": 0,
+      "canonicalLandingEvidence": {
+        "ok": true,
+        "targetSatisfied": true,
+        "skippedPatchOutput": true,
+        "productFileCount": 0,
+        "newlyLandedProductFileCount": 0,
+        "alreadyMatchedProductFileCount": 0,
+        "canonicalSynchronizedProductFileCount": 0,
+        "verifiedTargetFocusIds": [
+          "focus.signup_onboarding",
+          "focus.account_workspace_setup",
+          "focus.dashboard_home",
+          "focus.audience_overview",
+          "focus.contacts_table",
+          "focus.contact_profile",
+          "focus.tags_groups_interests",
+          "focus.segments",
+          "focus.campaign_index",
+          "focus.send_schedule_review",
+          "focus.campaign_wizard",
+          "focus.email_builder",
+          "focus.template_library",
+          "focus.content_studio",
+          "focus.reports_overview",
+          "focus.report_detail",
+          "focus.automations_overview",
+          "focus.automation_journey_builder",
+          "focus.integrations_marketplace",
+          "focus.api_keys_webhooks",
+          "focus.billing_plans",
+          "focus.settings_domains",
+          "focus.team_roles_permissions"
+        ],
+        "note": "Targeted semantic replay verified the requested focus set before delegate launch; no new product patch needed for this scoped repair checkpoint."
+      },
+      "targetedSemanticReplay": {
+        "generatedAt": "2026-06-04T03:48:02.503Z",
+        "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+        "iteration": 0,
+        "active": true,
+        "targetFocusIds": [
+          "focus.signup_onboarding",
+          "focus.account_workspace_setup",
+          "focus.dashboard_home",
+          "focus.audience_overview",
+          "focus.contacts_table",
+          "focus.contact_profile",
+          "focus.tags_groups_interests",
+          "focus.segments",
+          "focus.campaign_index",
+          "focus.send_schedule_review",
+          "focus.campaign_wizard",
+          "focus.email_builder",
+          "focus.template_library",
+          "focus.content_studio",
+          "focus.reports_overview",
+          "focus.report_detail",
+          "focus.automations_overview",
+          "focus.automation_journey_builder",
+          "focus.integrations_marketplace",
+          "focus.api_keys_webhooks",
+          "focus.billing_plans",
+          "focus.settings_domains",
+          "focus.team_roles_permissions"
+        ],
+        "verifiedTargetFocusIds": [
+          "focus.signup_onboarding",
+          "focus.account_workspace_setup",
+          "focus.dashboard_home",
+          "focus.audience_overview",
+          "focus.contacts_table",
+          "focus.contact_profile",
+          "focus.tags_groups_interests",
+          "focus.segments",
+          "focus.campaign_index",
+          "focus.send_schedule_review",
+          "focus.campaign_wizard",
+          "focus.email_builder",
+          "focus.template_library",
+          "focus.content_studio",
+          "focus.reports_overview",
+          "focus.report_detail",
+          "focus.automations_overview",
+          "focus.automation_journey_builder",
+          "focus.integrations_marketplace",
+          "focus.api_keys_webhooks",
+          "focus.billing_plans",
+          "focus.settings_domains",
+          "focus.team_roles_permissions"
+        ],
+        "missingFocusIds": [],
+        "progressDelta": [
+          "focus.signup_onboarding",
+          "focus.account_workspace_setup",
+          "focus.dashboard_home",
+          "focus.audience_overview",
+          "focus.contacts_table",
+          "focus.contact_profile",
+          "focus.tags_groups_interests",
+          "focus.segments",
+          "focus.campaign_index",
+          "focus.send_schedule_review",
+          "focus.campaign_wizard",
+          "focus.email_builder",
+          "focus.template_library",
+          "focus.content_studio",
+          "focus.reports_overview",
+          "focus.report_detail",
+          "focus.automations_overview",
+          "focus.automation_journey_builder",
+          "focus.integrations_marketplace",
+          "focus.api_keys_webhooks",
+          "focus.billing_plans",
+          "focus.settings_domains",
+          "focus.team_roles_permissions"
+        ],
+        "freshProgressDetected": false,
+        "selectedTierHadLiveWork": false,
+        "satisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "preflightCreditAllowed": true,
+        "liveWorkRequired": false
+      },
+      "targetedSemanticReplaySatisfied": true,
+      "failedFocusIds": [],
+      "excludedFocusIds": [],
+      "runDir": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "runStateTruthPath": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/run_state_truth.json",
+      "runStateTruth": {
+        "terminalState": "contradiction_blocked",
+        "terminal": true,
+        "running": false,
+        "ok": false,
+        "stopAllowed": true,
+        "truth": {
+          "mechanicalGreen": false,
+          "scaleProofReady": false,
+          "supervisorGreen": true,
+          "thresholdPass": false,
+          "blockerPresent": true,
+          "contradictionCount": 1
+        },
+        "contradictions": [
+          {
+            "type": "supervisor_green_threshold_red",
+            "severity": "fatal",
+            "supervisorStatus": "green",
+            "thresholdPass": false
+          }
+        ]
+      },
+      "artifactContract": {
+        "ok": true,
+        "artifacts": [
+          {
+            "name": "run_state_truth.json",
+            "path": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/run_state_truth.json",
+            "present": true,
+            "readableJson": true
+          },
+          {
+            "name": "remote_execution_status.json",
+            "path": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/delegate/remote_execution_status.json",
+            "present": true,
+            "readableJson": true
+          },
+          {
+            "name": "program_state.json",
+            "path": "artifacts/full_audit_campaign/program_state.json",
+            "present": true,
+            "readableJson": true
+          },
+          {
+            "name": "blocker_report.json",
+            "path": "artifacts/full_audit_campaign/blocker_report.json",
+            "present": true,
+            "readableJson": true
+          }
+        ],
+        "missing": []
+      },
+      "green": true,
+      "blockerSemantics": "terminal"
+    }
+  ],
+  "completedFocusIds": [
+    "focus.landing_pages",
+    "focus.website_builder",
+    "focus.signup_forms_popups",
+    "focus.contacts_table",
+    "focus.send_schedule_review",
+    "focus.audience_overview",
+    "focus.contact_profile",
+    "focus.campaign_index",
+    "focus.signup_onboarding",
+    "focus.account_workspace_setup",
+    "focus.dashboard_home",
+    "focus.tags_groups_interests",
+    "focus.segments",
+    "focus.campaign_wizard",
+    "focus.email_builder",
+    "focus.template_library",
+    "focus.content_studio",
+    "focus.reports_overview",
+    "focus.report_detail",
+    "focus.automations_overview",
+    "focus.automation_journey_builder",
+    "focus.integrations_marketplace",
+    "focus.api_keys_webhooks",
+    "focus.billing_plans",
+    "focus.settings_domains",
+    "focus.team_roles_permissions"
+  ],
+  "excludedFocusIds": [],
+  "status": "green",
+  "note": "Full-audit Mailchimp parity campaign reached supervisor green."
+}

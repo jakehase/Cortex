@@ -1,0 +1,849 @@
+{
+  "generatedAt": "2026-06-04T03:48:39.495Z",
+  "ok": true,
+  "running": false,
+  "phase": "remote_execution_finished",
+  "requestedAgentCount": 100,
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "launchPid": 1189093,
+  "pollCount": 1,
+  "logPath": "artifacts/full_audit_campaign/reports/100_agent_worker.log",
+  "transportStatusPath": "artifacts/full_audit_campaign/cortex_transport/transport_status.json",
+  "executionBoundaryPolicyPath": "execution-boundary-policy.json",
+  "remoteExecution": {
+    "host": "37.27.129.239",
+    "user": "jake",
+    "port": 22,
+    "workdir": "/home/jake/clawd-remote",
+    "runsRoot": "/home/jake/clawd-remote/mailchimp-runs",
+    "remoteRunRoot": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "launchScript": "mailchimp-clone/scripts/full-audit-campaign-remote-runner.mjs",
+    "remoteArtifactRoot": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "launchLogPath": "/home/jake/clawd-remote/mailchimp-runs/_launcher/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/launcher.log",
+    "launchPidPath": "/home/jake/clawd-remote/mailchimp-runs/_launcher/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/launcher.pid"
+  },
+  "syncedRemoteControlFiles": {
+    "synced": [],
+    "skipped": [
+      {
+        "root": "mailchimp-clone",
+        "path": "artifacts/full_audit_campaign/strict_1to1_gap_inventory.json",
+        "sha256": "b77c37a660b70ea8890965efb39a1e9e5470aa0c2286e82cc82d1d23676fd897"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "artifacts/full_audit_campaign/one_pass_run_contract.latest.json",
+        "sha256": "b424fc222f4156efaba4022cb5dd4eb30802611ae6e53d0490f70f8f203e9792"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/full-audit-campaign-remote-runner.mjs",
+        "sha256": "abfc4160ee6533042814911b62b7d5ad345ffc53a51d7ceeeae2eed21b93bc02"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/orchestrator-real-repo-clean-run.mjs",
+        "sha256": "7fc56873bd5eb27078bdb800d589482fe66df78d324655b7f1c0204db5a9f7d9"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/orchestrator-real-repo-clean-worker.mjs",
+        "sha256": "846ba57d9f4205e784c3396b029214ce915986bba18f72953fa0136285a90cb3"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/orchestrator-real-repo-clean-verifier.mjs",
+        "sha256": "b12e019aaa490bf60de417d7f0d6c6d6d7749d27543cf05395f06601ba7f2769"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/orchestrator-real-repo-clean-supervisor.mjs",
+        "sha256": "6cb03be43414053d1b86fcf1b0ea798aac3b566302b07ca93e9a92ce42cee441"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/orchestrator-real-repo-clean-implement.mjs",
+        "sha256": "479bce0f1bf2376afe7d9304744598c03c500389016868e52d24fe26dc9009ec"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/full-audit-campaign-remote-contract.mjs",
+        "sha256": "ae43b1a29efa90719cf48b61b4255fdd4a1eba3ec31df84da922bf8da0d252ea"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/full-audit-campaign-state.mjs",
+        "sha256": "de43003819c0a3764ea3b45839365ebe36e06176d19742143530bb4a5dffcb4f"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/full-audit-campaign-sync-pathspecs.mjs",
+        "sha256": "385b2d7473ea92fae8d3b449164fde6297a2e84db85f750f5032f821b72554f2"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/full-audit-campaign-liveness.mjs",
+        "sha256": "82845552ec50258bbc94091e3d63ef83b9e23d892d99dd2e25e2b18c60d9b3f4"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/orchestration-program-config.mjs",
+        "sha256": "af99cefc8835c4349a5ade3400a6b3bfbc8f4c7c2c952271fa26b419ce64e890"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/orchestrator-adaptive-concurrency.mjs",
+        "sha256": "68bc3d6dedee4c5b3d366ac8e5c82efed1e9d73c839808958f244c83fe885af3"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/mailchimp-canonical-one-pass-plan-data.mjs",
+        "sha256": "1d0d3ef76bfa41bd92f65c38e59e244367751198f48a8e2d1cf026529816672f"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/strict-hierarchical-planner.mjs",
+        "sha256": "f4abc24b2ef35bdcc8b6b688b074abe2d082fb525020a2b75849dd3b8ee9fcb5"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/lib/orchestrator-real-repo-clean-plan.mjs",
+        "sha256": "0d81a6bb66e86acb2b6907f8aa6d48d8d09333d2a4535f2eee93f46d90770a57"
+      },
+      {
+        "root": "mailchimp-clone",
+        "path": "scripts/smoke-full-clone.mjs",
+        "sha256": "43b88c47f1664c4373ae58f8c79fb60bd21618b59f828c68c4b0583f6bcd44b4"
+      },
+      {
+        "root": "large-project-capability-stack",
+        "path": "packages/campaign-runtime/index.mjs",
+        "sha256": "4cef958e0b59fda40d4ac46cec1aab977ab891e0860f04e53ab3ad49f67c6b98"
+      },
+      {
+        "root": "large-project-capability-stack",
+        "path": "packages/task-contract/index.mjs",
+        "sha256": "f53a36492b3d0607ff82bc3abc8027334a512cd71f3892eca16aa89467124f24"
+      },
+      {
+        "root": "large-project-capability-stack",
+        "path": "packages/issue-dag/index.mjs",
+        "sha256": "babc15e66b01138eccc4cb4fc753d4b5a1db616edb8608dc1865cb4da422f128"
+      },
+      {
+        "root": "large-project-capability-stack",
+        "path": "packages/surface-matrix/index.mjs",
+        "sha256": "f3b79dc0500ed05c26e7ea83f304161ee6128f6150af40a55b5c3e6b60e523b6"
+      },
+      {
+        "root": "large-project-capability-stack",
+        "path": "packages/objective-surface-decomposer/index.mjs",
+        "sha256": "533e447266fa68008e0bffa452991f3d8d7c83cf14683a4fbfdb4c9aa1256106"
+      },
+      {
+        "root": "large-project-capability-stack",
+        "path": "packages/orchestrator-run-state/index.mjs",
+        "sha256": "a9ae8197c7780b8c699aaac747d4b4732f4d6c9105841fa254d00c6bb109a029"
+      },
+      {
+        "root": "large-project-capability-stack",
+        "path": "packages/multi-agent-orchestrator/index.mjs",
+        "sha256": "e0a06677bffa541e1729d9f175a314006bcd6dbf1861b672af0c861c9decbcd6"
+      }
+    ],
+    "repoOverlay": {
+      "pathspecs": [
+        ".",
+        ":(exclude)artifacts",
+        ":(exclude)node_modules",
+        ":(exclude)packages/app/full-clone-frontier",
+        ":(exclude)packages/app/full-clone-remediation",
+        ":(exclude)packages/app/full-clone-structural",
+        ":(exclude)packages/app/full-clone-swarm",
+        ":(exclude,glob)**/*.rej",
+        ":(exclude)apps",
+        ":(exclude)packages",
+        ":(exclude)public",
+        ":(exclude)src"
+      ],
+      "changedRecordCount": 23,
+      "remoteBaselineCleanup": {
+        "checkedRecordCount": 1,
+        "staleRecordCount": 0,
+        "reset": [],
+        "removed": [],
+        "skipped": []
+      },
+      "synced": [],
+      "skipped": [
+        {
+          "path": "scripts/full-audit-campaign-persistent-runner.mjs",
+          "status": "M",
+          "sha256": "5943033e4bebda4e826b0efd8ef29d7d002b0b4d5846659e8e0adfbc6d2b151f",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/full-audit-campaign-remote-runner.mjs",
+          "status": "M",
+          "sha256": "abfc4160ee6533042814911b62b7d5ad345ffc53a51d7ceeeae2eed21b93bc02",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/full-audit-campaign-supervisor.mjs",
+          "status": "M",
+          "sha256": "f4f3cd79c84c619ce33570815198d73c911b70b04e2a894c93ad3b94ca51331d",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/full-audit-campaign-sync-remote-worktree.mjs",
+          "status": "M",
+          "sha256": "5592a6f61ee234709758f551e4a204d5d5694ed5ba964bc05d612564baa38719",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/lib/full-audit-campaign-remote-contract.mjs",
+          "status": "M",
+          "sha256": "ae43b1a29efa90719cf48b61b4255fdd4a1eba3ec31df84da922bf8da0d252ea",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/lib/full-audit-campaign-state.mjs",
+          "status": "M",
+          "sha256": "de43003819c0a3764ea3b45839365ebe36e06176d19742143530bb4a5dffcb4f",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/lib/orchestration-program-config.mjs",
+          "status": "M",
+          "sha256": "af99cefc8835c4349a5ade3400a6b3bfbc8f4c7c2c952271fa26b419ce64e890",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/lib/orchestrator-adaptive-concurrency.mjs",
+          "status": "M",
+          "sha256": "68bc3d6dedee4c5b3d366ac8e5c82efed1e9d73c839808958f244c83fe885af3",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/lib/orchestrator-real-repo-clean-plan.mjs",
+          "status": "M",
+          "sha256": "0d81a6bb66e86acb2b6907f8aa6d48d8d09333d2a4535f2eee93f46d90770a57",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/orchestrator-real-repo-clean-implement.mjs",
+          "status": "M",
+          "sha256": "479bce0f1bf2376afe7d9304744598c03c500389016868e52d24fe26dc9009ec",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/orchestrator-real-repo-clean-run.mjs",
+          "status": "M",
+          "sha256": "7fc56873bd5eb27078bdb800d589482fe66df78d324655b7f1c0204db5a9f7d9",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/orchestrator-real-repo-clean-supervisor.mjs",
+          "status": "M",
+          "sha256": "6cb03be43414053d1b86fcf1b0ea798aac3b566302b07ca93e9a92ce42cee441",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/orchestrator-real-repo-clean-verifier.mjs",
+          "status": "M",
+          "sha256": "b12e019aaa490bf60de417d7f0d6c6d6d7749d27543cf05395f06601ba7f2769",
+          "reason": "sha_match"
+        },
+        {
+          "path": "scripts/strict-1to1-supervisor.mjs",
+          "status": "M",
+          "sha256": "6ce606ff86137645df91ea460ba240f1d272a8e5565a2f9116b2427a690582e5",
+          "reason": "sha_match"
+        },
+        {
+          "path": "surface-honesty.json",
+          "status": "M",
+          "sha256": "61b2051975f21dfa82e13159809d009d6a292134c5fb205ec254fb30fec97c77",
+          "reason": "sha_match"
+        },
+        {
+          "path": "tests/full-audit-campaign-orchestration-audit.test.mjs",
+          "status": "M",
+          "sha256": "517bee0e2cc82c78e70056af33a1bf89a6f62a2477be6860413108eb98f4c493",
+          "reason": "sha_match"
+        },
+        {
+          "path": "tests/full-audit-campaign-persistent-runner.test.mjs",
+          "status": "M",
+          "sha256": "f71362e1c37a2a1a94882482294bf436b8c367475b147243ce74cab6b56014a4",
+          "reason": "sha_match"
+        },
+        {
+          "path": "tests/full-audit-campaign-remote-contract.test.mjs",
+          "status": "M",
+          "sha256": "fb93f361d083c3c1d5fd465d29193b0642e72393bf335df30d7b8ec9e5aba4ca",
+          "reason": "sha_match"
+        },
+        {
+          "path": "tests/full-audit-campaign-remote-runner.test.mjs",
+          "status": "M",
+          "sha256": "7375b6d2615290063965c771a65276ab1cd552b45583295a71f80fccaa367f98",
+          "reason": "sha_match"
+        },
+        {
+          "path": "tests/implement-worker.regressions.test.mjs",
+          "status": "M",
+          "sha256": "396e2f7c2fc2aa7071d28cbbdc3d77b658e21abf814b5fb0257b0603afb97ae9",
+          "reason": "sha_match"
+        },
+        {
+          "path": "tests/orchestrator-adaptive-concurrency.test.mjs",
+          "status": "M",
+          "sha256": "ebcc2870c964d292a5821d8ec4256df92e66b15e6839c3e3dd72b7611ae4ec31",
+          "reason": "sha_match"
+        },
+        {
+          "path": "tests/orchestrator-real-repo-clean-plan.test.mjs",
+          "status": "M",
+          "sha256": "62e9e88d4d3bbbd6922c6ef37d5bee47991593705f94593dbe04bda1627406fe",
+          "reason": "sha_match"
+        },
+        {
+          "path": "execution-boundary-policy.json.bak-vm102-20260604T032209Z",
+          "status": "??",
+          "sha256": "fafc2e0976e467dc6a7243f238b01904431224f7777501aa294e5c2a4d90c429",
+          "reason": "sha_match"
+        }
+      ],
+      "deleted": []
+    },
+    "remoteRepoRoot": "/home/jake/clawd-remote/mailchimp-clone",
+    "remoteStackRepoRoot": "/home/jake/clawd-remote/large-project-capability-stack"
+  },
+  "mirrored": {
+    "remoteExecutionStatusPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/remote_execution_status.json",
+    "remoteExecutionTerminalPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/remote_execution_terminal.json",
+    "remoteExecutionLogPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/remote_execution.log",
+    "implementationModeStatusPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/implementation_mode_status.json",
+    "baselineOverlayPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/baseline_overlay.json",
+    "dependencyLinksPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/dependency_links.json",
+    "launcherLogPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/launcher.log",
+    "launcherLimitsPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/launcher_limits.json",
+    "launcherPidPath": "artifacts/qualification/orchestrator_real_repo_clean_baseline/launcher.pid"
+  },
+  "remoteExecutionStatus": {
+    "generatedAt": "2026-06-04T03:48:02.503Z",
+    "running": false,
+    "terminal": true,
+    "ok": true,
+    "phase": "remote_execution_target_satisfied",
+    "statusSource": "remote_runner_terminalizer",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "host": "clawd-exec-hel1",
+    "hostRole": "execution_plane",
+    "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+    "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "artifactRoot": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "activeIteration": null,
+    "childPid": null,
+    "heartbeatAt": "2026-06-04T03:48:02.503Z",
+    "finishedAt": "2026-06-04T03:48:02.503Z",
+    "lastOutputAt": "2026-06-04T03:47:57.658Z",
+    "artifactStates": [
+      {
+        "path": "work_graph.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "campaign_state.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "program_state.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "completion_summary.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "blocker_report.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "supervisor_status.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "canonical_summary.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "notifier_eligibility.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "implementation_mode_status.json",
+        "exists": true,
+        "size": 865,
+        "mtimeMs": 1780544877658.6128
+      },
+      {
+        "path": "launch_checklist.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "resource_preflight.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "scale_preflight.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "loc_accounting.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "live_runs",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      }
+    ],
+    "processEntries": [],
+    "iterations": [],
+    "baselineOverlay": {
+      "generatedAt": "2026-06-04T03:47:57.766Z",
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+      "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "recordCount": 1,
+      "operations": [
+        {
+          "type": "copy",
+          "path": "execution-boundary-policy.json.bak-vm102-20260604T032209Z",
+          "status": "??"
+        }
+      ]
+    },
+    "dependencyLinks": {
+      "generatedAt": "2026-06-04T03:47:57.767Z",
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+      "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "links": [
+        {
+          "name": "node_modules",
+          "linked": true,
+          "reused": false,
+          "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/node_modules",
+          "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/node_modules"
+        },
+        {
+          "name": "artifacts",
+          "linked": true,
+          "reused": false,
+          "sourcePath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+          "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts"
+        }
+      ]
+    },
+    "exitCode": 0,
+    "signal": null,
+    "error": null,
+    "blocker": null,
+    "targetedSemanticReplay": {
+      "generatedAt": "2026-06-04T03:48:02.503Z",
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "iteration": 0,
+      "active": true,
+      "targetFocusIds": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "verifiedTargetFocusIds": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "missingFocusIds": [],
+      "progressDelta": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "freshProgressDetected": false,
+      "selectedTierHadLiveWork": false,
+      "satisfied": true,
+      "stopReason": "targeted_semantic_focus_verified",
+      "preflightCreditAllowed": true,
+      "liveWorkRequired": false
+    },
+    "note": "Remote execution runner stopped before delegate launch because the requested targeted semantic focus set was already verified by targeted tests. This is not a full-clone completion claim."
+  },
+  "remoteExecutionTerminal": {
+    "generatedAt": "2026-06-04T03:48:02.503Z",
+    "running": false,
+    "terminal": true,
+    "ok": true,
+    "phase": "remote_execution_target_satisfied",
+    "statusSource": "remote_runner_terminalizer",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "host": "clawd-exec-hel1",
+    "hostRole": "execution_plane",
+    "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+    "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "artifactRoot": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "activeIteration": null,
+    "childPid": null,
+    "heartbeatAt": "2026-06-04T03:48:02.503Z",
+    "finishedAt": "2026-06-04T03:48:02.503Z",
+    "lastOutputAt": "2026-06-04T03:47:57.658Z",
+    "artifactStates": [
+      {
+        "path": "work_graph.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "campaign_state.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "program_state.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "completion_summary.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "blocker_report.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "supervisor_status.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "canonical_summary.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "notifier_eligibility.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "implementation_mode_status.json",
+        "exists": true,
+        "size": 865,
+        "mtimeMs": 1780544877658.6128
+      },
+      {
+        "path": "launch_checklist.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "resource_preflight.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "scale_preflight.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "loc_accounting.json",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      },
+      {
+        "path": "live_runs",
+        "exists": false,
+        "size": 0,
+        "mtimeMs": null
+      }
+    ],
+    "processEntries": [],
+    "iterations": [],
+    "baselineOverlay": {
+      "generatedAt": "2026-06-04T03:47:57.766Z",
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+      "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "recordCount": 1,
+      "operations": [
+        {
+          "type": "copy",
+          "path": "execution-boundary-policy.json.bak-vm102-20260604T032209Z",
+          "status": "??"
+        }
+      ]
+    },
+    "dependencyLinks": {
+      "generatedAt": "2026-06-04T03:47:57.767Z",
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+      "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "links": [
+        {
+          "name": "node_modules",
+          "linked": true,
+          "reused": false,
+          "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/node_modules",
+          "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/node_modules"
+        },
+        {
+          "name": "artifacts",
+          "linked": true,
+          "reused": false,
+          "sourcePath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+          "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts"
+        }
+      ]
+    },
+    "exitCode": 0,
+    "signal": null,
+    "error": null,
+    "blocker": null,
+    "targetedSemanticReplay": {
+      "generatedAt": "2026-06-04T03:48:02.503Z",
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "iteration": 0,
+      "active": true,
+      "targetFocusIds": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "verifiedTargetFocusIds": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "missingFocusIds": [],
+      "progressDelta": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "freshProgressDetected": false,
+      "selectedTierHadLiveWork": false,
+      "satisfied": true,
+      "stopReason": "targeted_semantic_focus_verified",
+      "preflightCreditAllowed": true,
+      "liveWorkRequired": false
+    },
+    "note": "Remote execution runner stopped before delegate launch because the requested targeted semantic focus set was already verified by targeted tests. This is not a full-clone completion claim."
+  },
+  "remoteCompletionSummary": null,
+  "remoteProgramState": null,
+  "remoteBlocker": null,
+  "remoteCanonicalSummary": null,
+  "remoteNotifierEligibility": null,
+  "remoteBaselineOverlay": {
+    "generatedAt": "2026-06-04T03:47:57.766Z",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+    "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "recordCount": 1,
+    "operations": [
+      {
+        "type": "copy",
+        "path": "execution-boundary-policy.json.bak-vm102-20260604T032209Z",
+        "status": "??"
+      }
+    ]
+  },
+  "remoteDependencyLinks": {
+    "generatedAt": "2026-06-04T03:47:57.767Z",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+    "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "links": [
+      {
+        "name": "node_modules",
+        "linked": true,
+        "reused": false,
+        "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/node_modules",
+        "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/node_modules"
+      },
+      {
+        "name": "artifacts",
+        "linked": true,
+        "reused": false,
+        "sourcePath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+        "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts"
+      }
+    ]
+  },
+  "remoteLauncherPid": "1189093",
+  "remoteWatchdog": null
+}

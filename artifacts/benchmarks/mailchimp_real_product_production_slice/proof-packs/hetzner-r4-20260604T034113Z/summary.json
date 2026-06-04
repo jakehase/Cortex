@@ -1,0 +1,79 @@
+{
+  "generatedAt": "2026-06-04T04:28:21.822Z",
+  "proofPack": "artifacts/benchmarks/mailchimp_real_product_production_slice/proof-packs/hetzner-r4-20260604T034113Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4",
+  "terminalIteration": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "localHead": "984543daa",
+  "productCommit": "984543daa Land Mailchimp production slice product progress",
+  "contractCommit": "708dd2e40 Add Mailchimp production slice scope surfaces",
+  "executionBoundary": {
+    "host": "37.27.129.239",
+    "user": "jake",
+    "remoteRoot": "/home/jake/clawd-remote"
+  },
+  "truthBoundary": "production_slice / parity_for_scope only; not full Mailchimp 1:1 parity",
+  "localCompletion": {
+    "generatedAt": "2026-06-04T03:49:44.339Z",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "continuationDecision": "stop_green",
+    "supervisorConfirmedCompletion": true,
+    "orchestrationConfirmedCompletion": true,
+    "parityStatus": "parity_for_scope",
+    "matrixStatus": "all_complete",
+    "blocker": null
+  },
+  "persistentRunner": {
+    "generatedAt": "2026-06-04T03:49:44.346Z",
+    "campaignRunId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4",
+    "status": "green",
+    "running": false,
+    "iteration": 2
+  },
+  "sync": {
+    "generatedAt": "2026-06-04T03:49:42.134Z",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "ok": true,
+    "remoteArtifactRoot": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002"
+  },
+  "contract": {
+    "schemaVersion": "claw.mailchimp_real_product_campaign_contract.v1",
+    "benchmarkId": "mailchimp_real_product_production_slice",
+    "fidelity": "production_slice",
+    "surfaceCount": 26
+  },
+  "finalSurfaceMatrix": {
+    "generatedAt": "2026-06-04T03:49:44.338Z",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+    "status": "all_complete",
+    "surfaceCount": 23,
+    "statusCounts": {
+      "all_complete": 23
+    }
+  },
+  "remoteArtifacts": {
+    "iter001": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+    "iter002": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002"
+  },
+  "hashes": {
+    "local/100_agent_worker_status.json": "b6a10907a8598e3ba6648dfb1b3349ac9221ade910aa424409e73eed12fd5114",
+    "local/current_run.json": "3cd2e553e2d8498662dce40b439bac9b33da6ab6f187f43b034a7c212a22445b",
+    "local/docs_contract.json": "b424fc222f4156efaba4022cb5dd4eb30802611ae6e53d0490f70f8f203e9792",
+    "local/one_pass_run_contract.latest.json": "b424fc222f4156efaba4022cb5dd4eb30802611ae6e53d0490f70f8f203e9792",
+    "local/persistent_runner_status.json": "41b0315b5025eb99f4fdc4fe4f3e325018989dfabbcbc2e8648df8bd3610daa2",
+    "local/supervisor_status.json": "8157206be1014451ac682917a224848577a103dcf1f221c9f1e136f7cdd94dfb",
+    "local/surface_matrix.json": "84f4d15707b46635e791916a92153304262e2df1d6c332d28bbd56679b463524",
+    "local/sync_status.json": "b80ebe529015cb388a501557154bf2bb410cf361acd649f9d40b9ab0ff76b519",
+    "remote/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/remote_execution.log": "2caee5c941884558dd6225b800979c97672d806bca9378ffa3dec052cf932847",
+    "remote/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/remote_execution_status.json": "e93db0f49274a40bddba3ba126f2d89e71c47993ae3a3941f7c6ed3a6a0c36cd",
+    "remote/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/remote_execution_terminal.json": "e93db0f49274a40bddba3ba126f2d89e71c47993ae3a3941f7c6ed3a6a0c36cd",
+    "remote/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/surface_matrix.json": "ff5559050aec54ba9f7b7ef5ec78a7a7008952a68ce5c2b2bc75de5739f9193c",
+    "remote/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/remote_execution.log": "f888b2d414f031c25c6ee0efc3911eeda694d4621a5b07c377e64adef8351529",
+    "remote/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/remote_execution_status.json": "04a2b450c1a399cf5c6ce550fd87c48942823178a62f8a048162a8058d6a05fd",
+    "remote/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/remote_execution_terminal.json": "04a2b450c1a399cf5c6ce550fd87c48942823178a62f8a048162a8058d6a05fd"
+  },
+  "quarantine": {
+    "local": "/root/clawd/_quarantine/mailchimp-stale-runs/20260604-r4-stale-r2-r3-quarantine/quarantine-manifest.json",
+    "remote": "/home/jake/clawd-remote/_quarantine/stale-mailchimp-runs/20260604-r4-stale-r2-r3-quarantine/remote-quarantine-manifest.json",
+    "note": "Recoverable stale r2/r3/rerun artifacts were moved out of active paths; active r4 evidence remains in current artifacts, this proof pack, and remote r4 roots."
+  }
+}

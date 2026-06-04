@@ -1,0 +1,256 @@
+{
+  "generatedAt": "2026-06-04T03:49:44.339Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "fidelity": "production_slice",
+  "targetPath": "/root/clawd/mailchimp-clone",
+  "stopCondition": "supervisor_green_or_blocker_report",
+  "matrixStatus": "all_complete",
+  "supervisorStatus": "green",
+  "parityStatus": "parity_for_scope",
+  "nextFocus": [],
+  "blocker": null,
+  "blockerKind": null,
+  "note": "Requested targeted semantic replay focus was already verified; scoped repair is satisfied without claiming broad Mailchimp parity.",
+  "headline": "Targeted semantic replay scope satisfied.",
+  "orchestration": {
+    "supervisorStatus": "green",
+    "matrixStatus": "all_complete",
+    "parityStatus": "parity_for_scope",
+    "green": true,
+    "targetedSemanticReplaySatisfied": true
+  },
+  "requestedOutcome": {
+    "requestedFidelity": "production_slice",
+    "supervisorStatus": "green",
+    "matrixStatus": "all_complete",
+    "parityStatus": "parity_for_scope",
+    "green": true,
+    "blocker": null,
+    "blockerKind": null,
+    "targetedSemanticReplaySatisfied": true,
+    "note": "Requested targeted semantic replay focus was already verified; scoped repair is satisfied without claiming broad Mailchimp parity."
+  },
+  "canonicalSummaryPath": null,
+  "delegateBlockerPath": null,
+  "workerBlockerPath": null,
+  "delegateSurfaceMatrixPath": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/delegate/surface_matrix.json",
+  "surfaceMatrixPath": "artifacts/full_audit_campaign/surface_matrix.json",
+  "notifierEligibilityPath": "artifacts/full_audit_campaign/runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/delegate/notifier_eligibility.json",
+  "delegateEvidenceFresh": false,
+  "delegateTruthConflict": {
+    "incompleteCompletionStages": [],
+    "incompleteProgramStages": [],
+    "nestedBlocker": null,
+    "hasConflict": false
+  },
+  "remoteProgress": {
+    "active": false,
+    "latestIteration": null
+  },
+  "strict1to1": {
+    "required": false,
+    "state": null,
+    "blocker": null,
+    "supervisorExitCode": null
+  },
+  "objectiveExpansionPlanPath": null,
+  "objectiveExpansionPlan": null,
+  "thresholdEvaluationPath": "artifacts/full_audit_campaign/threshold_evaluation.json",
+  "benchmarkThresholdGate": {
+    "evaluated": false,
+    "pass": true,
+    "blocker": null,
+    "blockerKind": null,
+    "matrixStatus": null,
+    "parityStatus": null,
+    "thresholds": null,
+    "observed": null,
+    "failures": []
+  },
+  "productThroughput": {
+    "shardCount": 0,
+    "mergedShardCount": 0,
+    "workerSpawnCount": 0,
+    "mergedPatchCount": 0,
+    "newlyLandedProductFileCount": 0,
+    "canonicalSynchronizedProductFileCount": 0,
+    "alreadyMatchedProductFileCount": 0,
+    "admittedProductWork": false,
+    "zeroWork": true,
+    "targetedSemanticReplaySatisfied": true,
+    "targetedSemanticReplay": {
+      "generatedAt": "2026-06-04T03:48:02.503Z",
+      "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "iteration": 0,
+      "active": true,
+      "targetFocusIds": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "verifiedTargetFocusIds": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "missingFocusIds": [],
+      "progressDelta": [
+        "focus.signup_onboarding",
+        "focus.account_workspace_setup",
+        "focus.dashboard_home",
+        "focus.audience_overview",
+        "focus.contacts_table",
+        "focus.contact_profile",
+        "focus.tags_groups_interests",
+        "focus.segments",
+        "focus.campaign_index",
+        "focus.send_schedule_review",
+        "focus.campaign_wizard",
+        "focus.email_builder",
+        "focus.template_library",
+        "focus.content_studio",
+        "focus.reports_overview",
+        "focus.report_detail",
+        "focus.automations_overview",
+        "focus.automation_journey_builder",
+        "focus.integrations_marketplace",
+        "focus.api_keys_webhooks",
+        "focus.billing_plans",
+        "focus.settings_domains",
+        "focus.team_roles_permissions"
+      ],
+      "freshProgressDetected": false,
+      "selectedTierHadLiveWork": false,
+      "satisfied": true,
+      "stopReason": "targeted_semantic_focus_verified",
+      "preflightCreditAllowed": true,
+      "liveWorkRequired": false
+    },
+    "note": "No new product patch landed because the requested targeted semantic replay focus was already verified."
+  },
+  "mailchimpTruthPreflightPath": "artifacts/full_audit_campaign/mailchimp_truth_preflight.json",
+  "mailchimpTruthPreflight": {
+    "generatedAt": "2026-06-04T03:49:44.226Z",
+    "ok": true,
+    "project": "mailchimp",
+    "memoryTruth": {
+      "fullCloneParityKnownIncomplete": true,
+      "realMailchimpScale": "over_1m_loc",
+      "assumeAbundantRemainingWork": true,
+      "strictGapGreenIsNotFullParity": true
+    },
+    "localProjectMemoryOk": true,
+    "localOrchestrationMemoryOk": true,
+    "sources": {
+      "mailchimpMemoryPath": "/root/clawd/memory/projects/mailchimp.md",
+      "orchestrationMemoryPath": "/root/clawd/memory/projects/100-agent-orchestration.md",
+      "longTermMemoryPath": "/root/clawd/MEMORY.md"
+    },
+    "markerChecks": {
+      "mailchimp": [
+        {
+          "marker": "/real Mailchimp is over 1M LOC/i",
+          "present": true
+        },
+        {
+          "marker": "/nowhere near full parity/i",
+          "present": true
+        },
+        {
+          "marker": "/(abundant .*remaining .*work|remaining-work matrix|remaining real product work)/i",
+          "present": true
+        },
+        {
+          "marker": "/strict-gap green is not Mailchimp full parity/i",
+          "present": true
+        }
+      ],
+      "orchestration": [
+        {
+          "marker": "/abundant remaining real work/i",
+          "present": true
+        },
+        {
+          "marker": "/sustained real-code throughput/i",
+          "present": true
+        },
+        {
+          "marker": "/full Mailchimp parity/i",
+          "present": true
+        }
+      ]
+    },
+    "guardrail": "Mailchimp full-clone truth memory is available; scoped matrix green must not be reported as full product parity."
+  },
+  "continuationDecision": "stop_green",
+  "continuation": {
+    "green": true,
+    "hasBlocker": false,
+    "blockerKind": null,
+    "blockerSemantics": "none",
+    "nextFocus": [],
+    "decision": "stop_green",
+    "shouldContinue": false,
+    "shouldStop": true,
+    "objectiveExpansion": {
+      "shouldExpand": false,
+      "needsExpansion": false,
+      "hasExecutableWork": false,
+      "reason": null,
+      "requestedFidelity": "production_slice",
+      "matrixStatus": "all_complete",
+      "parityStatus": "parity_for_scope",
+      "blockerKind": null,
+      "currentWorkCount": 0,
+      "expansionWorkUnitCount": 0,
+      "scopeAlreadySatisfied": true,
+      "remainingObjectiveIds": [],
+      "nextFocus": [],
+      "planPath": null,
+      "planMode": null,
+      "truthBoundary": null
+    }
+  },
+  "orchestrationConfirmedCompletion": true,
+  "supervisorConfirmedCompletion": true
+}

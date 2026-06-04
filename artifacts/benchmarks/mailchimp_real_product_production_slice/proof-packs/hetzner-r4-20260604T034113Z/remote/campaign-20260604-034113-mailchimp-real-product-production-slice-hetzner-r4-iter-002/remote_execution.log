@@ -1,0 +1,92 @@
+===== git worktree remove =====
+fatal: '/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002' is not a working tree
+
+===== iteration 0 workspace refresh =====
+===== git worktree remove =====
+fatal: '/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002' is not a working tree
+
+===== stale disposable worktree cleanup =====
+{
+  "found": 1,
+  "retained": 1,
+  "removed": 0,
+  "retain": 10,
+  "minAgeMs": 1800000,
+  "inodeState": {
+    "ok": true,
+    "path": "/home/jake/clawd-remote",
+    "filesystem": "/dev/md2",
+    "inodes": 61374464,
+    "used": 1751437,
+    "free": 59623027,
+    "usePercent": "3%",
+    "raw": "/dev/md2       61374464 1751437 59623027    3% /"
+  }
+}
+
+===== product baseline cleanliness =====
+{
+  "generatedAt": "2026-06-04T03:47:57.672Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+  "pathspecs": [
+    "apps",
+    "packages",
+    "public",
+    "src"
+  ],
+  "ok": true,
+  "allowDirtyProductBaseline": false,
+  "dirtyProductFileCount": 0,
+  "dirtyProductFiles": [],
+  "addedNonblankLinesApprox": 0,
+  "addedUniqueNormalizedLinesApprox": 0,
+  "duplicateAddedLineRatio": 0,
+  "semanticBloatSuspect": false,
+  "semanticBloatReasons": [],
+  "statusExitCode": 0,
+  "diffExitCode": 0
+}
+
+===== baseline overlay status =====
+?? execution-boundary-policy.json.bak-vm102-20260604T032209Z
+
+===== strict gap inventory mirror =====
+{
+  "generatedAt": "2026-06-04T03:47:57.766Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/artifacts/full_audit_campaign/strict_1to1_gap_inventory.json",
+  "destinationPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/full_audit_campaign/strict_1to1_gap_inventory.json"
+}
+
+===== benchmark contract mirror =====
+{
+  "generatedAt": "2026-06-04T03:47:57.767Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/artifacts/full_audit_campaign/one_pass_run_contract.latest.json",
+  "destinationPath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/full_audit_campaign/one_pass_run_contract.latest.json"
+}
+
+===== worktree dependency links =====
+{
+  "generatedAt": "2026-06-04T03:47:57.767Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+  "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "links": [
+    {
+      "name": "node_modules",
+      "linked": true,
+      "reused": false,
+      "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/node_modules",
+      "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/node_modules"
+    },
+    {
+      "name": "artifacts",
+      "linked": true,
+      "reused": false,
+      "sourcePath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+      "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002/artifacts"
+    }
+  ]
+}

@@ -1,0 +1,334 @@
+{
+  "generatedAt": "2026-06-04T03:49:44.338Z",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-002",
+  "contractBenchmarkId": "mailchimp_real_product_production_slice",
+  "fidelity": "production_slice",
+  "status": "all_complete",
+  "matrixStatus": "all_complete",
+  "scopeMode": "targeted_semantic_replay",
+  "truthBoundary": "Scoped targeted replay satisfaction is not broad full-clone parity.",
+  "surfaces": [
+    {
+      "id": "signup_onboarding",
+      "focusId": "focus.signup_onboarding",
+      "issueIds": [
+        "focus.signup_onboarding"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "account_workspace_setup",
+      "focusId": "focus.account_workspace_setup",
+      "issueIds": [
+        "focus.account_workspace_setup"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "dashboard_home",
+      "focusId": "focus.dashboard_home",
+      "issueIds": [
+        "focus.dashboard_home"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "audience_overview",
+      "focusId": "focus.audience_overview",
+      "issueIds": [
+        "focus.audience_overview"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "contacts_table",
+      "focusId": "focus.contacts_table",
+      "issueIds": [
+        "focus.contacts_table"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "contact_profile",
+      "focusId": "focus.contact_profile",
+      "issueIds": [
+        "focus.contact_profile"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "tags_groups_interests",
+      "focusId": "focus.tags_groups_interests",
+      "issueIds": [
+        "focus.tags_groups_interests"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "segments",
+      "focusId": "focus.segments",
+      "issueIds": [
+        "focus.segments"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "campaign_index",
+      "focusId": "focus.campaign_index",
+      "issueIds": [
+        "focus.campaign_index"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "send_schedule_review",
+      "focusId": "focus.send_schedule_review",
+      "issueIds": [
+        "focus.send_schedule_review"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "campaign_wizard",
+      "focusId": "focus.campaign_wizard",
+      "issueIds": [
+        "focus.campaign_wizard"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "email_builder",
+      "focusId": "focus.email_builder",
+      "issueIds": [
+        "focus.email_builder"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "template_library",
+      "focusId": "focus.template_library",
+      "issueIds": [
+        "focus.template_library"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "content_studio",
+      "focusId": "focus.content_studio",
+      "issueIds": [
+        "focus.content_studio"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "reports_overview",
+      "focusId": "focus.reports_overview",
+      "issueIds": [
+        "focus.reports_overview"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "report_detail",
+      "focusId": "focus.report_detail",
+      "issueIds": [
+        "focus.report_detail"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "automations_overview",
+      "focusId": "focus.automations_overview",
+      "issueIds": [
+        "focus.automations_overview"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "automation_journey_builder",
+      "focusId": "focus.automation_journey_builder",
+      "issueIds": [
+        "focus.automation_journey_builder"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "integrations_marketplace",
+      "focusId": "focus.integrations_marketplace",
+      "issueIds": [
+        "focus.integrations_marketplace"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "api_keys_webhooks",
+      "focusId": "focus.api_keys_webhooks",
+      "issueIds": [
+        "focus.api_keys_webhooks"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "billing_plans",
+      "focusId": "focus.billing_plans",
+      "issueIds": [
+        "focus.billing_plans"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "settings_domains",
+      "focusId": "focus.settings_domains",
+      "issueIds": [
+        "focus.settings_domains"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    },
+    {
+      "id": "team_roles_permissions",
+      "focusId": "focus.team_roles_permissions",
+      "issueIds": [
+        "focus.team_roles_permissions"
+      ],
+      "status": "all_complete",
+      "evidence": {
+        "targetedSemanticReplaySatisfied": true,
+        "stopReason": "targeted_semantic_focus_verified",
+        "liveWorkRequired": false,
+        "preflightCreditAllowed": true
+      }
+    }
+  ]
+}

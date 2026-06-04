@@ -1,0 +1,180 @@
+{
+  "generatedAt": "2026-06-04T03:43:44.610Z",
+  "running": false,
+  "terminal": true,
+  "ok": false,
+  "phase": "remote_execution_iteration_cap_reached",
+  "statusSource": "remote_runner_terminalizer",
+  "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "host": "clawd-exec-hel1",
+  "hostRole": "execution_plane",
+  "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+  "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "artifactRoot": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+  "activeIteration": 1,
+  "childPid": null,
+  "heartbeatAt": "2026-06-04T03:43:44.610Z",
+  "finishedAt": "2026-06-04T03:43:44.610Z",
+  "lastOutputAt": "2026-06-04T03:43:42.728Z",
+  "artifactStates": [
+    {
+      "path": "work_graph.json",
+      "exists": true,
+      "size": 65400,
+      "mtimeMs": 1780544610192.3718
+    },
+    {
+      "path": "campaign_state.json",
+      "exists": true,
+      "size": 6893,
+      "mtimeMs": 1780544622727.3833
+    },
+    {
+      "path": "program_state.json",
+      "exists": true,
+      "size": 33032,
+      "mtimeMs": 1780544622716.383
+    },
+    {
+      "path": "completion_summary.json",
+      "exists": true,
+      "size": 23121,
+      "mtimeMs": 1780544622716.383
+    },
+    {
+      "path": "blocker_report.json",
+      "exists": true,
+      "size": 250,
+      "mtimeMs": 1780544622716.383
+    },
+    {
+      "path": "supervisor_status.json",
+      "exists": true,
+      "size": 9118,
+      "mtimeMs": 1780544622716.383
+    },
+    {
+      "path": "canonical_summary.json",
+      "exists": true,
+      "size": 3399,
+      "mtimeMs": 1780544622750.3833
+    },
+    {
+      "path": "notifier_eligibility.json",
+      "exists": true,
+      "size": 565,
+      "mtimeMs": 1780544622750.3833
+    },
+    {
+      "path": "implementation_mode_status.json",
+      "exists": true,
+      "size": 1639,
+      "mtimeMs": 1780544622750.3833
+    },
+    {
+      "path": "launch_checklist.json",
+      "exists": true,
+      "size": 10000,
+      "mtimeMs": 1780544610272.3718
+    },
+    {
+      "path": "resource_preflight.json",
+      "exists": true,
+      "size": 1131,
+      "mtimeMs": 1780544610271.3718
+    },
+    {
+      "path": "scale_preflight.json",
+      "exists": true,
+      "size": 2043,
+      "mtimeMs": 1780544610271.3718
+    },
+    {
+      "path": "loc_accounting.json",
+      "exists": true,
+      "size": 13976,
+      "mtimeMs": 1780544621583.382
+    },
+    {
+      "path": "live_runs",
+      "exists": true,
+      "size": 1,
+      "mtimeMs": 1780544610282.3718
+    }
+  ],
+  "processEntries": [],
+  "iterations": [
+    {
+      "iteration": 1,
+      "exitCode": 1,
+      "signal": null,
+      "spawnError": null,
+      "stopAllowed": true,
+      "stopReason": "supervisor_red_with_blocker",
+      "shouldRequeue": false,
+      "queuedIterations": 0,
+      "selectedTierHadLiveWork": true,
+      "preserveLiveWorkBlocker": false,
+      "greenCompletionReached": false,
+      "supervisorStatus": "red",
+      "matrixStatus": "partial",
+      "blocker": {
+        "blocker": "Partial parity-surface reduction was proven, but remaining red surfaces are still open.",
+        "nextAction": "Continue with the remaining focus lanes named in surface_matrix.json instead of re-running the same completed focus patches."
+      },
+      "highestPassingTier": 8,
+      "parityFocusIssuesPresent": false,
+      "parityFocusAssignmentsObserved": true,
+      "freshProgressDetected": true,
+      "heartbeat": {
+        "currentTestHint": null,
+        "lastProgressAt": "2026-06-04T03:43:42.728Z",
+        "staleForSec": 0,
+        "runningForSec": 13
+      },
+      "childPid": 1179302
+    }
+  ],
+  "baselineOverlay": {
+    "generatedAt": "2026-06-04T03:43:30.136Z",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+    "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+    "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+    "recordCount": 1,
+    "operations": [
+      {
+        "type": "copy",
+        "path": "execution-boundary-policy.json.bak-vm102-20260604T032209Z",
+        "status": "??"
+      }
+    ]
+  },
+  "dependencyLinks": {
+    "generatedAt": "2026-06-04T03:43:30.137Z",
+    "runId": "campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+    "baselineRepo": "/home/jake/clawd-remote/mailchimp-clone",
+    "worktreePath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+    "links": [
+      {
+        "name": "node_modules",
+        "linked": true,
+        "reused": false,
+        "sourcePath": "/home/jake/clawd-remote/mailchimp-clone/node_modules",
+        "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/node_modules"
+      },
+      {
+        "name": "artifacts",
+        "linked": true,
+        "reused": false,
+        "sourcePath": "/home/jake/clawd-remote/mailchimp-runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts/implementation_runs/campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001",
+        "targetPath": "/home/jake/clawd-remote/mailchimp-worktree-campaign-20260604-034113-mailchimp-real-product-production-slice-hetzner-r4-iter-001/artifacts"
+      }
+    ]
+  },
+  "exitCode": 2,
+  "signal": null,
+  "error": null,
+  "blocker": null,
+  "targetedSemanticReplay": null,
+  "note": "Remote execution runner stopped after hitting the iteration cap while the persistent campaign still wanted to continue, and wrote a terminal receipt."
+}
