@@ -74,6 +74,8 @@ function runImplementation(assignmentPath, assignment) {
       command: command.join(' '),
       durationMs: Date.now() - startedAt,
       modifiedFiles: parsed.modifiedFiles || [],
+      diff: parsed.diff || parsed.unifiedDiff || parsed.patch || '',
+      unifiedDiff: parsed.unifiedDiff || parsed.diff || parsed.patch || '',
       diffSummary: parsed.diffSummary || 'implemented shard changes',
       stdout: String(stdout).trim(),
       stderr: '',

@@ -26,20 +26,27 @@
       "status": "real",
       "evidence": {
         "tests": [
-          "npm test"
+          "npm test",
+          "tests/system-benchmark.test.mjs",
+          "tests/orchestrator-scheduler-truth.test.mjs",
+          "tests/orchestrator-run-state.test.mjs"
         ]
       },
-      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+      "notes": "Runs live transfer/orchestrator benchmarks, writes selected-run landing_evidence.json, scheduler_truth.json, run_state_truth.json, and blocks fake-green/scale-credit contradictions."
     },
     "packages/multi-agent-orchestrator/index.mjs": {
       "label": "Multi-agent orchestrator supervisor and live worker farm",
       "status": "real",
       "evidence": {
         "tests": [
-          "npm test"
+          "npm test",
+          "tests/proof-carrying-claim-ledger.test.mjs",
+          "tests/canonical-landing-evidence.test.mjs",
+          "tests/orchestrator-scheduler-truth.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs"
         ]
       },
-      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+      "notes": "Includes hierarchical planning, patch admission, supervisor snapshots, proof-carrying claim ledger integration, canonical landing evidence, and scheduler/concurrency truth artifacts for selected-run scale credit."
     },
     "apps/system-benchmark/verify-pmhnp-functional-scenario.mjs": {
       "label": "PMHNP functional scenario endurance verifier",
@@ -362,14 +369,16 @@
       "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
     },
     "packages/campaign-runtime/index.mjs": {
-      "label": "Packages Campaign Runtime Index",
+      "label": "Campaign runtime terminal-state persistence and continuation semantics",
       "status": "real",
       "evidence": {
         "tests": [
+          "tests/campaign-runtime.test.mjs",
+          "tests/orchestrator-run-state.test.mjs",
           "npm test"
         ]
       },
-      "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+      "notes": "Process termination persistence now writes durable program_state/run_state_truth/blocker artifacts on signal, uncaught exception, and unhandled rejection payloads while preserving existing persist callbacks."
     },
     "packages/certification/index.mjs": {
       "label": "Packages Certification Index",
@@ -520,6 +529,79 @@
         ]
       },
       "notes": "Changed surface covered by large-project-capability-stack test suite before pre-relaunch commit; architecture budget may still report anti-collapse/size warnings separately."
+    },
+    "packages/proof-carrying-claim-ledger/index.mjs": {
+      "label": "Proof-carrying claim ledger and adversarial verifier",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/proof-carrying-claim-ledger.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Shared orchestrator primitive that converts patch credit into claim/evidence/challenge/survival records before completion credit."
+    },
+    "packages/canonical-landing-evidence/index.mjs": {
+      "label": "Canonical selected-run landing evidence and product-diff accounting",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/canonical-landing-evidence.test.mjs",
+          "tests/system-benchmark.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Shared orchestration primitive that records clean baselines, verifies claimed product patches changed the canonical checkout, computes unique added-line/duplicate-line stats, and produces selected-run landing evidence so cumulative dirty overlays cannot receive selected-run credit."
+    },
+    "packages/objective-surface-decomposer/index.mjs": {
+      "label": "Generic objective-to-surface decomposition and repository survey",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/objective-surface-decomposer.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Shared planner primitive that surveys a repo, inventories runtime roles, names negative space, builds objective surface graphs/matrices/work graphs, and honestly blocks when requested agent tier exceeds schedulable low-overlap surfaces."
+    },
+    "apps/system-benchmark/build-objective-surface-decomposition.mjs": {
+      "label": "Objective surface decomposition artifact builder",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/objective-surface-decomposer.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "CLI writes repo_survey, surface_inventory, negative_space_inventory, surface_matrix, work_graph, report, summary, and blocker_report when a generic objective lacks enough independent surfaces."
+    },
+    "packages/orchestrator-scheduler-truth/index.mjs": {
+      "label": "Observed scheduler/concurrency truth and anti-fake-scale gate",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/orchestrator-scheduler-truth.test.mjs",
+          "tests/multi-agent-orchestrator.test.mjs",
+          "tests/system-benchmark.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Shared scheduler truth primitive that records lane/file ownership, dependency readiness, verifier cost, collision risk, observed peak concurrency, unique agents, active worker minutes, idle gaps, assignment latency, and scale-credit eligibility requiring productive landed merges when configured."
+    },
+    "packages/orchestrator-run-state/index.mjs": {
+      "label": "Shared orchestrator run-state reducer and terminal truth semantics",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/orchestrator-run-state.test.mjs",
+          "tests/system-benchmark.test.mjs",
+          "npm test"
+        ]
+      },
+      "notes": "Central run-state reducer for local/remote/worker/sync/supervisor/terminalizer truth, explicit terminal states, contradiction detection, continuation decisions, and durable terminal artifact writes."
     }
   },
   "policy": {

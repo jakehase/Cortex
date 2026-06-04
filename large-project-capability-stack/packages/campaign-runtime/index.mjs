@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { reduceRunState, writeTerminalStateArtifacts } from '../orchestrator-run-state/index.mjs';
 
 function load(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -417,6 +418,13 @@ export function deriveCampaignContinuation({
   blocker = null,
   blockerKind = null,
   nextFocus = [],
+  requestedFidelity = null,
+  matrixStatus = null,
+  parityStatus = null,
+  currentWorkCount = null,
+  scopeAlreadySatisfied = false,
+  remainingObjectiveIds = [],
+  objectiveExpansionPlan = null,
   syncOk = true,
   workerOk = true,
   supervisorOk = true
@@ -431,17 +439,49 @@ export function deriveCampaignContinuation({
       : '';
   const hasBlocker = blockerText.length > 0;
   const retrySafe = syncOk !== false && workerOk !== false && supervisorOk !== false;
+  const objectiveExpansion = deriveObjectiveExpansion({
+    requestedFidelity,
+    matrixStatus,
+    parityStatus,
+    blockerKind,
+    currentWorkCount,
+    scopeAlreadySatisfied,
+    remainingObjectiveIds,
+    nextFocus: normalizedNextFocus,
+    objectiveExpansionPlan
+  });
+  if (objectiveExpansion.shouldExpand && retrySafe) {
+    return {
+      green: false,
+      hasBlocker,
+      blockerKind: blockerKind || null,
+      blockerSemantics: 'objective_expansion',
+      nextFocus: normalizedNextFocus,
+      decision: 'continue_next_iteration',
+      shouldContinue: true,
+      shouldStop: false,
+      objectiveExpansion
+    };
+  }
+  const zeroWorkObjectiveExhausted = blockerKind === 'zero_work_scoped_green'
+    || blockerKind === 'queue_exhausted_objective_remaining'
+    || matrixStatus === 'scope_satisfied_zero_work'
+    || (Number(currentWorkCount) === 0 && scopeAlreadySatisfied === true);
   const blockerSemantics = !hasBlocker
     ? 'none'
     : blockerKind === 'strict_1to1_ceiling'
       ? 'claim_blocked'
+      : zeroWorkObjectiveExhausted
+        ? 'objective_expansion_required'
       : normalizedNextFocus.length > 0 && retrySafe
         ? 'retryable'
         : 'terminal';
   const decision = green
     ? 'stop_green'
     : blockerSemantics === 'claim_blocked'
-      ? normalizedNextFocus.length > 0 ? 'continue_next_iteration' : 'stop_claim_blocked'
+      ? 'stop_claim_blocked'
+      : blockerSemantics === 'objective_expansion_required'
+        ? 'stop_objective_expansion_required'
       : blockerSemantics === 'retryable'
         ? 'continue_next_iteration'
         : hasBlocker
@@ -457,7 +497,68 @@ export function deriveCampaignContinuation({
     nextFocus: normalizedNextFocus,
     decision,
     shouldContinue: decision === 'continue_next_iteration',
-    shouldStop: decision !== 'continue_next_iteration'
+    shouldStop: decision !== 'continue_next_iteration',
+    objectiveExpansion
+  };
+}
+
+export function normalizeObjectiveIds(values = []) {
+  return Array.from(new Set((Array.isArray(values) ? values : [])
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean)));
+}
+
+export function deriveObjectiveExpansion({
+  requestedFidelity = null,
+  matrixStatus = null,
+  parityStatus = null,
+  blockerKind = null,
+  currentWorkCount = null,
+  scopeAlreadySatisfied = false,
+  remainingObjectiveIds = [],
+  nextFocus = [],
+  objectiveExpansionPlan = null
+} = {}) {
+  const planRemaining = normalizeObjectiveIds(objectiveExpansionPlan?.remainingObjectiveIds || []);
+  const remaining = normalizeObjectiveIds(remainingObjectiveIds.length ? remainingObjectiveIds : planRemaining);
+  const fidelity = String(requestedFidelity || '').trim();
+  const matrix = String(matrixStatus || '').trim();
+  const parity = String(parityStatus || '').trim();
+  const workCount = Number(currentWorkCount);
+  const noCurrentWork = Number.isFinite(workCount) ? workCount === 0 : false;
+  const planWorkCount = Number(objectiveExpansionPlan?.expansionWorkUnitCount || objectiveExpansionPlan?.executableWorkUnitCount || objectiveExpansionPlan?.workGraph?.workUnits?.length || 0);
+  const planCanExpand = objectiveExpansionPlan?.shouldExpand === true && planWorkCount > 0;
+  const scopedGraphExhausted = scopeAlreadySatisfied === true
+    || blockerKind === 'zero_work_scoped_green'
+    || blockerKind === 'queue_exhausted_objective_remaining'
+    || matrix === 'scope_satisfied_zero_work'
+    || (noCurrentWork && ['all_complete', 'scope_satisfied_zero_work'].includes(matrix));
+  const fullCloneUnmet = fidelity === 'full_clone'
+    && !['full', 'full_clone'].includes(parity);
+  const needsExpansion = planCanExpand || (scopedGraphExhausted && remaining.length > 0 && (fullCloneUnmet || fidelity === 'full_clone'));
+  const hasExecutableWork = planCanExpand;
+  const shouldExpand = needsExpansion && hasExecutableWork;
+  return {
+    shouldExpand,
+    needsExpansion,
+    hasExecutableWork,
+    reason: planCanExpand
+      ? objectiveExpansionPlan.reason || 'objective_expansion_plan_available'
+      : needsExpansion
+        ? 'objective_expansion_requires_executable_work_graph'
+        : null,
+    requestedFidelity: fidelity || null,
+    matrixStatus: matrix || null,
+    parityStatus: parity || null,
+    blockerKind: blockerKind || null,
+    currentWorkCount: Number.isFinite(workCount) ? workCount : null,
+    expansionWorkUnitCount: planCanExpand ? planWorkCount : 0,
+    scopeAlreadySatisfied: Boolean(scopeAlreadySatisfied),
+    remainingObjectiveIds: remaining,
+    nextFocus: normalizeObjectiveIds(nextFocus),
+    planPath: objectiveExpansionPlan?.path || objectiveExpansionPlan?.artifactPath || null,
+    planMode: objectiveExpansionPlan?.mode || null,
+    truthBoundary: objectiveExpansionPlan?.truthBoundary || null
   };
 }
 
@@ -476,13 +577,78 @@ export function shouldFinalizeRemoteExecutionMonitor({
   return { finalize: false, reason: 'await_remote_status' };
 }
 
-export function installProcessTerminationPersistence({ persist } = {}) {
+function payloadErrorText(payload = {}) {
+  const error = payload?.error || payload?.reason || null;
+  return error instanceof Error ? error.stack || error.message : error ? String(error) : '';
+}
+
+function terminalReasonFromPayload(payload = {}) {
+  if (payload?.type === 'signal') return payload.signal === 'SIGINT' ? 'operator_interrupted' : `process_signal_${payload.signal || 'unknown'}`;
+  if (payload?.type === 'uncaughtException') return 'uncaught_exception';
+  if (payload?.type === 'unhandledRejection') return 'unhandled_rejection';
+  return payload?.type || 'process_termination';
+}
+
+export function persistProcessTerminalState({
+  artifactRoot,
+  payload = {},
+  runStateInput = {},
+  runState = null,
+  reason = null,
+  programStateName = 'program_state.json',
+  runStateName = 'run_state_truth.json',
+  blockerName = 'blocker_report.json'
+} = {}) {
+  if (!artifactRoot) return null;
+  const signal = payload?.signal || null;
+  const errorText = payloadErrorText(payload);
+  const terminationInput = {
+    ...runStateInput,
+    operatorStopped: runStateInput?.operatorStopped ?? Boolean(signal),
+    blocker: runStateInput?.blocker || (errorText ? { blocker: errorText, kind: payload?.type || 'process_failure' } : null)
+  };
+  const terminalRunState = runState || reduceRunState(terminationInput);
+  return writeTerminalStateArtifacts({
+    artifactRoot,
+    runState: terminalRunState,
+    reason: reason || terminalReasonFromPayload(payload),
+    signal,
+    error: errorText || null,
+    programStateName,
+    runStateName,
+    blockerName
+  });
+}
+
+export function installProcessTerminationPersistence({ persist, artifactRoot = null, getRunStateInput = null, terminalArtifacts = {} } = {}) {
   let persisted = false;
   const runPersist = (payload) => {
     if (persisted) return;
     persisted = true;
+    let terminalPersistence = null;
+    let terminalPersistenceError = null;
+    const terminalArtifactRoot = terminalArtifacts?.artifactRoot || artifactRoot;
+    if (terminalArtifactRoot) {
+      try {
+        const runStateInput = typeof getRunStateInput === 'function'
+          ? getRunStateInput(payload)
+          : getRunStateInput || {};
+        terminalPersistence = persistProcessTerminalState({
+          ...terminalArtifacts,
+          artifactRoot: terminalArtifactRoot,
+          payload,
+          runStateInput
+        });
+      } catch (error) {
+        terminalPersistenceError = error instanceof Error ? error.stack || error.message : String(error);
+      }
+    }
     try {
-      persist?.(payload);
+      persist?.({
+        ...payload,
+        terminalPersistence,
+        terminalPersistenceError
+      });
     } catch {}
   };
 
@@ -623,7 +789,14 @@ export function deriveProgramDecision(state = {}) {
     green: state?.supervisor?.status === 'green',
     blocker: state?.supervisor?.blocker || null,
     blockerKind: state?.supervisor?.blockerKind || null,
-    nextFocus: state?.nextFocus || []
+    nextFocus: state?.nextFocus || [],
+    requestedFidelity: state?.objective?.requestedFidelity || state?.supervisor?.requestedFidelity || null,
+    matrixStatus: state?.supervisor?.matrixStatus || null,
+    parityStatus: state?.supervisor?.parityStatus || null,
+    currentWorkCount: state?.objective?.currentWorkCount ?? state?.supervisor?.currentWorkCount ?? null,
+    scopeAlreadySatisfied: state?.objective?.scopeAlreadySatisfied === true || state?.supervisor?.scopeAlreadySatisfied === true,
+    remainingObjectiveIds: state?.objective?.remainingObjectiveIds || state?.supervisor?.remainingObjectiveIds || [],
+    objectiveExpansionPlan: state?.objective?.objectiveExpansionPlan || state?.supervisor?.objectiveExpansionPlan || null
   });
   const reason = continuation.decision === 'stop_green'
     ? 'supervisor_green'
@@ -650,12 +823,29 @@ export function setSupervisor(filePath, input) {
   if (Array.isArray(input.nextFocus)) {
     state.nextFocus = Array.from(new Set(input.nextFocus.map((entry) => String(entry || '').trim()).filter(Boolean)));
   }
+  if (input.objective || input.requestedFidelity || input.remainingObjectiveIds || input.currentWorkCount !== undefined || input.scopeAlreadySatisfied !== undefined || input.objectiveExpansionPlan) {
+    state.objective = {
+      ...(state.objective || {}),
+      ...(input.objective || {}),
+      requestedFidelity: input.requestedFidelity || input.objective?.requestedFidelity || state.objective?.requestedFidelity || null,
+      remainingObjectiveIds: normalizeObjectiveIds(input.remainingObjectiveIds || input.objective?.remainingObjectiveIds || state.objective?.remainingObjectiveIds || []),
+      currentWorkCount: input.currentWorkCount ?? input.objective?.currentWorkCount ?? state.objective?.currentWorkCount ?? null,
+      scopeAlreadySatisfied: input.scopeAlreadySatisfied ?? input.objective?.scopeAlreadySatisfied ?? state.objective?.scopeAlreadySatisfied ?? false,
+      objectiveExpansionPlan: input.objectiveExpansionPlan || input.objective?.objectiveExpansionPlan || state.objective?.objectiveExpansionPlan || null,
+      updatedAt: new Date().toISOString()
+    };
+  }
   state.supervisor = {
     status: input.status,
     blocker: input.blocker || null,
     blockerKind: input.blockerKind || null,
     matrixStatus: input.matrixStatus || null,
     parityStatus: input.parityStatus || null,
+    requestedFidelity: input.requestedFidelity || input.objective?.requestedFidelity || state.objective?.requestedFidelity || null,
+    remainingObjectiveIds: normalizeObjectiveIds(input.remainingObjectiveIds || input.objective?.remainingObjectiveIds || state.objective?.remainingObjectiveIds || []),
+    currentWorkCount: input.currentWorkCount ?? input.objective?.currentWorkCount ?? state.objective?.currentWorkCount ?? null,
+    scopeAlreadySatisfied: input.scopeAlreadySatisfied ?? input.objective?.scopeAlreadySatisfied ?? state.objective?.scopeAlreadySatisfied ?? false,
+    objectiveExpansionPlan: input.objectiveExpansionPlan || input.objective?.objectiveExpansionPlan || state.objective?.objectiveExpansionPlan || null,
     updatedAt: new Date().toISOString(),
     note: input.note || null
   };
