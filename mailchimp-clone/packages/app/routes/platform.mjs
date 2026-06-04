@@ -4,6 +4,9 @@ import { addDomain, applyBillingPlan, buildBillingEntitlementsRuntimeSnapshot, b
 import { teamPermissionNotes } from '../domain-notes.mjs';
 import { escapeHtml, json, nowIso, readBody, redirect, text } from '../utils.mjs';
 import { buildAuthSecurityRuntimeSnapshot, createInvitationExpiry, createMfaChallengeForActor, enrollMfaFactor, issueCsrfToken, rotateWorkspaceApiKey, revokeSessionById, startSsoSessionForActor, validateCsrfToken, verifyMfaChallenge } from '../security.mjs';
+import { primaryArchitectureSurfaceMatrix, recordPrimaryArchitectureAssessment } from '../primary-architecture.mjs';
+
+const TEAM_ASSIGNABLE_ROLES = ['admin', 'member', 'viewer', 'developer'];
 
 function securityCenterBody(snapshot, issuedToken = null, operationResult = null) {
   const eventRows = snapshot.events.map((event) => `<tr><td>${escapeHtml(event.eventType)}</td><td>${escapeHtml(event.control || '')}</td><td>${escapeHtml(event.severity)}</td><td>${escapeHtml(event.detail)}</td><td>${escapeHtml(event.createdAt)}</td></tr>`).join('') || '<tr><td colspan="5">No security events yet.</td></tr>';
@@ -77,6 +80,28 @@ export function registerPlatformRoutes(router, deps) {
     if (!actor) return;
     const snapshot = persistDashboardHomeRuntimeSnapshot(state, actor, 'dashboard_runtime_page');
     text(res, 200, page('Dashboard runtime snapshot', actor, `<div class="card"><h3>Dashboard home runtime snapshot</h3><pre>${escapeHtml(JSON.stringify(snapshot, null, 2))}</pre></div>`));
+  });
+
+  router.register('GET', '/architecture', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor) return;
+    const matrix = primaryArchitectureSurfaceMatrix(state, actor);
+    const rows = matrix.surfaces.map((surface) => `<tr><td>${escapeHtml(surface.label)}</td><td>${escapeHtml(surface.status)}</td></tr>`).join('');
+    text(res, 200, page('Primary app architecture', actor, `<div class="card"><h2>Primary app architecture</h2><p>${escapeHtml(matrix.fullCloneBoundary)}</p><p>Fidelity: ${escapeHtml(matrix.fidelity)} · Matrix: ${escapeHtml(matrix.matrixStatus)} · Full clone: ${escapeHtml(matrix.fullCloneStatus)}</p><form method="post" action="/architecture/assessment"><button>Record architecture assessment</button></form><p><a href="/api/architecture">Architecture API JSON</a></p></div><div class="grid"><div class="card"><h3>Primary client/editor layer</h3><p>Client state handoff, builder panel state, dropzone hooks, and style hooks are checked from live app-shell files.</p></div><div class="card"><h3>Primary database and migration model</h3><p>Schema version ${escapeHtml(String(matrix.surfaces.find((surface) => surface.id === 'primary_database_migration_model')?.evidence?.schemaVersion || 'unknown'))}</p></div></div><div class="card"><table><tr><th>Surface</th><th>Status</th></tr>${rows}</table></div>`));
+  });
+
+  router.register('POST', '/architecture/assessment', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor) return;
+    recordPrimaryArchitectureAssessment(state, actor);
+    saveDb(state.db);
+    redirect(res, '/architecture');
+  });
+
+  router.register('GET', '/api/architecture', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor) return;
+    json(res, 200, { ok: true, architecture: primaryArchitectureSurfaceMatrix(state, actor) });
   });
 
   router.register('GET', '/security', async ({ state, req, res }) => {
@@ -272,16 +297,26 @@ export function registerPlatformRoutes(router, deps) {
     const permissionNotes = teamPermissionNotes(state, actor.workspace.id);
     const multiUserGate = hasFeature(actor.workspace, 'multiUser') ? '' : '<div class="warn">Starter plan shows roles and invites, but multi-user collaboration is upgrade-gated.</div>';
     const governance = buildTeamGovernanceRuntimeSnapshot(state, actor.workspace.id);
-    text(res, 200, page('Team roles & invitations', actor, `${multiUserGate}<div class="grid"><div class="card"><h3>Role coverage</h3><p>Owners: ${roleCounts.owner || 0}</p><p>Admins: ${roleCounts.admin || 0}</p><p>Members: ${roleCounts.member || 0}</p><p>Pending invites: ${pendingInviteCount}</p><p>Recent permission events: ${permissionNotes.recentPermissionEvents.length}</p></div><div class="card"><h3>Team governance runtime</h3><p>${escapeHtml(governance.label)}</p><p>Policies: ${governance.permissionPolicies.eventCount} · access reviews: ${governance.accessReviews.count} · SCIM events: ${governance.scimProvisioning.count}</p><p><a href="/team/governance">Open governance controls</a> · <a href="/api/team/runtime">Runtime API JSON</a></p></div><div class="card" style="grid-column:1/-1;overflow:auto"><h3>Members</h3><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Update</th></tr>${members.map(({ membership, user }) => `<tr><td>${user.name}</td><td>${user.email}</td><td>${membership.role}</td><td>${membership.role === 'owner' ? 'owner locked' : `<form method="post" action="/team/members/${membership.id}/role"><select name="role"><option value="admin" ${membership.role === 'admin' ? 'selected' : ''}>admin</option><option value="member" ${membership.role === 'member' ? 'selected' : ''}>member</option></select><button>Save</button></form>`}</td></tr>`).join('')}</table></div><div class="card"><h3>Invite teammate</h3><form method="post" action="/team/invitations"><input name="email" type="email" placeholder="teammate@example.com" required><select name="role"><option value="admin">admin</option><option value="member">member</option></select><button>Send invite</button></form></div></div><div class="card"><table><tr><th>Email</th><th>Role</th><th>Status</th><th>Accept link</th><th>Actions</th></tr>${invites.map((invite) => `<tr><td>${invite.email}</td><td>${invite.role}</td><td>${invite.status}</td><td><a href="/invites/${invite.token}">/invites/${invite.token}</a></td><td>${invite.status === 'pending' ? `<form method="post" action="/team/invitations/${invite.id}/resend"><button>Resend</button></form>` : '—'}</td></tr>`).join('')}</table></div>`));
+    const roleOptions = (selectedRole) => TEAM_ASSIGNABLE_ROLES.map((role) => `<option value="${role}" ${selectedRole === role ? 'selected' : ''}>${role}</option>`).join('');
+    const customRoleSummary = permissionNotes.customRoles.length ? permissionNotes.customRoles.map((role) => `<code>${escapeHtml(role)}</code>`).join(' ') : 'No scoped custom roles assigned yet.';
+    text(res, 200, page('Team roles & invitations', actor, `${multiUserGate}<div class="grid"><div class="card"><h3>Role coverage</h3><p>Owners: ${roleCounts.owner || 0}</p><p>Admins: ${roleCounts.admin || 0}</p><p>Members: ${roleCounts.member || 0}</p><p>Viewers: ${permissionNotes.viewers || 0}</p><p>Developers: ${permissionNotes.developers || 0}</p><p>Pending invites: ${pendingInviteCount}</p><p>Invites expiring soon: ${permissionNotes.expiringInvites}</p><p>Recent permission events: ${permissionNotes.recentPermissionEvents.length}</p></div><div class="card"><h3>Scoped roles</h3><p>${customRoleSummary}</p><p>Viewer and developer roles can be invited or assigned here, then governed with explicit permission policies.</p></div><div class="card"><h3>Team governance runtime</h3><p>${escapeHtml(governance.label)}</p><p>Policies: ${governance.permissionPolicies.eventCount} · access reviews: ${governance.accessReviews.count} · SCIM events: ${governance.scimProvisioning.count}</p><p><a href="/team/governance">Open governance controls</a> · <a href="/api/team/runtime">Runtime API JSON</a></p></div><div class="card" style="grid-column:1/-1;overflow:auto"><h3>Members</h3><table><tr><th>Name</th><th>Email</th><th>Role</th><th>Update</th></tr>${members.map(({ membership, user }) => `<tr><td>${escapeHtml(user?.name || 'Unknown user')}</td><td>${escapeHtml(user?.email || '')}</td><td>${escapeHtml(membership.role)}</td><td>${membership.role === 'owner' ? 'owner locked' : `<form method="post" action="/team/members/${membership.id}/role"><select name="role">${roleOptions(membership.role)}</select><button>Save</button></form>`}</td></tr>`).join('')}</table></div><div class="card"><h3>Invite teammate</h3><form method="post" action="/team/invitations"><input name="email" type="email" placeholder="teammate@example.com" required><select name="role">${roleOptions('member')}</select><button>Send invite</button></form></div></div><div class="card"><table><tr><th>Email</th><th>Role</th><th>Status</th><th>Accept link</th><th>Actions</th></tr>${invites.map((invite) => `<tr><td>${escapeHtml(invite.email)}</td><td>${escapeHtml(invite.role)}</td><td>${escapeHtml(invite.status)}</td><td>${invite.status === 'pending' ? `<a href="/invites/${escapeHtml(invite.token)}">/invites/${escapeHtml(invite.token)}</a>` : '—'}</td><td>${invite.status === 'pending' ? `<form method="post" action="/team/invitations/${invite.id}/resend"><button>Resend</button></form><form method="post" action="/team/invitations/${invite.id}/cancel"><button>Cancel</button></form>` : '—'}</td></tr>`).join('')}</table></div>`));
   });
 
   router.register('POST', '/team/invitations', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res);
     if (!actor || !requireAdmin(actor, res, text)) return;
     const body = await readBody(req);
-    state.db.invitations.unshift({ id: deps.createId('invite'), workspaceId: actor.workspace.id, email: body.email, role: body.role || 'member', token: deps.createId('invite_token'), status: 'pending', invitedBy: actor.user.id, createdAt: nowIso(), expiresAt: createInvitationExpiry() });
+    const email = String(body.email || '').trim().toLowerCase();
+    const role = TEAM_ASSIGNABLE_ROLES.includes(body.role) ? body.role : 'member';
+    if (!email || !email.includes('@')) return text(res, 422, page('Team roles & invitations', actor, '<div class="warn">Invite requires a valid email address.</div>'));
+    const activeUser = state.db.users.find((entry) => String(entry.email || '').toLowerCase() === email);
+    const existingMember = activeUser && state.db.memberships.some((entry) => entry.workspaceId === actor.workspace.id && entry.userId === activeUser.id && entry.status === 'active');
+    if (existingMember) return text(res, 409, page('Team roles & invitations', actor, '<div class="warn">That teammate already has workspace access.</div>'));
+    const pendingInvite = state.db.invitations.find((entry) => entry.workspaceId === actor.workspace.id && entry.status === 'pending' && String(entry.email || '').toLowerCase() === email);
+    if (pendingInvite) return text(res, 409, page('Team roles & invitations', actor, '<div class="warn">A pending invite already exists for that email. Resend or cancel it first.</div>'));
+    state.db.invitations.unshift({ id: deps.createId('invite'), workspaceId: actor.workspace.id, email, role, token: deps.createId('invite_token'), status: 'pending', invitedBy: actor.user.id, createdAt: nowIso(), expiresAt: createInvitationExpiry() });
     saveDb(state.db);
-    recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'invite-create', detail: `Invited ${body.email} as ${body.role}` });
+    recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'invite-create', detail: `Invited ${email} as ${role}` });
     redirect(res, '/team');
   });
 
@@ -298,13 +333,27 @@ export function registerPlatformRoutes(router, deps) {
     redirect(res, '/team');
   });
 
+  router.register('POST', '/team/invitations/:id/cancel', async ({ state, req, params, res }) => {
+    const actor = requireAuth(state, req, res);
+    if (!actor || !requireAdmin(actor, res, text)) return;
+    const invite = state.db.invitations.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id && entry.status === 'pending');
+    if (!invite) return text(res, 404, page('Team roles & invitations', actor, '<div class="warn">Pending invitation not found.</div>'));
+    invite.status = 'cancelled';
+    invite.cancelledAt = nowIso();
+    invite.cancelledBy = actor.user.id;
+    saveDb(state.db);
+    recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'invite-cancel', detail: `Cancelled invite for ${invite.email}` });
+    redirect(res, '/team');
+  });
+
   router.register('POST', '/team/members/:id/role', async ({ state, req, params, res }) => {
     const actor = requireAuth(state, req, res);
     if (!actor || !requireAdmin(actor, res, text)) return;
     const membership = state.db.memberships.find((entry) => entry.id === params.id && entry.workspaceId === actor.workspace.id && entry.status === 'active');
     if (!membership) return text(res, 404, page('Team roles & invitations', actor, '<div class="warn">Membership not found.</div>'));
     const body = await readBody(req);
-    membership.role = body.role === 'admin' ? 'admin' : 'member';
+    if (!TEAM_ASSIGNABLE_ROLES.includes(body.role)) return text(res, 422, page('Team roles & invitations', actor, '<div class="warn">Choose a supported workspace role.</div>'));
+    membership.role = body.role;
     saveDb(state.db);
     recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'member-role-update', detail: `Updated membership ${membership.id} to ${membership.role}` });
     redirect(res, '/team');
@@ -1195,4 +1244,3 @@ export function buildSignupOnboardingIntegratedUserPathEvidencePackagesAppRoutes
   const signupOnboardingIntegratedUserPathEvidencePackagesAppRoutesPlatformMjsSemanticFrontier00114IntegratedUserPathEvidence1AdoptionPhaseRuntimeSignal = "route render handler request response workflow submit execute", signupOnboardingIntegratedUserPathEvidencePackagesAppRoutesPlatformMjsSemanticFrontier00114IntegratedUserPathEvidence1AdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: signupOnboardingIntegratedUserPathEvidencePackagesAppRoutesPlatformMjsSemanticFrontier00114IntegratedUserPathEvidence1AdoptionRuntimeKey, surfaceId: "signup_onboarding", focusGroup: "signup_onboarding", phaseId: "integrated_user_path_evidence", shardId: "focus.signup_onboarding::semantic-frontier-001#14-integrated_user_path_evidence#1", productIntent: "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.", targetFile: "packages/app/routes/platform.mjs", semanticRuntimeContractRef: "signupOnboardingIntegratedUserPathEvidenceSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...signupOnboardingIntegratedUserPathEvidencePackagesAppRoutesPlatformMjsSemanticFrontier00114IntegratedUserPathEvidence1AdoptionRuntimeCounts, phaseRuntimeSignal: signupOnboardingIntegratedUserPathEvidencePackagesAppRoutesPlatformMjsSemanticFrontier00114IntegratedUserPathEvidence1AdoptionPhaseRuntimeSignal, workflowEvidence: signupOnboardingIntegratedUserPathEvidencePackagesAppRoutesPlatformMjsSemanticFrontier00114IntegratedUserPathEvidence1AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["packages/app/index.mjs","packages/app/persistence-io.mjs","packages/app/routes/platform.mjs"], nextAction: signupOnboardingIntegratedUserPathEvidencePackagesAppRoutesPlatformMjsSemanticFrontier00114IntegratedUserPathEvidence1AdoptionRuntimeCounts.jobQueueDepth > 0 ? "integrated_user_path_evidence:signup_onboarding:monitor_job_runtime_handoff" : "integrated_user_path_evidence:signup_onboarding:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: signupOnboardingIntegratedUserPathEvidencePackagesAppRoutesPlatformMjsSemanticFrontier00114IntegratedUserPathEvidence1AdoptionRuntimeKey, targetFile: "packages/app/routes/platform.mjs", semanticRuntimeContractRef: "signupOnboardingIntegratedUserPathEvidenceSemanticRuntimeContract" } };
 }
-

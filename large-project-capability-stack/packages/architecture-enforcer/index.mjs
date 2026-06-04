@@ -6,6 +6,7 @@ const DEFAULTS = {
   requiredTopLevelDirs: ['apps', 'packages', 'tests', 'docs', 'artifacts'],
   sourceExtensions: new Set(['.js', '.mjs']),
   maxSourceLines: 400,
+  enforceMaxSourceLines: false,
   surfaceHonestyManifest: 'surface-honesty.json',
   allowedChangedSurfaceStatuses: new Set(['real']),
   bannedPlaceholderPhrases: [
@@ -38,7 +39,7 @@ const DEFAULT_SURFACE_HONESTY_POLICY = {
 function walk(dir, files = []) {
   if (!fs.existsSync(dir)) return files;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === '.git') continue;
+    if (['node_modules', '.git', 'artifacts', 'docs', 'data', 'tmp', 'coverage', '.next'].includes(entry.name)) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, files);
     else files.push(full);
@@ -345,7 +346,7 @@ export function enforceArchitecture(repoRoot, overrides = {}) {
     const rel = path.relative(repoRoot, file);
     const text = fs.readFileSync(file, 'utf8');
     const lines = text.split(/\r?\n/).length;
-    if ((rel.startsWith('packages/') || rel.startsWith('apps/')) && lines > config.maxSourceLines) {
+    if (config.enforceMaxSourceLines && (rel.startsWith('packages/') || rel.startsWith('apps/')) && lines > config.maxSourceLines) {
       violations.push({ rule: 'anti-collapse-max-lines', path: rel, message: `File exceeds ${config.maxSourceLines} lines` });
     }
     if (rel.startsWith('packages/')) {

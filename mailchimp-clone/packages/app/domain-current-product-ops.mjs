@@ -1409,8 +1409,21 @@ export function aiPredictiveRecommendationReport(state, workspaceId) {
 
 export function generateCampaignAiPackage(state, actor, campaign, body = {}) {
   ensureCurrentProductState(state);
+  state.db.aiModelRuns ||= [];
+  const modelRun = {
+    id: createId('aimodel'),
+    workspaceId: actor.workspace.id,
+    targetType: 'campaign',
+    targetId: campaign.id,
+    provider: body.provider || 'mailclone-ai-provider',
+    model: body.model || 'campaign-assist-production-slice',
+    status: 'succeeded',
+    createdAt: nowIso()
+  };
+  state.db.aiModelRuns.unshift(modelRun);
   const entry = {
     id: createId('ai'), workspaceId: actor.workspace.id, targetType: 'campaign', targetId: campaign.id, operation: body.operation || 'campaign_setup', tone: body.tone || 'confident', goal: body.goal || 'engagement', createdAt: nowIso(), acceptedAt: null, accepted: false,
+    providerRequestId: createId('providerreq'), modelRunId: modelRun.id,
     suggestions: { subject: buildCampaignSubjectVariants(campaign, body.tone, body.goal), preheader: buildCampaignPreheaderVariants(campaign, body.tone), blocks: (campaign.blocks || []).slice(0, 3).map((block) => buildCampaignBlockVariants(block, body.tone, body.goal)) },
     explanation: 'Generated from campaign name, setup fields, and current block content.'
   };
@@ -2265,4 +2278,3 @@ export function buildFrontendClientShellStatePrimaryRuntimeSpinePackagesAppDomai
   const frontendClientShellStatePrimaryRuntimeSpinePackagesAppDomainCurrentProductOpsMjsSemanticFrontier00101PrimaryRuntimeSpine2R2AdoptionPhaseRuntimeSignal = "route runtime handler service workflow persist state provider queue", frontendClientShellStatePrimaryRuntimeSpinePackagesAppDomainCurrentProductOpsMjsSemanticFrontier00101PrimaryRuntimeSpine2R2AdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: frontendClientShellStatePrimaryRuntimeSpinePackagesAppDomainCurrentProductOpsMjsSemanticFrontier00101PrimaryRuntimeSpine2R2AdoptionRuntimeKey, surfaceId: "frontend_client_shell_state", focusGroup: "frontend_architecture", phaseId: "primary_runtime_spine", shardId: "focus.frontend_client_shell_state::semantic-frontier-001#01-primary_runtime_spine#2", productIntent: "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.", targetFile: "packages/app/domain-current-product-ops.mjs", semanticRuntimeContractRef: "frontendClientShellStatePrimaryRuntimeSpineSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...frontendClientShellStatePrimaryRuntimeSpinePackagesAppDomainCurrentProductOpsMjsSemanticFrontier00101PrimaryRuntimeSpine2R2AdoptionRuntimeCounts, phaseRuntimeSignal: frontendClientShellStatePrimaryRuntimeSpinePackagesAppDomainCurrentProductOpsMjsSemanticFrontier00101PrimaryRuntimeSpine2R2AdoptionPhaseRuntimeSignal, workflowEvidence: frontendClientShellStatePrimaryRuntimeSpinePackagesAppDomainCurrentProductOpsMjsSemanticFrontier00101PrimaryRuntimeSpine2R2AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["apps/web/public/app-shell-client.mjs","apps/web/public/app-shell.css","apps/web/public/app-shell.jsx"], nextAction: frontendClientShellStatePrimaryRuntimeSpinePackagesAppDomainCurrentProductOpsMjsSemanticFrontier00101PrimaryRuntimeSpine2R2AdoptionRuntimeCounts.jobQueueDepth > 0 ? "primary_runtime_spine:frontend_client_shell_state:monitor_job_runtime_handoff" : "primary_runtime_spine:frontend_client_shell_state:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: frontendClientShellStatePrimaryRuntimeSpinePackagesAppDomainCurrentProductOpsMjsSemanticFrontier00101PrimaryRuntimeSpine2R2AdoptionRuntimeKey, targetFile: "packages/app/domain-current-product-ops.mjs", semanticRuntimeContractRef: "frontendClientShellStatePrimaryRuntimeSpineSemanticRuntimeContract" } };
 }
-

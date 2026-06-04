@@ -2,11 +2,26 @@ export function teamPermissionNotes(state, workspaceId) {
   const memberships = state.db.memberships.filter((entry) => entry.workspaceId === workspaceId && entry.status === 'active');
   const invitations = state.db.invitations.filter((entry) => entry.workspaceId === workspaceId && entry.status === 'pending');
   const auditEvents = state.db.auditEvents.filter((entry) => entry.workspaceId === workspaceId && /team|member|invite|role|permission/i.test(entry.action || entry.detail || ''));
+  const roleBreakdown = memberships.reduce((acc, entry) => {
+    acc[entry.role] = (acc[entry.role] || 0) + 1;
+    return acc;
+  }, {});
+  const customRoles = Object.keys(roleBreakdown).filter((role) => !['owner', 'admin', 'member'].includes(role));
+  const now = Date.now();
+  const expiringInvites = invitations.filter((entry) => {
+    const expiresAt = Date.parse(entry.expiresAt || '');
+    return Number.isFinite(expiresAt) && expiresAt - now <= 3 * 24 * 60 * 60 * 1000;
+  });
   return {
-    owners: memberships.filter((entry) => entry.role === 'owner').length,
-    admins: memberships.filter((entry) => entry.role === 'admin').length,
-    members: memberships.filter((entry) => entry.role === 'member').length,
+    owners: roleBreakdown.owner || 0,
+    admins: roleBreakdown.admin || 0,
+    members: roleBreakdown.member || 0,
+    viewers: roleBreakdown.viewer || 0,
+    developers: roleBreakdown.developer || 0,
+    roleBreakdown,
+    customRoles,
     pendingInvites: invitations.length,
+    expiringInvites: expiringInvites.length,
     recentPermissionEvents: auditEvents.slice(0, 5)
   };
 }
@@ -162,4 +177,3 @@ export function buildTeamRolesPermissionsOperationalPersistenceAndJobsPackagesAp
   const teamRolesPermissionsOperationalPersistenceAndJobsPackagesAppDomainNotesMjsSemanticFrontier00108OperationalPersistenceAndJobs2AdoptionPhaseRuntimeSignal = "persist storage job queue retry transaction lock dead-letter", teamRolesPermissionsOperationalPersistenceAndJobsPackagesAppDomainNotesMjsSemanticFrontier00108OperationalPersistenceAndJobs2AdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: teamRolesPermissionsOperationalPersistenceAndJobsPackagesAppDomainNotesMjsSemanticFrontier00108OperationalPersistenceAndJobs2AdoptionRuntimeKey, surfaceId: "team_roles_permissions", focusGroup: "team_roles_permissions", phaseId: "operational_persistence_and_jobs", shardId: "focus.team_roles_permissions::semantic-frontier-001#08-operational_persistence_and_jobs#2", productIntent: "Connect the capability to durable persistence, background work, telemetry, sync, or audit surfaces where the real product would require it.", targetFile: "packages/app/domain-notes.mjs", semanticRuntimeContractRef: "teamRolesPermissionsOperationalPersistenceAndJobsSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...teamRolesPermissionsOperationalPersistenceAndJobsPackagesAppDomainNotesMjsSemanticFrontier00108OperationalPersistenceAndJobs2AdoptionRuntimeCounts, phaseRuntimeSignal: teamRolesPermissionsOperationalPersistenceAndJobsPackagesAppDomainNotesMjsSemanticFrontier00108OperationalPersistenceAndJobs2AdoptionPhaseRuntimeSignal, workflowEvidence: teamRolesPermissionsOperationalPersistenceAndJobsPackagesAppDomainNotesMjsSemanticFrontier00108OperationalPersistenceAndJobs2AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["packages/app/domain-notes.mjs","packages/app/job-handlers.mjs","packages/app/job-runtime.mjs"], nextAction: teamRolesPermissionsOperationalPersistenceAndJobsPackagesAppDomainNotesMjsSemanticFrontier00108OperationalPersistenceAndJobs2AdoptionRuntimeCounts.jobQueueDepth > 0 ? "operational_persistence_and_jobs:team_roles_permissions:monitor_job_runtime_handoff" : "operational_persistence_and_jobs:team_roles_permissions:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: teamRolesPermissionsOperationalPersistenceAndJobsPackagesAppDomainNotesMjsSemanticFrontier00108OperationalPersistenceAndJobs2AdoptionRuntimeKey, targetFile: "packages/app/domain-notes.mjs", semanticRuntimeContractRef: "teamRolesPermissionsOperationalPersistenceAndJobsSemanticRuntimeContract" } };
 }
-

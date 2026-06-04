@@ -1,0 +1,117 @@
+{
+  "generatedAt": "2026-06-04T19:07:20.006341+00:00",
+  "anchor": "replied Mailchimp validation/gap-tranche report; user approval: Okay do it",
+  "fidelity": "production_slice",
+  "scope": "Seal landed Mailchimp product tranche into canonical checkout and repair validation baseline; not a full-clone completion claim.",
+  "targetPath": "/root/clawd/mailchimp-clone and remote /home/jake/clawd-remote/mailchimp-clone",
+  "implementationSurface": "mixed: product code, architecture-enforcer control-plane guardrail, validation environment/artifacts",
+  "executionPlane": {
+    "generatedAt": "2026-06-04T18:50:48Z",
+    "executionPlane": "clawd-exec-hel1",
+    "host": "clawd-exec-hel1",
+    "mailchimpRoot": "/home/jake/clawd-remote/mailchimp-clone",
+    "controlPlane": "/root/clawd",
+    "task": "mailchimp_validation_baseline_repair",
+    "heavyValidation": "remote_only"
+  },
+  "remoteValidation": {
+    "generatedAt": "2026-06-04T19:06:23.184650+00:00",
+    "host": "clawd-exec-hel1",
+    "command": "npm test -- --test-concurrency=1",
+    "exitCode": 0,
+    "tests": 477,
+    "pass": 477,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "failures": [],
+    "logPath": "/home/jake/clawd-remote/artifacts/mailchimp-remote-validation-20260604T185100Z/npm-test-full-rerun2.log"
+  },
+  "artifactRootLocal": "/root/clawd/artifacts/mailchimp-remote-validation-20260604T185100Z",
+  "artifactRootRemote": "/home/jake/clawd-remote/artifacts/mailchimp-remote-validation-20260604T185100Z",
+  "remoteEnvironmentRepairs": [
+    "Imported fixture ref 4c894f87c into remote git object database/tag so implement-worker regression tests use the intended baseline fixture.",
+    "Synced required memory guardrail files to /home/jake/clawd-remote for canonical truth preflight.",
+    "Installed Playwright Chromium and chromium OS dependencies on Hetzner for browser-realism validation."
+  ],
+  "targetedValidation": {
+    "formerFailures": "6/6 pass in targeted-former-failures-rerun2.log",
+    "affectedAfterFixture": {
+      "tests": 135,
+      "pass": 133,
+      "fail": 2,
+      "failures": [
+        "Wave 1 browser realism foundation: real browser proof spans major journey families",
+        "Mailchimp canonical truth preflight loads local memory guardrails before completion claims"
+      ]
+    },
+    "browserAfterDeps": {
+      "generatedAt": "2026-06-04T19:04:40.891068+00:00",
+      "exitCode": 0,
+      "tests": 1,
+      "pass": 1,
+      "fail": 0,
+      "failures": []
+    },
+    "finalEnvChecks": {
+      "generatedAt": "2026-06-04T19:03:33.282011Z",
+      "exitCode": 1,
+      "tests": 69,
+      "pass": 68,
+      "fail": 1,
+      "failures": [
+        "Wave 1 browser realism foundation: real browser proof spans major journey families"
+      ]
+    }
+  },
+  "surfaceHonestyCoverage": {
+    "packages/app/domain-audience.mjs": true,
+    "packages/app/domain-campaigns.mjs": true,
+    "packages/app/domain-current-product-ops.mjs": true,
+    "packages/app/domain-custom-journeys.mjs": true,
+    "packages/app/domain-leads.mjs": true,
+    "packages/app/domain-notes.mjs": true,
+    "packages/app/job-handlers.mjs": true,
+    "packages/app/jobs.mjs": true,
+    "packages/app/primary-architecture.mjs": true,
+    "packages/app/production-architecture.mjs": true,
+    "packages/app/routes/audience.mjs": true,
+    "packages/app/routes/automations.mjs": true,
+    "packages/app/routes/campaigns.mjs": true,
+    "packages/app/routes/content-library.mjs": true,
+    "packages/app/routes/integrations.mjs": true,
+    "packages/app/routes/leads.mjs": true,
+    "packages/app/routes/platform.mjs": true,
+    "packages/app/routes/websites.mjs": true,
+    "packages/app/service-backends.mjs": true,
+    "packages/app/storage.mjs": true,
+    "surface-honesty.json": false
+  },
+  "changedProductFiles": [
+    "packages/app/domain-audience.mjs",
+    "packages/app/domain-campaigns.mjs",
+    "packages/app/domain-current-product-ops.mjs",
+    "packages/app/domain-custom-journeys.mjs",
+    "packages/app/domain-leads.mjs",
+    "packages/app/domain-notes.mjs",
+    "packages/app/job-handlers.mjs",
+    "packages/app/jobs.mjs",
+    "packages/app/primary-architecture.mjs",
+    "packages/app/production-architecture.mjs",
+    "packages/app/routes/audience.mjs",
+    "packages/app/routes/automations.mjs",
+    "packages/app/routes/campaigns.mjs",
+    "packages/app/routes/content-library.mjs",
+    "packages/app/routes/integrations.mjs",
+    "packages/app/routes/leads.mjs",
+    "packages/app/routes/platform.mjs",
+    "packages/app/routes/websites.mjs",
+    "packages/app/service-backends.mjs",
+    "packages/app/storage.mjs",
+    "surface-honesty.json"
+  ],
+  "commitDecision": "not committed automatically; worktree remains dirty for review/commit decision",
+  "fullCloneClaim": false,
+  "remainingGapTruth": "Full Mailchimp clone parity is not claimed; this is canonical validation green for the current production-slice/tranche worktree."
+}

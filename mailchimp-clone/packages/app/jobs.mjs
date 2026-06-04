@@ -7,6 +7,7 @@ export const JOBS_OPERATIONAL_RUNTIME_CONTRACT = Object.freeze({ surfaceId: 'per
 
 const DEFAULT_JOB_ATTEMPTS = {
   import_contacts: 2,
+  audience_provider_sync: 2,
   send_test_campaign: 2,
   deliver_campaign: 2
 };

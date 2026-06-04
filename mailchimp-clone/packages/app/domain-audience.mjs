@@ -52,26 +52,72 @@ export function audienceOperationalSummary(state, audience) {
     acc[status] = (acc[status] || 0) + 1;
     return acc;
   }, {});
+  const suppressedContacts = contacts.filter((contact) => contact.suppression || ['unsubscribed', 'cleaned'].includes(contact.status));
+  const duplicateEmailGroups = Object.values(contacts.reduce((acc, contact) => {
+    const key = String(contact.email || '').toLowerCase();
+    if (!key) return acc;
+    acc[key] ||= [];
+    acc[key].push(contact);
+    return acc;
+  }, {})).filter((entries) => entries.length > 1);
   const lifecycleStages = contacts.reduce((acc, contact) => {
     const stage = (contact.tags || []).includes('vip') ? 'advocate' : (contact.tags || []).includes('new') ? 'new' : (contact.activity || []).length > 2 ? 'engaged' : 'nurture';
     acc[stage] = (acc[stage] || 0) + 1;
     return acc;
   }, {});
+  const ratio = (count) => contacts.length ? Number((count / contacts.length).toFixed(2)) : 0;
+  const suppressionByReason = [...suppressionEntries, ...suppressedContacts].reduce((acc, entry) => {
+    const reason = entry.suppression?.reason || entry.reason || entry.status || 'suppressed';
+    acc[reason] = (acc[reason] || 0) + 1;
+    return acc;
+  }, {});
+  const completedImports = imports.filter((job) => ['completed', 'complete', 'succeeded'].includes(job.status));
+  const importExportHistory = [
+    ...imports.map((job) => ({
+      kind: job.type === 'audience_provider_sync' ? 'provider sync' : job.type === 'segment_refresh' ? 'segment refresh' : 'contact import',
+      status: job.status || 'queued',
+      at: job.completedAt || job.updatedAt || job.createdAt,
+      detail: job.payload?.provider || job.payload?.filename || job.id
+    })),
+    ...exports.map((entry) => ({
+      kind: entry.meta?.exportKind || 'audience export',
+      status: 'ready',
+      at: entry.createdAt || entry.updatedAt,
+      detail: `${entry.meta?.rowCount ?? 0} rows`
+    }))
+  ].sort((left, right) => String(right.at || '').localeCompare(String(left.at || ''))).slice(0, 8);
+  const healthMetrics = {
+    deliverableRate: ratio(statuses.subscribed || 0),
+    suppressionRate: ratio(suppressionEntries.length + suppressedContacts.length),
+    enrichmentRate: ratio(contacts.filter((contact) => (contact.tags || []).length || (contact.interests || []).length || Object.keys(contact.groups || {}).length).length),
+    duplicateRate: ratio(duplicateEmailGroups.reduce((count, group) => count + group.length, 0)),
+    completedImportCount: completedImports.length,
+    activeLifecycleStageCount: Object.values(lifecycleStages).filter(Boolean).length
+  };
   const healthScore = Math.min(100, Math.round(
     (contacts.length ? 30 : 0) +
     (segments.length ? 20 : 0) +
-    (imports.some((job) => job.status === 'completed') ? 15 : 0) +
+    (completedImports.length ? 15 : 0) +
     (Object.keys(statuses).length ? 10 : 0) +
     (suppressionEntries.length ? 10 : 15) +
     (campaigns.length || automations.length ? 20 : 0)
   ));
   return {
     healthScore,
+    healthMetrics,
     statuses,
     lifecycleStages,
-    suppressionCount: suppressionEntries.length,
+    lifecycleInsights: Object.entries(lifecycleStages).map(([stage, count]) => ({ stage, count, share: ratio(count) })),
+    suppressionCount: suppressionEntries.length + suppressedContacts.length,
+    suppressionStatus: {
+      suppressedContacts: suppressedContacts.length,
+      suppressionEntries: suppressionEntries.length,
+      byReason: suppressionByReason,
+      readyToSend: contacts.length - suppressedContacts.length
+    },
     imports: imports.slice(0, 5),
     exports: exports.slice(0, 5),
+    importExportHistory,
     segments,
     campaigns: campaigns.slice(0, 5),
     automations: automations.slice(0, 5),
@@ -3091,4 +3137,3 @@ export function buildContactsTableOperationalPersistenceAndJobsPackagesAppDomain
   const contactsTableOperationalPersistenceAndJobsPackagesAppDomainAudienceMjsSemanticFrontier00103OperationalPersistenceAndJobs2AdoptionPhaseRuntimeSignal = "persist storage job queue retry transaction lock dead-letter", contactsTableOperationalPersistenceAndJobsPackagesAppDomainAudienceMjsSemanticFrontier00103OperationalPersistenceAndJobs2AdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: contactsTableOperationalPersistenceAndJobsPackagesAppDomainAudienceMjsSemanticFrontier00103OperationalPersistenceAndJobs2AdoptionRuntimeKey, surfaceId: "contacts_table", focusGroup: "audience_crm", phaseId: "operational_persistence_and_jobs", shardId: "focus.contacts_table::semantic-frontier-001#03-operational_persistence_and_jobs#2", productIntent: "Connect the capability to durable persistence, background work, telemetry, sync, or audit surfaces where the real product would require it.", targetFile: "packages/app/domain-audience.mjs", semanticRuntimeContractRef: "contactsTableOperationalPersistenceAndJobsSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...contactsTableOperationalPersistenceAndJobsPackagesAppDomainAudienceMjsSemanticFrontier00103OperationalPersistenceAndJobs2AdoptionRuntimeCounts, phaseRuntimeSignal: contactsTableOperationalPersistenceAndJobsPackagesAppDomainAudienceMjsSemanticFrontier00103OperationalPersistenceAndJobs2AdoptionPhaseRuntimeSignal, workflowEvidence: contactsTableOperationalPersistenceAndJobsPackagesAppDomainAudienceMjsSemanticFrontier00103OperationalPersistenceAndJobs2AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["packages/app/domain-audience.mjs","packages/app/job-handlers.mjs","packages/app/job-runtime.mjs"], nextAction: contactsTableOperationalPersistenceAndJobsPackagesAppDomainAudienceMjsSemanticFrontier00103OperationalPersistenceAndJobs2AdoptionRuntimeCounts.jobQueueDepth > 0 ? "operational_persistence_and_jobs:contacts_table:monitor_job_runtime_handoff" : "operational_persistence_and_jobs:contacts_table:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: contactsTableOperationalPersistenceAndJobsPackagesAppDomainAudienceMjsSemanticFrontier00103OperationalPersistenceAndJobs2AdoptionRuntimeKey, targetFile: "packages/app/domain-audience.mjs", semanticRuntimeContractRef: "contactsTableOperationalPersistenceAndJobsSemanticRuntimeContract" } };
 }
-

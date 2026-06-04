@@ -1277,6 +1277,39 @@
         ]
       },
       "notes": "Real partner listing, certification, and marketplace handoff dashboard descriptors consumed by developer portal server."
+    },
+    "packages/app/primary-architecture.mjs": {
+      "label": "Primary architecture production-slice matrix",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/primary-architecture.test.mjs",
+          "tests/service-backed-subsystems.test.mjs"
+        ]
+      },
+      "notes": "Primary architecture matrix, app-shell evidence, service runtime evidence, and full-clone truth boundary."
+    },
+    "packages/app/production-architecture.mjs": {
+      "label": "Production architecture runtime ledger",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/production-architecture-runtime.test.mjs",
+          "tests/primary-architecture.test.mjs"
+        ]
+      },
+      "notes": "Production-slice transaction, provider checkpoint, queue lease, migration, and readiness runtime."
+    },
+    "packages/app/service-backends.mjs": {
+      "label": "Service-backed subsystem runtime summary",
+      "status": "real",
+      "evidence": {
+        "tests": [
+          "tests/service-backed-subsystems.test.mjs",
+          "tests/primary-architecture.test.mjs"
+        ]
+      },
+      "notes": "Aggregates AI, analytics, integration, delivery, and job backend evidence for architecture matrices."
     }
   }
 }

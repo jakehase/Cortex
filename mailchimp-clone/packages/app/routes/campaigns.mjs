@@ -2,7 +2,7 @@ import { persistState } from '../storage.mjs';
 import { runJobs } from '../jobs.mjs';
 import { page, blockEditorCard } from '../view.mjs';
 import { hasFeature, recordAudit } from '../domain-core.mjs';
-import { campaignIndexSummary, GUIDED_CAMPAIGN_LAYOUTS, applyGuidedCampaignLayout, campaignEditorReadiness, campaignNarrativeOutline, campaignNextStep, campaignReviewState, campaignSendScheduleSummary, createCampaign, queueCampaignDelivery, queueTestSend, recipientCount, renderBlocksHtml } from '../domain-campaigns.mjs';
+import { buildCampaignIndexSurface, campaignIndexSummary, GUIDED_CAMPAIGN_LAYOUTS, applyGuidedCampaignLayout, campaignEditorReadiness, campaignNarrativeOutline, campaignNextStep, campaignReviewState, campaignSendScheduleSummary, createCampaign, queueCampaignDelivery, queueTestSend, recipientCount, renderBlocksHtml } from '../domain-campaigns.mjs';
 import { createId, json, nowIso, readBody, redirect, text } from '../utils.mjs';
 
 const DEFAULT_EDITOR_SETTINGS = {
@@ -239,14 +239,66 @@ function applyBlockPreset(campaign, preset) {
   campaign.blocks.push(normalizeBlock(presets[preset] || { type: 'text', title: 'New block' }));
 }
 
+function selectedCampaignIds(body = {}) {
+  const value = body.selectedCampaignIds || body.campaignIds || body.campaignId || '';
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return String(value).split(',').map((entry) => entry.trim()).filter(Boolean);
+}
+
+function cloneCampaignForIndex(campaign, actor) {
+  const copy = JSON.parse(JSON.stringify(campaign));
+  copy.id = createId('camp');
+  copy.name = `${campaign.name || 'Untitled'} copy`;
+  copy.status = 'draft';
+  copy.createdAt = nowIso();
+  copy.updatedAt = nowIso();
+  copy.sentAt = '';
+  copy.scheduledAt = '';
+  copy.archivedAt = '';
+  copy.workspaceId = actor.workspace.id;
+  copy.report = { opens: 0, clicks: 0, bounces: 0, unsubscribes: 0, history: [], funnel: campaign.report?.funnel || {} };
+  return copy;
+}
+
 export function registerCampaignRoutes(router, deps) {
   const { requireAuth } = deps;
 
   router.register('GET', '/campaigns', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
-    const campaigns = state.db.campaigns.filter((entry) => entry.workspaceId === actor.workspace.id);
+    const url = new URL(req.url, 'http://mailchimp.local');
+    const index = buildCampaignIndexSurface(state, actor.workspace.id, {
+      view: url.searchParams.get('view') || '',
+      status: url.searchParams.get('status') || '',
+      approval: url.searchParams.get('approval') || '',
+      schedule: url.searchParams.get('schedule') || '',
+      folder: url.searchParams.get('folder') || '',
+      q: url.searchParams.get('q') || '',
+      includeArchived: url.searchParams.get('includeArchived') === 'true' ? true : undefined
+    });
     const summary = campaignIndexSummary(state, actor.workspace.id);
-    text(res, 200, page('Campaign index', actor, `<div class="grid"><div class="card"><h3>Campaign pipeline</h3><p>Draft: ${summary.draft} · Review-ready: ${summary.reviewReady}</p><p>Queued deliveries: ${summary.queuedDeliveries} · Scheduled: ${summary.scheduled}</p><p>Approvals pending: ${summary.approvalsPending}</p><p>${summary.nextScheduledAt ? `Next scheduled send: ${summary.nextScheduledAt}` : 'No scheduled sends yet.'}</p><p><a href="/campaigns/new">Create campaign</a></p></div><div class="card"><h3>Delivery coverage</h3><p>Total campaigns: ${summary.total}</p><p>Queued: ${summary.queued}</p><p>Sent: ${summary.sent}</p><p><a href="/reports">Open reports overview</a></p></div></div><div class="card"><table><tr><th>Name</th><th>Status</th><th>Recipients</th><th>Template</th><th>Resume</th><th>Actions</th></tr>${campaigns.map((campaign) => `<tr><td>${campaign.name || 'Untitled'}</td><td>${campaign.status}</td><td>${recipientCount(state, campaign)}</td><td>${state.db.templates.find((entry) => entry.id === campaign.templateId)?.name || '—'}</td><td><a href="/campaigns/${campaign.id}/resume">Resume at ${campaignNextStep(campaign)}</a></td><td><a href="/campaigns/${campaign.id}/setup">Setup</a> · <a href="/campaigns/${campaign.id}/recipients">Recipients</a> · <a href="/campaigns/${campaign.id}/templates">Templates</a> · <a href="/campaigns/${campaign.id}/editor">Editor</a> · <a href="/campaigns/${campaign.id}/review">Review</a> · <a href="/reports/campaigns/${campaign.id}">Report</a></td></tr>`).join('')}</table></div>`));
+    const savedViews = index.savedViews.map((view) => `<a class="pill" href="/campaigns?view=${encodeURIComponent(view.id)}">${view.label}</a>`).join(' ');
+    const folderOptions = index.folderOptions.map((folder) => `<option value="${folder}" ${index.filters.folder === folder ? 'selected' : ''}>${folder}</option>`).join('');
+    const rows = index.rows.map((campaign) => `<tr><td><input type="checkbox" name="selectedCampaignIds" value="${campaign.id}"></td><td>${campaign.name}</td><td>${campaign.status}</td><td>${campaign.folder}</td><td>${campaign.recipients}</td><td>${campaign.templateName}</td><td>${campaign.approvalState}</td><td>${campaign.scheduleState}${campaign.scheduledAt ? `<br><span class="muted">${campaign.scheduledAt}</span>` : ''}</td><td><a href="/campaigns/${campaign.id}/resume">Resume at ${campaign.nextStep}</a></td><td><a href="/campaigns/${campaign.id}/setup">Setup</a> · <a href="/campaigns/${campaign.id}/recipients">Recipients</a> · <a href="/campaigns/${campaign.id}/templates">Templates</a> · <a href="/campaigns/${campaign.id}/editor">Editor</a> · <a href="/campaigns/${campaign.id}/review">Review</a> · <a href="/reports/campaigns/${campaign.id}">Report</a></td></tr>`).join('');
+    text(res, 200, page('Campaign index', actor, `<div class="grid"><div class="card"><h3>Campaign pipeline</h3><p>Draft: ${summary.draft} · Review-ready: ${summary.reviewReady}</p><p>Queued deliveries: ${summary.queuedDeliveries} · Scheduled: ${summary.scheduled}</p><p>Approvals pending: ${summary.approvalsPending}</p><p>${summary.nextScheduledAt ? `Next scheduled send: ${summary.nextScheduledAt}` : 'No scheduled sends yet.'}</p><p><a href="/campaigns/new">Create campaign</a></p></div><div class="card"><h3>List depth</h3><p>Visible: ${index.counts.visible} of ${index.counts.all}</p><p>Pending approval: ${index.counts.pendingApproval} · Scheduled: ${index.counts.scheduled} · Archived: ${index.counts.archived}</p><p>${savedViews}</p></div></div><div class="card"><form method="get" action="/campaigns"><input name="q" placeholder="Search campaigns" value="${index.filters.q || ''}"><select name="status"><option value="">Any status</option><option value="active" ${index.filters.status === 'active' ? 'selected' : ''}>Active</option><option value="draft" ${index.filters.status === 'draft' ? 'selected' : ''}>Draft</option><option value="queued" ${index.filters.status === 'queued' ? 'selected' : ''}>Queued</option><option value="scheduled" ${index.filters.status === 'scheduled' ? 'selected' : ''}>Scheduled</option><option value="sent" ${index.filters.status === 'sent' ? 'selected' : ''}>Sent</option><option value="archived" ${index.filters.status === 'archived' ? 'selected' : ''}>Archived</option></select><select name="approval"><option value="">Any approval</option><option value="pending" ${index.filters.approval === 'pending' ? 'selected' : ''}>Pending approval</option><option value="changes_requested" ${index.filters.approval === 'changes_requested' ? 'selected' : ''}>Changes requested</option><option value="approved" ${index.filters.approval === 'approved' ? 'selected' : ''}>Approved</option><option value="not_requested" ${index.filters.approval === 'not_requested' ? 'selected' : ''}>Not requested</option></select><select name="schedule"><option value="">Any schedule</option><option value="scheduled" ${index.filters.schedule === 'scheduled' ? 'selected' : ''}>Scheduled</option><option value="queued" ${index.filters.schedule === 'queued' ? 'selected' : ''}>Queued</option><option value="none" ${index.filters.schedule === 'none' ? 'selected' : ''}>No schedule</option></select><select name="folder"><option value="">Any folder</option>${folderOptions}</select><label><input type="checkbox" name="includeArchived" value="true" ${index.filters.includeArchived ? 'checked' : ''}> Include archived</label><button>Filter</button></form></div><form method="post" action="/campaigns/batch" class="card"><div class="steps"><select name="action"><option value="duplicate">Duplicate selected</option><option value="archive">Archive selected</option><option value="unarchive">Unarchive selected</option></select><button>Apply batch action</button></div><table><tr><th></th><th>Name</th><th>Status</th><th>Folder</th><th>Recipients</th><th>Template</th><th>Approval</th><th>Schedule</th><th>Resume</th><th>Actions</th></tr>${rows || '<tr><td colspan="10">No campaigns match these filters.</td></tr>'}</table></form>`));
+  });
+
+  router.register('POST', '/campaigns/batch', async ({ state, req, res }) => {
+    const actor = requireAuth(state, req, res); if (!actor) return;
+    const body = await readBody(req);
+    const ids = selectedCampaignIds(body);
+    const campaigns = state.db.campaigns.filter((entry) => ids.includes(entry.id) && entry.workspaceId === actor.workspace.id);
+    if (body.action === 'duplicate') {
+      state.db.campaigns.unshift(...campaigns.map((campaign) => cloneCampaignForIndex(campaign, actor)));
+    } else if (body.action === 'archive') {
+      for (const campaign of campaigns) Object.assign(campaign, { status: 'archived', archivedAt: nowIso(), updatedAt: nowIso() });
+    } else if (body.action === 'unarchive') {
+      for (const campaign of campaigns) Object.assign(campaign, { status: 'draft', archivedAt: '', updatedAt: nowIso() });
+    }
+    if (campaigns.length) {
+      persistState(state);
+      recordAudit(state, { workspaceId: actor.workspace.id, userId: actor.user.id, action: 'campaign-index-batch', detail: `${body.action || 'batch'} ${campaigns.length} campaign(s)` });
+    }
+    redirect(res, '/campaigns');
   });
 
   router.register('GET', '/campaigns/new', async ({ state, req, res }) => {
@@ -2412,4 +2464,3 @@ export function buildSendScheduleReviewIntegratedUserPathEvidencePackagesAppRout
   const sendScheduleReviewIntegratedUserPathEvidencePackagesAppRoutesCampaignsMjsSemanticFrontier00107IntegratedUserPathEvidence2AdoptionPhaseRuntimeSignal = "route render handler request response workflow submit execute", sendScheduleReviewIntegratedUserPathEvidencePackagesAppRoutesCampaignsMjsSemanticFrontier00107IntegratedUserPathEvidence2AdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: sendScheduleReviewIntegratedUserPathEvidencePackagesAppRoutesCampaignsMjsSemanticFrontier00107IntegratedUserPathEvidence2AdoptionRuntimeKey, surfaceId: "send_schedule_review", focusGroup: "send_schedule_review", phaseId: "integrated_user_path_evidence", shardId: "focus.send_schedule_review::semantic-frontier-001#07-integrated_user_path_evidence#2", productIntent: "Ensure the architecture is adopted by a real app path with executable verifier coverage rather than existing as disconnected helper code.", targetFile: "packages/app/routes/campaigns.mjs", semanticRuntimeContractRef: "sendScheduleReviewIntegratedUserPathEvidenceSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...sendScheduleReviewIntegratedUserPathEvidencePackagesAppRoutesCampaignsMjsSemanticFrontier00107IntegratedUserPathEvidence2AdoptionRuntimeCounts, phaseRuntimeSignal: sendScheduleReviewIntegratedUserPathEvidencePackagesAppRoutesCampaignsMjsSemanticFrontier00107IntegratedUserPathEvidence2AdoptionPhaseRuntimeSignal, workflowEvidence: sendScheduleReviewIntegratedUserPathEvidencePackagesAppRoutesCampaignsMjsSemanticFrontier00107IntegratedUserPathEvidence2AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["packages/app/domain-campaigns.mjs","packages/app/routes/campaigns.mjs"], nextAction: sendScheduleReviewIntegratedUserPathEvidencePackagesAppRoutesCampaignsMjsSemanticFrontier00107IntegratedUserPathEvidence2AdoptionRuntimeCounts.jobQueueDepth > 0 ? "integrated_user_path_evidence:send_schedule_review:monitor_job_runtime_handoff" : "integrated_user_path_evidence:send_schedule_review:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: sendScheduleReviewIntegratedUserPathEvidencePackagesAppRoutesCampaignsMjsSemanticFrontier00107IntegratedUserPathEvidence2AdoptionRuntimeKey, targetFile: "packages/app/routes/campaigns.mjs", semanticRuntimeContractRef: "sendScheduleReviewIntegratedUserPathEvidenceSemanticRuntimeContract" } };
 }
-

@@ -1,24 +1,50 @@
 export function customJourneyIntegrationSummary(state, workspaceId) {
-  const installations = state.db.integrationInstallations.filter((entry) => entry.workspaceId === workspaceId);
-  const webhooks = state.db.webhooks.filter((entry) => entry.workspaceId === workspaceId);
-  const journeys = state.db.automations.filter((entry) => entry.workspaceId === workspaceId);
+  const db = state.db || {};
+  const installations = Array.isArray(db.integrationInstallations) ? db.integrationInstallations.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const webhooks = Array.isArray(db.webhooks) ? db.webhooks.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const journeys = Array.isArray(db.automations) ? db.automations.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const activeInstallations = installations.filter((entry) => entry.status === 'connected' || entry.status === 'active');
+  const blockedInstallations = installations.filter((entry) => ['auth_error', 'error', 'failed', 'revoked'].includes(entry.status) || entry.authStatus === 'expired');
+  const pausedInstallations = installations.filter((entry) => entry.syncStatus === 'paused' || entry.syncPaused);
+  const syncingInstallations = installations.filter((entry) => ['queued', 'syncing', 'running'].includes(entry.syncStatus));
+  const needsSettings = installations.filter((entry) => entry.status === 'needs_settings' || entry.settingsComplete === false || entry.requiresConfiguration);
+  const disconnectedInstallations = installations.filter((entry) => ['disconnected', 'uninstalled'].includes(entry.status));
   return {
     installations: installations.length,
-    activeInstallations: installations.filter((entry) => entry.status === 'connected' || entry.status === 'active').length,
+    activeInstallations: activeInstallations.length,
     webhooks: webhooks.length,
     activeWebhooks: webhooks.filter((entry) => entry.status === 'active').length,
     journeyHandoffs: journeys.filter((journey) => journey.sourceFormId || journey.sourceCampaignId || journey.trigger === 'form_submitted').length,
-    connectorFamilies: [...new Set(installations.map((entry) => entry.provider || entry.providerId || entry.name).filter(Boolean))]
+    connectorFamilies: [...new Set(installations.map((entry) => entry.provider || entry.providerId || entry.name).filter(Boolean))],
+    lifecycle: {
+      connected: activeInstallations.length,
+      pendingAuth: installations.filter((entry) => ['pending_auth', 'oauth_pending', 'installing'].includes(entry.status) || entry.authStatus === 'pending').length,
+      needsSettings: needsSettings.length,
+      blocked: blockedInstallations.length,
+      disconnected: disconnectedInstallations.length
+    },
+    syncControls: {
+      running: syncingInstallations.length,
+      paused: pausedInstallations.length,
+      manualSyncAvailable: activeInstallations.filter((entry) => entry.syncEnabled !== false && entry.syncStatus !== 'paused').length
+    },
+    nextLifecycleAction: blockedInstallations.length > 0 ? 'Reconnect failing integrations' : needsSettings.length > 0 ? 'Review required settings' : pausedInstallations.length > 0 ? 'Resume paused syncs' : disconnectedInstallations.length > 0 ? 'Reinstall or remove disconnected integrations' : 'Monitor active sync health'
   };
 }
 
 export function connectorJourneyMap(state, workspaceId) {
-  const installations = state.db.integrationInstallations.filter((entry) => entry.workspaceId === workspaceId);
-  const journeys = state.db.automations.filter((entry) => entry.workspaceId === workspaceId);
+  const db = state.db || {};
+  const installations = Array.isArray(db.integrationInstallations) ? db.integrationInstallations.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const journeys = Array.isArray(db.automations) ? db.automations.filter((entry) => entry.workspaceId === workspaceId) : [];
   return installations.map((installation) => ({
     connectorId: installation.id,
     provider: installation.provider || installation.providerId || installation.name,
     status: installation.status,
+    authStatus: installation.authStatus || (['auth_error', 'revoked'].includes(installation.status) ? 'expired' : 'ok'),
+    syncStatus: installation.syncStatus || (installation.syncPaused ? 'paused' : installation.status === 'connected' ? 'ready' : 'not_ready'),
+    lastSyncAt: installation.lastSyncAt || installation.syncedAt || null,
+    health: ['auth_error', 'error', 'failed', 'revoked'].includes(installation.status) || installation.authStatus === 'expired' ? 'Reconnect required' : installation.status === 'needs_settings' || installation.settingsComplete === false || installation.requiresConfiguration ? 'Settings required' : installation.syncStatus === 'paused' || installation.syncPaused ? 'Sync paused' : installation.status === 'connected' || installation.status === 'active' ? 'Healthy' : 'Not connected',
+    nextAction: ['auth_error', 'error', 'failed', 'revoked'].includes(installation.status) || installation.authStatus === 'expired' ? 'Reconnect' : installation.status === 'needs_settings' || installation.settingsComplete === false || installation.requiresConfiguration ? 'Open settings' : installation.syncStatus === 'paused' || installation.syncPaused ? 'Resume sync' : ['disconnected', 'uninstalled'].includes(installation.status) ? 'Install again' : 'Review sync',
     mappedJourneys: journeys.filter((journey) => String(journey.trigger || '').includes('form') || journey.sourceCampaignId).map((journey) => ({ id: journey.id, name: journey.name, trigger: journey.trigger }))
   }));
 }
@@ -463,4 +489,3 @@ export function buildIntegrationsMarketplaceOperationalPersistenceAndJobsPackage
   const integrationsMarketplaceOperationalPersistenceAndJobsPackagesAppDomainCustomJourneysMjsSemanticFrontier00104OperationalPersistenceAndJobs2AdoptionPhaseRuntimeSignal = "persist storage job queue retry transaction lock dead-letter", integrationsMarketplaceOperationalPersistenceAndJobsPackagesAppDomainCustomJourneysMjsSemanticFrontier00104OperationalPersistenceAndJobs2AdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: integrationsMarketplaceOperationalPersistenceAndJobsPackagesAppDomainCustomJourneysMjsSemanticFrontier00104OperationalPersistenceAndJobs2AdoptionRuntimeKey, surfaceId: "integrations_marketplace", focusGroup: "frontend_architecture", phaseId: "operational_persistence_and_jobs", shardId: "focus.integrations_marketplace::semantic-frontier-001#04-operational_persistence_and_jobs#2", productIntent: "Connect the capability to durable persistence, background work, telemetry, sync, or audit surfaces where the real product would require it.", targetFile: "packages/app/domain-custom-journeys.mjs", semanticRuntimeContractRef: "integrationsMarketplaceOperationalPersistenceAndJobsSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...integrationsMarketplaceOperationalPersistenceAndJobsPackagesAppDomainCustomJourneysMjsSemanticFrontier00104OperationalPersistenceAndJobs2AdoptionRuntimeCounts, phaseRuntimeSignal: integrationsMarketplaceOperationalPersistenceAndJobsPackagesAppDomainCustomJourneysMjsSemanticFrontier00104OperationalPersistenceAndJobs2AdoptionPhaseRuntimeSignal, workflowEvidence: integrationsMarketplaceOperationalPersistenceAndJobsPackagesAppDomainCustomJourneysMjsSemanticFrontier00104OperationalPersistenceAndJobs2AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["packages/app/domain-custom-journeys.mjs","packages/app/domain-integration-marketplace.mjs","packages/app/job-handlers.mjs"], nextAction: integrationsMarketplaceOperationalPersistenceAndJobsPackagesAppDomainCustomJourneysMjsSemanticFrontier00104OperationalPersistenceAndJobs2AdoptionRuntimeCounts.jobQueueDepth > 0 ? "operational_persistence_and_jobs:integrations_marketplace:monitor_job_runtime_handoff" : "operational_persistence_and_jobs:integrations_marketplace:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: integrationsMarketplaceOperationalPersistenceAndJobsPackagesAppDomainCustomJourneysMjsSemanticFrontier00104OperationalPersistenceAndJobs2AdoptionRuntimeKey, targetFile: "packages/app/domain-custom-journeys.mjs", semanticRuntimeContractRef: "integrationsMarketplaceOperationalPersistenceAndJobsSemanticRuntimeContract" } };
 }
-

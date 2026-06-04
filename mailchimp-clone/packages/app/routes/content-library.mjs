@@ -6,11 +6,86 @@ export function registerContentLibraryRoutes(router, deps) {
 
   router.register('GET', '/content/library', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
-    const assets = state.db.assets.filter((entry) => entry.workspaceId === actor.workspace.id);
-    const snippets = state.db.assetSnippets.filter((entry) => entry.workspaceId === actor.workspace.id);
-    const templates = state.db.contentTemplates.filter((entry) => entry.workspaceId === actor.workspace.id);
-    text(res, 200, page('Content library', actor, `<div class="grid"><div class="card"><h3>Library inventory</h3><p>Assets: ${assets.length}</p><p>Snippets: ${snippets.length}</p><p>Workspace templates: ${templates.length}</p><p><a href="/content">Open studio</a> · <a href="/content/depth">Search depth</a></p></div><div class="card"><h3>Channels</h3><p>${[...new Set(snippets.map((entry) => entry.channel || 'email'))].map(escapeHtml).join(', ') || 'Email'}</p></div></div><div class="card"><table><tr><th>Name</th><th>Kind</th><th>Detail</th></tr>${assets.map((asset) => `<tr><td>${escapeHtml(asset.name)}</td><td>asset</td><td>${escapeHtml(asset.folder || 'Root')}</td></tr>`).join('')}${snippets.map((snippet) => `<tr><td>${escapeHtml(snippet.name)}</td><td>snippet</td><td>${escapeHtml((snippet.tags || []).join(', '))}</td></tr>`).join('')}${templates.map((template) => `<tr><td>${escapeHtml(template.name)}</td><td>template</td><td>${escapeHtml(template.category || 'General')}</td></tr>`).join('') || '<tr><td colspan="3">Add assets or snippets to populate the library.</td></tr>'}</table></div>`));
+    const library = buildContentLibraryReadModel(state, actor, req);
+    const filterSummary = [
+      library.filters.q && `search "${library.filters.q}"`,
+      library.filters.folder && `folder ${library.filters.folder}`,
+      library.filters.tag && `tag ${library.filters.tag}`,
+      library.filters.status && `status ${library.filters.status}`
+    ].filter(Boolean).join(' · ') || 'all reusable content';
+    text(res, 200, page('Content library', actor, `<div class="grid"><div class="card"><h3>Library inventory</h3><p>Assets: ${library.counts.assets}</p><p>Snippets: ${library.counts.snippets}</p><p>Workspace templates: ${library.counts.templates}</p><p>Showing: ${library.items.length} of ${library.totalItems} (${escapeHtml(filterSummary)})</p><p><a href="/content">Open studio</a> · <a href="/content/depth">Search depth</a></p></div><div class="card"><h3>Folders and tags</h3><p>Folders: ${library.folders.map(escapeHtml).join(', ') || 'Root'}</p><p>Tags: ${library.tags.map(escapeHtml).join(', ') || 'None yet'}</p></div></div><div class="card"><form method="GET" action="/content/library"><label>Search <input name="q" value="${escapeHtml(library.filters.q)}" placeholder="name, tag, metadata"></label><label> Folder <input name="folder" value="${escapeHtml(library.filters.folder)}" placeholder="Root, Brand"></label><label> Tag <input name="tag" value="${escapeHtml(library.filters.tag)}" placeholder="newsletter"></label><label> Approval <select name="status"><option value="">Any</option>${['approved', 'pending', 'draft'].map((status) => `<option value="${status}"${library.filters.status === status ? ' selected' : ''}>${status}</option>`).join('')}</select></label><button type="submit">Filter</button></form></div><div class="card"><table><tr><th>Name</th><th>Kind</th><th>Folder</th><th>Tags</th><th>Preview</th><th>Approval</th><th>Reuse</th></tr>${library.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.kind)}</td><td>${escapeHtml(item.folder)}</td><td>${escapeHtml(item.tags.join(', ') || 'None')}</td><td>${escapeHtml(item.preview)}</td><td>${escapeHtml(item.approvalStatus)}</td><td>${escapeHtml(item.reuseLabel)}</td></tr>`).join('') || '<tr><td colspan="7">No content matches these library filters.</td></tr>'}</table></div>`));
   });
+}
+
+export function buildContentLibraryReadModel(state = {}, actor = {}, req = {}) {
+  const workspaceId = actor?.workspace?.id || actor?.workspaceId;
+  const db = state.db || {};
+  const filters = parseLibraryFilters(req);
+  const approvals = Array.isArray(db.approvalRequests) ? db.approvalRequests.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const campaigns = Array.isArray(db.campaigns) ? db.campaigns.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const assets = Array.isArray(db.assets) ? db.assets.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const snippets = Array.isArray(db.assetSnippets) ? db.assetSnippets.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const templates = Array.isArray(db.contentTemplates) ? db.contentTemplates.filter((entry) => entry.workspaceId === workspaceId) : [];
+  const items = [
+    ...assets.map((asset) => shapeLibraryItem('asset', asset, approvals, campaigns)),
+    ...snippets.map((snippet) => shapeLibraryItem('snippet', snippet, approvals, campaigns)),
+    ...templates.map((template) => shapeLibraryItem('template', template, approvals, campaigns))
+  ];
+  const filteredItems = items.filter((item) => matchesLibraryFilters(item, filters));
+  return {
+    counts: { assets: assets.length, snippets: snippets.length, templates: templates.length },
+    filters,
+    folders: [...new Set(items.map((item) => item.folder))].sort((a, b) => a.localeCompare(b)),
+    tags: [...new Set(items.flatMap((item) => item.tags))].sort((a, b) => a.localeCompare(b)),
+    totalItems: items.length,
+    items: filteredItems
+  };
+}
+
+function parseLibraryFilters(req = {}) {
+  const url = new URL(req.url || '/content/library', 'http://mailchimp.local');
+  return {
+    q: cleanFilter(url.searchParams.get('q')),
+    folder: cleanFilter(url.searchParams.get('folder')),
+    tag: cleanFilter(url.searchParams.get('tag')).toLowerCase(),
+    status: cleanFilter(url.searchParams.get('status')).toLowerCase()
+  };
+}
+
+function cleanFilter(value) {
+  return String(value || '').trim().slice(0, 80);
+}
+
+function shapeLibraryItem(kind, entry, approvals, campaigns) {
+  const tags = [...new Set([...(Array.isArray(entry.tags) ? entry.tags : []), ...(Array.isArray(entry.metadata?.tags) ? entry.metadata.tags : [])].map((tag) => String(tag).trim()).filter(Boolean))];
+  const folder = entry.folder || entry.folderPath || entry.metadata?.folder || 'Root';
+  const approval = approvals.find((request) => request.targetId === entry.id || request.targetId === entry.templateId || request.targetName === entry.name);
+  const reuseCount = campaigns.filter((campaign) => referencesLibraryEntry(campaign, entry)).length + Number(entry.reuseCount || entry.usageCount || 0);
+  return {
+    id: entry.id || entry.templateId || entry.name,
+    name: entry.name || entry.title || 'Untitled content',
+    kind,
+    folder,
+    tags,
+    preview: entry.previewText || entry.altText || entry.filename || entry.category || entry.channel || 'Preview pending',
+    approvalStatus: approval?.status || entry.approvalStatus || entry.status || 'draft',
+    reuseLabel: reuseCount > 0 ? `${reuseCount} campaign${reuseCount === 1 ? '' : 's'}` : 'Ready to reuse',
+    searchableText: [entry.name, entry.title, entry.filename, entry.altText, entry.category, entry.channel, folder, tags.join(' '), entry.metadata?.description].filter(Boolean).join(' ').toLowerCase()
+  };
+}
+
+function referencesLibraryEntry(campaign, entry) {
+  const haystack = [campaign.templateId, campaign.assetId, campaign.snippetId, campaign.content, campaign.html, ...(Array.isArray(campaign.assetIds) ? campaign.assetIds : []), ...(Array.isArray(campaign.snippetIds) ? campaign.snippetIds : [])].filter(Boolean).join(' ');
+  const needles = [entry.id, entry.templateId, entry.name, entry.filename].filter(Boolean);
+  return needles.some((needle) => haystack.includes(String(needle)));
+}
+
+function matchesLibraryFilters(item, filters) {
+  if (filters.q && !item.searchableText.includes(filters.q.toLowerCase())) return false;
+  if (filters.folder && item.folder.toLowerCase() !== filters.folder.toLowerCase()) return false;
+  if (filters.tag && !item.tags.some((tag) => tag.toLowerCase() === filters.tag)) return false;
+  if (filters.status && item.approvalStatus.toLowerCase() !== filters.status) return false;
+  return true;
 }
 
 function evaluatePrimaryRuntimeAdoption(config, state = {}, actor = {}, input = {}) {

@@ -11,11 +11,37 @@ export const JOB_HANDLERS = {
     const campaign = state.db.campaigns.find((entry) => entry.id === job.payload.campaignId);
     if (!campaign) throw new Error(`Campaign ${job.payload.campaignId} not found for test send`);
     job.result = createNotification(state, { workspaceId: job.workspaceId, type: 'test-send', payload: { campaignId: campaign.id, to: job.payload.testEmail, subject: campaign.subject, htmlPreview: campaignHtml(campaign, state) } });
+    state.db.deliveryPipelineRuns ||= [];
+    state.db.deliveryPipelineRuns.unshift({
+      id: `delivery_${job.id}`,
+      workspaceId: job.workspaceId,
+      campaignId: campaign.id,
+      jobId: job.id,
+      mode: 'test_send',
+      status: 'succeeded',
+      recipient: job.payload.testEmail,
+      createdAt: new Date().toISOString()
+    });
   },
   deliver_campaign(state, job) {
     const campaign = state.db.campaigns.find((entry) => entry.id === job.payload.campaignId);
     if (!campaign) throw new Error(`Campaign ${job.payload.campaignId} not found for delivery`);
     job.result = markCampaignDelivered(state, campaign);
+  },
+  audience_provider_sync(state, job) {
+    const audience = state.db.audiences.find((entry) => entry.id === job.payload.audienceId && entry.workspaceId === job.workspaceId);
+    if (!audience) throw new Error(`Audience ${job.payload.audienceId} not found for provider sync`);
+    const syncedAt = new Date().toISOString();
+    audience.providerSync = {
+      lastProvider: job.payload.provider || 'mailchimp-import-api',
+      mode: job.payload.mode || 'bidirectional_contact_sync',
+      status: 'synced',
+      syncedAt,
+      contactCount: state.db.contacts.filter((entry) => entry.audienceId === audience.id).length
+    };
+    job.result = { ...audience.providerSync, audienceId: audience.id };
+    createNotification(state, { workspaceId: job.workspaceId, type: 'audience-provider-sync-complete', payload: job.result });
+    recordEvent(state, { workspaceId: job.workspaceId, type: 'audience-provider-sync', message: `${audience.providerSync.lastProvider} synced ${audience.name}`, meta: { jobId: job.id, audienceId: audience.id } });
   }
 };
 
@@ -69,4 +95,3 @@ export function buildWebsiteBuilderEditorRealismOperationalPersistenceAndJobsPac
   const websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppJobHandlersMjsAdoptionPhaseRuntimeSignal = "persist storage job queue retry transaction lock dead-letter", websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppJobHandlersMjsAdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppJobHandlersMjsAdoptionRuntimeKey, surfaceId: "website_builder_editor_realism", focusGroup: "website_builder", phaseId: "operational_persistence_and_jobs", shardId: "focus.website_builder_editor_realism::semantic-frontier-001#02-operational_persistence_and_jobs#2", productIntent: "Connect the capability to durable persistence, background work, telemetry, sync, or audit surfaces where the real product would require it.", targetFile: "packages/app/job-handlers.mjs", semanticRuntimeContractRef: "websiteBuilderEditorRealismOperationalPersistenceAndJobsSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppJobHandlersMjsAdoptionRuntimeCounts, phaseRuntimeSignal: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppJobHandlersMjsAdoptionPhaseRuntimeSignal, workflowEvidence: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppJobHandlersMjsAdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["apps/web/public/app-shell-client.mjs","apps/web/public/app-shell.css","apps/web/public/app-shell.jsx"], nextAction: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppJobHandlersMjsAdoptionRuntimeCounts.jobQueueDepth > 0 ? "operational_persistence_and_jobs:website_builder_editor_realism:monitor_job_runtime_handoff" : "operational_persistence_and_jobs:website_builder_editor_realism:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: websiteBuilderEditorRealismOperationalPersistenceAndJobsPackagesAppJobHandlersMjsAdoptionRuntimeKey, targetFile: "packages/app/job-handlers.mjs", semanticRuntimeContractRef: "websiteBuilderEditorRealismOperationalPersistenceAndJobsSemanticRuntimeContract" } };
 }
-

@@ -45,6 +45,44 @@ function conversionRate(submissions, views) {
   return views > 0 ? Number(((Number(submissions || 0) / Number(views || 0)) * 100).toFixed(2)) : 0;
 }
 
+function parseScheduleDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function evaluateLeadCaptureDeliveryState(form, at = new Date()) {
+  const config = form?.leadCapture || {};
+  const schedule = config.schedule || {};
+  const targeting = config.targeting || {};
+  const readiness = validateLeadCaptureReadiness(form);
+  const startsAt = parseScheduleDate(schedule.startsAt);
+  const endsAt = parseScheduleDate(schedule.endsAt);
+  const now = at instanceof Date ? at : new Date(at);
+  const reasons = [];
+  if (form?.status !== 'published') reasons.push('Form is not published.');
+  if (!readiness.ok) reasons.push(...readiness.errors);
+  if (schedule.startsAt && !startsAt) reasons.push('Schedule start is not a valid date.');
+  if (schedule.endsAt && !endsAt) reasons.push('Schedule end is not a valid date.');
+  if (startsAt && endsAt && startsAt > endsAt) reasons.push('Schedule end must be after schedule start.');
+  if (startsAt && now < startsAt) reasons.push(`Scheduled to start at ${schedule.startsAt}.`);
+  if (endsAt && now > endsAt) reasons.push(`Ended at ${schedule.endsAt}.`);
+  if (targeting.frequencyCap === 'off') reasons.push('Frequency cap disables display.');
+  const status = reasons.some((reason) => reason.startsWith('Scheduled to start')) ? 'scheduled'
+    : reasons.some((reason) => reason.startsWith('Ended at')) ? 'expired'
+      : reasons.length ? 'blocked'
+        : 'active';
+  return {
+    status,
+    reasons,
+    eligibleChannels: config.channels || [],
+    placementCount: (config.placements || []).length,
+    audienceRuleCount: (targeting.audienceRules || []).length,
+    suppressionTagCount: (targeting.suppressionTags || []).length,
+    timezone: schedule.timezone || ''
+  };
+}
+
 export function recordLeadAttributionEvent(state, payload = {}) {
   ensureLeadCaptureRuntimeState(state);
   const event = {
@@ -127,11 +165,13 @@ export function buildLeadCaptureConversionRuntimeSnapshot(state, workspaceId) {
     const linkedPages = landingPages.filter((page) => page.formId === form.id);
     const views = linkedPages.reduce((sum, page) => sum + Number(page.views || 0), 0);
     const submissions = Number(form.submissions || 0);
+    const delivery = evaluateLeadCaptureDeliveryState(form);
     return {
       id: form.id,
       name: form.name,
       status: form.status,
       channels: form.leadCapture?.channels || [form.popupMode || 'hosted'],
+      delivery,
       linkedLandingPages: linkedPages.length,
       views,
       submissions,
@@ -188,10 +228,15 @@ export function workspaceLeadCaptureSummary(state, workspaceId) {
   const submissions = forms.reduce((sum, form) => sum + (Number(form.submissions) || 0), 0);
   const views = pages.reduce((sum, page) => sum + (Number(page.views) || 0), 0);
   const popupForms = forms.filter((form) => ['popup', 'modal', 'slideout'].includes(form.popupMode) || (form.leadCapture?.channels || []).some((channel) => ['popup', 'modal'].includes(channel)));
+  const deliveryStates = forms.map((form) => evaluateLeadCaptureDeliveryState(form).status);
   return {
     forms: forms.length,
     publishedForms: forms.filter((form) => form.status === 'published').length,
     popupForms: popupForms.length,
+    activeForms: deliveryStates.filter((status) => status === 'active').length,
+    scheduledForms: deliveryStates.filter((status) => status === 'scheduled').length,
+    blockedForms: deliveryStates.filter((status) => status === 'blocked').length,
+    expiredForms: deliveryStates.filter((status) => status === 'expired').length,
     landingPages: pages.length,
     publishedLandingPages: pages.filter((page) => page.status === 'published').length,
     submissions,
@@ -270,6 +315,11 @@ export function validateLeadCaptureReadiness(form) {
   if (!form?.leadCapture?.compliance?.consentMode) errors.push('Consent mode is required.');
   if (!form?.leadCapture?.integrationHandoff?.journeyTrigger) warnings.push('Journey handoff is not configured.');
   if (!form?.leadCapture?.schedule?.startsAt || !form?.leadCapture?.schedule?.endsAt) warnings.push('Schedule window is open-ended.');
+  const startsAt = parseScheduleDate(form?.leadCapture?.schedule?.startsAt);
+  const endsAt = parseScheduleDate(form?.leadCapture?.schedule?.endsAt);
+  if (form?.leadCapture?.schedule?.startsAt && !startsAt) errors.push('Schedule start must be a valid date.');
+  if (form?.leadCapture?.schedule?.endsAt && !endsAt) errors.push('Schedule end must be a valid date.');
+  if (startsAt && endsAt && startsAt > endsAt) errors.push('Schedule end must be after schedule start.');
   return { ok: errors.length === 0, errors, warnings };
 }
 
@@ -308,6 +358,7 @@ export function buildLeadCaptureProofSnapshot(state, workspaceId) {
     name: form.name,
     status: form.status,
     channels: form.leadCapture?.channels || [],
+    delivery: evaluateLeadCaptureDeliveryState(form),
     targeting: form.leadCapture?.targeting || {},
     schedule: form.leadCapture?.schedule || {},
     compliance: form.leadCapture?.compliance || {},

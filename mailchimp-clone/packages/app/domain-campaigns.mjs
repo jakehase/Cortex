@@ -189,6 +189,89 @@ export function campaignIndexSummary(state, workspaceId) {
   };
 }
 
+export const CAMPAIGN_INDEX_SAVED_VIEWS = [
+  { id: 'active', label: 'Active campaigns', filters: { status: 'active' } },
+  { id: 'drafts', label: 'Drafts', filters: { status: 'draft' } },
+  { id: 'needs_approval', label: 'Needs approval', filters: { approval: 'pending' } },
+  { id: 'scheduled', label: 'Scheduled', filters: { schedule: 'scheduled' } },
+  { id: 'sent', label: 'Sent', filters: { status: 'sent' } },
+  { id: 'archived', label: 'Archived', filters: { status: 'archived', includeArchived: true } }
+];
+
+function campaignIndexSavedViews(state, workspaceId) {
+  const customViews = Array.isArray(state.db.campaignSavedViews)
+    ? state.db.campaignSavedViews.filter((view) => view.workspaceId === workspaceId)
+    : [];
+  return [
+    ...CAMPAIGN_INDEX_SAVED_VIEWS,
+    ...customViews.map((view) => ({ id: view.id, label: view.label || view.name || 'Saved view', filters: view.filters || {} }))
+  ];
+}
+
+function campaignFolderLabel(state, campaign) {
+  const folder = Array.isArray(state.db.campaignFolders)
+    ? state.db.campaignFolders.find((entry) => entry.id === campaign.folderId && entry.workspaceId === campaign.workspaceId)
+    : null;
+  return folder?.name || campaign.folderName || (campaign.folderId ? 'Unlabeled folder' : 'No folder');
+}
+
+export function buildCampaignIndexSurface(state, workspaceId, requestedFilters = {}) {
+  const savedViews = campaignIndexSavedViews(state, workspaceId);
+  const requestedView = savedViews.find((view) => view.id === requestedFilters.view);
+  const filters = { ...(requestedView?.filters || {}), ...Object.fromEntries(Object.entries(requestedFilters).filter(([, value]) => value !== undefined && value !== '')) };
+  const deliveryJobs = state.db.jobs.filter((job) => job.workspaceId === workspaceId && job.type === 'deliver_campaign' && !['completed', 'failed', 'cancelled'].includes(job.status));
+  const rows = state.db.campaigns
+    .filter((campaign) => campaign.workspaceId === workspaceId)
+    .map((campaign) => {
+      const approval = approvalStatusForCampaign(state, campaign);
+      const job = deliveryJobs.find((entry) => entry.payload?.campaignId === campaign.id);
+      const archived = Boolean(campaign.archivedAt || campaign.status === 'archived');
+      const scheduleState = job?.runAt || campaign.scheduledAt ? 'scheduled' : campaign.status === 'queued' ? 'queued' : 'none';
+      const approvalState = approval.pending ? 'pending' : approval.changesRequested ? 'changes_requested' : approval.approved ? 'approved' : 'not_requested';
+      return {
+        id: campaign.id,
+        name: campaign.name || 'Untitled',
+        status: archived ? 'archived' : campaign.status || 'draft',
+        folder: campaignFolderLabel(state, campaign),
+        folderId: campaign.folderId || '',
+        recipients: recipientCount(state, campaign),
+        templateName: state.db.templates.find((entry) => entry.id === campaign.templateId)?.name || '—',
+        approvalState,
+        scheduleState,
+        scheduledAt: job?.runAt || campaign.scheduledAt || '',
+        nextStep: campaignNextStep(campaign),
+        updatedAt: campaign.updatedAt || campaign.createdAt || '',
+        canDuplicate: true,
+        canArchive: !archived,
+        canUnarchive: archived
+      };
+    });
+  const folderOptions = [...new Set(rows.map((row) => row.folder))].sort();
+  const matches = rows.filter((row) => {
+    const statusMatch = !filters.status || filters.status === 'all' || (filters.status === 'active' ? !['sent', 'archived'].includes(row.status) : row.status === filters.status);
+    const approvalMatch = !filters.approval || filters.approval === 'all' || row.approvalState === filters.approval;
+    const scheduleMatch = !filters.schedule || filters.schedule === 'all' || row.scheduleState === filters.schedule;
+    const folderMatch = !filters.folder || filters.folder === 'all' || row.folder === filters.folder || row.folderId === filters.folder;
+    const searchMatch = !filters.q || `${row.name} ${row.folder} ${row.templateName}`.toLowerCase().includes(String(filters.q).toLowerCase());
+    const archiveMatch = filters.includeArchived || row.status !== 'archived';
+    return statusMatch && approvalMatch && scheduleMatch && folderMatch && searchMatch && archiveMatch;
+  });
+  return {
+    filters,
+    savedViews,
+    activeView: requestedView?.id || '',
+    folderOptions,
+    rows: matches,
+    counts: {
+      visible: matches.length,
+      all: rows.length,
+      archived: rows.filter((row) => row.status === 'archived').length,
+      pendingApproval: rows.filter((row) => row.approvalState === 'pending').length,
+      scheduled: rows.filter((row) => row.scheduleState === 'scheduled').length
+    }
+  };
+}
+
 export function emailBuilderParitySummary(state, workspaceId) {
   const campaigns = Array.isArray(state.db?.campaigns) ? state.db.campaigns.filter((entry) => entry.workspaceId === workspaceId) : [];
   const draftCampaigns = campaigns.filter((entry) => ['draft', 'queued', 'scheduled'].includes(entry.status || 'draft'));
@@ -3339,4 +3422,3 @@ export function buildReportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomai
   const reportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomainCampaignsMjsSemanticFrontier00110PrimaryRuntimeSpine2AdoptionPhaseRuntimeSignal = "route runtime handler service workflow persist state provider queue", reportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomainCampaignsMjsSemanticFrontier00110PrimaryRuntimeSpine2AdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: reportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomainCampaignsMjsSemanticFrontier00110PrimaryRuntimeSpine2AdoptionRuntimeKey, surfaceId: "reporting_metrics_pipeline", focusGroup: "reporting_analytics", phaseId: "primary_runtime_spine", shardId: "focus.reporting_metrics_pipeline::semantic-frontier-001#10-primary_runtime_spine#2", productIntent: "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.", targetFile: "packages/app/domain-campaigns.mjs", semanticRuntimeContractRef: "reportingMetricsPipelinePrimaryRuntimeSpineSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...reportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomainCampaignsMjsSemanticFrontier00110PrimaryRuntimeSpine2AdoptionRuntimeCounts, phaseRuntimeSignal: reportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomainCampaignsMjsSemanticFrontier00110PrimaryRuntimeSpine2AdoptionPhaseRuntimeSignal, workflowEvidence: reportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomainCampaignsMjsSemanticFrontier00110PrimaryRuntimeSpine2AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["packages/app/analytics-events.mjs","packages/app/domain-campaigns.mjs","packages/app/routes/api-admin.mjs"], nextAction: reportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomainCampaignsMjsSemanticFrontier00110PrimaryRuntimeSpine2AdoptionRuntimeCounts.jobQueueDepth > 0 ? "primary_runtime_spine:reporting_metrics_pipeline:monitor_job_runtime_handoff" : "primary_runtime_spine:reporting_metrics_pipeline:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: reportingMetricsPipelinePrimaryRuntimeSpinePackagesAppDomainCampaignsMjsSemanticFrontier00110PrimaryRuntimeSpine2AdoptionRuntimeKey, targetFile: "packages/app/domain-campaigns.mjs", semanticRuntimeContractRef: "reportingMetricsPipelinePrimaryRuntimeSpineSemanticRuntimeContract" } };
 }
-

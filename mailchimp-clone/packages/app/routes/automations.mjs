@@ -1,7 +1,7 @@
 import { persistState } from '../storage.mjs';
 import { page } from '../view.mjs';
 import { recordAudit } from '../domain-core.mjs';
-import { AUTOMATION_TRIGGERS, automationRunSummary, buildCrossChannelJourneyRuntimeSnapshot, createAutomation, persistCrossChannelJourneyRuntimeSnapshot, recordCrossChannelJourneyDecisionEvent, recordCrossChannelJourneyHandoffEvent, recordCrossChannelJourneyNodeConfig, recordCrossChannelJourneyPerformanceEvent, updateAutomationLifecycle, validateAutomation } from '../domain-journeys.mjs';
+import { AUTOMATION_TRIGGERS, automationRunSummary, buildCrossChannelJourneyRuntimeSnapshot, createAutomation, journeyTemplateCoverage, journeyWorkspaceSummary, persistCrossChannelJourneyRuntimeSnapshot, recordCrossChannelJourneyDecisionEvent, recordCrossChannelJourneyHandoffEvent, recordCrossChannelJourneyNodeConfig, recordCrossChannelJourneyPerformanceEvent, updateAutomationLifecycle, validateAutomation } from '../domain-journeys.mjs';
 import { createId, json, readBody, redirect, text } from '../utils.mjs';
 
 function campaignAutomationRuntimeSummary(state, campaign) {
@@ -37,14 +37,53 @@ function automationOverviewOperationalReadiness(state, actor) {
   const workspaceId = actor?.workspace?.id || '';
   const journeys = state.db.automations.filter((entry) => entry.workspaceId === workspaceId);
   const runs = state.db.automationRuns.filter((entry) => journeys.some((journey) => journey.id === entry.automationId));
+  const validationResults = journeys.map((journey) => ({ journey, errors: validateAutomation(state, journey) }));
+  const failedRuns = runs.filter((entry) => ['failed', 'cancelled'].includes(entry.status)).length;
+  const completedRuns = runs.filter((entry) => !entry.status || entry.status === 'completed').length;
   return {
     totalJourneys: journeys.length,
     liveJourneys: journeys.filter((entry) => entry.status === 'live').length,
     pausedJourneys: journeys.filter((entry) => entry.status === 'paused').length,
+    brokenJourneys: validationResults.filter((entry) => entry.errors.length).length,
+    completedRuns,
+    failedRuns,
+    goalReached: runs.filter((entry) => entry.goalReached).length,
     recentRuns: runs.slice(0, 5),
-    workflowStatus: runs.length ? 'journey_runtime_active' : 'journey_runtime_ready',
-    nextAction: journeys.length ? 'review_journey_performance' : 'create_first_automation'
+    workflowStatus: validationResults.some((entry) => entry.errors.length) ? 'journey_attention_needed' : runs.length ? 'journey_runtime_active' : 'journey_runtime_ready',
+    nextAction: validationResults.some((entry) => entry.errors.length) ? 'fix_journey_validation' : journeys.length ? 'review_journey_performance' : 'create_first_automation'
   };
+}
+
+function automationOverviewAnalytics(state, automation) {
+  const runs = state.db.automationRuns.filter((run) => run.automationId === automation.id);
+  const completedRuns = runs.filter((run) => !run.status || run.status === 'completed').length;
+  const failedRuns = runs.filter((run) => ['failed', 'cancelled'].includes(run.status)).length;
+  const goalReached = runs.filter((run) => run.goalReached).length;
+  const lastRun = runs[0] || null;
+  return {
+    runs,
+    completedRuns,
+    failedRuns,
+    goalReached,
+    goalRate: runs.length ? Math.round((goalReached / runs.length) * 100) : 0,
+    health: validateAutomation(state, automation).length ? 'needs setup' : failedRuns > completedRuns ? 'delivery risk' : automation.status === 'live' ? 'healthy' : 'ready',
+    lastRunAt: lastRun?.completedAt || lastRun?.createdAt || 'No runs yet'
+  };
+}
+
+function applyJourneyTemplateToAutomation(state, automation, templateId) {
+  const template = state.db.journeyTemplates.find((entry) => entry.id === templateId);
+  if (!template) return null;
+  automation.templateId = template.id;
+  automation.trigger = automation.trigger || template.trigger || 'contact_subscribed';
+  automation.goal = automation.goal || template.goal || '';
+  automation.nodes = (template.nodes || []).map((node) => ({
+    ...node,
+    id: createId('node'),
+    conditions: Array.isArray(node.conditions) ? node.conditions : []
+  }));
+  automation.updatedAt = new Date().toISOString();
+  return template;
 }
 
 export function registerAutomationRoutes(router, deps) {
@@ -53,18 +92,33 @@ export function registerAutomationRoutes(router, deps) {
   router.register('GET', '/automations', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const automations = state.db.automations.filter((entry) => entry.workspaceId === actor.workspace.id);
-    text(res, 200, page('Automations overview', actor, `<div class="grid"><div class="card"><p><a href="/automations/new">Create automation</a></p><p>Templates: ${state.db.journeyTemplates.map((entry) => entry.name).join(', ')}</p></div>${automations.map((automation) => `<div class="card"><h3><a href="/automations/${automation.id}/builder">${automation.name}</a></h3><p>Status: ${automation.status}</p><p>Trigger: ${automation.trigger || 'missing'}</p><p>Nodes: ${automation.nodes.length}</p><p>Runs: ${state.db.automationRuns.filter((run) => run.automationId === automation.id).length}</p></div>`).join('')}</div>`));
+    const workspaceSummary = journeyWorkspaceSummary(state, actor.workspace.id);
+    const readiness = automationOverviewOperationalReadiness(state, actor);
+    const templates = journeyTemplateCoverage(state);
+    const latestRuns = readiness.recentRuns.map((run) => {
+      const automation = automations.find((entry) => entry.id === run.automationId);
+      return `<tr><td>${automation?.name || run.automationId}</td><td>${run.trigger || 'manual'}</td><td>${run.status || 'completed'}</td><td>${run.goalReached ? 'yes' : 'no'}</td><td>${run.completedAt || run.createdAt || ''}</td></tr>`;
+    }).join('') || '<tr><td colspan="5">No journey runs recorded yet.</td></tr>';
+    text(res, 200, page('Automations overview', actor, `<div class="grid"><div class="card"><h3>Automation command center</h3><p><a href="/automations/new">Create automation</a></p><p>Status: ${readiness.workflowStatus}</p><p>Next action: ${readiness.nextAction}</p></div><div class="card"><h3>Health</h3><p>${readiness.liveJourneys} live · ${readiness.pausedJourneys} paused · ${workspaceSummary.draft} draft/broken</p><p>${readiness.brokenJourneys} journeys need setup</p><p>${readiness.completedRuns} completed runs · ${readiness.failedRuns} failed runs</p></div><div class="card"><h3>Analytics</h3><p>${workspaceSummary.goalReached} goals reached across ${workspaceSummary.runs} runs</p><p>${workspaceSummary.journeys} total journeys in this workspace</p></div></div><div class="card"><h3>Automation library</h3><div class="grid">${templates.map((template) => `<div class="card"><h3>${template.name}</h3><p>${template.nodes} steps · ${template.nodeTypes.join(', ') || 'custom'}</p><p><a href="/automations/new?template=${template.id}">Use template</a></p></div>`).join('') || '<p>No journey templates are available.</p>'}</div></div><div class="card"><h3>Run history</h3><table><tr><th>Journey</th><th>Trigger</th><th>Status</th><th>Goal</th><th>Completed</th></tr>${latestRuns}</table></div><div class="grid">${automations.map((automation) => { const metrics = automationOverviewAnalytics(state, automation); return `<div class="card"><h3><a href="/automations/${automation.id}/builder">${automation.name}</a></h3><p>Health: ${metrics.health}</p><p>Status: ${automation.status}</p><p>Trigger: ${automation.trigger || 'missing'}</p><p>Nodes: ${automation.nodes.length}</p><p>Runs: ${metrics.runs.length} · Goal rate: ${metrics.goalRate}%</p><p>Last run: ${metrics.lastRunAt}</p><div class="grid"><form method="post" action="/automations/${automation.id}/publish"><button ${validateAutomation(state, automation).length ? 'disabled' : ''}>Publish</button></form><form method="post" action="/automations/${automation.id}/pause"><button ${automation.status !== 'live' ? 'disabled' : ''}>Pause</button></form><form method="post" action="/automations/${automation.id}/resume"><button ${automation.status !== 'paused' ? 'disabled' : ''}>Resume</button></form></div></div>`; }).join('') || '<div class="card"><p>No automations yet. Start from a template or create a custom journey.</p></div>'}</div>`));
   });
 
   router.register('GET', '/automations/new', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
     const audiences = state.db.audiences.filter((entry) => entry.workspaceId === actor.workspace.id);
-    text(res, 200, page('Create automation', actor, `<div class="card"><form method="post" action="/automations"><input name="name" placeholder="Welcome flow" required><select name="audienceId">${audiences.map((entry) => `<option value="${entry.id}">${entry.name}</option>`).join('')}</select><input name="trigger" placeholder="contact_subscribed"><button>Create automation</button></form></div>`));
+    const selectedTemplateId = new URL(req.url, 'http://local').searchParams.get('template') || '';
+    const templates = state.db.journeyTemplates || [];
+    text(res, 200, page('Create automation', actor, `<div class="card"><form method="post" action="/automations"><input name="name" placeholder="Welcome flow" required><select name="audienceId">${audiences.map((entry) => `<option value="${entry.id}">${entry.name}</option>`).join('')}</select><select name="templateId"><option value="">Start from scratch</option>${templates.map((template) => `<option value="${template.id}" ${template.id === selectedTemplateId ? 'selected' : ''}>${template.name}</option>`).join('')}</select><input name="trigger" placeholder="contact_subscribed"><button>Create automation</button></form></div>`));
   });
 
   router.register('POST', '/automations', async ({ state, req, res }) => {
     const actor = requireAuth(state, req, res); if (!actor) return;
-    const automation = createAutomation(state, actor, await readBody(req));
+    const body = await readBody(req);
+    const automation = createAutomation(state, actor, body);
+    const template = body.templateId ? applyJourneyTemplateToAutomation(state, automation, body.templateId) : null;
+    if (template) {
+      recordAudit(state, actor, 'automation_template_applied', { automationId: automation.id, templateId: template.id, templateName: template.name });
+      persistState(state);
+    }
     redirect(res, `/automations/${automation.id}/builder`);
   });
 
@@ -1578,4 +1632,3 @@ export function buildAutomationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAuto
   const automationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAutomationsMjsSemanticFrontier00104PrimaryRuntimeSpine2AdoptionPhaseRuntimeSignal = "route runtime handler service workflow persist state provider queue", automationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAutomationsMjsSemanticFrontier00104PrimaryRuntimeSpine2AdoptionWorkflowEvidence = input.workflowEvidence || 'semantic_frontier_product_runtime_evaluated';
   return { runtimeKey: automationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAutomationsMjsSemanticFrontier00104PrimaryRuntimeSpine2AdoptionRuntimeKey, surfaceId: "automations_overview", focusGroup: "automation_journey", phaseId: "primary_runtime_spine", shardId: "focus.automations_overview::semantic-frontier-001#04-primary_runtime_spine#2", productIntent: "Create or deepen the primary product runtime model for this Mailchimp capability, not an isolated parity marker module.", targetFile: "packages/app/routes/automations.mjs", semanticRuntimeContractRef: "automationsOverviewPrimaryRuntimeSpineSemanticRuntimeContract", workspaceId, durableStateReady: Boolean(db), ...automationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAutomationsMjsSemanticFrontier00104PrimaryRuntimeSpine2AdoptionRuntimeCounts, phaseRuntimeSignal: automationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAutomationsMjsSemanticFrontier00104PrimaryRuntimeSpine2AdoptionPhaseRuntimeSignal, workflowEvidence: automationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAutomationsMjsSemanticFrontier00104PrimaryRuntimeSpine2AdoptionWorkflowEvidence, adoptionPath: input.adoptionPath || ["packages/app/domain-growth.mjs","packages/app/domain-journeys.mjs","packages/app/routes/automations.mjs"], nextAction: automationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAutomationsMjsSemanticFrontier00104PrimaryRuntimeSpine2AdoptionRuntimeCounts.jobQueueDepth > 0 ? "primary_runtime_spine:automations_overview:monitor_job_runtime_handoff" : "primary_runtime_spine:automations_overview:continue_primary_product_workflow", auditEvent: { type: 'semantic_frontier_product_runtime_evaluated', runtimeKey: automationsOverviewPrimaryRuntimeSpinePackagesAppRoutesAutomationsMjsSemanticFrontier00104PrimaryRuntimeSpine2AdoptionRuntimeKey, targetFile: "packages/app/routes/automations.mjs", semanticRuntimeContractRef: "automationsOverviewPrimaryRuntimeSpineSemanticRuntimeContract" } };
 }
-
