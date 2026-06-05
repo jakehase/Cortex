@@ -848,6 +848,213 @@ test('mailchimp autonomous continuation planner consumes prior next work queue b
   assert.equal(planner.nextStrictGap, 'reporting/analytics parity: telemetry remains local rather than production pipeline parity');
 });
 
+test('mailchimp autonomous continuation planner maps phase9 leaf queue entries to global gap surfaces', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mailchimp-autonomous-leaf-queue-continuation-'));
+  const mailchimpRoot = path.join(root, 'mailchimp-clone');
+  const anchorArtifactRoot = path.join(root, 'prior-phase9');
+  const artifactRoot = path.join(root, 'audience-leaf-continuation');
+  write(path.join(mailchimpRoot, 'surface-honesty.json'), JSON.stringify({ version: 1, policy: {}, surfaces: {} }, null, 2));
+  write(path.join(anchorArtifactRoot, 'completion_summary.json'), JSON.stringify({ thresholdPass: false, benchmarkTier: 'phase9_full_clone_preflight', nextWorkQueueCount: 50 }, null, 2));
+  write(path.join(anchorArtifactRoot, 'next_work_queue.json'), JSON.stringify({
+    count: 1,
+    work: [
+      {
+        id: 'audience_overview__req_01',
+        parentSurfaceId: 'audience_overview',
+        productGoal: 'Deepen audience summary cards and lifecycle insights.',
+        allowedFiles: ['packages/app/domain-audience.mjs', 'packages/app/routes/audience.mjs'],
+        targetedTests: ['tests/audience-core.test.mjs']
+      },
+      {
+        id: 'audience_overview__req_02',
+        parentSurfaceId: 'audience_overview',
+        productGoal: 'Deepen audience import/export history.',
+        allowedFiles: ['packages/app/domain-audience.mjs', 'packages/app/routes/audience.mjs'],
+        targetedTests: ['tests/audience-core.test.mjs']
+      }
+    ]
+  }, null, 2));
+
+  const run = spawnSync(process.execPath, [
+    path.join(process.cwd(), 'apps/system-benchmark/run-mailchimp-autonomous-continuation.mjs'),
+    '--mailchimp-root', mailchimpRoot,
+    '--phase13-artifact-root', anchorArtifactRoot,
+    '--artifact-root', artifactRoot
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+  assert.equal(run.status, 1, run.stdout || run.stderr);
+  const planner = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'planner_decision.json'), 'utf8'));
+  assert.equal(planner.selected.surface.id, 'mailchimp_global_gap_audience_overview_product_state_reconciliation');
+  assert.match(planner.selected.sourceGap, /strict_1to1_gap_inventory id audience_overview/);
+  assert.match(planner.nextStrictGap, /strict_1to1_gap_inventory id contacts_table/);
+});
+
+test('mailchimp autonomous continuation generates phase9 proof map and preflight credit for queued leaves', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mailchimp-autonomous-phase9-proof-'));
+  const mailchimpRoot = path.join(root, 'mailchimp-clone');
+  const anchorArtifactRoot = path.join(root, 'prior-phase9');
+  const artifactRoot = path.join(root, 'audience-proof-continuation');
+  const productFiles = ['packages/app/domain-audience.mjs', 'packages/app/routes/audience.mjs', 'packages/app/storage.mjs'];
+  const targetedTests = ['tests/audience-core.test.mjs', 'tests/phase9-audience-parity.test.mjs'];
+  write(path.join(mailchimpRoot, 'surface-honesty.json'), JSON.stringify({ version: 1, policy: {}, surfaces: {} }, null, 2));
+  write(path.join(mailchimpRoot, 'docs', 'MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json'), JSON.stringify({
+    surfaces: [{
+      id: 'audience_overview',
+      label: 'Audience overview',
+      purpose: 'Show audience health metrics, lifecycle insights, imports, exports, and activity analytics.',
+      status: 'partial_or_shallow',
+      confidence: 'medium',
+      product_files: productFiles,
+      targeted_tests: targetedTests,
+      open_gap_families: [],
+      required_work: [
+        'Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.',
+        'Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events.'
+      ]
+    }]
+  }, null, 2));
+  write(path.join(mailchimpRoot, 'strict_1to1_contract.json'), JSON.stringify({ requestedFidelity: 'full_clone' }, null, 2));
+  for (const relPath of productFiles) write(path.join(mailchimpRoot, relPath), `export const proof_${path.basename(relPath).replace(/[^a-z0-9]/gi, '_')} = true;\n`);
+  for (const relPath of targetedTests) write(path.join(mailchimpRoot, relPath), 'import test from "node:test";\ntest("phase9 audience proof", () => {});\n');
+  write(path.join(anchorArtifactRoot, 'completion_summary.json'), JSON.stringify({ thresholdPass: false, benchmarkTier: 'phase9_full_clone_preflight', nextWorkQueueCount: 2 }, null, 2));
+  write(path.join(anchorArtifactRoot, 'next_work_queue.json'), JSON.stringify({
+    count: 2,
+    work: [
+      {
+        id: 'audience_overview__req_01',
+        parentSurfaceId: 'audience_overview',
+        productGoal: 'Deepen audience summary cards, health metrics, import/export history, suppression status, and lifecycle insights.',
+        allowedFiles: productFiles,
+        targetedTests,
+        proofKinds: ['analytics_telemetry', 'browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'provider_integration']
+      },
+      {
+        id: 'audience_overview__req_02',
+        parentSurfaceId: 'audience_overview',
+        productGoal: 'Add richer overview drill-downs and action flows tied to segments, campaigns, automations, and commerce events.',
+        allowedFiles: productFiles,
+        targetedTests,
+        proofKinds: ['analytics_telemetry', 'browser_ui', 'db_persistence', 'functional', 'job_event', 'product_diff', 'provider_integration']
+      }
+    ]
+  }, null, 2));
+
+  const run = spawnSync(process.execPath, [
+    path.join(process.cwd(), 'apps/system-benchmark/run-mailchimp-autonomous-continuation.mjs'),
+    '--mailchimp-root', mailchimpRoot,
+    '--phase13-artifact-root', anchorArtifactRoot,
+    '--artifact-root', artifactRoot,
+    '--apply'
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+  assert.equal(run.status, 0, run.stdout || run.stderr);
+  const completion = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'completion_summary.json'), 'utf8'));
+  const phase9Proof = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'phase9-proof-map.json'), 'utf8'));
+  const phase9Completion = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'phase9_real_parity', 'completion_summary.json'), 'utf8'));
+  const runState = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'run_state_truth.json'), 'utf8'));
+  assert.equal(completion.thresholdPass, true);
+  assert.equal(completion.phase9Preflight.generatedLeavesGreen, true);
+  assert.deepEqual(completion.phase9Preflight.generatedLeafIds, ['audience_overview__req_01', 'audience_overview__req_02']);
+  assert.equal(phase9Proof.leafProofs.length, 2);
+  assert.equal(phase9Completion.greenLeafSurfaceCount, 2);
+  assert.equal(runState.terminalState, 'threshold_pass');
+});
+
+test('mailchimp autonomous continuation credits canonical phase9 leaves from test proof when next queue uses synthetic strict-gap id', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mailchimp-autonomous-synthetic-phase9-proof-'));
+  const mailchimpRoot = path.join(root, 'mailchimp-clone');
+  const anchorArtifactRoot = path.join(root, 'prior-iteration');
+  const artifactRoot = path.join(root, 'contacts-proof-continuation');
+  const productFiles = ['packages/app/domain-audience.mjs', 'packages/app/routes/audience.mjs'];
+  const selectedProductFiles = [...productFiles, 'packages/app/storage.mjs'];
+  const targetedTests = ['tests/audience-core.test.mjs', 'tests/phase9-audience-parity.test.mjs'];
+  const contactsStrictGap = 'Mailchimp global gap Contacts table product-state parity: strict_1to1_gap_inventory id contacts_table remains open until real product-surface diff or explicit product-state proof is admitted';
+  write(path.join(mailchimpRoot, 'surface-honesty.json'), JSON.stringify({ version: 1, policy: {}, surfaces: {} }, null, 2));
+  write(path.join(mailchimpRoot, 'docs', 'MAILCHIMP_CANONICAL_PARITY_MATRIX_2026-04-11.json'), JSON.stringify({
+    surfaces: [{
+      id: 'contacts_table',
+      label: 'Contacts table',
+      purpose: 'Manage contacts table state, saved columns, filters, bulk actions, imports, exports, and merge flows.',
+      status: 'partial_or_shallow',
+      confidence: 'medium',
+      product_files: productFiles,
+      targeted_tests: targetedTests,
+      open_gap_families: [],
+      required_work: [
+        'Match full contacts-table parity: bulk actions, saved columns, sorting, filters, pagination, imports, exports, and merge/dedup flows.',
+        'Deepen profile row actions, consent/suppression states, tags/groups/interests visibility, and contact timeline integration.'
+      ]
+    }]
+  }, null, 2));
+  write(path.join(mailchimpRoot, 'strict_1to1_contract.json'), JSON.stringify({ requestedFidelity: 'full_clone' }, null, 2));
+  for (const relPath of selectedProductFiles) write(path.join(mailchimpRoot, relPath), `export const proof_${path.basename(relPath).replace(/[^a-z0-9]/gi, '_')} = true;\n`);
+  write(path.join(mailchimpRoot, 'tests/audience-core.test.mjs'), 'import test from "node:test";\ntest("audience core proof", () => {});\n');
+  write(path.join(mailchimpRoot, 'tests/phase9-audience-parity.test.mjs'), `
+import test from 'node:test';
+import fs from 'node:fs';
+import path from 'node:path';
+test('phase9 contacts proof writes executable leaf proof map', () => {
+  const proofPath = process.env.MAILCLONE_PHASE9_PROOF_PATH;
+  if (!proofPath) return;
+  fs.mkdirSync(path.dirname(proofPath), { recursive: true });
+  fs.writeFileSync(proofPath, JSON.stringify({
+    schemaVersion: 'clawd.mailchimp.phase9.real_product_proof.v1',
+    status: 'green',
+    productSlices: ['contacts_table'],
+    leafProofs: [
+      {
+        leafId: 'contacts_table__req_01',
+        status: 'green',
+        productFiles: ${JSON.stringify(productFiles)},
+        targetedTests: ${JSON.stringify(targetedTests)},
+        proofKinds: ['browser_ui', 'db_persistence', 'functional', 'product_diff'],
+        testStatus: 'pass',
+        testCommandExitCode: 0,
+        assertions: ['saved column preferences persist', 'bulk actions and export table flows are executable']
+      },
+      {
+        leafId: 'contacts_table__req_02',
+        status: 'green',
+        productFiles: ${JSON.stringify(productFiles)},
+        targetedTests: ${JSON.stringify(targetedTests)},
+        proofKinds: ['browser_ui', 'db_persistence', 'functional', 'product_diff', 'provider_integration'],
+        testStatus: 'pass',
+        testCommandExitCode: 0,
+        assertions: ['profile row actions expose consent states', 'tags groups interests and provider fields are visible']
+      }
+    ]
+  }, null, 2));
+});
+`);
+  write(path.join(anchorArtifactRoot, 'completion_summary.json'), JSON.stringify({ thresholdPass: true, selectedGlobalGapId: 'audience_overview', nextStrictGap: contactsStrictGap }, null, 2));
+  write(path.join(anchorArtifactRoot, 'next_work_queue.json'), JSON.stringify({
+    count: 1,
+    work: [{ id: 'next_strict_gap_after_autonomous_slice', strictGap: contactsStrictGap, stopCondition: 'planner_selects_next_strict_gap_or_blocker_report' }]
+  }, null, 2));
+
+  const run = spawnSync(process.execPath, [
+    path.join(process.cwd(), 'apps/system-benchmark/run-mailchimp-autonomous-continuation.mjs'),
+    '--mailchimp-root', mailchimpRoot,
+    '--phase13-artifact-root', anchorArtifactRoot,
+    '--artifact-root', artifactRoot,
+    '--apply'
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+  assert.equal(run.status, 0, run.stdout || run.stderr);
+  const completion = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'completion_summary.json'), 'utf8'));
+  const testProof = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'test-phase9-proof-map.json'), 'utf8'));
+  assert.equal(completion.thresholdPass, true);
+  assert.deepEqual(completion.phase9Preflight.generatedLeafIds, ['contacts_table__req_01', 'contacts_table__req_02']);
+  assert.equal(completion.phase9Preflight.generatedLeavesGreen, true);
+  assert.deepEqual(testProof.leafProofs.map((entry) => entry.leafId), ['contacts_table__req_01', 'contacts_table__req_02']);
+});
+
 test('mailchimp autonomous continuation planner advances from reporting queue to AI gap', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mailchimp-autonomous-reporting-continuation-'));
   const mailchimpRoot = path.join(root, 'mailchimp-clone');

@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildMailchimpFrontierStrictGaps, buildMailchimpFrontierStrictSurfaces } from './mailchimp-continuous-frontier-catalog.mjs';
 import { buildMailchimpGlobalGapStrictGaps, buildMailchimpGlobalGapStrictSurfaces } from './mailchimp-global-gap-inventory-catalog.mjs';
+import { reduceRunState } from '../../packages/orchestrator-run-state/index.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_STACK_ROOT = path.resolve(path.join(SCRIPT_DIR, '../..'));
@@ -1192,11 +1193,35 @@ function selectNextSurface({ remainingStrictGaps, surfaceStatuses }) {
   return fallback ? { surface: fallback, sourceGap: fallback.strictGap, selectionReason: fallback.status === 'green' ? 'fallback_configured_surface_already_product_proven' : 'fallback_first_unresolved_configured_surface' } : null;
 }
 
+function strictGapForQueuedWork(entry = {}) {
+  if (entry.strictGap) return entry.strictGap;
+  const candidateIds = [
+    entry.globalGapId,
+    entry.parentSurfaceId,
+    entry.surfaceId,
+    String(entry.id || '').replace(/__req_\d+$/, ''),
+    String(entry.leafId || '').replace(/__req_\d+$/, '')
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+  const exact = STRICT_SURFACES.find((surface) => candidateIds.some((id) => id === surface.globalGapId || id === surface.id || id === surface.parentSurfaceId));
+  if (exact?.strictGap) return exact.strictGap;
+  const entryFiles = new Set(Array.isArray(entry.allowedFiles) ? entry.allowedFiles : Array.isArray(entry.productFiles) ? entry.productFiles : []);
+  const entryTests = new Set(Array.isArray(entry.targetedTests) ? entry.targetedTests : []);
+  const overlap = STRICT_SURFACES
+    .map((surface) => {
+      const fileOverlap = (surface.productFiles || []).filter((file) => entryFiles.has(file)).length;
+      const testOverlap = (surface.targetedTests || []).filter((test) => entryTests.has(test)).length;
+      return { surface, score: fileOverlap * 2 + testOverlap };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)[0];
+  return overlap?.surface?.strictGap || null;
+}
+
 function deriveRemainingStrictGaps(args) {
   const summary = readJson(path.join(args.phase13ArtifactRoot, 'completion_summary.json'), {});
   const queue = readJson(path.join(args.phase13ArtifactRoot, 'next_work_queue.json'), {});
-  const queuedGaps = Array.isArray(queue.work) ? queue.work.map((entry) => entry.strictGap).filter(Boolean) : [];
-  const inventoryQueueMode = Array.isArray(queue.work) && queue.work.some((entry) => entry?.catalogSource === 'strict_1to1_gap_inventory' || entry?.globalGapId);
+  const queuedGaps = Array.isArray(queue.work) ? Array.from(new Set(queue.work.map((entry) => strictGapForQueuedWork(entry)).filter(Boolean))) : [];
+  const inventoryQueueMode = Array.isArray(queue.work) && (queue.work.some((entry) => entry?.catalogSource === 'strict_1to1_gap_inventory' || entry?.globalGapId) || queuedGaps.some((gap) => GLOBAL_GAP_REMAINING_STRICT_GAPS.includes(gap)));
   const summaryInventoryMode = Boolean(summary.selectedGlobalGapId || String(summary.selectedSurfaceId || '').startsWith('mailchimp_global_gap_') || GLOBAL_GAP_REMAINING_STRICT_GAPS.includes(summary.nextStrictGap) || GLOBAL_GAP_REMAINING_STRICT_GAPS.includes(summary.selectedStrictGap));
   const activeFallbackGaps = (inventoryQueueMode || summaryInventoryMode) ? GLOBAL_GAP_REMAINING_STRICT_GAPS : FALLBACK_REMAINING_STRICT_GAPS;
   if (queuedGaps.length) {
@@ -2821,14 +2846,270 @@ function writeProofMap(args, surface, testResult, semanticWorkGate = null) {
   return proofPath;
 }
 
+function leafIdForQueueEntry(entry = {}) {
+  return String(entry.leafId || entry.id || '').trim();
+}
+
+function baseSurfaceIdForQueueEntry(entry = {}) {
+  const explicit = String(entry.globalGapId || entry.parentSurfaceId || entry.surfaceId || '').trim();
+  if (explicit) return explicit;
+  return leafIdForQueueEntry(entry).replace(/__(req|gap)_.*$/, '').replace(/__req_\d+$/, '');
+}
+
+function queueEntryMatchesSelectedSurface(entry = {}, selected = null) {
+  if (!selected?.surface) return false;
+  const surface = selected.surface;
+  const entryStrictGap = strictGapForQueuedWork(entry);
+  if (entryStrictGap && entryStrictGap === selected.sourceGap) return true;
+  const entryIds = new Set([
+    entry.globalGapId,
+    entry.parentSurfaceId,
+    entry.surfaceId,
+    baseSurfaceIdForQueueEntry(entry)
+  ].map((value) => String(value || '').trim()).filter(Boolean));
+  const surfaceIds = new Set([
+    surface.globalGapId,
+    surface.parentSurfaceId,
+    surface.id,
+    String(surface.id || '').replace(/^mailchimp_global_gap_/, '').replace(/_product_state_reconciliation$/, '')
+  ].map((value) => String(value || '').trim()).filter(Boolean));
+  return Array.from(entryIds).some((id) => surfaceIds.has(id));
+}
+
+function normalizeLeafProofs(proofDoc = {}) {
+  if (!proofDoc || typeof proofDoc !== 'object') return [];
+  if (Array.isArray(proofDoc.leafProofs)) return proofDoc.leafProofs;
+  if (proofDoc.proofs && typeof proofDoc.proofs === 'object') {
+    return Object.entries(proofDoc.proofs).map(([leafId, proof]) => ({ leafId, ...(proof || {}) }));
+  }
+  return [];
+}
+
+function phase9LeafPrefixForSelected(selected = null) {
+  const surface = selected?.surface || {};
+  const explicit = String(surface.globalGapId || surface.parentSurfaceId || '').trim();
+  if (explicit) return explicit;
+  return String(surface.id || '')
+    .replace(/^mailchimp_global_gap_/, '')
+    .replace(/_product_state_reconciliation$/, '')
+    .trim();
+}
+
+function phase9LeafMatchesSelected(leaf = {}, selected = null) {
+  const prefix = phase9LeafPrefixForSelected(selected);
+  if (!prefix) return false;
+  const leafId = String(leaf.leafId || leaf.id || '').trim();
+  const parentSurfaceId = String(leaf.parentSurfaceId || leaf.parent || '').trim();
+  return leafId.startsWith(`${prefix}__`) || parentSurfaceId === prefix;
+}
+
+function readTestPhase9LeafProofs(testResult = {}, selected = null) {
+  const proofMap = testResult.phase9ProofPath ? readJson(testResult.phase9ProofPath, null) : null;
+  return normalizeLeafProofs(proofMap).filter((proof) => phase9LeafMatchesSelected(proof, selected));
+}
+
+function phase9SurfaceMatrixCandidates(args) {
+  return [
+    path.join(args.phase13ArtifactRoot, 'surface_matrix.json'),
+    path.join(args.phase13ArtifactRoot, 'phase9_real_parity', 'surface_matrix.json'),
+    path.join(path.dirname(args.phase13ArtifactRoot), 'surface_matrix.json'),
+    path.join(path.dirname(args.phase13ArtifactRoot), 'phase9_real_parity', 'surface_matrix.json')
+  ];
+}
+
+function readCanonicalPhase9LeafWork(args, selected = null) {
+  const prefix = phase9LeafPrefixForSelected(selected);
+  if (!prefix) return [];
+  for (const candidate of phase9SurfaceMatrixCandidates(args)) {
+    const matrix = readJson(candidate, null);
+    const surfaces = Array.isArray(matrix?.surfaces) ? matrix.surfaces : [];
+    const matches = surfaces.filter((surface) => phase9LeafMatchesSelected(surface, selected));
+    if (matches.length) {
+      return matches.map((surface) => ({
+        id: surface.id || surface.leafId,
+        leafId: surface.leafId || surface.id,
+        parentSurfaceId: surface.parentSurfaceId || prefix,
+        productGoal: surface.requiredWork || surface.productGoal,
+        requiredWork: surface.requiredWork || surface.productGoal,
+        allowedFiles: surface.productFiles || surface.allowedFiles || [],
+        productFiles: surface.productFiles || surface.allowedFiles || [],
+        targetedTests: surface.targetedTests || [],
+        proofKinds: surface.proofKinds || []
+      }));
+    }
+  }
+  return [];
+}
+
+function readExistingPhase9ProofMap(args) {
+  const anchorInventory = readJson(path.join(args.phase13ArtifactRoot, 'real_parity_inventory.json'), {});
+  const anchorSummary = readJson(path.join(args.phase13ArtifactRoot, 'completion_summary.json'), {});
+  const candidates = [
+    anchorInventory?.source?.proofMapPath,
+    anchorSummary?.proofMapPath,
+    anchorSummary?.phase9ProofMapPath,
+    path.join(args.phase13ArtifactRoot, 'phase9-proof-map.json'),
+    path.join(path.dirname(args.phase13ArtifactRoot), 'phase9-proof-map.json')
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const proofPath = path.isAbsolute(candidate) ? candidate : path.join(args.phase13ArtifactRoot, candidate);
+    const proofMap = readJson(proofPath, null);
+    if (proofMap) return { proofMap, proofPath };
+  }
+  return { proofMap: null, proofPath: null };
+}
+
+function mergeLeafProofMaps(existingProofMap = null, generatedLeafProofs = [], generatedAt = new Date().toISOString()) {
+  const byLeafId = new Map();
+  for (const proof of normalizeLeafProofs(existingProofMap)) {
+    const leafId = String(proof.leafId || proof.id || '').trim();
+    if (leafId) byLeafId.set(leafId, { ...proof, leafId });
+  }
+  for (const proof of generatedLeafProofs) {
+    const leafId = String(proof.leafId || proof.id || '').trim();
+    if (leafId) byLeafId.set(leafId, { ...proof, leafId });
+  }
+  const leafProofs = Array.from(byLeafId.values()).sort((a, b) => String(a.leafId).localeCompare(String(b.leafId)));
+  const greenCount = leafProofs.filter((proof) => proof.status === 'green' && (proof.testStatus === 'pass' || proof.testCommandExitCode === 0)).length;
+  return {
+    schemaVersion: 'clawd.mailchimp.phase9.real_product_proof.v1',
+    status: leafProofs.length && greenCount === leafProofs.length ? 'green' : leafProofs.length ? 'partial' : 'not_provided',
+    generatedAt,
+    productSlices: Array.from(new Set([
+      ...(Array.isArray(existingProofMap?.productSlices) ? existingProofMap.productSlices : []),
+      ...generatedLeafProofs.map((proof) => proof.parentSurfaceId || proof.globalGapId || proof.selectedSurfaceId).filter(Boolean)
+    ])).sort(),
+    leafProofs
+  };
+}
+
+function buildPhase9ProofArtifacts(args, selected, implementation = {}, testResult = {}, semanticWorkGate = {}) {
+  const queue = readJson(path.join(args.phase13ArtifactRoot, 'next_work_queue.json'), {});
+  const work = Array.isArray(queue.work) ? queue.work : [];
+  const matchingWork = work.filter((entry) => leafIdForQueueEntry(entry) && queueEntryMatchesSelectedSurface(entry, selected));
+  const testLeafProofs = readTestPhase9LeafProofs(testResult, selected);
+  const canonicalLeafWork = readCanonicalPhase9LeafWork(args, selected);
+  const workForProof = testLeafProofs.length ? testLeafProofs : (canonicalLeafWork.length ? canonicalLeafWork : matchingWork);
+  if (!selected?.surface || workForProof.length === 0) {
+    return { generated: false, reason: 'no_matching_phase9_queue_leaf', generatedLeafProofs: [], generatedLeafIds: [] };
+  }
+  const generatedAt = new Date().toISOString();
+  const status = testResult.status === 0 && semanticWorkGate.ok ? 'green' : 'red';
+  const testStatus = testResult.status === 0 ? 'pass' : 'fail';
+  const generatedLeafProofs = workForProof.map((entry) => {
+    const leafId = leafIdForQueueEntry(entry);
+    const parentSurfaceId = entry.parentSurfaceId || baseSurfaceIdForQueueEntry(entry) || selected.surface.globalGapId || selected.surface.id;
+    const productFiles = Array.isArray(entry.allowedFiles) && entry.allowedFiles.length
+      ? entry.allowedFiles
+      : (Array.isArray(entry.productFiles) && entry.productFiles.length ? entry.productFiles : selected.surface.productFiles);
+    const targetedTests = Array.isArray(entry.targetedTests) && entry.targetedTests.length ? entry.targetedTests : selected.surface.targetedTests;
+    const proofKinds = Array.isArray(entry.proofKinds) && entry.proofKinds.length ? entry.proofKinds : ['functional', 'product_diff'];
+    return {
+      ...entry,
+      leafId,
+      parentSurfaceId,
+      selectedSurfaceId: selected.surface.id,
+      selectedStrictGap: selected.sourceGap,
+      globalGapId: selected.surface.globalGapId || parentSurfaceId,
+      globalGapLabel: selected.surface.globalGapLabel || null,
+      status,
+      productFiles,
+      targetedTests,
+      proofKinds,
+      testStatus,
+      testCommandExitCode: testResult.status,
+      testCommand: testResult.command || selected.surface.testCommand || null,
+      assertions: Array.from(new Set([
+        ...(Array.isArray(entry.assertions) ? entry.assertions : []),
+        entry.productGoal,
+        entry.requiredWork,
+        ...(selected.surface.requiredAssertions || [])
+      ].filter(Boolean))),
+      semanticWorkGate,
+      productChangedFiles: semanticWorkGate.productChangedFiles || implementation.changedFiles || [],
+      productStateProof: semanticWorkGate.productStateProof || implementation.productStateProof || null,
+      generatedAt
+    };
+  });
+  const existing = readExistingPhase9ProofMap(args);
+  const proofMap = mergeLeafProofMaps(existing.proofMap, generatedLeafProofs, generatedAt);
+  const proofMapPath = path.join(args.artifactRoot, 'phase9-proof-map.json');
+  writeJson(proofMapPath, proofMap);
+  return {
+    generated: true,
+    proofMapPath,
+    sourceProofMapPath: existing.proofPath,
+    generatedLeafProofs,
+    generatedLeafIds: generatedLeafProofs.map((proof) => proof.leafId),
+    mergedLeafProofCount: proofMap.leafProofs.length,
+    greenLeafProofCount: proofMap.leafProofs.filter((proof) => proof.status === 'green' && (proof.testStatus === 'pass' || proof.testCommandExitCode === 0)).length,
+    proofMapStatus: proofMap.status
+  };
+}
+
+function runPhase9Preflight(args, phase9ProofArtifacts) {
+  if (!phase9ProofArtifacts?.generated || !phase9ProofArtifacts.proofMapPath) {
+    return { required: false, ran: false, reason: phase9ProofArtifacts?.reason || 'phase9_proof_not_generated' };
+  }
+  const artifactRoot = path.join(args.artifactRoot, 'phase9_real_parity');
+  const run = spawnSync(process.execPath, [
+    path.join(args.stackRoot, 'apps/system-benchmark/run-mailchimp-real-parity-preflight.mjs'),
+    '--stack-root', args.stackRoot,
+    '--mailchimp-root', args.mailchimpRoot,
+    '--artifact-root', artifactRoot,
+    '--proof-map', phase9ProofArtifacts.proofMapPath
+  ], { cwd: args.stackRoot, encoding: 'utf8', timeout: 120000 });
+  const completion = readJson(path.join(artifactRoot, 'completion_summary.json'), {});
+  const thresholdEvaluation = readJson(path.join(artifactRoot, 'threshold_evaluation.json'), {});
+  const matrix = readJson(path.join(artifactRoot, 'surface_matrix.json'), {});
+  const surfaces = Array.isArray(matrix.surfaces) ? matrix.surfaces : [];
+  const generatedIds = new Set(phase9ProofArtifacts.generatedLeafIds || []);
+  const generatedSurfaces = surfaces.filter((surface) => generatedIds.has(surface.id));
+  const generatedLeavesGreen = generatedSurfaces.length === generatedIds.size && generatedSurfaces.every((surface) => surface.status === 'green');
+  return {
+    required: true,
+    ran: true,
+    status: run.status ?? 1,
+    command: `${process.execPath} apps/system-benchmark/run-mailchimp-real-parity-preflight.mjs --artifact-root ${artifactRoot} --proof-map ${phase9ProofArtifacts.proofMapPath}`,
+    artifactRoot,
+    stdout: run.stdout || '',
+    stderr: run.stderr || '',
+    completion,
+    thresholdEvaluation,
+    generatedLeavesGreen,
+    generatedLeafIds: Array.from(generatedIds),
+    greenLeafSurfaceCount: completion.greenLeafSurfaceCount ?? null,
+    redLeafSurfaceCount: completion.redLeafSurfaceCount ?? null,
+    nextWorkQueueCount: completion.nextWorkQueueCount ?? null,
+    mechanicalGreen: completion.mechanicalGreen === true || completion.inventoryReady === true
+  };
+}
+
+function benchmarkChildTestEnv(extra = {}) {
+  const env = { ...process.env, ...extra };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith('NODE_TEST')) delete env[key];
+  }
+  if (typeof env.NODE_OPTIONS === 'string' && env.NODE_OPTIONS.includes('--test-name-pattern')) {
+    env.NODE_OPTIONS = env.NODE_OPTIONS
+      .replace(/--test-name-pattern(?:=|\s+)("[^"]*"|'[^']*'|\S+)/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!env.NODE_OPTIONS) delete env.NODE_OPTIONS;
+  }
+  return env;
+}
+
 function runTests(args, surface, extraTests = []) {
   if (args.skipTests) return { status: 0, stdout: 'tests skipped by explicit --skip-tests\n', stderr: '', command: 'skipped' };
   const baseCommand = surface?.testCommand || JOURNEY_TEST_COMMAND;
   const command = extraTests.length
     ? `${baseCommand} ${extraTests.map(shellQuote).join(' ')}`
     : baseCommand;
-  const run = spawnSync(command, { cwd: args.mailchimpRoot, shell: true, encoding: 'utf8', timeout: 120000 });
-  return { status: run.status ?? 1, stdout: run.stdout || '', stderr: run.stderr || '', command, signal: run.signal || null };
+  const phase9ProofPath = surface?.globalGapId ? path.join(args.artifactRoot, 'test-phase9-proof-map.json') : null;
+  const env = benchmarkChildTestEnv(phase9ProofPath ? { MAILCLONE_PHASE9_PROOF_PATH: phase9ProofPath } : {});
+  const run = spawnSync(command, { cwd: args.mailchimpRoot, shell: true, encoding: 'utf8', timeout: 120000, env });
+  return { status: run.status ?? 1, stdout: run.stdout || '', stderr: run.stderr || '', command, signal: run.signal || null, phase9ProofPath };
 }
 
 async function runHonestyGate(args) {
@@ -2863,6 +3144,8 @@ async function main() {
         id: surface.id,
         phase: surface.phase,
         strictGap: surface.strictGap,
+        globalGapId: surface.globalGapId || null,
+        globalGapLabel: surface.globalGapLabel || null,
         productFiles: surface.productFiles,
         targetedTests: surface.targetedTests
       })),
@@ -3053,6 +3336,14 @@ async function main() {
 
   const semanticWorkGate = selected ? buildSemanticWorkGate(selected.surface, implementation, testResult) : { ok: false, required: true, gate: 'semantic_product_work_gate', reason: 'no_surface_selected', productChangedFiles: [], changedFileCount: 0, explicitProductStateProof: false, productStateProof: null, surfaceSpecificExecutableEvidence: false, frontierGenericLedgerOnly: false };
   events.push({ type: semanticWorkGate.ok ? 'semantic_product_work_gate_passed' : 'semantic_product_work_gate_failed', generatedAt: new Date().toISOString(), selectedSurfaceId: selected?.surface?.id || null, ...semanticWorkGate });
+  const phase9ProofArtifacts = buildPhase9ProofArtifacts(args, selected, implementation, testResult, semanticWorkGate);
+  if (phase9ProofArtifacts.generated) {
+    events.push({ type: 'phase9_proof_map_generated', generatedAt: new Date().toISOString(), proofMapPath: phase9ProofArtifacts.proofMapPath, generatedLeafIds: phase9ProofArtifacts.generatedLeafIds, mergedLeafProofCount: phase9ProofArtifacts.mergedLeafProofCount, greenLeafProofCount: phase9ProofArtifacts.greenLeafProofCount });
+  }
+  const phase9Preflight = runPhase9Preflight(args, phase9ProofArtifacts);
+  if (phase9Preflight.ran) {
+    events.push({ type: phase9Preflight.generatedLeavesGreen ? 'phase9_preflight_generated_leaves_green' : 'phase9_preflight_generated_leaves_red', generatedAt: new Date().toISOString(), artifactRoot: phase9Preflight.artifactRoot, status: phase9Preflight.status, generatedLeafIds: phase9Preflight.generatedLeafIds, greenLeafSurfaceCount: phase9Preflight.greenLeafSurfaceCount, redLeafSurfaceCount: phase9Preflight.redLeafSurfaceCount });
+  }
   proofMap = readSurfaceProofMap(args);
   surfaceStatuses = STRICT_SURFACES.map((surface) => buildSurfaceStatus(surface, args.mailchimpRoot, proofMap));
   const selectedAfter = selected ? surfaceStatuses.find((surface) => surface.id === selected.surface.id) : null;
@@ -3065,27 +3356,43 @@ async function main() {
   const honestyGate = await runHonestyGate(args);
   const configuredStrictQueueExhausted = Boolean(selected && !nextGap);
   const continuationBoundarySatisfied = nextWorkQueue.length > 0 || configuredStrictQueueExhausted;
-  const thresholdPass = Boolean(selected && args.apply && semanticWorkGate.ok && selectedGreen && testResult.status === 0 && continuationBoundarySatisfied && honestyGate.ok);
+  const phase9PreflightOk = !phase9Preflight.required || (phase9Preflight.status === 0 && phase9Preflight.mechanicalGreen && phase9Preflight.generatedLeavesGreen);
+  const thresholdPass = Boolean(selected && args.apply && semanticWorkGate.ok && selectedGreen && testResult.status === 0 && continuationBoundarySatisfied && honestyGate.ok && phase9PreflightOk);
   const elapsedMs = Date.now() - startedAt;
   const blockerKind = !selected
     ? 'autonomous_planner_no_gap_selected'
-    : (!semanticWorkGate.ok ? 'semantic_product_work_gate_failed' : 'autonomous_strict_gap_loop_red');
+    : (!semanticWorkGate.ok ? 'semantic_product_work_gate_failed' : (!phase9PreflightOk ? 'phase9_proof_map_preflight_failed' : 'autonomous_strict_gap_loop_red'));
   const blocker = thresholdPass ? null : {
     blocker: selected
       ? (!semanticWorkGate.ok
           ? 'Autonomous continuation selected a strict gap but generated only reusable proof/catalog evidence; no product diff or explicit product-state proof was admitted.'
+          : (!phase9PreflightOk
+              ? 'Autonomous continuation produced surface proof, but phase9 proof-map-backed preflight did not credit the generated leaf work.'
           : 'Autonomous continuation benchmark did not complete the scoped strict-gap loop with green product proof.')
+      )
       : 'Autonomous continuation planner could not select a strict gap from the prior blocker artifact.',
     blockerKind,
     nextAction: selected
       ? (!semanticWorkGate.ok
           ? 'Implement real product behavior for the selected Mailchimp surface, or add a surface-specific executable regression that exercises behavior beyond the generic frontier ledger; then rerun with --apply.'
+          : (!phase9PreflightOk
+              ? 'Inspect phase9-proof-map.json and phase9_real_parity/surface_matrix.json; repair proof-map generation or targeted tests so generated leaves are green.'
           : 'Inspect test_result.json, surface_matrix.json, and honesty_gate.json; repair the product/proof/honesty failure and rerun with --apply.')
+      )
       : 'Provide a prior artifact with remainingStrictGaps or extend STRICT_SURFACES to cover the current blocker family.',
     selectedSurfaceId: selected?.surface?.id || null,
     selectedStatus: selectedAfter?.status || null,
     testStatus: testResult.status,
     semanticWorkGate,
+    phase9ProofArtifacts,
+    phase9Preflight: {
+      required: phase9Preflight.required,
+      ran: phase9Preflight.ran,
+      status: phase9Preflight.status,
+      artifactRoot: phase9Preflight.artifactRoot,
+      generatedLeavesGreen: phase9Preflight.generatedLeavesGreen,
+      generatedLeafIds: phase9Preflight.generatedLeafIds || []
+    },
     honestyOk: honestyGate.ok,
     honestyViolations: honestyGate.violations || []
   };
@@ -3106,6 +3413,7 @@ async function main() {
     supervisorStatus: thresholdPass ? 'green' : 'red',
     mechanicalGreen: Boolean(selected),
     scaleProofReady: false,
+    scaleProofRequired: false,
     globalFullClonePass: false,
     parityStatus: thresholdPass ? 'autonomous_strict_gap_slice_green_global_strict_ceiling_still_open' : 'autonomous_strict_gap_slice_red',
     selectedStrictGap: selected?.sourceGap || null,
@@ -3120,6 +3428,19 @@ async function main() {
     changedProductFiles: semanticWorkGate.productChangedFiles || [],
     semanticWorkGate,
     proofMapPath: proofPath,
+    phase9ProofMapPath: phase9ProofArtifacts.proofMapPath || null,
+    phase9ProofArtifacts,
+    phase9Preflight: {
+      required: phase9Preflight.required,
+      ran: phase9Preflight.ran,
+      status: phase9Preflight.status ?? null,
+      artifactRoot: phase9Preflight.artifactRoot || null,
+      generatedLeavesGreen: phase9Preflight.generatedLeavesGreen === true,
+      generatedLeafIds: phase9Preflight.generatedLeafIds || [],
+      greenLeafSurfaceCount: phase9Preflight.greenLeafSurfaceCount ?? null,
+      redLeafSurfaceCount: phase9Preflight.redLeafSurfaceCount ?? null,
+      nextWorkQueueCount: phase9Preflight.nextWorkQueueCount ?? null
+    },
     testCommand: selected?.surface?.testCommand || null,
     testsPassed: testResult.status === 0,
     nextWorkQueueCount: nextWorkQueue.length,
@@ -3135,6 +3456,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     thresholdPass,
     ok: thresholdPass,
+    scaleProofRequired: false,
     benchmarkTier: 'mailchimp_autonomous_strict_gap_continuation_production_slice',
     failures: thresholdPass ? [] : [{ metric: 'autonomousContinuationLoopGreen', actual: false, requirement: '= true', reason: blocker?.blockerKind || 'unknown' }],
     metrics: {
@@ -3146,12 +3468,27 @@ async function main() {
       surfaceSpecificExecutableEvidence: semanticWorkGate.surfaceSpecificExecutableEvidence,
       testsPassed: testResult.status === 0,
       selectedSurfaceGreen: selectedGreen,
+      phase9ProofMapGenerated: phase9ProofArtifacts.generated === true,
+      phase9GeneratedLeafProofCount: phase9ProofArtifacts.generatedLeafIds?.length || 0,
+      phase9PreflightRequired: phase9Preflight.required === true,
+      phase9PreflightExitCode: phase9Preflight.status ?? null,
+      phase9GeneratedLeavesGreen: phase9Preflight.generatedLeavesGreen === true,
+      phase9GreenLeafSurfaceCount: phase9Preflight.greenLeafSurfaceCount ?? null,
+      phase9RedLeafSurfaceCount: phase9Preflight.redLeafSurfaceCount ?? null,
       matrixUpdated: true,
       continuationReplanned: nextWorkQueue.length > 0 || configuredStrictQueueExhausted,
       configuredStrictQueueExhausted,
       honestyGateGreen: honestyGate.ok
     }
   };
+
+  const runStateTruth = reduceRunState({
+    completionSummary: completion,
+    thresholdEvaluation,
+    supervisorStatus: { status: completion.supervisorStatus },
+    blocker,
+    scaleProofRequired: false
+  }, { generatedAt: completion.generatedAt });
 
   writeJson(path.join(args.artifactRoot, 'run_contract.json'), {
     generatedAt: completion.generatedAt,
@@ -3162,10 +3499,10 @@ async function main() {
     targetPath: args.mailchimpRoot,
     campaignMode: completion.campaignMode,
     stopCondition: completion.stopCondition,
-    requestedProof: ['planner_selects_next_strict_gap', 'semantic_product_work_gate', 'generated_product_work', 'tests_prove_surface', 'surface_matrix_updated', 'continuation_replanned_or_configured_queue_exhausted']
+    requestedProof: ['planner_selects_next_strict_gap', 'semantic_product_work_gate', 'generated_product_work', 'tests_prove_surface', 'phase9_proof_map_generated_when_leaf_queue_present', 'phase9_preflight_generated_leaves_green', 'surface_matrix_updated', 'continuation_replanned_or_configured_queue_exhausted']
   });
   writeJson(path.join(args.artifactRoot, 'planner_decision.json'), { generatedAt: completion.generatedAt, remainingStrictGaps, selected, nextStrictGap: nextGap });
-  writeJson(path.join(args.artifactRoot, 'implementation_manifest.json'), { generatedAt: completion.generatedAt, implementation, proofPath });
+  writeJson(path.join(args.artifactRoot, 'implementation_manifest.json'), { generatedAt: completion.generatedAt, implementation, proofPath, phase9ProofArtifacts, phase9Preflight: completion.phase9Preflight });
   writeJson(path.join(args.artifactRoot, 'test_result.json'), testResult);
   writeJson(path.join(args.artifactRoot, 'honesty_gate.json'), honestyGate);
   if (completion.selectedGlobalGapId) {
@@ -3186,11 +3523,15 @@ async function main() {
   writeJson(path.join(args.artifactRoot, 'campaign_runtime_events.json'), { generatedAt: completion.generatedAt, events });
   writeJson(path.join(args.artifactRoot, 'completion_summary.json'), completion);
   writeJson(path.join(args.artifactRoot, 'threshold_evaluation.json'), thresholdEvaluation);
+  writeJson(path.join(args.artifactRoot, 'run_state_truth.json'), runStateTruth);
   writeJson(path.join(args.artifactRoot, 'program_state.json'), {
     schemaVersion: 'clawd.mailchimp.autonomous_continuation_program_state.v1',
     generatedAt: completion.generatedAt,
     status: thresholdPass ? 'passed' : 'blocked',
+    terminalState: runStateTruth.terminalState,
     done: true,
+    running: false,
+    ok: runStateTruth.ok,
     stopAllowed: true,
     stopReason: thresholdPass ? 'supervisor_green_for_autonomous_continuation_scope' : 'blocker_report_written',
     supervisor: { status: completion.supervisorStatus, surfaceMatrixStatus: completion.surfaceMatrixStatus },

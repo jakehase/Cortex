@@ -4,6 +4,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildStrictInventoryReduction } from './mailchimp-strict-inventory-reducer.mjs';
+import { deriveAutonomousIterationDecision } from '../../packages/orchestration-autonomy/index.mjs';
+import { reduceRunState } from '../../packages/orchestrator-run-state/index.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_STACK_ROOT = path.resolve(path.join(SCRIPT_DIR, '../..'));
@@ -62,14 +64,99 @@ function slugify(value = '') {
   return String(value || 'gap').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 70) || 'gap';
 }
 
-function firstQueuedGap(artifactRoot) {
+function strictGapForQueueEntry(entry = {}, supportedSurfaces = []) {
+  if (entry.strictGap) return entry.strictGap;
+  const candidateIds = [
+    entry.globalGapId,
+    entry.parentSurfaceId,
+    entry.surfaceId,
+    String(entry.id || '').replace(/__req_\d+$/, ''),
+    String(entry.leafId || '').replace(/__req_\d+$/, '')
+  ].map((value) => String(value || '').trim()).filter(Boolean);
+  const exact = supportedSurfaces.find((surface) => candidateIds.some((id) => id === surface.globalGapId || id === surface.id || id === surface.parentSurfaceId));
+  if (exact?.strictGap) return exact.strictGap;
+  const entryFiles = new Set(Array.isArray(entry.allowedFiles) ? entry.allowedFiles : Array.isArray(entry.productFiles) ? entry.productFiles : []);
+  const entryTests = new Set(Array.isArray(entry.targetedTests) ? entry.targetedTests : []);
+  const overlap = supportedSurfaces
+    .map((surface) => {
+      const fileOverlap = (surface.productFiles || []).filter((file) => entryFiles.has(file)).length;
+      const testOverlap = (surface.targetedTests || []).filter((test) => entryTests.has(test)).length;
+      return { surface, score: fileOverlap * 2 + testOverlap };
+    })
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score)[0];
+  return overlap?.surface?.strictGap || null;
+}
+
+function firstQueuedGap(artifactRoot, supportedSurfaces = []) {
   const queue = readJson(path.join(artifactRoot, 'next_work_queue.json'), {});
   const work = Array.isArray(queue.work) ? queue.work : [];
-  return work.find((entry) => entry?.strictGap)?.strictGap || null;
+  return work.map((entry) => strictGapForQueueEntry(entry, supportedSurfaces)).find(Boolean) || null;
 }
 
 function artifactSummary(artifactRoot) {
   return readJson(path.join(artifactRoot, 'completion_summary.json'), {}) || {};
+}
+
+function artifactPresence(artifactRoot) {
+  return {
+    completionSummary: fs.existsSync(path.join(artifactRoot, 'completion_summary.json')),
+    thresholdEvaluation: fs.existsSync(path.join(artifactRoot, 'threshold_evaluation.json')),
+    runStateTruth: fs.existsSync(path.join(artifactRoot, 'run_state_truth.json')),
+    blockerReport: fs.existsSync(path.join(artifactRoot, 'blocker_report.json'))
+  };
+}
+
+function readPatchQueue(artifactRoot) {
+  return readJson(path.join(artifactRoot, 'orchestrator_run', 'patch_queue.json'), null)
+    || readJson(path.join(artifactRoot, 'patch_queue.json'), null)
+    || readJson(path.join(artifactRoot, 'delegate', 'orchestrator_run', 'patch_queue.json'), null)
+    || {};
+}
+
+function readProofMapFromSummary(summary = {}, artifactRoot = null) {
+  const candidates = [
+    summary.proofMapPath,
+    summary.phase9ProofMapPath,
+    summary.proofMap?.path,
+    artifactRoot ? path.join(artifactRoot, 'phase9-proof-map.json') : null,
+    artifactRoot ? path.join(artifactRoot, 'proof-map.json') : null
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const proofPath = path.isAbsolute(candidate) ? candidate : path.join(artifactRoot || '.', candidate);
+    const proofMap = readJson(proofPath, null);
+    if (proofMap) return proofMap;
+  }
+  return null;
+}
+
+function autonomyDecisionForIteration(result, options = {}) {
+  const artifactRoot = result.artifactRoot;
+  const summary = result.summary || artifactSummary(artifactRoot);
+  const thresholdEvaluation = readJson(path.join(artifactRoot, 'threshold_evaluation.json'), {}) || {};
+  const blockerReport = readJson(path.join(artifactRoot, 'blocker_report.json'), null);
+  const nextWorkQueue = readJson(path.join(artifactRoot, 'next_work_queue.json'), {}) || {};
+  const preflightSummary = summary.phase9 || summary.phase9Preflight || summary.realParityPreflight || summary;
+  return deriveAutonomousIterationDecision({
+    generatedAt: new Date().toISOString(),
+    requestedFidelity: summary.fidelity || 'production_slice',
+    completionSummary: summary,
+    thresholdEvaluation,
+    blockerReport,
+    nextWorkQueue,
+    patchQueue: readPatchQueue(artifactRoot),
+    proofMap: readProofMapFromSummary(summary, artifactRoot),
+    preflightSummary,
+    testExitCodes: summary.testExitCodes || {},
+    artifacts: artifactPresence(artifactRoot),
+    requiredArtifactKeys: options.seedPreflight ? ['completionSummary', 'thresholdEvaluation'] : undefined,
+    requireBlockerWhenRed: false,
+    maxAssignments: 1,
+    zeroDiffObserved: summary.honestyGate?.claimIntegrityKind === 'zero_modified_files'
+      || summary.claimIntegrityKind === 'zero_modified_files'
+      || summary.blocker?.blockerKind === 'zero_modified_files'
+      || /zero[_ -]?modified[_ -]?files/i.test(JSON.stringify(summary.blocker || {}))
+  });
 }
 
 function loadSupportedCatalog(args) {
@@ -139,6 +226,23 @@ function buildBlocker(kind, message, extra = {}) {
     nextAction: extra.nextAction || 'Inspect blocker_report.json and extend the continuation runner or fix the failing artifact before relaunching autopilot.',
     ...extra
   };
+}
+
+function summaryHasGlobalFullCloneProof(summary = {}) {
+  const parityStatus = String(summary?.parityStatus || '').trim();
+  return summary?.globalFullClonePass === true
+    || summary?.fullClonePass === true
+    || parityStatus === 'full'
+    || parityStatus === 'full_clone';
+}
+
+function observedGlobalFullClonePass(args, currentAnchor, iterations = []) {
+  const summaries = [
+    artifactSummary(args.seedArtifactRoot),
+    currentAnchor ? artifactSummary(currentAnchor) : null,
+    ...iterations.map((entry) => entry?.summary || (entry?.artifactRoot ? artifactSummary(entry.artifactRoot) : null))
+  ].filter(Boolean);
+  return summaries.some(summaryHasGlobalFullCloneProof);
 }
 
 function writeState(args, state) {
@@ -216,7 +320,7 @@ async function main() {
     seedArtifactRoot: args.seedArtifactRoot,
     maxIterations: args.maxIterations,
     stopCondition: 'repeat_supervisor_green_or_blocker_report',
-    requiredGates: ['anchor_threshold_pass', 'supported_strict_gap', 'iteration_threshold_pass', 'tests_passed', 'honesty_gate_green', 'strict_inventory_reducer_green_when_global_gap_credit_exists', 'next_queue_or_global_completion']
+    requiredGates: ['anchor_threshold_pass', 'supported_strict_gap', 'iteration_threshold_pass', 'tests_passed', 'honesty_gate_green', 'strict_inventory_reducer_green_when_global_gap_credit_exists', 'next_queue_or_global_completion', 'global_full_clone_pass_or_claim_blocker_after_strict_inventory_complete']
   });
 
   let currentAnchor = args.seedArtifactRoot;
@@ -226,13 +330,26 @@ async function main() {
   for (let iteration = 1; iteration <= args.maxIterations; iteration += 1) {
     const anchorSummary = artifactSummary(currentAnchor);
     if (anchorSummary.thresholdPass !== true) {
-      blocker = buildBlocker('anchor_not_threshold_green', 'Current anchor artifact is not threshold-pass green; autopilot refuses to continue.', { anchorArtifactRoot: currentAnchor, anchorSummary });
-      stopReason = 'blocker_report_written';
-      break;
+      const anchorDecision = autonomyDecisionForIteration({ artifactRoot: currentAnchor, summary: anchorSummary }, { seedPreflight: iteration === 1 && currentAnchor === args.seedArtifactRoot });
+      events.push({
+        type: 'shared_autonomy_decision_for_non_green_anchor',
+        generatedAt: new Date().toISOString(),
+        iteration,
+        anchorArtifactRoot: currentAnchor,
+        decision: anchorDecision.decision,
+        reason: anchorDecision.reason,
+        mayStart: anchorDecision.mayStart,
+        nextAssignmentCount: anchorDecision.nextAssignments.count
+      });
+      if (!anchorDecision.mayStart) {
+        blocker = buildBlocker('anchor_not_threshold_green', 'Current anchor artifact is not threshold-pass green and shared autonomy found no executable replan queue.', { anchorArtifactRoot: currentAnchor, anchorSummary, autonomyDecision: anchorDecision });
+        stopReason = 'blocker_report_written';
+        break;
+      }
     }
 
     let iterationAnchor = currentAnchor;
-    let strictGap = firstQueuedGap(currentAnchor) || anchorSummary.nextStrictGap || null;
+    let strictGap = firstQueuedGap(currentAnchor, supportedSurfaces) || anchorSummary.nextStrictGap || null;
     if (!strictGap) {
       if (anchorSummary.globalFullClonePass === true || anchorSummary.parityStatus === 'full') {
         stopReason = 'global_completion_observed';
@@ -295,6 +412,31 @@ async function main() {
     writeState(args, state);
 
     if (result.status !== 0 || !result.thresholdPass || result.supervisorStatus !== 'green' || !result.testsPassed || !result.honestyOk || result.blocker) {
+      const autonomyDecision = autonomyDecisionForIteration(result);
+      result.autonomyDecision = {
+        decision: autonomyDecision.decision,
+        mayStart: autonomyDecision.mayStart,
+        reason: autonomyDecision.reason,
+        nextAssignmentCount: autonomyDecision.nextAssignments.count,
+        supervisorStatus: autonomyDecision.supervisorStatus
+      };
+      events.push({
+        type: 'shared_autonomy_decision_after_non_green_iteration',
+        generatedAt: new Date().toISOString(),
+        iteration,
+        artifactRoot: result.artifactRoot,
+        decision: autonomyDecision.decision,
+        reason: autonomyDecision.reason,
+        mayStart: autonomyDecision.mayStart,
+        nextAssignments: autonomyDecision.nextAssignments.assignments.map((entry) => ({ id: entry.id, strictGap: entry.strictGap, parentSurfaceId: entry.parentSurfaceId }))
+      });
+      if (autonomyDecision.mayStart && autonomyDecision.decision === 'continue_next_work_queue') {
+        currentAnchor = result.artifactRoot;
+        state.currentAnchorArtifactRoot = currentAnchor;
+        state.latestIteration = result;
+        writeState(args, state);
+        continue;
+      }
       blocker = buildBlocker('iteration_not_green', 'Continuation iteration failed one or more required gates.', { iteration, iterationArtifactRoot: result.artifactRoot, result });
       stopReason = 'blocker_report_written';
       break;
@@ -335,7 +477,11 @@ async function main() {
 
   const completedAt = new Date().toISOString();
   const strictInventoryReduction = buildStrictInventoryReduction({ mailchimpRoot: args.mailchimpRoot, artifactRoot: args.artifactRoot, iterations, generatedAt: completedAt });
-  const iterationGatePass = iterations.length > 0 && iterations.every((entry) => entry.thresholdPass && entry.status === 0 && entry.testsPassed && entry.honestyOk);
+  const iterationGatePass = iterations.length > 0 && iterations.every((entry) => {
+    const greenIteration = entry.thresholdPass && entry.status === 0 && entry.testsPassed && entry.honestyOk;
+    const safelyReplanned = entry.status === 0 && entry.autonomyDecision?.decision === 'continue_next_work_queue' && entry.autonomyDecision?.mayStart === true;
+    return greenIteration || safelyReplanned;
+  });
   const inventoryGatePass = strictInventoryReduction.globalCreditAttemptCount > 0 ? strictInventoryReduction.runCreditOk : true;
   if (!blocker && !inventoryGatePass) {
     blocker = buildBlocker('strict_inventory_reduction_failed', 'Global gap credit artifacts did not satisfy strict inventory reduction gates.', {
@@ -347,6 +493,21 @@ async function main() {
       }
     });
     stopReason = 'blocker_report_written';
+  }
+  const globalFullClonePass = observedGlobalFullClonePass(args, state.currentAnchorArtifactRoot, iterations);
+  if (!blocker && strictInventoryReduction.allInventoryGapsCredited && !globalFullClonePass) {
+    blocker = buildBlocker('strict_inventory_reduction_complete_full_clone_unproven', 'Strict 1:1 gap inventory credits are exhausted, but no authoritative global full-clone pass/full parity artifact was observed. Autopilot must stop as claim-blocked rather than emit a blocker-free green completion.', {
+      claimBlocked: true,
+      previousStopReason: stopReason || 'strict_inventory_reduction_complete',
+      strictInventoryReduction: {
+        creditedGapCount: strictInventoryReduction.creditedGapCount,
+        remainingGapCount: strictInventoryReduction.remainingGapCount,
+        globalCreditAttemptCount: strictInventoryReduction.globalCreditAttemptCount,
+        allInventoryGapsCredited: strictInventoryReduction.allInventoryGapsCredited
+      },
+      nextAction: 'Run a fresh full-clone parity/negative-space inventory and continue from any remaining open surface, or attach an authoritative globalFullClonePass/full parity artifact before claiming completion.'
+    });
+    stopReason = 'claim_blocked_after_strict_inventory_reduction';
   }
   const thresholdPass = iterationGatePass && inventoryGatePass && !blocker;
   state.generatedAt = completedAt;
@@ -369,7 +530,11 @@ async function main() {
     stopCondition: 'repeat_supervisor_green_or_blocker_report',
     thresholdPass,
     supervisorStatus: blocker ? 'blocked' : 'green_for_autopilot_scope',
-    globalFullClonePass: false,
+    mechanicalGreen: iterationGatePass,
+    scaleProofReady: false,
+    scaleProofRequired: false,
+    globalFullClonePass,
+    parityStatus: globalFullClonePass ? 'full' : 'not_full_clone',
     strictInventoryReduction: {
       status: strictInventoryReduction.status,
       runCreditOk: strictInventoryReduction.runCreditOk,
@@ -384,22 +549,23 @@ async function main() {
     iterationCount: iterations.length,
     maxIterations: args.maxIterations,
     stopReason: state.stopReason,
-    nextStrictGap: blocker?.strictGap || state.latestIteration?.nextStrictGap || firstQueuedGap(state.currentAnchorArtifactRoot) || null,
+    nextStrictGap: blocker?.strictGap || state.latestIteration?.nextStrictGap || firstQueuedGap(state.currentAnchorArtifactRoot, supportedSurfaces) || null,
     queueExpansions: state.queueExpansions.map((entry) => ({ artifactRoot: entry.artifactRoot, status: entry.status, strictGap: entry.strictGap, supportedByContinuationRunner: entry.supportedByContinuationRunner, ok: entry.ok })),
-    iterations: iterations.map((entry) => ({ iterationId: entry.iterationId, artifactRoot: entry.artifactRoot, selectedStrictGap: entry.selectedStrictGap, selectedSurfaceId: entry.selectedSurfaceId, thresholdPass: entry.thresholdPass, testsPassed: entry.testsPassed, honestyOk: entry.honestyOk, nextStrictGap: entry.nextStrictGap })),
+    iterations: iterations.map((entry) => ({ iterationId: entry.iterationId, artifactRoot: entry.artifactRoot, selectedStrictGap: entry.selectedStrictGap, selectedSurfaceId: entry.selectedSurfaceId, thresholdPass: entry.thresholdPass, testsPassed: entry.testsPassed, honestyOk: entry.honestyOk, nextStrictGap: entry.nextStrictGap, autonomyDecision: entry.autonomyDecision || null })),
     blocker,
     truthBoundary: 'This artifact proves the persistent autopilot control loop can repeatedly consume next_work_queue artifacts and launch the autonomous continuation runner until a required gate fails, max iterations are reached, or an unsupported strict gap requires a new grounded product surface. It is not a Mailchimp full-clone completion claim.'
   };
-  writeJson(path.join(args.artifactRoot, 'strict_1to1_gap_inventory_reduction.json'), strictInventoryReduction);
-  writeJson(path.join(args.artifactRoot, 'completion_summary.json'), completion);
-  writeJson(path.join(args.artifactRoot, 'threshold_evaluation.json'), {
+  const thresholdEvaluation = {
     generatedAt: completedAt,
     thresholdPass,
     ok: thresholdPass,
+    scaleProofRequired: false,
     benchmarkTier: 'mailchimp_autonomous_strict_gap_autopilot_control_plane',
     failures: thresholdPass ? [] : [{ metric: blocker?.blockerKind || 'autopilot_not_green', actual: false, requirement: '= true', reason: blocker?.message || state.stopReason }],
     metrics: {
       iterationsGreen: iterations.every((entry) => entry.thresholdPass && entry.status === 0),
+      iterationsGreenOrSafelyReplanned: iterationGatePass,
+      safelyReplannedIterationCount: iterations.filter((entry) => entry.autonomyDecision?.decision === 'continue_next_work_queue' && entry.autonomyDecision?.mayStart === true).length,
       iterationCount: iterations.length,
       blockerFree: !blocker,
       stoppedOnMaxIterations: state.stopReason === 'max_iterations_reached',
@@ -410,7 +576,18 @@ async function main() {
       strictInventoryRejectedCreditCount: strictInventoryReduction.rejectedCreditCount,
       strictInventoryAllGapsCredited: strictInventoryReduction.allInventoryGapsCredited
     }
-  });
+  };
+  const runStateTruth = reduceRunState({
+    completionSummary: completion,
+    thresholdEvaluation,
+    supervisorStatus: { status: blocker ? 'red' : 'green' },
+    blocker,
+    scaleProofRequired: false
+  }, { generatedAt: completedAt });
+  writeJson(path.join(args.artifactRoot, 'strict_1to1_gap_inventory_reduction.json'), strictInventoryReduction);
+  writeJson(path.join(args.artifactRoot, 'completion_summary.json'), completion);
+  writeJson(path.join(args.artifactRoot, 'threshold_evaluation.json'), thresholdEvaluation);
+  writeJson(path.join(args.artifactRoot, 'run_state_truth.json'), runStateTruth);
   if (blocker) writeJson(path.join(args.artifactRoot, 'blocker_report.json'), { generatedAt: completedAt, benchmarkId: args.benchmarkId, status: 'blocked', ...blocker });
 
   console.log(JSON.stringify({ ok: !blocker, thresholdPass, status: state.status, stopReason: state.stopReason, iterationCount: iterations.length, artifactRoot: args.artifactRoot, latestAnchorArtifactRoot: state.currentAnchorArtifactRoot, nextStrictGap: completion.nextStrictGap, blocker }, null, 2));

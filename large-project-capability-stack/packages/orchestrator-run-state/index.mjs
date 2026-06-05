@@ -170,6 +170,8 @@ export function reduceRunState(input = {}, options = {}) {
   const thresholdPass = input.thresholdPass === true || threshold.thresholdPass === true || completion.thresholdPass === true;
   const mechanicalGreen = input.mechanicalGreen === true || completion.mechanicalGreen === true;
   const scaleProofReady = input.scaleProofReady === true || completion.scaleProofReady === true;
+  const scaleProofRequired = input.scaleProofRequired !== false && completion.scaleProofRequired !== false && threshold.scaleProofRequired !== false;
+  const scaleProofSatisfied = !scaleProofRequired || scaleProofReady;
   const supervisorGreen = supervisorStatus?.topLevel?.status === 'green' || supervisorStatus?.supervisorStatus === 'green' || supervisorStatus?.status === 'green';
   const timedOut = input.timedOut === true || completion.stopReason === 'timeout_incomplete' || completion.timeoutIncomplete === true;
   const operatorStopped = input.operatorStopped === true || completion.stopReason === 'operator_stopped' || input.signal === 'SIGINT';
@@ -195,7 +197,7 @@ export function reduceRunState(input = {}, options = {}) {
     terminalState = 'soaking_after_green';
     running = true;
     stopAllowed = false;
-  } else if (thresholdPass && supervisorGreen && mechanicalGreen && scaleProofReady) {
+  } else if (thresholdPass && supervisorGreen && mechanicalGreen && scaleProofSatisfied) {
     terminalState = 'threshold_pass';
     running = false;
     stopAllowed = true;
@@ -229,7 +231,7 @@ export function reduceRunState(input = {}, options = {}) {
     ok,
     stopAllowed,
     components: { localRunner: local, remoteExecution: remote, workerFarm: worker, artifactSync, terminalizer },
-    truth: { mechanicalGreen, scaleProofReady, supervisorGreen, thresholdPass, blockerPresent: hasBlocker(blocker), contradictionCount: contradictions.length },
+    truth: { mechanicalGreen, scaleProofReady, scaleProofRequired, scaleProofSatisfied, supervisorGreen, thresholdPass, blockerPresent: hasBlocker(blocker), contradictionCount: contradictions.length },
     blocker: hasBlocker(blocker) ? blocker : null,
     contradictions,
     nextAction: deriveNextAction({ terminalState, contradictions, blocker, remote })

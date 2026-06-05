@@ -29,6 +29,20 @@ test('run-state reducer stops green only when threshold, supervisor, mechanical,
   assert.equal(deriveContinuationDecision({ runState }).decision, 'must_stop_green');
 });
 
+test('run-state reducer allows scoped threshold pass when scale proof is explicitly not required', () => {
+  const runState = reduceRunState({
+    programState: { running: false, done: true, stopAllowed: true },
+    supervisorStatus: { status: 'green' },
+    thresholdEvaluation: { thresholdPass: true, scaleProofRequired: false },
+    completionSummary: { thresholdPass: true, mechanicalGreen: true, scaleProofReady: false, scaleProofRequired: false }
+  }, { generatedAt });
+
+  assert.equal(runState.terminalState, 'threshold_pass');
+  assert.equal(runState.ok, true);
+  assert.equal(runState.truth.scaleProofRequired, false);
+  assert.equal(runState.truth.scaleProofSatisfied, true);
+});
+
 test('run-state reducer detects local stopped while remote execution heartbeat is still running', () => {
   const contradictions = detectRunTruthContradictions({
     programState: { running: false, done: true, updatedAt: freshHeartbeat },
