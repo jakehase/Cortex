@@ -828,6 +828,13 @@ function buildPrompt({ iteration, elapsedMs, changedSoFar, mode = promptMode, re
     : 'Do not run verifier/test commands inside Codex; the wrapper/orchestrator owns verification outside Codex. If a sanity check is absolutely required, keep it to one narrow non-test command directly tied to the edited file.';
   if (mode === 'compact') {
     const compactBrief = buildCompactSurfaceBrief({ iteration, elapsedMs, changedSoFar, repairSummary, externalVerifications });
+    const bundleSurfaceCount = Math.max(
+      1,
+      Array.isArray(bundle?.sourceSurfaceIds) ? bundle.sourceSurfaceIds.length : 0,
+      Array.isArray(bundle?.sourceSurfaces) ? bundle.sourceSurfaces.length : 0,
+      productFiles.length
+    );
+    const compactDensityTarget = bundleEnabled ? Math.min(180, Math.max(90, bundleSurfaceCount * 40)) : 40;
     return `You are a Codex CLI implementation worker in a 100-agent Mailchimp product benchmark.
 
 Use the compact surface brief below. Make one concrete, surface-specific product-code improvement. Token discipline matters: inspect only the assigned product target first, avoid repo-wide search, do not run tests, and do not browse broadly unless the brief is clearly stale.
@@ -840,6 +847,7 @@ Rules:
 - Do not add benchmark-only generic semanticProductArchitecture shims.
 - Do not make docs-only, tests-only, marker-only, or comment-only changes.
 - Keep changes small enough to survive targeted external verification.
+- Output-density target: aim for at least ${compactDensityTarget} substantive unique added product-code lines across the assigned product files, especially for bundled compact work. Do not pad with comments, duplicate boilerplate, marker constants, or near-identical branches; use the lines for real runtime behavior, state contracts, validation, route/domain helpers, analytics/export handling, or error paths tied to the surface brief.
 - ${verifierInstruction}
 - At the end, summarize product behavior changed, design decision, files changed, and remaining risks in a few bullets only.
 - The wrapper writes final evidence; do not waste time creating artifact spam.`;

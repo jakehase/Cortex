@@ -12,6 +12,7 @@ import {
   createWaveRunContract,
   evaluateContinuousStop,
   evaluateTokenEfficiency,
+  evaluateTokenEfficiencyDebtRecovery,
   planCreativeBundleRuntime,
   planAdaptiveWaveBudget,
   promptModeForContinuousWave,
@@ -50,6 +51,49 @@ test('continuous controller defers recently rejected files on the first scheduli
     'packages/app/routes/campaigns.mjs',
     'packages/app/routes/templates.mjs'
   ]);
+});
+
+test('continuous controller prefers a smaller wave over immediate rejected-file reuse', () => {
+  const selection = selectNextWaveSurfaces({
+    surfaces,
+    requestedAgentCount: 4,
+    state: {
+      lastRejectedProductFiles: ['packages/app/domain-campaigns.mjs'],
+      waveSummaries: [{ waveNumber: 2, rejectedProductFiles: ['packages/app/routes/campaigns.mjs'] }]
+    }
+  });
+  assert.deepEqual(selection.selectedProductFiles.sort(), [
+    'packages/app/routes/templates.mjs'
+  ]);
+  assert.equal(selection.selected.length, 1);
+});
+
+test('continuous controller can fall back to recently rejected files when no other work exists', () => {
+  const selection = selectNextWaveSurfaces({
+    surfaces: [surfaces[0]],
+    requestedAgentCount: 1,
+    state: { lastRejectedProductFiles: ['packages/app/domain-campaigns.mjs'] }
+  });
+  assert.deepEqual(selection.selectedProductFiles, ['packages/app/domain-campaigns.mjs']);
+});
+
+test('continuous controller keeps historically rejected files quarantined across clean waves', () => {
+  const selection = selectNextWaveSurfaces({
+    surfaces,
+    requestedAgentCount: 3,
+    state: {
+      waveSummaries: [
+        { waveNumber: 12, rejectedProductFiles: ['packages/app/domain-campaigns.mjs'] },
+        { waveNumber: 13, rejectedProductFiles: [] },
+        { waveNumber: 14, rejectedProductFiles: [] }
+      ]
+    }
+  });
+  assert.deepEqual(selection.selectedProductFiles.sort(), [
+    'packages/app/routes/campaigns.mjs',
+    'packages/app/routes/templates.mjs'
+  ]);
+  assert.equal(selection.selectedProductFiles.includes('packages/app/domain-campaigns.mjs'), false);
 });
 
 test('wave contract turns a continuous objective into a finite wave executor contract', () => {
@@ -332,6 +376,42 @@ test('threshold metrics exclude controller backoff rejection shards while preser
   assert.equal(decision.thresholdPass, true);
 });
 
+test('threshold metrics can window rejected-reason repetition for repaired resumed attempts', () => {
+  const makeWave = ({ waveNumber, rejectedPatchCount = 0, reason = null }) => ({
+    waveNumber,
+    shardCount: 4,
+    mergedShardCount: 4 - rejectedPatchCount,
+    rejectedPatchCount,
+    durationMinutes: 5,
+    activeWorkerMinutes: 10,
+    truthContradictions: 0,
+    fakeGreenIncidents: 0,
+    uniqueAgentIds: ['agent-1', 'agent-2', 'agent-3', 'agent-4'],
+    mergedProductFiles: ['packages/app/routes/campaigns.mjs', 'packages/app/routes/templates.mjs'],
+    rejectedReasonCounts: reason ? { [reason]: rejectedPatchCount } : {},
+    addedLineCount: 100,
+    uniqueNormalizedAddedLineCount: 90
+  });
+  const state = {
+    waveSummaries: [
+      makeWave({ waveNumber: 12, rejectedPatchCount: 1, reason: 'creative_external_verification_failed_stop' }),
+      makeWave({ waveNumber: 13, rejectedPatchCount: 1, reason: 'creative_external_verification_failed_stop' }),
+      makeWave({ waveNumber: 14 }),
+      makeWave({ waveNumber: 15 })
+    ]
+  };
+
+  const raw = aggregateContinuousMetrics(state);
+  assert.equal(raw.repeatBlockerRate, 0.5);
+
+  const scored = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: 14 });
+  assert.equal(scored.rejectionReasonFromWaveNumber, 14);
+  assert.deepEqual(scored.scoredRejectedReasonCounts, {});
+  assert.equal(scored.repeatBlockerRate, 0);
+  assert.equal(scored.rawRejectedPatchCount, 2);
+  assert.equal(scored.noOpRate, raw.noOpRate);
+});
+
 test('token efficiency metrics flag expensive accepted output after enough sample evidence', () => {
   const metrics = calculateTokenEfficiencyMetrics({
     tokensObserved: 1_200_000,
@@ -360,6 +440,85 @@ test('token efficiency metrics flag expensive accepted output after enough sampl
   const notReady = evaluateTokenEfficiency({ metrics, policy: { minObservedTokens: 2_000_000, maxTokensPerAddedLine: 900 } });
   assert.equal(notReady.ok, true);
   assert.equal(notReady.sampleReady, false);
+});
+
+test('token efficiency guard allows debt recovery when resumed waves are on an efficient trajectory', () => {
+  const policy = {
+    minObservedTokens: 1_000_000,
+    minAddedLineCount: 500,
+    maxTokensPerAddedLine: 900,
+    maxTokensPerUniqueNormalizedAddedLine: 1100,
+    minUniqueNormalizedAddedLinesPerCall: 40
+  };
+  const aggregateMetrics = {
+    autonomyWindowMinutes: 63.61,
+    tokenEfficiency: calculateTokenEfficiencyMetrics({
+      tokensObserved: 5_859_348,
+      callsCompleted: 68,
+      addedLineCount: 6_163,
+      uniqueNormalizedAddedLineCount: 5_396,
+      changedProductFileCount: 15,
+      mergedShardCount: 62
+    })
+  };
+  assert.equal(evaluateTokenEfficiency({ metrics: aggregateMetrics.tokenEfficiency, policy }).ok, false);
+
+  const state = {
+    waveSummaries: [
+      { waveNumber: 10, durationMinutes: 58, addedLineCount: 5653, uniqueNormalizedAddedLineCount: 4962, budget: { tokensObserved: 5_435_059, callsCompleted: 63 }, mergedProductFiles: ['packages/app/routes/campaigns.mjs'], mergedShardCount: 58 },
+      { waveNumber: 11, durationMinutes: 5.61, addedLineCount: 510, uniqueNormalizedAddedLineCount: 434, budget: { tokensObserved: 424_289, callsCompleted: 5 }, mergedProductFiles: ['packages/app/routes/templates.mjs'], mergedShardCount: 4 }
+    ]
+  };
+  const recovery = evaluateTokenEfficiencyDebtRecovery({
+    aggregateMetrics,
+    state,
+    policy,
+    initialWaveSummaryCount: 1,
+    target: { durationTargetMinutes: 120 }
+  });
+  assert.equal(recovery.aggregateEvaluation.ok, false);
+  assert.equal(recovery.recoveryEvaluation.ok, true);
+  assert.equal(recovery.projectedEvaluation.ok, true);
+  assert.equal(recovery.allowContinue, true);
+  assert.equal(recovery.reason, 'token_efficiency_debt_recovery_on_track');
+  assert.ok(recovery.projectedMetrics.tokensPerAddedLine <= 900);
+});
+
+test('token efficiency guard blocks debt recovery when resumed waves are still inefficient', () => {
+  const policy = {
+    minObservedTokens: 1_000_000,
+    minAddedLineCount: 500,
+    maxTokensPerAddedLine: 900,
+    maxTokensPerUniqueNormalizedAddedLine: 1100,
+    minUniqueNormalizedAddedLinesPerCall: 40
+  };
+  const aggregateMetrics = {
+    autonomyWindowMinutes: 63.61,
+    tokenEfficiency: calculateTokenEfficiencyMetrics({
+      tokensObserved: 5_859_348,
+      callsCompleted: 68,
+      addedLineCount: 6_163,
+      uniqueNormalizedAddedLineCount: 5_396,
+      changedProductFileCount: 15,
+      mergedShardCount: 62
+    })
+  };
+  const state = {
+    waveSummaries: [
+      { waveNumber: 10, durationMinutes: 58, addedLineCount: 5653, uniqueNormalizedAddedLineCount: 4962, budget: { tokensObserved: 5_435_059, callsCompleted: 63 }, mergedProductFiles: ['packages/app/routes/campaigns.mjs'], mergedShardCount: 58 },
+      { waveNumber: 11, durationMinutes: 5.61, addedLineCount: 200, uniqueNormalizedAddedLineCount: 180, budget: { tokensObserved: 424_289, callsCompleted: 5 }, mergedProductFiles: ['packages/app/routes/templates.mjs'], mergedShardCount: 4 }
+    ]
+  };
+  const recovery = evaluateTokenEfficiencyDebtRecovery({
+    aggregateMetrics,
+    state,
+    policy,
+    initialWaveSummaryCount: 1,
+    target: { durationTargetMinutes: 120 }
+  });
+  assert.equal(recovery.allowContinue, false);
+  assert.equal(recovery.recoveryEvaluation.ok, false);
+  assert.equal(recovery.reason, 'token_efficiency_debt_recovery_not_on_track');
 });
 
 test('continuous controller switches to compact prompts after configured full-context waves', () => {

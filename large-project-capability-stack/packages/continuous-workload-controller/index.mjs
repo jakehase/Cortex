@@ -272,6 +272,76 @@ export function evaluateTokenEfficiency({ metrics = {}, policy = {} } = {}) {
   };
 }
 
+function tokenEfficiencyMetricsForWaves(waves = []) {
+  const selected = Array.isArray(waves) ? waves : [];
+  return calculateTokenEfficiencyMetrics({
+    tokensObserved: selected.reduce((sum, wave) => sum + Number(wave?.budget?.tokensObserved || 0), 0),
+    callsCompleted: selected.reduce((sum, wave) => sum + Number(wave?.budget?.callsCompleted || 0), 0),
+    addedLineCount: selected.reduce((sum, wave) => sum + Number(wave?.addedLineCount || 0), 0),
+    uniqueNormalizedAddedLineCount: selected.reduce((sum, wave) => sum + Number(wave?.uniqueNormalizedAddedLineCount || 0), 0),
+    changedProductFileCount: stableList(selected.flatMap((wave) => wave?.mergedProductFiles || [])).length,
+    mergedShardCount: selected.reduce((sum, wave) => sum + Number(wave?.mergedShardCount || 0), 0)
+  });
+}
+
+export function evaluateTokenEfficiencyDebtRecovery({
+  aggregateMetrics = {},
+  state = {},
+  policy = {},
+  initialWaveSummaryCount = 0,
+  target = {}
+} = {}) {
+  const aggregateTokenMetrics = aggregateMetrics.tokenEfficiency || aggregateMetrics;
+  const aggregateEvaluation = evaluateTokenEfficiency({ metrics: aggregateTokenMetrics, policy });
+  if (aggregateEvaluation.enabled === false || aggregateEvaluation.sampleReady === false || aggregateEvaluation.ok) {
+    return { allowContinue: true, recoveryActive: false, aggregateEvaluation };
+  }
+
+  const waves = Array.isArray(state.waveSummaries) ? state.waveSummaries : [];
+  const startIndex = Math.max(0, Math.min(waves.length, Number(initialWaveSummaryCount || 0)));
+  const recoveryWaves = waves.slice(startIndex);
+  const recoveryMetrics = tokenEfficiencyMetricsForWaves(recoveryWaves);
+  const recoveryDurationMinutes = recoveryWaves.reduce((sum, wave) => sum + Number(wave?.durationMinutes || 0), 0);
+  const slopePolicy = { ...policy, minObservedTokens: 0, minAddedLineCount: 1 };
+  const recoveryEvaluation = evaluateTokenEfficiency({ metrics: recoveryMetrics, policy: slopePolicy });
+  const durationTargetMinutes = Math.max(0, Number(target.durationTargetMinutes || 0));
+  const aggregateDurationMinutes = Math.max(0, Number(aggregateMetrics.autonomyWindowMinutes || 0));
+  const remainingMinutes = Math.max(0, durationTargetMinutes - aggregateDurationMinutes);
+
+  let projectedMetrics = null;
+  let projectedEvaluation = null;
+  if (recoveryDurationMinutes > 0 && recoveryMetrics.tokensObserved > 0 && recoveryMetrics.addedLineCount > 0 && durationTargetMinutes > 0) {
+    const tokensPerMinute = recoveryMetrics.tokensObserved / recoveryDurationMinutes;
+    const addedLinesPerMinute = recoveryMetrics.addedLineCount / recoveryDurationMinutes;
+    const uniqueLinesPerMinute = recoveryMetrics.uniqueNormalizedAddedLineCount / recoveryDurationMinutes;
+    const callsPerMinute = recoveryMetrics.callsCompleted / recoveryDurationMinutes;
+    projectedMetrics = calculateTokenEfficiencyMetrics({
+      tokensObserved: Number(aggregateTokenMetrics.tokensObserved || 0) + tokensPerMinute * remainingMinutes,
+      callsCompleted: Number(aggregateTokenMetrics.callsCompleted || 0) + callsPerMinute * remainingMinutes,
+      addedLineCount: Number(aggregateTokenMetrics.addedLineCount || 0) + addedLinesPerMinute * remainingMinutes,
+      uniqueNormalizedAddedLineCount: Number(aggregateTokenMetrics.uniqueNormalizedAddedLineCount || 0) + uniqueLinesPerMinute * remainingMinutes,
+      changedProductFileCount: Number(aggregateTokenMetrics.changedProductFileCount || aggregateMetrics.changedProductFileCount || 0),
+      mergedShardCount: Number(aggregateTokenMetrics.mergedShardCount || aggregateMetrics.mergedShardCount || 0)
+    });
+    projectedEvaluation = evaluateTokenEfficiency({ metrics: projectedMetrics, policy });
+  }
+
+  const allowContinue = recoveryEvaluation.ok === true && projectedEvaluation?.ok === true;
+  return {
+    allowContinue,
+    recoveryActive: allowContinue,
+    aggregateEvaluation,
+    recoveryEvaluation,
+    recoveryMetrics,
+    recoveryWaveCount: recoveryWaves.length,
+    recoveryDurationMinutes: Number(recoveryDurationMinutes.toFixed(2)),
+    remainingMinutes: Number(remainingMinutes.toFixed(2)),
+    projectedMetrics,
+    projectedEvaluation,
+    reason: allowContinue ? 'token_efficiency_debt_recovery_on_track' : 'token_efficiency_debt_recovery_not_on_track'
+  };
+}
+
 export function isProductSourceFile(filePath = '') {
   return /^(apps|packages)\//.test(String(filePath || ''))
     && /\.(?:mjs|js|jsx|ts|tsx|html|css)$/i.test(String(filePath || ''))
@@ -565,11 +635,21 @@ export function selectNextWaveSurfaces({
   state = {},
   requestedAgentCount = 1,
   maxAttemptsPerSurface = 3,
-  avoidRecentlyRejectedFiles = true
+  avoidRecentlyRejectedFiles = true,
+  recentlyRejectedWaveWindow = Number.POSITIVE_INFINITY,
+  allowRecentlyRejectedFileFallback = false
 } = {}) {
   const catalog = buildExecutableSurfaceCatalog(surfaces);
   const completed = new Set(state.completedSurfaceIds || []);
-  const rejectedFiles = new Set(avoidRecentlyRejectedFiles ? (state.lastRejectedProductFiles || []) : []);
+  const recentRejectedFiles = avoidRecentlyRejectedFiles
+    ? stableList([
+      ...(state.lastRejectedProductFiles || []),
+      ...(Array.isArray(state.waveSummaries)
+        ? state.waveSummaries.slice(-Math.max(0, Number(recentlyRejectedWaveWindow || 0))).flatMap((wave) => wave?.rejectedProductFiles || [])
+        : [])
+    ])
+    : [];
+  const rejectedFiles = new Set(recentRejectedFiles);
   const selected = [];
   const selectedFiles = new Set();
   const candidates = catalog
@@ -584,7 +664,7 @@ export function selectNextWaveSurfaces({
       if (selected.some((entry) => surfaceWorkKey(entry) === id)) continue;
       const primary = primaryProductFile(surface);
       if (!primary || selectedFiles.has(primary)) continue;
-      if (pass === 0 && rejectedFiles.has(primary)) continue;
+      if (rejectedFiles.has(primary) && (pass === 0 || (!allowRecentlyRejectedFileFallback && selected.length > 0))) continue;
       selected.push(surface);
       selectedFiles.add(primary);
     }
@@ -798,8 +878,10 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
   const scoringMode = options.scoringMode || 'raw';
   const excludeBudgetBackoffRejections = Boolean(options.excludeBudgetBackoffRejections || scoringMode === 'threshold');
   const fromWaveNumber = Number(options.fromWaveNumber || 0);
+  const rejectionReasonFromWaveNumber = Number(options.rejectionReasonFromWaveNumber || fromWaveNumber || 0);
   const waves = Array.isArray(state.waveSummaries) ? state.waveSummaries : [];
   const selectedWaves = fromWaveNumber > 0 ? waves.filter((wave) => Number(wave.waveNumber || 0) >= fromWaveNumber) : waves;
+  const rejectionReasonWaves = rejectionReasonFromWaveNumber > 0 ? waves.filter((wave) => Number(wave.waveNumber || 0) >= rejectionReasonFromWaveNumber) : selectedWaves;
   const totalShards = selectedWaves.reduce((sum, wave) => {
     if (!excludeBudgetBackoffRejections) return sum + Number(wave.shardCount || 0);
     const rejected = Number(wave.rejectedPatchCount || 0);
@@ -828,7 +910,7 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
   const addedLineCount = waves.reduce((sum, wave) => sum + Number(wave.addedLineCount || 0), 0);
   const uniqueNormalizedAddedLineCount = waves.reduce((sum, wave) => sum + Number(wave.uniqueNormalizedAddedLineCount || 0), 0);
   const productLaneCount = stableList(waves.flatMap((wave) => wave.productLanes || [])).length;
-  const scoredRejectedReasonCounts = mergeReasonCounts(selectedWaves, { excludeBudgetBackoffReasons: excludeBudgetBackoffRejections });
+  const scoredRejectedReasonCounts = mergeReasonCounts(rejectionReasonWaves, { excludeBudgetBackoffReasons: excludeBudgetBackoffRejections });
   const tokenEfficiency = calculateTokenEfficiencyMetrics({
     tokensObserved: state.controllerBudget?.tokensObserved || 0,
     callsCompleted: state.controllerBudget?.callsCompleted || 0,
@@ -839,6 +921,7 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
   });
   return {
     scoringMode,
+    rejectionReasonFromWaveNumber: rejectionReasonFromWaveNumber || null,
     waveCount: waves.length,
     scoredWaveCount: selectedWaves.length,
     totalShards,

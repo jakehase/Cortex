@@ -14,6 +14,7 @@ import {
   createWaveRunContract,
   evaluateContinuousStop,
   evaluateTokenEfficiency,
+  evaluateTokenEfficiencyDebtRecovery,
   isBudgetBackoffReason,
   isUsageLimitReason,
   planAdaptiveWaveBudget,
@@ -325,9 +326,9 @@ function thresholdMetricSubset(metrics = {}) {
 
 function continuousScoringPolicy() {
   return {
-    version: 'continuous_controller_threshold_scoring.v2',
+    version: 'continuous_controller_threshold_scoring.v3',
     rawAggregatePreserved: true,
-    thresholdMetrics: 'budget_backoff_rejections_excluded',
+    thresholdMetrics: 'budget_backoff_rejections_excluded_and_repaired_attempt_rejection_reason_windowed',
     excludesFromNoOpAndRepeatBlocker: [
       'codex_usage_limit_observed',
       'creative_global_reserved_token_limit_reached',
@@ -335,7 +336,8 @@ function continuousScoringPolicy() {
       'controller_global_token_limit_reached',
       'controller_token_budget_backoff'
     ],
-    rationale: 'Controller/runner budget or external usage-limit pauses are availability/backoff events, not product no-op attempts. Raw aggregate metrics are still recorded for audit.'
+    rejectionReasonWindow: 'When resuming a repaired red run, repeat-blocker scoring starts at the current attempt while raw aggregate rejected-reason counts remain recorded for audit.',
+    rationale: 'Controller/runner budget or external usage-limit pauses are availability/backoff events, not product no-op attempts. Pre-repair repeated rejection causes should not permanently poison the scored repaired attempt, but raw aggregate metrics are still recorded for audit.'
   };
 }
 
@@ -352,7 +354,7 @@ function tokenEfficiencyPolicyFromArgs(args = {}) {
 
 function evaluateScoredContinuousStop({ state, target, remainingExecutableSurfaceCount = 1, nowMs = Date.now(), deadlineMs = null, maxWavesReached = false } = {}) {
   const rawMetrics = aggregateContinuousMetrics(state);
-  const thresholdMetrics = aggregateContinuousThresholdMetrics(state);
+  const thresholdMetrics = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
   const decision = evaluateContinuousStop({ metrics: thresholdMetrics, target, remainingExecutableSurfaceCount, nowMs, deadlineMs, maxWavesReached });
   if (decision.thresholdPass === true) {
     decision.scoringPolicy = continuousScoringPolicy();
@@ -453,6 +455,7 @@ if (resumeState) {
   };
 }
 const initialWaveSummaryCount = Array.isArray(state.waveSummaries) ? state.waveSummaries.length : 0;
+if (resumeState && initialWaveSummaryCount > 0) state.thresholdRejectionReasonFromWaveNumber = initialWaveSummaryCount + 1;
 if (resumeState?.status === 'paused_budget_backoff' && resumeState?.budgetBackoff?.resumeAfter && !args.ignoreBackoff) {
   const resumeAfterMs = Date.parse(resumeState.budgetBackoff.resumeAfter);
   if (Number.isFinite(resumeAfterMs) && Date.now() < resumeAfterMs) {
@@ -853,9 +856,17 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
   }
   const tokenEfficiencyPolicy = tokenEfficiencyPolicyFromArgs(args);
   const tokenEfficiency = evaluateTokenEfficiency({ metrics: metrics.tokenEfficiency || {}, policy: tokenEfficiencyPolicy });
+  const tokenEfficiencyDebtRecovery = evaluateTokenEfficiencyDebtRecovery({
+    aggregateMetrics: metrics,
+    state,
+    policy: tokenEfficiencyPolicy,
+    initialWaveSummaryCount,
+    target
+  });
   state.tokenEfficiencyPolicy = tokenEfficiencyPolicy;
   state.tokenEfficiencyEvaluation = tokenEfficiency;
-  if (finalDecision.action === 'continue' && tokenEfficiency.enabled && tokenEfficiency.sampleReady && !tokenEfficiency.ok) {
+  state.tokenEfficiencyDebtRecovery = tokenEfficiencyDebtRecovery;
+  if (finalDecision.action === 'continue' && tokenEfficiency.enabled && tokenEfficiency.sampleReady && !tokenEfficiency.ok && !tokenEfficiencyDebtRecovery.allowContinue) {
     finalDecision = {
       action: 'pause_backoff',
       thresholdPass: false,
@@ -866,6 +877,7 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
       resumeAfter: null,
       tokenEfficiencyPolicy,
       tokenEfficiency,
+      tokenEfficiencyDebtRecovery,
       nextAction: 'Stop long-run spending; compare token-efficiency artifacts and switch to larger bundled product slices before resuming.'
     };
   }
@@ -878,7 +890,7 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
 }
 
 const metrics = aggregateContinuousMetrics(state);
-const thresholdMetrics = aggregateContinuousThresholdMetrics(state);
+const thresholdMetrics = aggregateContinuousThresholdMetrics(state, { rejectionReasonFromWaveNumber: state.thresholdRejectionReasonFromWaveNumber || 0 });
 const finalTiming = attemptTimingSummary({ state, initialWaveSummaryCount, startedAtMs, finishedAtMs: Date.now() });
 const thresholdEvaluation = evaluateBenchmarkThresholds({
   benchmarkTier: baseContract.benchmarkTier || 'tier2_functional',
@@ -886,6 +898,13 @@ const thresholdEvaluation = evaluateBenchmarkThresholds({
 });
 const finalTokenEfficiencyPolicy = tokenEfficiencyPolicyFromArgs(args);
 const finalTokenEfficiencyEvaluation = evaluateTokenEfficiency({ metrics: metrics.tokenEfficiency || {}, policy: finalTokenEfficiencyPolicy });
+const finalTokenEfficiencyDebtRecovery = evaluateTokenEfficiencyDebtRecovery({
+  aggregateMetrics: metrics,
+  state,
+  policy: finalTokenEfficiencyPolicy,
+  initialWaveSummaryCount,
+  target
+});
 const thresholdPass = finalDecision?.thresholdPass === true && thresholdEvaluation.ok === true;
 const pausedBudgetBackoff = finalDecision?.action === 'pause_backoff';
 const blocker = thresholdPass ? null : {
@@ -922,6 +941,7 @@ state.thresholdMetrics = thresholdMetrics;
 state.thresholdScoringPolicy = continuousScoringPolicy();
 state.tokenEfficiencyPolicy = finalTokenEfficiencyPolicy;
 state.tokenEfficiencyEvaluation = finalTokenEfficiencyEvaluation;
+state.tokenEfficiencyDebtRecovery = finalTokenEfficiencyDebtRecovery;
 state.lastDecision = finalDecision;
 state.attemptTiming = finalTiming;
 writeJson(path.join(controllerRoot, 'continuous_controller_state.json'), state);
@@ -945,6 +965,7 @@ writeJson(path.join(controllerRoot, 'threshold_evaluation.json'), {
   thresholdScoringPolicy: continuousScoringPolicy(),
   tokenEfficiencyPolicy: finalTokenEfficiencyPolicy,
   tokenEfficiencyEvaluation: finalTokenEfficiencyEvaluation,
+  tokenEfficiencyDebtRecovery: finalTokenEfficiencyDebtRecovery,
   thresholdEvaluation
 });
 writeJson(path.join(controllerRoot, 'completion_summary.json'), {
@@ -977,6 +998,7 @@ writeJson(path.join(controllerRoot, 'completion_summary.json'), {
   thresholdScoringPolicy: continuousScoringPolicy(),
   tokenEfficiencyPolicy: finalTokenEfficiencyPolicy,
   tokenEfficiencyEvaluation: finalTokenEfficiencyEvaluation,
+  tokenEfficiencyDebtRecovery: finalTokenEfficiencyDebtRecovery,
   controllerDecision: finalDecision,
   thresholdFailures: thresholdEvaluation.failures || [],
   blocker
