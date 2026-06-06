@@ -596,6 +596,7 @@ const externalVerificationMaxCommands = positiveInt(process.env.CREATIVE_WORKER_
 const targetedExternalVerificationOnly = parseBool(process.env.CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY, false);
 const codexShouldRunTests = parseBool(process.env.CREATIVE_WORKER_CODEX_RUN_TESTS, promptMode !== 'compact');
 const requireRepairSignalForRetry = parseBool(process.env.CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY, promptMode === 'compact');
+const stopOnExternalVerificationFailure = parseBool(process.env.CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE, false);
 const compactFailClosedFallback = parseBool(process.env.CREATIVE_WORKER_COMPACT_FAIL_CLOSED, promptMode === 'compact');
 const maxObservedTokensPerMinute = positiveInt(process.env.CREATIVE_WORKER_MAX_OBSERVED_TOKENS_PER_MINUTE, 0);
 const burnRateWindowMs = positiveInt(process.env.CREATIVE_WORKER_BURN_RATE_WINDOW_MS, 10 * 60 * 1000);
@@ -1011,6 +1012,16 @@ for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
     verifierFailureSummary
   ].filter(Boolean);
   repairSummary = repairSignals.join('\n\n');
+  if (stopOnExternalVerificationFailure && verifierFailureSummary) {
+    budgetStopReason = 'creative_external_verification_failed_stop';
+    budgetEvents.push({
+      iteration,
+      type: 'creative_external_verification_failed_stop',
+      reason: budgetStopReason,
+      failureSummary: trimMiddle(verifierFailureSummary, 4000)
+    });
+    break;
+  }
   if (needsRepair && activePromptMode === 'compact' && compactFailClosedFallback && !compactFallbackUsed && (changedProductAfterIteration.length === 0 || deltaAfterIteration.weakOrGeneric)) {
     activePromptMode = 'full_context';
     compactFallbackUsed = true;
@@ -1068,6 +1079,7 @@ writeJson(evidencePath, {
     || budgetStopReason === 'creative_global_token_limit_reached'
     || budgetStopReason === 'creative_global_reserved_token_limit_reached'
     || budgetStopReason === 'creative_global_call_limit_reached'
+    || budgetStopReason === 'creative_external_verification_failed_stop'
     || risks.includes('generic_semantic_shim_detected')),
   prompt: {
     mode: promptMode,
@@ -1077,6 +1089,7 @@ writeJson(evidencePath, {
     compactFallbackUsed,
     codexShouldRunTests,
     requireRepairSignalForRetry,
+    stopOnExternalVerificationFailure,
     audit: promptAudit
   },
   externalVerification: {

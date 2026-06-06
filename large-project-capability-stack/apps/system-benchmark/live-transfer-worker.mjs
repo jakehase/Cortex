@@ -1237,6 +1237,7 @@ function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles,
       codexRunsTests: process.env.CREATIVE_WORKER_CODEX_RUN_TESTS || null,
       externalVerification: process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION || null,
       requireRepairSignalForRetry: process.env.CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY || null,
+      stopOnExternalVerificationFailure: process.env.CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE || null,
       maxObservedTokensPerMinute: process.env.CREATIVE_WORKER_MAX_OBSERVED_TOKENS_PER_MINUTE || null,
       failClosed: parseBool(process.env.CREATIVE_WORKER_CORTEX_REQUIRED, false)
     },

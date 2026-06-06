@@ -2987,6 +2987,95 @@ test('codex creative worker compact mode uses bounded brief and external verific
   assert.doesNotMatch(prompt, /Bounded assigned-file context/);
 });
 
+test('codex creative worker can fail closed after compact external verifier failure', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-fail-closed-'));
+  const workspace = path.join(root, 'repo');
+  const verifierCommand = `CREATIVE_SURFACE_CHECK=1 node --input-type=module -e "import { compactProductDelta } from './packages/app/creative-surface.mjs'; if (compactProductDelta({ id: 'demo' }).kind !== 'compact_delta') process.exit(1);"`;
+  write(path.join(workspace, 'packages', 'app', 'creative-surface.mjs'), 'export function compactProductDelta(input = {}) { return { kind: "initial", id: input.id || null }; }\n');
+  const taskPath = path.join(root, 'task.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  const packetPath = path.join(root, 'cortex-packet.json');
+  const ledgerPath = path.join(root, 'ledger.json');
+  const mockCodex = path.join(root, 'mock-codex.mjs');
+  write(taskPath, JSON.stringify({
+    goal: 'Add compact-mode product delta for creative surface',
+    acceptanceChecks: [`Verifier passes: ${verifierCommand}`]
+  }, null, 2));
+  write(packetPath, JSON.stringify({
+    schemaVersion: 'claw.cortex_creative_context_packet.v1',
+    cortexRoute: 'test_compact_route',
+    surface: { id: 'creative_surface', goal: 'Add compact product behavior' },
+    instructions: ['Implement real product behavior only.'],
+    files: [{ path: 'packages/app/creative-surface.mjs', role: 'product_target', exists: true }],
+    budgetPolicy: { promptMode: 'compact' }
+  }, null, 2));
+  write(mockCodex, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const marker = path.join(process.cwd(), '__mock_iteration_count');
+const count = fs.existsSync(marker) ? Number(fs.readFileSync(marker, 'utf8')) : 0;
+fs.writeFileSync(marker, String(count + 1));
+const nextSource = [
+  "const compactDeltaKind = 'broken_delta';",
+  "export function compactProductDelta(input = {}) { return { kind: compactDeltaKind, id: input.id || null, verified: true }; }",
+  ''
+].join(String.fromCharCode(10));
+fs.writeFileSync(path.join(process.cwd(), 'packages/app/creative-surface.mjs'), nextSource);
+console.log('tokens used');
+console.log(count === 0 ? '1,111' : '9,999');
+`);
+  fs.chmodSync(mockCodex, 0o755);
+  const worker = path.resolve('apps/system-benchmark/codex-creative-worker.mjs');
+  const spawned = spawnSync(process.execPath, [worker], {
+    cwd: workspace,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_TASK_PATH: taskPath,
+      CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
+      CREATIVE_WORKER_WORKSPACE: workspace,
+      CREATIVE_WORKER_ALLOWED_FILES: 'packages/app/creative-surface.mjs',
+      CREATIVE_WORKER_SURFACE_ID: 'creative_surface',
+      CREATIVE_WORKER_AGENT_ID: 'agent-fail-closed',
+      CREATIVE_WORKER_CORTEX_REQUIRED: '1',
+      CREATIVE_WORKER_CORTEX_PACKET_PATH: packetPath,
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_LEDGER_PATH: ledgerPath,
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS: '8000',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION: '1',
+      CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY: '1',
+      CREATIVE_WORKER_CODEX_RUN_TESTS: '0',
+      CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY: '1',
+      CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE: '1',
+      CREATIVE_WORKER_COMPACT_FAIL_CLOSED: '1',
+      CREATIVE_WORKER_MIN_ITERATIONS: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '2',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '2',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '1',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '2',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '100000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '1000',
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_MODEL: 'mock-model',
+      CODEX_CREATIVE_SANDBOX: 'danger-full-access'
+    }
+  });
+  assert.equal(spawned.status, 1, spawned.stderr || spawned.stdout);
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+  assert.equal(evidence.ok, false);
+  assert.equal(evidence.retryable, false);
+  assert.equal(evidence.iterations.length, 1);
+  assert.equal(evidence.prompt.stopOnExternalVerificationFailure, true);
+  assert.equal(evidence.externalVerification.failureCount, 1);
+  assert.ok(evidence.risks.includes('creative_external_verification_failed_stop'));
+  assert.equal(evidence.budget.stopReason, 'creative_external_verification_failed_stop');
+  assert.equal(evidence.budget.events.some((entry) => entry.type === 'creative_external_verification_failed_stop'), true);
+  assert.equal(ledger.callsCompleted, 1);
+  assert.equal(fs.readFileSync(path.join(workspace, '__mock_iteration_count'), 'utf8'), '1');
+});
+
 test('codex creative worker clears stale external verifier failures after a repair iteration passes', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-repair-'));
   const workspace = path.join(root, 'repo');
