@@ -331,6 +331,7 @@ export function enforceArchitecture(repoRoot, overrides = {}) {
   const config = {
     ...DEFAULTS,
     ...overrides,
+    enforceMaxSourceLines: overrides.enforceMaxSourceLines ?? (Object.prototype.hasOwnProperty.call(overrides, 'maxSourceLines') ? true : DEFAULTS.enforceMaxSourceLines),
     sourceExtensions: overrides.sourceExtensions || DEFAULTS.sourceExtensions,
     claimThresholds: { ...DEFAULTS.claimThresholds, ...(overrides.claimThresholds || {}) }
   };

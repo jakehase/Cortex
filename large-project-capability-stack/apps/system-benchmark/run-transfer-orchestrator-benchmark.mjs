@@ -150,11 +150,12 @@ function buildTransferPlan(contract) {
     return {
       id: surface.id,
       title: surface.label,
-      goal: `Validate transfer surface ${surface.label}`,
+      goal: surface.productGoal || surface.goal || `Validate transfer surface ${surface.label}`,
       lane: 'transfer_validation',
       domain: surface.id,
       fileAreas: transferAllowedFiles,
       allowedFiles: transferAllowedFiles,
+      surfaceIds: stableList([surface.id, ...(surface.metadata?.bundledSurfaceIds || []), ...(surface.surfaceIds || [])]),
       deps: [],
       requiredVerifiers,
       acceptanceChecks,
@@ -177,6 +178,7 @@ function buildTransferPlan(contract) {
         }
       },
       metadata: {
+        ...(surface.metadata || {}),
         surfaceId: surface.id,
         artifactKind: productDiffArtifactRequired ? 'product_diff' : 'verification_evidence',
         verifierCatalog: surfaceVerifierCatalog,

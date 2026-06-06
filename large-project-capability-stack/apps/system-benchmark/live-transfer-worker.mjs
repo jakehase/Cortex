@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { planCreativeBundleRuntime } from '../../packages/continuous-workload-controller/index.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -1133,6 +1134,14 @@ function shellSnippet(value = '') {
 }
 
 function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFiles, minIterations, minRuntimeMs, cortexContextPacketPath = null, budgetLedgerPath = null, promptMode = 'full_context' }) {
+  const bundleMetadata = assignment.shard?.metadata?.continuousControllerBundledSurface ? {
+    enabled: true,
+    bundleMode: assignment.shard?.metadata?.continuousControllerBundleMode || 'coherent_product_slice',
+    sourceSurfaceIds: stableList(assignment.shard?.metadata?.bundledSurfaceIds || []),
+    bundledProductFiles: stableList(assignment.shard?.metadata?.bundledProductFiles || allowedFiles.filter((rel) => /^(apps|packages)\//.test(rel))),
+    minProductTargetsToModify: Math.max(1, Number(assignment.shard?.metadata?.minProductTargetsToModify || 1)),
+    sourceSurfaces: Array.isArray(assignment.shard?.sourceSurfaces) ? assignment.shard.sourceSurfaces : []
+  } : { enabled: false };
   const payload = {
     schemaVersion: 'claw.creative_product_work_task.v1',
     generatedAt: new Date().toISOString(),
@@ -1146,6 +1155,7 @@ function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFil
     guardrails: assignment.contextPack?.guardrails || {},
     promptMode,
     compactBriefMaxChars: process.env.CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS || null,
+    bundle: bundleMetadata,
     cortexContextPacketPath,
     budgetLedgerPath,
     requiredEvidencePath: evidencePath,
@@ -1160,10 +1170,11 @@ function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFil
     rules: [
       'Do not add benchmark-only runtime shims or generic semanticProductArchitecture code.',
       'Do not produce docs/tests-only work; modify at least one assigned product source file.',
+      bundleMetadata.enabled ? `Bundled mode: modify at least ${bundleMetadata.minProductTargetsToModify} assigned product target file(s) and make the changes read like one coherent product slice, not unrelated tiny edits.` : null,
       'Keep changes scoped to allowedFiles unless the task brief explicitly justifies otherwise.',
       'Run the targeted tests when possible and record results in the evidence file.',
       minRuntimeMs > 0 ? `Keep the coding loop active until at least ${minRuntimeMs}ms of creative worker time has elapsed; verifier sleep does not count.` : 'No minimum runtime is required for this smoke task.'
-    ]
+    ].filter(Boolean)
   };
   fs.writeFileSync(taskPath, `${JSON.stringify(payload, null, 2)}
 `);
@@ -1172,6 +1183,14 @@ function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFil
 
 function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles, productTargets, minIterations, minRuntimeMs, budgetLedgerPath, promptMode = 'full_context' }) {
   const surfaceId = assignment.shard?.metadata?.surfaceId || assignment.shard?.id || 'surface';
+  const bundleMetadata = assignment.shard?.metadata?.continuousControllerBundledSurface ? {
+    enabled: true,
+    bundleMode: assignment.shard?.metadata?.continuousControllerBundleMode || 'coherent_product_slice',
+    sourceSurfaceIds: stableList(assignment.shard?.metadata?.bundledSurfaceIds || []),
+    bundledProductFiles: stableList(assignment.shard?.metadata?.bundledProductFiles || productTargets),
+    minProductTargetsToModify: Math.max(1, Number(assignment.shard?.metadata?.minProductTargetsToModify || 1)),
+    sourceSurfaces: Array.isArray(assignment.shard?.sourceSurfaces) ? assignment.shard.sourceSurfaces : []
+  } : { enabled: false };
   const workspaceRoot = path.resolve(assignment.workspacePath);
   const acceptanceChecks = stableList(assignment.contextPack?.acceptanceChecks || []);
   const verifierCatalog = assignment.contextPack?.inputs?.verifierCatalog || assignment.shard?.metadata?.verifierCatalog || {};
@@ -1183,17 +1202,19 @@ function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles,
     surface: {
       id: surfaceId,
       label: assignment.shard?.title || assignment.shard?.label || surfaceId,
-      goal: assignment.shard?.goal || assignment.shard?.title || null
+      goal: assignment.shard?.goal || assignment.shard?.title || null,
+      bundle: bundleMetadata
     },
     intent: 'Make one scoped Mailchimp product-surface improvement with bounded context, targeted verification, and auditable evidence.',
     instructions: [
       'Use this packet as the planning/context authority before invoking broad repository search.',
       'Modify assigned product runtime files only; docs/tests-only changes do not count.',
+      bundleMetadata.enabled ? `Bundled mode: make one coherent product slice across the assigned targets and modify at least ${bundleMetadata.minProductTargetsToModify} product target file(s).` : null,
       'Prefer product behavior, validation, state shaping, route/domain logic, or user-visible data contracts specific to this surface.',
       'Run targeted checks from acceptanceChecks/verifierCatalog when feasible.',
       'If assigned tests are missing or stale, record that as a risk instead of repo-wide thrashing.',
       'Stop after the bounded product delta/evidence loop; do not keep spending tokens only to satisfy elapsed time.'
-    ],
+    ].filter(Boolean),
     files: allowedFiles.map((rel) => ({
       path: rel,
       role: productTargets.includes(rel) ? 'product_target' : 'support_or_verifier',
@@ -1243,6 +1264,11 @@ function parseCreativeEvidence(evidencePath) {
 
 function applyCreativeProductWork(assignment) {
   const surfaceId = assignment.shard?.metadata?.surfaceId || assignment.shard?.id || 'surface';
+  const sourceSurfaceIds = stableList([surfaceId, ...(assignment.shard?.metadata?.bundledSurfaceIds || []), ...(assignment.shard?.surfaceIds || [])]);
+  const bundledMode = assignment.shard?.metadata?.continuousControllerBundledSurface === true;
+  const minProductTargetsToModify = bundledMode
+    ? Math.max(1, Number(assignment.shard?.metadata?.minProductTargetsToModify || 1))
+    : 1;
   const workspaceRoot = path.resolve(assignment.workspacePath);
   const creativePolicy = assignment.contextPack?.inputs?.creativeProductWork || assignment.shard?.metadata?.creativeProductWork || {};
   const command = String(process.env.CREATIVE_WORKER_COMMAND || creativePolicy.workerCommand || '').trim();
@@ -1251,14 +1277,28 @@ function applyCreativeProductWork(assignment) {
     ?? parsePositiveNumber(creativePolicy.minWorkerRuntimeMs, null)
     ?? parsePositiveNumber(process.env.CREATIVE_WORKER_MIN_RUNTIME_MS, 0)
     ?? 0;
-  const codexIterationTimeoutMs = parsePositiveNumber(process.env.CODEX_CREATIVE_ITERATION_TIMEOUT_MS, 420_000) ?? 420_000;
+  const baseCodexIterationTimeoutMs = parsePositiveNumber(process.env.CODEX_CREATIVE_ITERATION_TIMEOUT_MS, 420_000) ?? 420_000;
   const maxCodexIterations = Math.max(1, Number(process.env.CODEX_CREATIVE_MAX_ITERATIONS || minIterations || 1));
   const promptMode = String(process.env.CREATIVE_WORKER_PROMPT_MODE || creativePolicy.promptMode || process.env.CODEX_CREATIVE_PROMPT_MODE || 'full_context').trim() || 'full_context';
   const budgetReservationTimeoutMs = parsePositiveNumber(process.env.CREATIVE_WORKER_BUDGET_RESERVATION_TIMEOUT_MS, 0) ?? 0;
-  const commandTimeoutMs = parsePositiveNumber(process.env.CREATIVE_WORKER_COMMAND_TIMEOUT_MS, null)
-    ?? Math.max(60_000, minRuntimeMs + 120_000, (codexIterationTimeoutMs * maxCodexIterations) + budgetReservationTimeoutMs + 60_000);
   const allowedFiles = creativeAllowedSourceFiles(assignment);
   const productTargets = allowedFiles.filter((rel) => /^(apps|packages)\//.test(rel) && !/(^|\/)tests?\//i.test(rel));
+  const bundleRuntimePlan = planCreativeBundleRuntime({
+    bundle: {
+      enabled: bundledMode,
+      sourceSurfaceIds: assignment.shard?.metadata?.bundledSurfaceIds || [],
+      bundledProductFiles: assignment.shard?.metadata?.bundledProductFiles || productTargets,
+      minProductTargetsToModify
+    },
+    baseIterationTimeoutMs: baseCodexIterationTimeoutMs,
+    baseTokenReservationEstimate: parsePositiveNumber(process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE, 0) ?? 0,
+    maxComplexityFactor: parsePositiveNumber(process.env.CREATIVE_WORKER_BUNDLE_MAX_COMPLEXITY_FACTOR, 4) ?? 4,
+    maxIterationTimeoutMs: parsePositiveNumber(process.env.CREATIVE_WORKER_BUNDLE_MAX_ITERATION_TIMEOUT_MS, 1_800_000) ?? 1_800_000,
+    maxTokenReservationEstimate: parsePositiveNumber(process.env.CREATIVE_WORKER_BUNDLE_MAX_TOKEN_RESERVATION_ESTIMATE, 0) ?? 0
+  });
+  const codexIterationTimeoutMs = bundleRuntimePlan.iterationTimeoutMs;
+  const commandTimeoutMs = parsePositiveNumber(process.env.CREATIVE_WORKER_COMMAND_TIMEOUT_MS, null)
+    ?? Math.max(60_000, minRuntimeMs + 120_000, (codexIterationTimeoutMs * maxCodexIterations) + budgetReservationTimeoutMs + 60_000);
   if (!command) {
     return {
       ok: false,
@@ -1302,26 +1342,32 @@ function applyCreativeProductWork(assignment) {
   writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFiles, minIterations, minRuntimeMs, cortexContextPacketPath, budgetLedgerPath, promptMode });
   const before = snapshotCreativeFiles(workspaceRoot, allowedFiles);
   const startedAt = Date.now();
+  const childEnv = {
+    ...process.env,
+    CREATIVE_WORKER_TASK_PATH: taskPath,
+    CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
+    CREATIVE_WORKER_WORKSPACE: workspaceRoot,
+    CREATIVE_WORKER_ALLOWED_FILES: allowedFiles.join(','),
+    CREATIVE_WORKER_SURFACE_ID: surfaceId,
+    CREATIVE_WORKER_AGENT_ID: assignment.agentId || '',
+    CREATIVE_WORKER_MIN_ITERATIONS: String(minIterations),
+    CREATIVE_WORKER_MIN_RUNTIME_MS: String(minRuntimeMs),
+    CREATIVE_WORKER_CORTEX_PACKET_PATH: cortexContextPacketPath,
+    CORTEX_CONTEXT_PACKET_PATH: cortexContextPacketPath,
+    CREATIVE_WORKER_BUDGET_LEDGER_PATH: budgetLedgerPath,
+    CREATIVE_WORKER_PROMPT_MODE: promptMode,
+    CODEX_CREATIVE_ITERATION_TIMEOUT_MS: String(codexIterationTimeoutMs),
+    CREATIVE_WORKER_BUNDLE_RUNTIME_PLAN: JSON.stringify(bundleRuntimePlan)
+  };
+  if (bundleRuntimePlan.tokenReservationEstimate > 0) {
+    childEnv.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE = String(bundleRuntimePlan.tokenReservationEstimate);
+  }
   const spawned = spawnSync(command, [], {
     cwd: workspaceRoot,
     shell: '/bin/bash',
     encoding: 'utf8',
     timeout: commandTimeoutMs,
-    env: {
-      ...process.env,
-      CREATIVE_WORKER_TASK_PATH: taskPath,
-      CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
-      CREATIVE_WORKER_WORKSPACE: workspaceRoot,
-      CREATIVE_WORKER_ALLOWED_FILES: allowedFiles.join(','),
-      CREATIVE_WORKER_SURFACE_ID: surfaceId,
-      CREATIVE_WORKER_AGENT_ID: assignment.agentId || '',
-      CREATIVE_WORKER_MIN_ITERATIONS: String(minIterations),
-      CREATIVE_WORKER_MIN_RUNTIME_MS: String(minRuntimeMs),
-      CREATIVE_WORKER_CORTEX_PACKET_PATH: cortexContextPacketPath,
-      CORTEX_CONTEXT_PACKET_PATH: cortexContextPacketPath,
-      CREATIVE_WORKER_BUDGET_LEDGER_PATH: budgetLedgerPath,
-      CREATIVE_WORKER_PROMPT_MODE: promptMode
-    }
+    env: childEnv
   });
   const finishedAt = Date.now();
   const creativeWorkerRuntimeMs = finishedAt - startedAt;
@@ -1339,14 +1385,16 @@ function applyCreativeProductWork(assignment) {
   const evidenceFailed = !evidenceRead.ok;
   const tooFewIterations = iterations.length < minIterations;
   const noProductDelta = productModifiedFiles.length === 0;
+  const tooFewProductTargetsModified = productModifiedFiles.length < minProductTargetsToModify;
   const genericShimPattern = /semanticProductArchitecture(?:Runtime|FixtureState|FixtureRouter|ExistingProductArgs|IntegratedCall|NormalFlow)_|__semanticProductArchitectureNormalFlowProofs|in_memory_semantic_benchmark/.test(diff);
-  const ok = !commandFailed && !runtimeTooShort && !evidenceFailed && !tooFewIterations && !noProductDelta && !genericShimPattern;
+  const ok = !commandFailed && !runtimeTooShort && !evidenceFailed && !tooFewIterations && !noProductDelta && !tooFewProductTargetsModified && !genericShimPattern;
   const failureReasons = [
     commandFailed ? 'creative_worker_command_failed' : null,
     runtimeTooShort ? 'creative_worker_runtime_too_short' : null,
     evidenceFailed ? evidenceRead.reason : null,
     tooFewIterations ? 'creative_worker_iterations_below_minimum' : null,
     noProductDelta ? 'creative_worker_product_delta_missing' : null,
+    tooFewProductTargetsModified ? 'creative_worker_bundled_product_targets_below_minimum' : null,
     genericShimPattern ? 'creative_worker_generic_semantic_shim_detected' : null
   ].filter(Boolean);
   return {
@@ -1373,11 +1421,18 @@ function applyCreativeProductWork(assignment) {
       creativeWorkerEvidence: {
         ok,
         surfaceId,
+        sourceSurfaceIds,
+        bundledMode,
+        minProductTargetsToModify,
         agentId: assignment.agentId || null,
         commandConfigured: Boolean(command),
         commandExitCode: spawned.status ?? null,
         commandSignal: spawned.signal ?? null,
         commandTimedOut: spawned.error?.code === 'ETIMEDOUT',
+        baseCodexIterationTimeoutMs,
+        codexIterationTimeoutMs,
+        commandTimeoutMs,
+        bundleRuntimePlan,
         creativeWorkerRuntimeMs,
         creativeWorkerMinutes: Number((creativeWorkerRuntimeMs / 60000).toFixed(3)),
         minWorkerRuntimeMs: minRuntimeMs,
@@ -1387,6 +1442,7 @@ function applyCreativeProductWork(assignment) {
         evidencePresent: evidenceRead.ok,
         modifiedFiles,
         productModifiedFiles,
+        productTargetsModifiedCount: productModifiedFiles.length,
         addedLineCount: addedLines.length,
         uniqueNormalizedAddedLineCount: uniqueNormalizedAddedLines.size,
         genericShimPattern,
@@ -1405,8 +1461,9 @@ function applyCreativeProductWork(assignment) {
       architectureEvidence: {
         ok,
         surfaceId,
+        surfaceIds: sourceSurfaceIds,
         negativeSpaceReduced: ok,
-        reducedGaps: ok ? [`${surfaceId}:creative_product_gap`] : [],
+        reducedGaps: ok ? sourceSurfaceIds.map((id) => `${id}:creative_product_gap`) : [],
         remainingGaps: 'full_mailchimp_parity_not_claimed_by_creative_benchmark_slice',
         sourceOfTruthIntegrated: productModifiedFiles.length > 0,
         layerCount: Math.max(2, stableList([...productModifiedFiles, ...modifiedFiles, `${surfaceId}:creative_worker_evidence`]).length),
@@ -1437,9 +1494,9 @@ function applyCreativeProductWork(assignment) {
       proofCarryingClaim: {
         statement: `Creative product worker patch for ${surfaceId} makes an agent-produced scoped product change with iterative evidence.`,
         requestedCredit: 'creative_product_work_credit',
-        surfaceIds: [surfaceId],
+        surfaceIds: sourceSurfaceIds,
         negativeSpaceReduced: ok,
-        reducedGaps: ok ? [`${surfaceId}:creative_product_gap`] : [],
+        reducedGaps: ok ? sourceSurfaceIds.map((id) => `${id}:creative_product_gap`) : [],
         remainingGaps: 'full_mailchimp_parity_not_claimed_by_creative_benchmark_slice',
         sourceOfTruthIntegrated: productModifiedFiles.length > 0,
         counterexamplesConsidered: [

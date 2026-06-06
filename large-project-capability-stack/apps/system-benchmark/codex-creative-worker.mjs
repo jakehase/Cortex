@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { planCreativeBundleRuntime } from '../../packages/continuous-workload-controller/index.mjs';
 
 function readJson(filePath, fallback = null) {
   try {
@@ -73,6 +74,15 @@ function shellCommandForDisplay(command, args) {
 function parseBool(value, fallback = false) {
   if (value === undefined || value === null || value === '') return fallback;
   return ['1', 'true', 'yes', 'on', 'required'].includes(String(value).trim().toLowerCase());
+}
+
+function parseJsonEnv(value, fallback = null) {
+  if (value === undefined || value === null || value === '') return fallback;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return fallback;
+  }
 }
 
 function positiveInt(value, fallback = 0) {
@@ -423,6 +433,8 @@ function compactJson(value, maxChars = 1800) {
 
 function buildCompactSurfaceBrief({ iteration, elapsedMs, changedSoFar = [], repairSummary = '', externalVerifications = [] } = {}) {
   const commands = externalVerificationCommands();
+  const bundle = task.bundle || cortexPacket?.surface?.bundle || null;
+  const bundleEnabled = bundle?.enabled === true;
   const packetFiles = stableOrdered([
     ...productFiles,
     ...allowedFiles,
@@ -434,6 +446,8 @@ function buildCompactSurfaceBrief({ iteration, elapsedMs, changedSoFar = [], rep
     `Surface: ${surfaceId}`,
     `Goal: ${task.goal || task.title || cortexPacket?.surface?.goal || cortexPacket?.intent || 'Improve assigned product surface.'}`,
     `Iteration: ${iteration}; elapsedMs=${elapsedMs}; promptMode=compact`,
+    bundleEnabled ? `Bundled product-slice mode: source surfaces=${(bundle.sourceSurfaceIds || []).join(', ')}; minimum product targets to modify=${bundle.minProductTargetsToModify || 1}` : '',
+    bundleEnabled && Array.isArray(bundle.sourceSurfaces) && bundle.sourceSurfaces.length ? `Bundled source objectives:\n${bundle.sourceSurfaces.slice(0, 8).map((surface, index) => `- ${index + 1}. ${surface.id || 'surface'}: ${surface.productGoal || surface.label || ''}`).join('\n')}` : '',
     `Product targets: ${productFiles.join(', ')}`,
     `Allowed files: ${allowedFiles.join(', ')}`,
     commands.length ? `External verifier/test commands (wrapper/harness owns these; do not run them inside Codex):\n${commands.map((command) => `- ${command}`).join('\n')}` : 'External verifier/test commands: none provided.',
@@ -451,7 +465,9 @@ function buildCompactSurfaceBrief({ iteration, elapsedMs, changedSoFar = [], rep
     fileSignals.map((entry) => `### ${entry.path}${entry.exists ? '' : ' (missing)'}\n${entry.signals.length ? entry.signals.map((line) => `- ${line}`).join('\n') : '- no compact signals extracted'}`).join('\n\n'),
     changedSoFar.length ? `Changed allowed files so far:\n${changedSoFar.map((rel) => `- ${rel}`).join('\n')}` : 'Changed allowed files so far: none.',
     'Required product delta:',
-    '- Modify at least one product target with real surface-specific behavior, validation, route/domain logic, state shaping, or user-visible data contract.',
+    bundleEnabled
+      ? `- Modify at least ${Math.max(1, Number(bundle.minProductTargetsToModify || 1))} product target file(s) with one coherent behavior/data-contract slice across the bundle.`
+      : '- Modify at least one product target with real surface-specific behavior, validation, route/domain logic, state shaping, or user-visible data contract.',
     '- No docs-only/tests-only/comment-only/marker-only/generic shim changes.',
     '- Keep scope tight; use assigned files and direct imports rather than broad repository exploration.'
   ].filter(Boolean).join('\n\n');
@@ -540,7 +556,7 @@ const agentId = process.env.CREATIVE_WORKER_AGENT_ID || null;
 const allowedFiles = parseList(process.env.CREATIVE_WORKER_ALLOWED_FILES);
 const minIterations = Math.max(1, Number(process.env.CREATIVE_WORKER_MIN_ITERATIONS || 3));
 const minRuntimeMs = Math.max(0, Number(process.env.CREATIVE_WORKER_MIN_RUNTIME_MS || 0));
-const iterationTimeoutMs = clamp(process.env.CODEX_CREATIVE_ITERATION_TIMEOUT_MS || 420000, 30000, 1800000);
+const baseIterationTimeoutMs = clamp(process.env.CODEX_CREATIVE_ITERATION_TIMEOUT_MS || 420000, 30000, 1800000);
 const codexBin = process.env.CODEX_BIN || 'codex';
 const codexModel = process.env.CODEX_CREATIVE_MODEL || process.env.CODEX_MODEL || 'gpt-5.5';
 const codexSandbox = process.env.CODEX_CREATIVE_SANDBOX || 'workspace-write';
@@ -563,7 +579,7 @@ const budgetLedgerPath = process.env.CREATIVE_WORKER_BUDGET_LEDGER_PATH || task.
 const budgetRequired = parseBool(process.env.CREATIVE_WORKER_BUDGET_REQUIRED, false);
 const globalCallLimit = positiveInt(process.env.CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT, 0);
 const globalTokenLimit = positiveInt(process.env.CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT, 0);
-const tokenReservationEstimate = positiveInt(process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE, 0);
+const baseTokenReservationEstimate = positiveInt(process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE, 0);
 const perWorkerCallLimit = positiveInt(process.env.CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT, 0);
 const maxActiveCodexCalls = positiveInt(process.env.CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS, 0);
 const activeCodexCallSchedule = parseActiveCodexCallSchedule(process.env.CREATIVE_WORKER_ACTIVE_CODEX_CALL_SCHEDULE || '');
@@ -585,6 +601,24 @@ const maxObservedTokensPerMinute = positiveInt(process.env.CREATIVE_WORKER_MAX_O
 const burnRateWindowMs = positiveInt(process.env.CREATIVE_WORKER_BURN_RATE_WINDOW_MS, 10 * 60 * 1000);
 const repairSummaryPath = process.env.CREATIVE_WORKER_REPAIR_SUMMARY_PATH || '';
 const initialRepairSummary = process.env.CREATIVE_WORKER_REPAIR_SUMMARY || (repairSummaryPath ? readFilePrefix(repairSummaryPath, 8000) : '');
+const inheritedBundleRuntimePlan = parseJsonEnv(process.env.CREATIVE_WORKER_BUNDLE_RUNTIME_PLAN, null);
+const computedBundleRuntimePlan = planCreativeBundleRuntime({
+  bundle: task.bundle || cortexPacket?.surface?.bundle || {},
+  baseIterationTimeoutMs,
+  baseTokenReservationEstimate,
+  maxComplexityFactor: positiveInt(process.env.CREATIVE_WORKER_BUNDLE_MAX_COMPLEXITY_FACTOR, 4),
+  maxIterationTimeoutMs: positiveInt(process.env.CREATIVE_WORKER_BUNDLE_MAX_ITERATION_TIMEOUT_MS, 1_800_000),
+  maxTokenReservationEstimate: positiveInt(process.env.CREATIVE_WORKER_BUNDLE_MAX_TOKEN_RESERVATION_ESTIMATE, 0)
+});
+const bundleRuntimePlan = inheritedBundleRuntimePlan?.enabled === true
+  ? {
+      ...computedBundleRuntimePlan,
+      ...inheritedBundleRuntimePlan,
+      inheritedFromParentWorker: true
+    }
+  : computedBundleRuntimePlan;
+const iterationTimeoutMs = Math.max(30_000, Number(bundleRuntimePlan.iterationTimeoutMs || computedBundleRuntimePlan.iterationTimeoutMs || baseIterationTimeoutMs));
+const tokenReservationEstimate = Math.max(0, Number(bundleRuntimePlan.tokenReservationEstimate || computedBundleRuntimePlan.tokenReservationEstimate || baseTokenReservationEstimate));
 
 if (cortexRequired && !cortexPacket) {
   writeJson(evidencePath, {
@@ -783,6 +817,8 @@ function completeBudget(reservation, iteration, logPath, exitCode) {
 }
 
 function buildPrompt({ iteration, elapsedMs, changedSoFar, mode = promptMode, repairSummary = '', externalVerifications = [] }) {
+  const bundle = task.bundle || cortexPacket?.surface?.bundle || null;
+  const bundleEnabled = bundle?.enabled === true;
   const phase = iteration === 1
     ? 'inspect the assigned surface and make a concrete product-code improvement'
     : 'repair or harden the already-touched product code based on the real repair signal; do not merely repeat prior changes';
@@ -830,6 +866,12 @@ ${allowedFiles.map((rel) => `- ${rel}`).join('\n')}
 Product files that must receive any credited code delta:
 ${productFiles.map((rel) => `- ${rel}`).join('\n')}
 
+${bundleEnabled ? `Bundled product-slice requirement:
+- Source surfaces: ${(bundle.sourceSurfaceIds || []).join(', ')}
+- Modify at least ${Math.max(1, Number(bundle.minProductTargetsToModify || 1))} product target file(s).
+- Make the edits read as one coherent product behavior/data-contract slice, not unrelated tiny changes.
+${Array.isArray(bundle.sourceSurfaces) && bundle.sourceSurfaces.length ? `- Source objectives:\n${bundle.sourceSurfaces.slice(0, 8).map((surface, index) => `  ${index + 1}. ${surface.id || 'surface'}: ${surface.productGoal || surface.label || ''}`).join('\n')}` : ''}` : ''}
+
 Acceptance checks from harness:
 ${(task.acceptanceChecks || []).map((entry) => `- ${normalizeCommandEntry(entry) || entry}`).join('\n') || '- No extra acceptance checks provided.'}
 
@@ -846,7 +888,7 @@ ${repairSummary ? `Repair signal from previous external verification/quality gat
 
 Rules:
 - ${phase}.
-- Modify at least one assigned product source file under apps/ or packages/.
+- ${bundleEnabled ? `Modify at least ${Math.max(1, Number(bundle.minProductTargetsToModify || 1))} assigned product source file(s) under apps/ or packages/.` : 'Modify at least one assigned product source file under apps/ or packages/.'}
 - Do not add benchmark-only generic semanticProductArchitecture shims.
 - Do not make docs-only, tests-only, marker-only, or comment-only changes.
 - Keep changes small enough to survive the targeted tests.
@@ -1060,7 +1102,9 @@ writeJson(evidencePath, {
     required: budgetRequired,
     globalCallLimit,
     globalTokenLimit,
+    baseTokenReservationEstimate,
     tokenReservationEstimate,
+    bundleRuntimePlan,
     perWorkerCallLimit,
     maxActiveCodexCalls,
     activeCodexCallSchedule: activeCodexCallSchedule.raw ? {
@@ -1082,6 +1126,7 @@ writeJson(evidencePath, {
     model: codexModel,
     sandbox: codexSandbox,
     maxIterations,
+    baseIterationTimeoutMs,
     iterationTimeoutMs,
     lastExitCode,
     lastSignal,
