@@ -286,7 +286,7 @@ def compile_plan_to_agent_work_handoff(
         objective=graph.goal or graph.description or graph.name,
         repoPath=repo_path,
         benchmarkId=graph_metadata.get("benchmarkId") or graph_metadata.get("benchmark_id"),
-        benchmarkTier=graph_metadata.get("benchmarkTier") or graph_metadata.get("benchmark_tier") or "agent_work_contract_v0",
+        benchmarkTier=graph_metadata.get("benchmarkTier") or graph_metadata.get("benchmark_tier") or "execution_smoke",
         runId=run_id or graph_metadata.get("run_id"),
         artifactRoot=graph_metadata.get("artifactRoot") or graph_metadata.get("artifact_root"),
         scoreboardPath=graph_metadata.get("scoreboardPath") or graph_metadata.get("scoreboard_path"),

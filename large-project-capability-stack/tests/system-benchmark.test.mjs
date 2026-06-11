@@ -144,6 +144,23 @@ test('system benchmark can compile run contracts and upsert scoreboard rows', ()
 });
 
 test('system benchmark threshold evaluation enforces tier requirements honestly', () => {
+  const executionSmokePass = evaluateBenchmarkThresholds({
+    benchmarkTier: 'execution_smoke',
+    metrics: {
+      productiveIterationRate: 1,
+      noOpRate: 0,
+      repeatBlockerRate: 0,
+      medianMinutesToMeaningfulProgress: 0,
+      verificationIntegrity: 1,
+      handoffEfficiency: 1,
+      autonomyWindowMinutes: 0,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0,
+      transferScore: 1
+    }
+  });
+  assert.equal(executionSmokePass.ok, true);
+
   const tier1Pass = evaluateBenchmarkThresholds({
     benchmarkTier: 'tier1_smoke',
     metrics: {
@@ -159,6 +176,23 @@ test('system benchmark threshold evaluation enforces tier requirements honestly'
     }
   });
   assert.equal(tier1Pass.ok, true);
+
+  const tier1ShortCanaryFail = evaluateBenchmarkThresholds({
+    benchmarkTier: 'tier1_smoke',
+    metrics: {
+      productiveIterationRate: 1,
+      noOpRate: 0,
+      repeatBlockerRate: 0,
+      medianMinutesToMeaningfulProgress: 0,
+      verificationIntegrity: 1,
+      handoffEfficiency: 1,
+      autonomyWindowMinutes: 0,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0
+    }
+  });
+  assert.equal(tier1ShortCanaryFail.ok, false);
+  assert.deepEqual(tier1ShortCanaryFail.failures.map((entry) => entry.metric), ['autonomyWindowMinutes']);
 
   const tier2Fail = evaluateBenchmarkThresholds({
     benchmarkTier: 'tier2_functional',
@@ -3175,6 +3209,63 @@ process.exit(1);
   assert.equal(ledger.globalStop, null);
   assert.equal(ledger.events.at(-1).usageLimit, false);
   assert.equal(evidence.risks.includes('codex_usage_limit_observed'), false);
+});
+
+test('codex creative worker treats auth refresh failure as non-retryable blocker', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-auth-failure-'));
+  const workspace = path.join(root, 'repo');
+  write(path.join(workspace, 'packages', 'app', 'auth-surface.mjs'), 'export function authSurfaceState(input = {}) { return { input, status: "initial" }; }\n');
+  const taskPath = path.join(root, 'task.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  const ledgerPath = path.join(root, 'ledger.json');
+  const mockCodex = path.join(root, 'mock-codex.mjs');
+  write(taskPath, JSON.stringify({
+    goal: 'Probe Codex auth failure classification',
+    acceptanceChecks: []
+  }, null, 2));
+  write(mockCodex, `#!/usr/bin/env node
+console.error('2026-06-11T17:16:46Z ERROR failed to connect to websocket: HTTP error: 401 Unauthorized');
+console.error('ERROR: Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.');
+process.exit(1);
+`);
+  fs.chmodSync(mockCodex, 0o755);
+  const worker = path.resolve('apps/system-benchmark/codex-creative-worker.mjs');
+  const spawned = spawnSync(process.execPath, [worker], {
+    cwd: workspace,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_TASK_PATH: taskPath,
+      CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
+      CREATIVE_WORKER_WORKSPACE: workspace,
+      CREATIVE_WORKER_ALLOWED_FILES: 'packages/app/auth-surface.mjs',
+      CREATIVE_WORKER_SURFACE_ID: 'auth_surface',
+      CREATIVE_WORKER_AGENT_ID: 'agent-auth-failure',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_LEDGER_PATH: ledgerPath,
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_MIN_ITERATIONS: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '1',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '1',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '100000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '1000',
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_MODEL: 'mock-model',
+      CODEX_CREATIVE_SANDBOX: 'danger-full-access'
+    }
+  });
+  assert.equal(spawned.status, 1);
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+  assert.equal(evidence.ok, false);
+  assert.equal(evidence.retryable, false);
+  assert.equal(evidence.budget.stopReason, 'codex_auth_failure_observed');
+  assert.equal(evidence.budget.events.at(-1).usage.authFailure, true);
+  assert.equal(evidence.budget.events.at(-1).usage.usageLimit, false);
+  assert.equal(ledger.globalStop.reason, 'codex_auth_failure_observed');
+  assert.equal(ledger.events.at(-1).authFailure, true);
 });
 
 test('codex creative worker prompt-token hard stop fires before reservation or Codex spawn', () => {

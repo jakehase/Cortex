@@ -159,6 +159,31 @@ function writeBlocker({ artifactRoot, contract, blocker, nextAction, phase = 'co
   return report;
 }
 
+function materializeDeploymentManifest({ artifactRoot, contract }) {
+  const source = process.env.AGENT_WORK_DEPLOYMENT_MANIFEST
+    || contract.deploymentManifestPath
+    || contract.metadata?.deploymentManifestPath
+    || contract.metadata?.deployment_manifest_path
+    || null;
+  if (!source) return null;
+  const sourcePath = path.resolve(source);
+  if (!fs.existsSync(sourcePath)) return { sourcePath, copied: false, error: 'deployment_manifest_missing' };
+  const manifest = readJson(sourcePath, null);
+  const artifactPath = path.join(artifactRoot, 'deployment_manifest.json');
+  if (path.resolve(sourcePath) !== path.resolve(artifactPath)) writeJson(artifactPath, manifest);
+  return {
+    sourcePath,
+    artifactPath,
+    copied: true,
+    schemaVersion: manifest?.schemaVersion || null,
+    bundleId: manifest?.bundleId || null,
+    gitCommit: manifest?.git?.commit || null,
+    gitDirty: manifest?.git?.dirty ?? null,
+    fileCount: manifest?.fileCount ?? null,
+    aggregateSha256: manifest?.aggregateSha256 || null
+  };
+}
+
 function controllerTargetFromContract(contract, args) {
   const go = contract.scope?.goThresholds || {};
   const tierThresholds = BENCHMARK_TIER_THRESHOLDS[contract.benchmarkTier || 'tier2_functional'] || BENCHMARK_TIER_THRESHOLDS.tier2_functional || {};
@@ -433,10 +458,12 @@ args.contractPath = resolvedRunInput.runContractPath || args.contractPath;
 const controllerRoot = args.artifactRoot || baseContract.artifactRoot || path.join(path.dirname(args.contractPath), 'continuous_controller');
 const repoPath = args.repoPath || baseContract.repoPath;
 fs.mkdirSync(controllerRoot, { recursive: true });
+const deploymentManifest = materializeDeploymentManifest({ artifactRoot: controllerRoot, contract: baseContract });
 writeJson(path.join(controllerRoot, 'runner_input_resolution.json'), {
   ...resolvedRunInput,
   runContract: undefined,
-  compilation: undefined
+  compilation: undefined,
+  deploymentManifest
 });
 
 const remoteRequired = baseContract.executionBoundary === 'remote_execution_required';

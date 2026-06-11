@@ -7,7 +7,7 @@ export const AGENT_WORK_RUN_CONTRACT_SCHEMA = 'claw.agent_benchmark_run_contract
 export const FIDELITY_LATTICE = Object.freeze(['prototype', 'production_slice', 'parity_for_scope', 'full_clone']);
 
 const DEFAULT_STOP_CONDITION = 'supervisor_green_or_blocker_report';
-const DEFAULT_BENCHMARK_TIER = 'agent_work_contract_v0';
+const DEFAULT_BENCHMARK_TIER = 'execution_smoke';
 const DEFAULT_SCOREBOARD_PATH = 'artifacts/benchmarks/scoreboard.json';
 const KNOWN_FORBIDDEN_COMMAND_CAPABILITIES = Object.freeze({
   external_send: [/\bsend(email|grid|mail)\b/i, /\bpost\s+to\s+(slack|discord|twitter|x\.com)\b/i],
@@ -48,6 +48,33 @@ function stableList(value) {
 function numberOr(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function nullableNonNegativeNumber(value, fallback = null) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function booleanOr(value, fallback = undefined) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const text = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(text)) return true;
+  if (['0', 'false', 'no', 'off'].includes(text)) return false;
+  return fallback;
+}
+
+function objectOr(value, fallback = {}) {
+  if (!value) return fallback;
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value === 'string' && value.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+    } catch {}
+  }
+  return fallback;
 }
 
 function stripComment(line) {
@@ -251,6 +278,23 @@ function uniqueVerifierSet(surfaces) {
 }
 
 function buildRunContract(spec) {
+  const explicitDurationTargetMinutes = nullableNonNegativeNumber(spec.metadata.durationTargetMinutes ?? spec.metadata.duration_target_minutes, null);
+  const durationTargetMinutes = explicitDurationTargetMinutes != null
+    ? explicitDurationTargetMinutes
+    : spec.benchmarkTier === 'execution_smoke'
+      ? null
+      : 60;
+  const productDiffMode = clean(spec.metadata.productDiffMode ?? spec.metadata.product_diff_mode);
+  const creativeProductWork = objectOr(spec.metadata.creativeProductWork ?? spec.metadata.creative_product_work, {});
+  const creativeProductWorkRequired = booleanOr(creativeProductWork.required, productDiffMode === 'creative_product_work' ? true : undefined);
+  const defaultRequireRealProductDiffs = productDiffMode
+    ? true
+    : spec.benchmarkTier === 'execution_smoke'
+      ? false
+      : undefined;
+  const requireRealProductDiffs = booleanOr(spec.metadata.requireRealProductDiffs ?? spec.metadata.require_real_product_diffs, defaultRequireRealProductDiffs);
+  const canonicalLandingEvidence = objectOr(spec.metadata.canonicalLandingEvidence ?? spec.metadata.canonical_landing_evidence, {});
+  const semanticProductAdmission = objectOr(spec.metadata.semanticProductAdmission ?? spec.metadata.semantic_product_admission, {});
   return {
     schemaVersion: AGENT_WORK_RUN_CONTRACT_SCHEMA,
     generatedAt: spec.generatedAt,
@@ -259,7 +303,17 @@ function buildRunContract(spec) {
     benchmarkClass: 'agent_work_orchestration',
     fidelity: spec.fidelity,
     scope: {
-      durationTargetMinutes: numberOr(spec.metadata.durationTargetMinutes || spec.metadata.duration_target_minutes, 60),
+      durationTargetMinutes,
+      ...(productDiffMode ? { productDiffMode } : {}),
+      ...(requireRealProductDiffs !== undefined ? { requireRealProductDiffs } : {}),
+      ...(Object.keys(creativeProductWork).length || creativeProductWorkRequired !== undefined ? {
+        creativeProductWork: {
+          ...(creativeProductWork || {}),
+          ...(creativeProductWorkRequired !== undefined ? { required: creativeProductWorkRequired } : {})
+        }
+      } : {}),
+      ...(Object.keys(canonicalLandingEvidence).length ? { canonicalLandingEvidence } : {}),
+      ...(Object.keys(semanticProductAdmission).length ? { semanticProductAdmission } : {}),
       surfaces: spec.surfaces.map((surface) => ({
         id: surface.id,
         label: surface.label,

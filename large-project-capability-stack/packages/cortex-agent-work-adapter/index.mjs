@@ -133,7 +133,7 @@ export function normalizeCortexAgentWorkHandoff(input = {}, options = {}) {
     objective,
     repoPath,
     benchmarkId,
-    benchmarkTier: clean(input.benchmarkTier || input.benchmark_tier || input.tier || 'agent_work_contract_v0'),
+    benchmarkTier: clean(input.benchmarkTier || input.benchmark_tier || input.tier || 'execution_smoke'),
     runId: clean(input.runId || input.run_id || options.runId),
     artifactRoot: clean(input.artifactRoot || input.artifact_root || options.artifactRoot),
     scoreboardPath: clean(input.scoreboardPath || input.scoreboard_path),

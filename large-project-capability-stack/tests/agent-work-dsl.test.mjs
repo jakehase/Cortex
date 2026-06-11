@@ -63,6 +63,38 @@ surface audience_import
   assert.equal(compiled.runContract.scope.doneWhen.includes('no_truth_layer_overclaim'), true);
 });
 
+test('agent work DSL defaults to execution_smoke without an endurance duration target', () => {
+  const compiled = compileAgentWorkSpec({
+    goalId: 'SmokeCanary',
+    repoPath: '/tmp/repo',
+    fidelity: 'production_slice',
+    surfaces: [{ id: 'canary', files: ['src/canary.mjs'], verify: ['node --test tests/canary.test.mjs'] }]
+  }, { generatedAt: '2026-06-11T00:00:00.000Z', runId: 'smoke-canary' });
+  assert.equal(compiled.runContract.benchmarkTier, 'execution_smoke');
+  assert.equal(compiled.runContract.scope.durationTargetMinutes, null);
+  assert.equal(compiled.runContract.scope.requireRealProductDiffs, false);
+});
+
+test('agent work DSL can declare creative product-diff canary scope', () => {
+  const compiled = compileAgentWorkSpec({
+    goalId: 'ModelProductDiffCanary',
+    repoPath: '/tmp/repo',
+    fidelity: 'production_slice',
+    benchmarkTier: 'execution_smoke',
+    metadata: {
+      productDiffMode: 'creative_product_work',
+      requireRealProductDiffs: true,
+      creativeProductWork: { required: true, minIterations: 1, minWorkerRuntimeMs: 0 },
+      canonicalLandingEvidence: { enabled: true, minAddedLineCount: 1, minUniqueNormalizedAddedLineCount: 1 }
+    },
+    surfaces: [{ id: 'canary', files: ['packages/canary/index.mjs'], verify: ['node --test tests/canary.test.mjs'] }]
+  }, { generatedAt: '2026-06-11T00:00:00.000Z', runId: 'model-canary' });
+  assert.equal(compiled.runContract.scope.productDiffMode, 'creative_product_work');
+  assert.equal(compiled.runContract.scope.requireRealProductDiffs, true);
+  assert.equal(compiled.runContract.scope.creativeProductWork.required, true);
+  assert.equal(compiled.runContract.scope.canonicalLandingEvidence.enabled, true);
+});
+
 test('agent work DSL refuses forbidden relaunch actions and suspicious verifier commands', () => {
   const base = {
     goalId: 'NoRelaunchRepair',
@@ -179,6 +211,14 @@ test('transfer runner accepts agent work DSL input and blocks at execution bound
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-work-transfer-runner-'));
   const artifactRoot = path.join(temp, 'artifact');
   const specPath = path.join(temp, 'boundary.aw');
+  const deploymentManifestPath = path.join(temp, 'deployment_manifest.json');
+  fs.writeFileSync(deploymentManifestPath, JSON.stringify({
+    schemaVersion: 'claw.agent_work_deployment_manifest.v0',
+    bundleId: 'boundary-manifest',
+    git: { commit: 'abc123', dirty: false },
+    fileCount: 1,
+    aggregateSha256: 'digest'
+  }, null, 2));
   fs.writeFileSync(specPath, `goal BoundaryProbe
 repo ${root}
 artifact_root ${artifactRoot}
@@ -193,7 +233,7 @@ surface boundary_probe
 `);
   const run = spawnSync(process.execPath, [path.join(root, 'apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs'), specPath], {
     cwd: root,
-    env: { ...process.env, BENCHMARK_HOST_ROLE: 'control_plane' },
+    env: { ...process.env, BENCHMARK_HOST_ROLE: 'control_plane', AGENT_WORK_DEPLOYMENT_MANIFEST: deploymentManifestPath },
     encoding: 'utf8'
   });
   assert.equal(run.status, 2, run.stderr || run.stdout);
@@ -201,4 +241,6 @@ surface boundary_probe
   const blocker = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'blocker_report.json'), 'utf8'));
   assert.equal(blocker.status, 'blocked');
   assert.equal(blocker.requiredHostRole, 'execution_plane');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(artifactRoot, 'deployment_manifest.json'), 'utf8')).bundleId, 'boundary-manifest');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(artifactRoot, 'runner_input_resolution.json'), 'utf8')).deploymentManifest.bundleId, 'boundary-manifest');
 });

@@ -167,6 +167,21 @@ function detectCodexUsageLimit(text = '', { exitCode = null } = {}) {
   ].some((pattern) => pattern.test(value));
 }
 
+function detectCodexAuthFailure(text = '', { exitCode = null } = {}) {
+  const failed = exitCode == null || Number(exitCode) !== 0;
+  if (!failed) return false;
+  const value = String(text || '');
+  return [
+    /\b(?:HTTP error:\s*)?401 Unauthorized\b/i,
+    /\brefresh_token_reused\b/i,
+    /\brefresh token (?:has already been used|was already used|could not be refreshed)\b/i,
+    /\baccess token could not be refreshed\b/i,
+    /\bFailed to refresh token\b/i,
+    /\bPlease (?:log|sign) (?:in|out and sign in again)\b/i,
+    /\bNot logged in\b/i
+  ].some((pattern) => pattern.test(value));
+}
+
 function parseCodexTokenUsage(logPath, { exitCode = null } = {}) {
   const text = readFilePrefix(logPath, 2 * 1024 * 1024);
   const values = [];
@@ -180,7 +195,8 @@ function parseCodexTokenUsage(logPath, { exitCode = null } = {}) {
     values,
     total: values.reduce((sum, value) => sum + value, 0),
     last: values.length ? values.at(-1) : 0,
-    usageLimit: detectCodexUsageLimit(text, { exitCode })
+    usageLimit: detectCodexUsageLimit(text, { exitCode }),
+    authFailure: detectCodexAuthFailure(text, { exitCode })
   };
 }
 
@@ -864,9 +880,12 @@ function completeBudget(reservation, iteration, logPath, exitCode) {
     worker.callsCompleted = Number(worker.callsCompleted || 0) + 1;
     ledger.tokensObserved = Number(ledger.tokensObserved || 0) + usage.total;
     worker.tokensObserved = Number(worker.tokensObserved || 0) + usage.total;
-    const event = { at: new Date().toISOString(), type: 'codex_call_completed', reservationId: reservation.reservationId, workerKey, surfaceId, iteration, exitCode, tokensObserved: usage.total, tokenValues: usage.values, usageLimit: usage.usageLimit, activeCalls: ledger.activeCalls };
+    const event = { at: new Date().toISOString(), type: 'codex_call_completed', reservationId: reservation.reservationId, workerKey, surfaceId, iteration, exitCode, tokensObserved: usage.total, tokenValues: usage.values, usageLimit: usage.usageLimit, authFailure: usage.authFailure, activeCalls: ledger.activeCalls };
     ledger.events.push(event);
-    if (usage.usageLimit) {
+    if (usage.authFailure) {
+      ownGlobalStop = { reason: 'codex_auth_failure_observed', at: new Date().toISOString(), reservationId: reservation.reservationId, surfaceId };
+      ledger.globalStop = ownGlobalStop;
+    } else if (usage.usageLimit) {
       ownGlobalStop = { reason: 'codex_usage_limit_observed', at: new Date().toISOString(), reservationId: reservation.reservationId, surfaceId };
       ledger.globalStop = ownGlobalStop;
     } else if (!ledger.globalStop && hardTokenBudget && globalTokenLimit && Number(ledger.tokensObserved || 0) >= globalTokenLimit) {
@@ -1156,6 +1175,7 @@ writeJson(evidencePath, {
   testsRun,
   risks,
   retryable: !(budgetStopReason === 'codex_usage_limit_observed'
+    || budgetStopReason === 'codex_auth_failure_observed'
     || budgetStopReason === 'creative_global_token_limit_reached'
     || budgetStopReason === 'creative_global_reserved_token_limit_reached'
     || budgetStopReason === 'creative_global_call_limit_reached'

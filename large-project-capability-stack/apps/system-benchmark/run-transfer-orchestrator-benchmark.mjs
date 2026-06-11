@@ -24,6 +24,31 @@ function writeJson(targetPath, value) {
   fs.writeFileSync(targetPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
+function materializeDeploymentManifest({ artifactRoot, contract }) {
+  const source = process.env.AGENT_WORK_DEPLOYMENT_MANIFEST
+    || contract.deploymentManifestPath
+    || contract.metadata?.deploymentManifestPath
+    || contract.metadata?.deployment_manifest_path
+    || null;
+  if (!source) return null;
+  const sourcePath = path.resolve(source);
+  if (!fs.existsSync(sourcePath)) return { sourcePath, copied: false, error: 'deployment_manifest_missing' };
+  const manifest = readJson(sourcePath, null);
+  const artifactPath = path.join(artifactRoot, 'deployment_manifest.json');
+  if (path.resolve(sourcePath) !== path.resolve(artifactPath)) writeJson(artifactPath, manifest);
+  return {
+    sourcePath,
+    artifactPath,
+    copied: true,
+    schemaVersion: manifest?.schemaVersion || null,
+    bundleId: manifest?.bundleId || null,
+    gitCommit: manifest?.git?.commit || null,
+    gitDirty: manifest?.git?.dirty ?? null,
+    fileCount: manifest?.fileCount ?? null,
+    aggregateSha256: manifest?.aggregateSha256 || null
+  };
+}
+
 function usage() {
   console.error('usage: node run-transfer-orchestrator-benchmark.mjs <run_contract.json|agent_work_spec.aw|agent_work_spec.json|compiled-agent-work-dir>');
   process.exit(1);
@@ -646,10 +671,12 @@ const contractPath = resolvedRunInput.runContractPath || inputPath;
 const contract = resolvedRunInput.runContract;
 const artifactRoot = path.resolve(contract.artifactRoot);
 const scoreboardPath = path.resolve(contract.scoreboardPath || path.join(artifactRoot, 'scoreboard_row.json'));
+const deploymentManifest = materializeDeploymentManifest({ artifactRoot, contract });
 writeJson(path.join(artifactRoot, 'runner_input_resolution.json'), {
   ...resolvedRunInput,
   runContract: undefined,
-  compilation: undefined
+  compilation: undefined,
+  deploymentManifest
 });
 const surfaceMatrixPath = path.join(artifactRoot, 'surface_matrix.json');
 const existingSurfaceMatrix = readJson(surfaceMatrixPath, null);

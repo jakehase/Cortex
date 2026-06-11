@@ -95,7 +95,7 @@ class CortexAgentWorkHandoff(BaseModel):
     objective: str
     repoPath: str
     benchmarkId: Optional[str] = None
-    benchmarkTier: str = "agent_work_contract_v0"
+    benchmarkTier: str = "execution_smoke"
     runId: Optional[str] = None
     artifactRoot: Optional[str] = None
     scoreboardPath: Optional[str] = None

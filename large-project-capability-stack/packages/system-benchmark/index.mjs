@@ -384,6 +384,18 @@ export function resolveBenchmarkLeaseTtlMs({ scope = {}, env = process.env, fall
 }
 
 export const BENCHMARK_TIER_THRESHOLDS = Object.freeze({
+  execution_smoke: Object.freeze({
+    productiveIterationRate: Object.freeze({ min: 1 }),
+    noOpRate: Object.freeze({ max: 0 }),
+    repeatBlockerRate: Object.freeze({ max: 0 }),
+    medianMinutesToMeaningfulProgress: Object.freeze({ max: 1 }),
+    verificationIntegrity: Object.freeze({ eq: 1 }),
+    handoffEfficiency: Object.freeze({ eq: 1 }),
+    autonomyWindowMinutes: Object.freeze({ min: 0 }),
+    truthIntegrityContradictions: Object.freeze({ eq: 0 }),
+    fakeGreenIncidents: Object.freeze({ eq: 0 }),
+    transferScore: Object.freeze({ min: 1 })
+  }),
   tier1_smoke: Object.freeze({
     productiveIterationRate: Object.freeze({ min: 0.55 }),
     noOpRate: Object.freeze({ max: 0.20 }),
