@@ -19,6 +19,8 @@ import {
   createArtifactBus,
   publishArtifact,
   compileContextPack,
+  buildContextGovernorReport,
+  buildWaveFactPack,
   createPatchQueue,
   enqueuePatch,
   processPatchQueue,
@@ -338,6 +340,97 @@ test('context pack compiler keeps local scope and dependency artifacts only', ()
   assert.equal(pack.assignmentContract.targetFiles.length, 2);
   assert.ok(pack.assignmentContract.targetFiles.every((file) => file.startsWith('src/alpha/')));
   assert.deepEqual(pack.assignmentContract.verifierRequirements, ['lint', 'tests']);
+});
+
+test('context governor compacts worker packs and emits retrieval/model metadata', () => {
+  const { workGraph, surfaceMatrix } = sampleGraph();
+  const plan = buildShardPlan({ workGraph, surfaceMatrix, options: { maxFileAreasPerShard: 4, maxFilesPerShard: 4 } });
+  const contract = compileTaskContract({ anchor: 'token efficiency architecture', targetPath: '/tmp/project', requestedScope: ['A1'], evidenceRequirements: ['tests'] });
+  const alphaFirst = plan.shards.find((shard) => shard.id === 'alpha#1');
+  alphaFirst.inputRefs = ['campaignBrief', 'largePriorTranscript'];
+  const pack = compileContextPack({
+    contract,
+    shard: alphaFirst,
+    shardPlan: plan,
+    surfaceMatrix,
+    artifactBus: createArtifactBus(),
+    globalInputs: {
+      campaignBrief: 'deliver alpha',
+      largePriorTranscript: 'previous worker transcript\n'.repeat(2000)
+    },
+    contextGovernorOptions: {
+      enabled: true,
+      hardGate: true,
+      maxWorkerTokens: 2200,
+      maxInputChars: 240,
+      maxTotalInputChars: 420,
+      maxAllowedFiles: 2,
+      maxFileAreas: 2
+    },
+    previousWaveFactpack: { schemaVersion: 'clawd.wave_factpack.v1', waveNumber: 3, summary: { mergedShardCount: 12 }, rejectedByReason: { verifier_failed: 2 }, recentFailures: [{ shardId: 'old' }] }
+  });
+
+  assert.equal(pack.contextGovernor.enabled, true);
+  assert.equal(pack.modelTierPlan.worker.role, 'narrow_worker');
+  assert.equal(pack.modelTierPlan.worker.promptMode, 'compact');
+  assert.equal(pack.retrievalManifest.mode, 'on_demand_assigned_files_only');
+  assert.ok(pack.retrievalManifest.inputHandles.some((entry) => entry.key === 'largePriorTranscript'));
+  assert.equal(pack.dependencies.previousWaveFactpack.waveNumber, 3);
+  assert.match(pack.contextCache.packDigest, /^[a-f0-9]{64}$/);
+  assert.match(pack.contextCache.retrievalDigest, /^[a-f0-9]{64}$/);
+  assert.ok(pack.contextFootprint.postGovernorApproxTokens <= 2200);
+  assert.ok(pack.contextFootprint.projectedSavingsRatio > 1);
+});
+
+test('context governor hard gate blocks live workers before token burn', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestrator-context-gate-'));
+  const workspace = path.join(tmp, 'workspace');
+  fs.mkdirSync(path.join(workspace, 'src/alpha'), { recursive: true });
+  fs.writeFileSync(path.join(workspace, 'src/alpha/index.mjs'), 'export const alpha = 1;\n');
+  fs.writeFileSync(path.join(workspace, 'src/alpha/sidebar.mjs'), 'export const sidebar = 1;\n');
+  fs.writeFileSync(path.join(workspace, 'src/alpha/header.mjs'), 'export const header = 1;\n');
+  fs.writeFileSync(path.join(workspace, 'src/alpha/panel.mjs'), 'export const panel = 1;\n');
+  const { workGraph, surfaceMatrix } = sampleGraph();
+  const workerScript = path.join(tmp, 'worker.mjs');
+  fs.writeFileSync(workerScript, `import fs from 'node:fs';\nfs.writeFileSync(process.argv.at(-1) || 'unexpected', '{}');\n`);
+
+  const result = await runLiveWorkerFarm({
+    workGraph,
+    surfaceMatrix,
+    agentCount: 100,
+    workerScriptPath: workerScript,
+    verifierScriptPath: workerScript,
+    workspacePath: workspace,
+    runRoot: path.join(tmp, 'run'),
+    maxRuntimeMs: 200,
+    globalInputs: { largePriorTranscript: 'huge context\n'.repeat(5000) },
+    contextGovernorOptions: { enabled: true, hardGate: true, maxWorkerTokens: 5 }
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.summary.blocker, 'context_pack_budget_exceeded');
+  assert.equal(result.metrics.workerSpawnCount, 0);
+  assert.equal(result.contextGovernor.budgetFailureCount > 0, true);
+  assert.equal(result.contextGovernor.contextCache.uniquePackDigestCount > 0, true);
+  assert.equal(fs.existsSync(path.join(tmp, 'run', 'context_governor_report.json')), true);
+  assert.equal(fs.existsSync(path.join(tmp, 'run', 'wave_factpack.json')), true);
+});
+
+test('wave factpack carries compact handoff facts without transcript replay', () => {
+  const queue = createPatchQueue();
+  queue.merged.push({ shardId: 'alpha#1' });
+  queue.rejected.push({ shardId: 'beta#1', rejectionReason: 'verifier_failed' });
+  const factpack = buildWaveFactPack({
+    waveNumber: 2,
+    runSummary: { agentCount: 100, shardCount: 2, mergedShardCount: 1, elapsedMs: 1234 },
+    patchQueue: queue,
+    workerEvents: [{ type: 'live_worker_exit', shardId: 'beta#1', agentId: 'agent-7', ok: false, reason: 'exit_1' }],
+    contextGovernorReport: buildContextGovernorReport({ contextPacks: [], options: { enabled: true, hardGate: true }, agentCount: 100, shardCount: 2 })
+  });
+  assert.equal(factpack.schemaVersion, 'clawd.wave_factpack.v1');
+  assert.deepEqual(factpack.mergedShardIds, ['alpha#1']);
+  assert.equal(factpack.rejectedByReason.verifier_failed, 1);
+  assert.equal(factpack.nextWaveInstructions.some((line) => /transcripts/i.test(line)), true);
 });
 
 test('patch queue merge gate waits on transient ownership conflicts and passes clean patches', async () => {

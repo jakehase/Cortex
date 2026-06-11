@@ -1719,7 +1719,349 @@ export function summarizeArtifactBus(bus) {
   };
 }
 
-export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix = { surfaces: [] }, artifactBus = createArtifactBus(), globalInputs = {} }) {
+function boolish(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const text = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(text)) return true;
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(text)) return false;
+  return fallback;
+}
+
+function positiveNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function approxTokenCount(value = '') {
+  return Math.ceil(String(value || '').length / 4);
+}
+
+function compactInlineText(value = '', maxChars = 1200) {
+  const text = String(value || '');
+  const max = Math.max(120, Number(maxChars || 1200));
+  if (text.length <= max) return text;
+  const head = Math.max(60, Math.floor(max * 0.62));
+  const tail = Math.max(40, max - head - 80);
+  return `${text.slice(0, head)}
+...[context-governor trimmed ${Math.max(0, text.length - head - tail)} chars]...
+${text.slice(-tail)}`;
+}
+
+function valueKind(value) {
+  if (Array.isArray(value)) return 'array';
+  if (value === null) return 'null';
+  return typeof value;
+}
+
+function compactInputValue(key, value, policy, state) {
+  const serialized = JSON.stringify(value ?? null);
+  const approxTokens = approxTokenCount(serialized);
+  const maxInlineChars = Math.max(80, Number(policy.maxInputChars || 1200));
+  const remainingChars = Math.max(0, Number(policy.maxTotalInputChars || 6000) - state.inlineChars);
+  const handle = {
+    key,
+    kind: valueKind(value),
+    approxTokens,
+    retrieval: 'on_demand',
+    reason: serialized.length > maxInlineChars ? 'input_too_large_for_worker_pack' : 'context_total_budget_reserved'
+  };
+  if (serialized.length <= maxInlineChars && serialized.length <= remainingChars) {
+    state.inlineChars += serialized.length;
+    return { kept: true, value, handle: null };
+  }
+  if (typeof value === 'string' && remainingChars > 120) {
+    const trimmed = compactInlineText(value, Math.min(maxInlineChars, remainingChars));
+    state.inlineChars += trimmed.length;
+    return { kept: true, value: trimmed, handle: { ...handle, inlineTrimmed: true } };
+  }
+  return { kept: false, value: { __contextRef: `input:${key}`, kind: handle.kind, approxTokens, retrieval: 'on_demand' }, handle };
+}
+
+export function estimateContextTokens(value) {
+  return approxTokenCount(typeof value === 'string' ? value : JSON.stringify(value ?? null));
+}
+
+export function normalizeContextGovernorOptions(options = {}, { agentCount = 0, shardCount = 0 } = {}) {
+  const explicitEnabled = options.enabled ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR;
+  const autoEnabled = Number(agentCount || 0) >= positiveNumber(process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_AUTO_AGENT_THRESHOLD, 25)
+    || boolish(process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_AUTO, false);
+  const enabled = explicitEnabled === undefined || explicitEnabled === null || explicitEnabled === ''
+    ? autoEnabled
+    : boolish(explicitEnabled, autoEnabled);
+  const maxWorkerTokens = positiveNumber(options.maxWorkerTokens ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS, 3200);
+  const hardGateDefault = enabled && Number(agentCount || 0) >= positiveNumber(process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE_AGENT_THRESHOLD, 25);
+  return {
+    enabled,
+    mode: options.mode || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MODE || 'narrow_worker_context_packs',
+    hardGate: boolish(options.hardGate ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE, hardGateDefault),
+    maxWorkerTokens,
+    targetSavingsMin: positiveNumber(options.targetSavingsMin ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MIN, 5),
+    targetSavingsMax: positiveNumber(options.targetSavingsMax ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MAX, 10),
+    maxInputChars: positiveNumber(options.maxInputChars ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_INPUT_CHARS, 1200),
+    maxTotalInputChars: positiveNumber(options.maxTotalInputChars ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_TOTAL_INPUT_CHARS, 6000),
+    maxDependencyArtifacts: positiveNumber(options.maxDependencyArtifacts ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_DEPENDENCY_ARTIFACTS, 8),
+    maxRelatedSurfaces: positiveNumber(options.maxRelatedSurfaces ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_RELATED_SURFACES, 8),
+    maxAllowedFiles: positiveNumber(options.maxAllowedFiles ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_ALLOWED_FILES, 16),
+    maxFileAreas: positiveNumber(options.maxFileAreas ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_FILE_AREAS, 12),
+    workerPromptMode: options.workerPromptMode || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_WORKER_PROMPT_MODE || 'compact',
+    workerRole: options.workerRole || 'narrow_worker',
+    plannerRole: options.plannerRole || 'planner_or_reviewer',
+    reviewerRole: options.reviewerRole || 'reviewer_or_gatekeeper',
+    workerModel: options.workerModel || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_WORKER_MODEL || 'cheap_implementation_worker',
+    plannerModel: options.plannerModel || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_PLANNER_MODEL || 'strong_planner',
+    reviewerModel: options.reviewerModel || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_REVIEWER_MODEL || 'strong_reviewer',
+    retrievalMode: options.retrievalMode || 'on_demand_assigned_files_only',
+    waveFactpackSchema: options.waveFactpackSchema || 'clawd.wave_factpack.v1',
+    agentCount: Number(agentCount || 0),
+    shardCount: Number(shardCount || 0)
+  };
+}
+
+export function buildModelTierPlan({ shard = {}, policy = normalizeContextGovernorOptions({}, {}) } = {}) {
+  const artifactKind = shard.metadata?.assignmentContract?.artifactKind || shard.metadata?.artifactKind || 'verification_evidence';
+  const complexity = stableList([
+    shard.metadata?.semanticPhaseId,
+    shard.metadata?.structuralPhaseId,
+    shard.metadata?.focusLane,
+    shard.lane,
+    shard.domain
+  ]).join(':');
+  const needsStrongWorker = /security|auth|persistence|migration|architecture|editor|journey/i.test(`${artifactKind}:${complexity}`);
+  return {
+    schemaVersion: 'clawd.model_tier_plan.v1',
+    planner: { role: policy.plannerRole, tier: policy.plannerModel, context: 'surface_matrix+wave_factpack+blockers' },
+    reviewer: { role: policy.reviewerRole, tier: policy.reviewerModel, context: 'patch+proof+targeted_failure' },
+    worker: {
+      role: policy.workerRole,
+      tier: needsStrongWorker ? `${policy.workerModel}+escalate_if_needed` : policy.workerModel,
+      promptMode: policy.workerPromptMode,
+      context: 'single_shard_context_pack+retrieval_manifest',
+      escalation: 'return blocker/escalation request instead of expanding context autonomously'
+    }
+  };
+}
+
+export function compactContextPack(pack, options = {}) {
+  const policy = normalizeContextGovernorOptions(options, options);
+  if (!policy.enabled) return pack;
+  const preGovernorJson = JSON.stringify(pack ?? null);
+  const compact = clone(pack);
+  const omissions = [];
+  const inputHandles = [];
+  const inputState = { inlineChars: 0 };
+  const nextInputs = {};
+  for (const [key, value] of Object.entries(compact.inputs || {})) {
+    const result = compactInputValue(key, value, policy, inputState);
+    nextInputs[key] = result.value;
+    if (result.handle) inputHandles.push(result.handle);
+    if (!result.kept) omissions.push({ type: 'input', key, reason: result.handle?.reason || 'input_omitted' });
+  }
+  compact.inputs = nextInputs;
+
+  const fullAllowedFiles = stableList(compact.guardrails?.allowedFiles || []);
+  const fullFileAreas = stableList(compact.guardrails?.fileAreas || []);
+  const allowedFiles = fullAllowedFiles.slice(0, policy.maxAllowedFiles);
+  const fileAreas = fullFileAreas.slice(0, policy.maxFileAreas);
+  if (fullAllowedFiles.length > allowedFiles.length) omissions.push({ type: 'allowedFiles', omittedCount: fullAllowedFiles.length - allowedFiles.length, retrieval: 'assignment.shard.allowedFiles' });
+  if (fullFileAreas.length > fileAreas.length) omissions.push({ type: 'fileAreas', omittedCount: fullFileAreas.length - fileAreas.length, retrieval: 'assignment.shard.fileAreas' });
+  compact.guardrails = {
+    ...(compact.guardrails || {}),
+    allowedFiles,
+    fileAreas,
+    avoidWholeProjectPromptDump: true,
+    retrievalBeforeBroadSearch: true,
+    maxWorkerContextTokens: policy.maxWorkerTokens,
+    promptMode: policy.workerPromptMode
+  };
+
+  const dependencyArtifacts = (compact.dependencies?.artifacts || []).slice(0, policy.maxDependencyArtifacts);
+  if ((compact.dependencies?.artifacts || []).length > dependencyArtifacts.length) omissions.push({ type: 'dependencyArtifacts', omittedCount: compact.dependencies.artifacts.length - dependencyArtifacts.length, retrieval: 'artifact_bus_lookup_by_dependency_shard' });
+  compact.dependencies = {
+    ...(compact.dependencies || {}),
+    artifacts: dependencyArtifacts,
+    previousWaveFactpack: compact.dependencies?.previousWaveFactpack || null
+  };
+  compact.relatedSurfaces = (compact.relatedSurfaces || []).slice(0, policy.maxRelatedSurfaces);
+
+  const retrievalFiles = stableList([
+    ...fullAllowedFiles,
+    ...fullFileAreas,
+    ...(compact.assignmentContract?.targetFiles || []),
+    ...(compact.assignmentContract?.targetModules || [])
+  ]);
+  compact.retrievalManifest = {
+    mode: policy.retrievalMode,
+    instructions: [
+      'Start with assigned product files only.',
+      'Request or inspect direct imports only when the compact pack is stale or insufficient.',
+      'Do not paste whole repo summaries or prior transcripts into worker prompts.'
+    ],
+    fileHandles: retrievalFiles.map((rel) => ({ rel, allowed: fullAllowedFiles.includes(rel) || fullFileAreas.some((area) => overlapsArea(rel, area)) })),
+    inputHandles,
+    dependencyLookup: stableList(compact.dependencies?.shardIds || []).map((shardId) => ({ shardId, lookup: 'artifact_bus_by_shard' }))
+  };
+  compact.modelTierPlan = buildModelTierPlan({ shard: compact.shard || {}, policy });
+  compact.contextGovernor = {
+    schemaVersion: 'clawd.context_governor.v1',
+    enabled: true,
+    mode: policy.mode,
+    hierarchy: {
+      plannerContext: 'broad_objective_surface_matrix_wave_factpack',
+      reviewerContext: 'patch_proof_failure_only',
+      workerContext: 'narrow_single_shard_context_pack',
+      workerRole: policy.workerRole
+    },
+    targetSavingsRange: `${policy.targetSavingsMin}-${policy.targetSavingsMax}x`,
+    launchGate: { hardGate: policy.hardGate, maxWorkerTokens: policy.maxWorkerTokens },
+    omissions
+  };
+  compact.contextCache = {
+    schemaVersion: 'clawd.context_cache.v1',
+    packDigest: sha256Text(JSON.stringify({
+      campaign: compact.campaign,
+      shard: compact.shard,
+      guardrails: compact.guardrails,
+      dependencies: compact.dependencies,
+      assignmentContract: compact.assignmentContract,
+      acceptanceChecks: compact.acceptanceChecks,
+      verifiers: compact.verifiers,
+      relatedSurfaces: compact.relatedSurfaces,
+      inputs: compact.inputs,
+      retrievalManifest: compact.retrievalManifest,
+      modelTierPlan: compact.modelTierPlan
+    })),
+    retrievalDigest: sha256Text(JSON.stringify(compact.retrievalManifest || {})),
+    promptTemplateKey: `${policy.workerPromptMode}:${policy.workerRole}:${policy.retrievalMode}`,
+    cachePolicy: 'dedupe_identical_compact_packs_and_reuse_retrieval_handles; never replay worker transcripts'
+  };
+  const postGovernorJson = JSON.stringify(compact ?? null);
+  const preTokens = approxTokenCount(preGovernorJson);
+  const postTokens = approxTokenCount(postGovernorJson);
+  compact.contextFootprint = {
+    ...(compact.contextFootprint || {}),
+    preGovernorApproxTokens: preTokens,
+    approxTokens: postTokens,
+    postGovernorApproxTokens: postTokens,
+    savedApproxTokens: Math.max(0, preTokens - postTokens),
+    projectedSavingsRatio: Number((preTokens / Math.max(1, postTokens)).toFixed(2)),
+    budgetMaxTokens: policy.maxWorkerTokens,
+    budgetOk: postTokens <= policy.maxWorkerTokens,
+    omittedContextItemCount: omissions.length + inputHandles.length
+  };
+  return compact;
+}
+
+export function evaluateContextPackBudget(pack, options = {}) {
+  const policy = normalizeContextGovernorOptions(options, options);
+  const approxTokens = pack?.contextFootprint?.postGovernorApproxTokens || pack?.contextFootprint?.approxTokens || estimateContextTokens(pack);
+  return {
+    ok: approxTokens <= policy.maxWorkerTokens,
+    approxTokens,
+    maxWorkerTokens: policy.maxWorkerTokens,
+    overByTokens: Math.max(0, approxTokens - policy.maxWorkerTokens),
+    shardId: pack?.shard?.id || null,
+    mode: policy.mode,
+    hardGate: policy.hardGate
+  };
+}
+
+export function buildContextGovernorReport({ contextPacks = [], options = {}, agentCount = 0, shardCount = 0 } = {}) {
+  const policy = normalizeContextGovernorOptions(options, { agentCount, shardCount });
+  const packs = contextPacks.map((pack) => ({
+    shardId: pack?.shard?.id || null,
+    budget: evaluateContextPackBudget(pack, policy),
+    footprint: pack?.contextFootprint || { approxTokens: estimateContextTokens(pack) },
+    workerRole: pack?.contextGovernor?.hierarchy?.workerRole || null,
+    workerModel: pack?.modelTierPlan?.worker?.tier || null,
+    promptMode: pack?.modelTierPlan?.worker?.promptMode || null,
+    retrievalMode: pack?.retrievalManifest?.mode || null,
+    contextCache: pack?.contextCache || null
+  }));
+  const totalTokens = packs.reduce((sum, entry) => sum + Number(entry.budget.approxTokens || 0), 0);
+  const totalPreTokens = packs.reduce((sum, entry) => sum + Number(entry.footprint.preGovernorApproxTokens || entry.budget.approxTokens || 0), 0);
+  const overBudget = packs.filter((entry) => !entry.budget.ok);
+  const savingsRatio = Number((totalPreTokens / Math.max(1, totalTokens)).toFixed(2));
+  const uniquePackDigests = new Set(packs.map((entry) => entry.contextCache?.packDigest).filter(Boolean));
+  const uniqueRetrievalDigests = new Set(packs.map((entry) => entry.contextCache?.retrievalDigest).filter(Boolean));
+  return {
+    schemaVersion: 'clawd.context_governor_report.v1',
+    generatedAt: new Date().toISOString(),
+    enabled: policy.enabled,
+    mode: policy.mode,
+    ok: overBudget.length === 0,
+    hardGate: policy.hardGate,
+    targetSavingsRange: `${policy.targetSavingsMin}-${policy.targetSavingsMax}x`,
+    observedSavingsRatio: savingsRatio,
+    targetSavingsReached: savingsRatio >= policy.targetSavingsMin,
+    packCount: packs.length,
+    agentCount: policy.agentCount || agentCount,
+    shardCount: policy.shardCount || shardCount,
+    totalApproxTokens: totalTokens,
+    totalPreGovernorApproxTokens: totalPreTokens,
+    averageApproxTokens: packs.length ? Math.round(totalTokens / packs.length) : 0,
+    maxApproxTokens: packs.length ? Math.max(...packs.map((entry) => entry.budget.approxTokens)) : 0,
+    budgetFailureCount: overBudget.length,
+    budgetFailures: overBudget.map((entry) => entry.budget),
+    contextCache: {
+      uniquePackDigestCount: uniquePackDigests.size,
+      duplicatePackCount: Math.max(0, packs.length - uniquePackDigests.size),
+      uniqueRetrievalDigestCount: uniqueRetrievalDigests.size,
+      duplicateRetrievalManifestCount: Math.max(0, packs.length - uniqueRetrievalDigests.size),
+      policy: 'dedupe identical compact packs/retrieval handles before prompt construction where the execution backend supports cache reuse'
+    },
+    hierarchy: {
+      plannerAgents: '5-10 broad planner/reviewer agents keep objective context',
+      workerAgents: 'narrow workers receive single-shard compact packs plus retrieval handles',
+      transcriptReplay: 'disabled; future waves consume wave_factpack.json'
+    },
+    packs
+  };
+}
+
+export function buildWaveFactPack({ waveNumber = 1, runSummary = {}, patchQueue = createPatchQueue(), workerEvents = [], contextGovernorReport = null, previousWaveFactpack = null } = {}) {
+  const rejectedByReason = {};
+  for (const patch of patchQueue.rejected || []) {
+    const reason = patch.rejectionReason || patch.reason || patch.status || 'rejected';
+    rejectedByReason[reason] ||= 0;
+    rejectedByReason[reason] += 1;
+  }
+  const recentFailures = workerEvents
+    .filter((event) => /exit|timeout|failed|rejected/i.test(String(event.type || '')) && event.ok !== true)
+    .slice(-20)
+    .map((event) => ({ type: event.type, shardId: event.shardId || null, agentId: event.agentId || null, reason: event.reason || event.killReason || event.rejectionReason || null }));
+  return {
+    schemaVersion: 'clawd.wave_factpack.v1',
+    generatedAt: new Date().toISOString(),
+    waveNumber,
+    previousWaveHash: previousWaveFactpack ? sha256Text(JSON.stringify(previousWaveFactpack)) : null,
+    summary: {
+      agentCount: runSummary.agentCount || null,
+      shardCount: runSummary.shardCount || 0,
+      mergedShardCount: runSummary.mergedShardCount || 0,
+      elapsedMs: runSummary.elapsedMs || 0,
+      supervisorStatus: runSummary.supervisorStatus || null,
+      thresholdPass: runSummary.thresholdPass ?? null
+    },
+    mergedShardIds: stableList((patchQueue.merged || []).map((patch) => patch.shardId).filter(Boolean)),
+    rejectedShardIds: stableList((patchQueue.rejected || []).map((patch) => patch.shardId).filter(Boolean)),
+    rejectedByReason,
+    recentFailures,
+    contextGovernor: contextGovernorReport ? {
+      ok: contextGovernorReport.ok,
+      observedSavingsRatio: contextGovernorReport.observedSavingsRatio,
+      totalApproxTokens: contextGovernorReport.totalApproxTokens,
+      budgetFailureCount: contextGovernorReport.budgetFailureCount
+    } : null,
+    nextWaveInstructions: [
+      'Use this factpack instead of previous worker transcripts.',
+      'Carry forward only unresolved shard ids, failure families, and verifier signals.',
+      'Do not paste merged worker logs into future worker prompts.'
+    ]
+  };
+}
+
+export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix = { surfaces: [] }, artifactBus = createArtifactBus(), globalInputs = {}, contextGovernorOptions = {}, previousWaveFactpack = null }) {
   const dependencyArtifacts = (shard.dependencyShardIds || []).flatMap((dependencyShardId) => findArtifacts(artifactBus, { shardId: dependencyShardId })).map((artifact) => ({
     artifactId: artifact.artifactId,
     type: artifact.type,
@@ -1738,8 +2080,15 @@ export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix =
     verifierRequirements: shard.requiredVerifiers || [],
     successPredicate: shard.acceptanceChecks || []
   });
+  const previousWaveSummary = previousWaveFactpack ? {
+    schemaVersion: previousWaveFactpack.schemaVersion || null,
+    waveNumber: previousWaveFactpack.waveNumber || null,
+    summary: previousWaveFactpack.summary || null,
+    rejectedByReason: previousWaveFactpack.rejectedByReason || {},
+    recentFailureCount: Array.isArray(previousWaveFactpack.recentFailures) ? previousWaveFactpack.recentFailures.length : 0
+  } : null;
   const pack = {
-    version: 1,
+    version: 2,
     generatedAt: new Date().toISOString(),
     campaign: {
       requestedFidelity: contract?.requestedFidelity || null,
@@ -1762,7 +2111,8 @@ export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix =
     },
     dependencies: {
       shardIds: shard.dependencyShardIds || [],
-      artifacts: dependencyArtifacts
+      artifacts: dependencyArtifacts,
+      previousWaveFactpack: previousWaveSummary
     },
     inputs,
     assignmentContract,
@@ -1775,11 +2125,11 @@ export function compileContextPack({ contract, shard, shardPlan, surfaceMatrix =
       approxBytes: JSON.stringify({ inputs, dependencyArtifacts }).length
     }
   };
-  return pack;
+  return compactContextPack(pack, contextGovernorOptions);
 }
 
-export function compileContextPacks({ contract, shardPlan, surfaceMatrix, artifactBus, globalInputs = {} }) {
-  return shardPlan.shards.map((shard) => compileContextPack({ contract, shard, shardPlan, surfaceMatrix, artifactBus, globalInputs }));
+export function compileContextPacks({ contract, shardPlan, surfaceMatrix, artifactBus, globalInputs = {}, contextGovernorOptions = {}, previousWaveFactpack = null }) {
+  return shardPlan.shards.map((shard) => compileContextPack({ contract, shard, shardPlan, surfaceMatrix, artifactBus, globalInputs, contextGovernorOptions, previousWaveFactpack }));
 }
 
 export function createPatchArtifact(input = {}) {
@@ -3113,7 +3463,9 @@ export async function runLiveWorkerFarm({
   landingEvidencePolicy = {},
   proofCarryingClaims = false,
   claimLedgerPolicy = {},
-  adversarialClaimVerifiers = {}
+  adversarialClaimVerifiers = {},
+  contextGovernorOptions = {},
+  previousWaveFactpack = null
 }) {
   const shardPlan = buildShardPlan({ workGraph, surfaceMatrix, options: plannerOptions });
   const frontier = summarizeShardFrontier(shardPlan.shards);
@@ -3151,7 +3503,9 @@ export async function runLiveWorkerFarm({
       || ['live-worker-qualification'],
     targetPath: campaignContract?.targetPath || campaignContract?.repoPath || workGraph.targetPath || workspacePath
   };
-  const contextPacks = compileContextPacks({ contract: effectiveCampaignContract, shardPlan, surfaceMatrix, artifactBus, globalInputs });
+  const contextGovernorPolicy = normalizeContextGovernorOptions(contextGovernorOptions, { agentCount, shardCount: shardPlan.shards.length });
+  const contextPacks = compileContextPacks({ contract: effectiveCampaignContract, shardPlan, surfaceMatrix, artifactBus, globalInputs, contextGovernorOptions: contextGovernorPolicy, previousWaveFactpack });
+  const contextGovernorReport = buildContextGovernorReport({ contextPacks, options: contextGovernorPolicy, agentCount, shardCount: shardPlan.shards.length });
   const packByShardId = new Map(contextPacks.map((pack) => [pack.shard.id, pack]));
   const shardById = new Map(shardPlan.shards.map((shard) => [shard.id, shard]));
   const groundingFailures = shardPlan.shards
@@ -3181,6 +3535,71 @@ export async function runLiveWorkerFarm({
     invalidShards: groundingFailures
   });
   saveJson(path.join(runRoot, 'scheduler_model.json'), schedulerModel);
+  saveJson(path.join(runRoot, 'context_governor_report.json'), contextGovernorReport);
+  if (contextGovernorReport.enabled && contextGovernorReport.hardGate && !contextGovernorReport.ok) {
+    const blockedSummary = {
+      generatedAt: new Date().toISOString(),
+      executionMode,
+      agentCount,
+      shardCount: shardPlan.shards.length,
+      frontier,
+      mergedShardCount: 0,
+      elapsedMs: 0,
+      blocker: 'context_pack_budget_exceeded',
+      metrics: {
+        workerSpawnCount: 0,
+        workerExitFailures: 0,
+        workerSpawnFailures: 0,
+        staleLeaseCount: 0,
+        recoveryCount: 0,
+        crashInjectionCount: 0,
+        stallInjectionCount: 0,
+        mergedPatchCount: 0,
+        shardOutputCount: 0,
+        lateResultsIgnored: 0,
+        workerTimeoutCount: 0,
+        forcedWorkerCleanupCount: 0,
+        observedAgentCount: 0,
+        observedAgentIds: [],
+        peakConcurrentWorkers: 0,
+        contextGovernorBlocked: true
+      },
+      contextGovernor: contextGovernorReport
+    };
+    const blockedSupervisor = {
+      generatedAt: new Date().toISOString(),
+      topLevel: { status: 'red', reason: 'context_pack_budget_exceeded', blockerKind: 'token_efficiency_launch_gate' },
+      contextGovernor: contextGovernorReport
+    };
+    const blockedFactpack = buildWaveFactPack({ waveNumber: 1, runSummary: blockedSummary, patchQueue, workerEvents: [], contextGovernorReport, previousWaveFactpack });
+    saveJson(path.join(runRoot, 'summary.json'), blockedSummary);
+    saveJson(path.join(runRoot, 'worker_events.json'), []);
+    saveJson(path.join(runRoot, 'lease_state.json'), leaseState);
+    saveJson(path.join(runRoot, 'patch_queue.json'), patchQueue);
+    saveJson(path.join(runRoot, 'artifact_bus.json'), artifactBus);
+    saveJson(path.join(runRoot, 'supervisor.json'), blockedSupervisor);
+    saveJson(path.join(runRoot, 'wave_factpack.json'), blockedFactpack);
+    return {
+      ok: false,
+      executionMode,
+      agentCount,
+      shardPlan,
+      frontier,
+      leaseState,
+      artifactBus,
+      patchQueue,
+      landingEvidence: null,
+      claimLedger: null,
+      schedulerTruth: null,
+      supervisor: blockedSupervisor,
+      workerEvents: [],
+      summary: blockedSummary,
+      metrics: blockedSummary.metrics,
+      contextGovernor: contextGovernorReport,
+      waveFactpack: blockedFactpack,
+      runRoot
+    };
+  }
   if (landingEvidenceEnabled) {
     saveJson(path.join(runRoot, 'landing_baseline.json'), landingEvidenceBaseline);
   }
@@ -3673,7 +4092,19 @@ export async function runLiveWorkerFarm({
       noteAgentDispatch(lease.agentId);
       observeWorkerSpawn(lease.agentId);
       metrics.workerSpawnCount += 1;
-      recordWorkerEvent({ type: 'live_worker_respawned', shardId: shard.id, agentId: lease.agentId, leaseId: lease.leaseId, attempt: lease.attempt, recoveredFrom: lease.metadata?.recoveredFrom || null, workerWorkspaceMode: workerWorkspace.mode || 'shared' });
+      recordWorkerEvent({
+        type: 'live_worker_respawned',
+        shardId: shard.id,
+        agentId: lease.agentId,
+        leaseId: lease.leaseId,
+        attempt: lease.attempt,
+        recoveredFrom: lease.metadata?.recoveredFrom || null,
+        workerWorkspaceMode: workerWorkspace.mode || 'shared',
+        contextFootprint: assignment.contextPack?.contextFootprint || null,
+        workerRole: assignment.contextPack?.contextGovernor?.hierarchy?.workerRole || null,
+        workerModel: assignment.contextPack?.modelTierPlan?.worker?.tier || null,
+        promptMode: assignment.contextPack?.modelTierPlan?.worker?.promptMode || null
+      });
     }
 
     await drainReadyPatchQueue();
@@ -3762,7 +4193,19 @@ export async function runLiveWorkerFarm({
       leasedShardIds.add(shard.id);
       metrics.workerSpawnCount += 1;
       spawnedThisTick += 1;
-      recordWorkerEvent({ type: 'live_worker_spawned', shardId: shard.id, agentId, leaseId: acquisition.lease.leaseId, attempt: acquisition.lease.attempt, failureInjection, workerWorkspaceMode: workerWorkspace.mode || 'shared' });
+      recordWorkerEvent({
+        type: 'live_worker_spawned',
+        shardId: shard.id,
+        agentId,
+        leaseId: acquisition.lease.leaseId,
+        attempt: acquisition.lease.attempt,
+        failureInjection,
+        workerWorkspaceMode: workerWorkspace.mode || 'shared',
+        contextFootprint: assignment.contextPack?.contextFootprint || null,
+        workerRole: assignment.contextPack?.contextGovernor?.hierarchy?.workerRole || null,
+        workerModel: assignment.contextPack?.modelTierPlan?.worker?.tier || null,
+        promptMode: assignment.contextPack?.modelTierPlan?.worker?.promptMode || null
+      });
     }
 
     await drainReadyPatchQueue();
@@ -3861,11 +4304,14 @@ export async function runLiveWorkerFarm({
   };
   summary.schedulerTruth = schedulerTruth;
   summary.claimLedger = finalClaimLedger;
+  summary.contextGovernor = contextGovernorReport;
   summary.metrics.activeWorkerMinutes = schedulerTruth.concurrencyTruth.activeWorkerMinutes;
   summary.metrics.idleGapCount = schedulerTruth.concurrencyTruth.idleGapCount;
   summary.metrics.longestIdleGapMs = schedulerTruth.concurrencyTruth.longestIdleGapMs;
   summary.metrics.medianTimeToNextAssignmentMs = schedulerTruth.concurrencyTruth.medianTimeToNextAssignmentMs;
+  const waveFactpack = buildWaveFactPack({ waveNumber: 1, runSummary: summary, patchQueue, workerEvents, contextGovernorReport, previousWaveFactpack });
   saveJson(path.join(runRoot, 'summary.json'), summary);
+  saveJson(path.join(runRoot, 'wave_factpack.json'), waveFactpack);
   saveJson(path.join(runRoot, 'worker_events.json'), workerEvents);
   saveJson(path.join(runRoot, 'lease_state.json'), leaseState);
   saveJson(path.join(runRoot, 'patch_queue.json'), patchQueue);
@@ -3889,6 +4335,8 @@ export async function runLiveWorkerFarm({
     schedulerTruth,
     supervisor,
     workerEvents,
+    contextGovernor: contextGovernorReport,
+    waveFactpack,
     summary,
     metrics: summary.metrics,
     runRoot

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveAgentWorkRunInput } from '../../packages/agent-work-dsl/index.mjs';
 import { runLiveWorkerFarm } from '../../packages/multi-agent-orchestrator/index.mjs';
 import { reduceRunState } from '../../packages/orchestrator-run-state/index.mjs';
 import { deriveObservedConcurrencyTruth, evaluateScaleCredit } from '../../packages/orchestrator-scheduler-truth/index.mjs';
@@ -24,7 +25,7 @@ function writeJson(targetPath, value) {
 }
 
 function usage() {
-  console.error('usage: node run-transfer-orchestrator-benchmark.mjs <run_contract.json>');
+  console.error('usage: node run-transfer-orchestrator-benchmark.mjs <run_contract.json|agent_work_spec.aw|agent_work_spec.json|compiled-agent-work-dir>');
   process.exit(1);
 }
 
@@ -106,9 +107,10 @@ function buildTransferPlan(contract) {
   const verifierCatalog = {};
   const surfaces = contract.scope?.surfaces || [];
   const productDiffMode = contract.scope?.productDiffMode || null;
+  const creativeProductMode = productDiffMode === 'creative_product_work' || contract.scope?.creativeProductWork?.required === true;
   const requireSemanticProductAdmission = semanticProductAdmissionRequired(contract.scope || {});
   const productDiffArtifactRequired = Boolean(productDiffMode || requireSemanticProductAdmission);
-  const semanticRuntimeProofRequired = contract.scope?.semanticProductAdmission?.requireRuntimeExecution === true;
+  const semanticRuntimeProofRequired = !creativeProductMode && contract.scope?.semanticProductAdmission?.requireRuntimeExecution === true;
   const semanticAcceptanceCheck = 'Semantic architecture evidence required: real product behavior must be integrated into the assigned source-of-truth surface; marker-only/source-syntax-only deltas do not count.';
   const workUnits = surfaces.map((surface) => {
     const originalAllowedFiles = stableList(surface.allowedFiles || []);
@@ -165,7 +167,7 @@ function buildTransferPlan(contract) {
         semanticProductAdmission: {
           required: requireSemanticProductAdmission,
           mode: contract.scope?.semanticProductAdmission?.mode || (requireSemanticProductAdmission ? 'semantic_product_architecture' : null),
-          requireRuntimeExecution: contract.scope?.semanticProductAdmission?.requireRuntimeExecution === true,
+          requireRuntimeExecution: semanticRuntimeProofRequired,
           requireExistingProductCall: contract.scope?.semanticProductAdmission?.requireExistingProductCall === true,
           requireNormalFlowIntegration: contract.scope?.semanticProductAdmission?.requireNormalFlowIntegration === true,
           requireExistingProductNormalFlow: contract.scope?.semanticProductAdmission?.requireExistingProductNormalFlow === true,
@@ -185,7 +187,7 @@ function buildTransferPlan(contract) {
         productDiffMode,
         semanticProductAdmissionRequired: requireSemanticProductAdmission,
         semanticProductAdmissionMode: contract.scope?.semanticProductAdmission?.mode || null,
-        semanticRuntimeExecutionRequired: contract.scope?.semanticProductAdmission?.requireRuntimeExecution === true,
+        semanticRuntimeExecutionRequired: semanticRuntimeProofRequired,
         semanticExistingProductCallRequired: contract.scope?.semanticProductAdmission?.requireExistingProductCall === true,
         semanticNormalFlowIntegrationRequired: contract.scope?.semanticProductAdmission?.requireNormalFlowIntegration === true,
         semanticExistingProductNormalFlowRequired: contract.scope?.semanticProductAdmission?.requireExistingProductNormalFlow === true,
@@ -285,6 +287,53 @@ function nonNegativeNumberOrNull(value) {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function boolish(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return /^(1|true|yes|on|required|enabled)$/i.test(String(value).trim());
+}
+
+function positiveNumber(value, fallback = null) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function resolveContextGovernorOptions(contract = {}, env = process.env) {
+  const scopeOptions = contract.scope?.contextGovernor || contract.scope?.tokenEfficiency?.contextGovernor || {};
+  const requestedAgentCount = Number(contract.requestedAgentCount || 0);
+  const defaultEnabled = requestedAgentCount >= positiveNumber(env.ORCHESTRATOR_CONTEXT_GOVERNOR_AUTO_AGENT_THRESHOLD, 25);
+  const enabled = boolish(scopeOptions.enabled ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR, defaultEnabled);
+  const maxWorkerTokens = positiveNumber(scopeOptions.maxWorkerTokens ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS, 3200);
+  const hardGate = boolish(scopeOptions.hardGate ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE, enabled && requestedAgentCount >= 25);
+  return {
+    enabled,
+    hardGate,
+    maxWorkerTokens,
+    targetSavingsMin: positiveNumber(scopeOptions.targetSavingsMin ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MIN, 5),
+    targetSavingsMax: positiveNumber(scopeOptions.targetSavingsMax ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MAX, 10),
+    maxInputChars: positiveNumber(scopeOptions.maxInputChars ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_INPUT_CHARS, 1200),
+    maxTotalInputChars: positiveNumber(scopeOptions.maxTotalInputChars ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_TOTAL_INPUT_CHARS, 6000),
+    maxDependencyArtifacts: positiveNumber(scopeOptions.maxDependencyArtifacts ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_DEPENDENCY_ARTIFACTS, 8),
+    maxRelatedSurfaces: positiveNumber(scopeOptions.maxRelatedSurfaces ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_RELATED_SURFACES, 8),
+    maxAllowedFiles: positiveNumber(scopeOptions.maxAllowedFiles ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_ALLOWED_FILES, 16),
+    maxFileAreas: positiveNumber(scopeOptions.maxFileAreas ?? env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_FILE_AREAS, 12),
+    workerPromptMode: scopeOptions.workerPromptMode || env.ORCHESTRATOR_CONTEXT_GOVERNOR_WORKER_PROMPT_MODE || contract.scope?.creativeProductWork?.promptMode || 'compact',
+    workerModel: scopeOptions.workerModel || env.ORCHESTRATOR_CONTEXT_GOVERNOR_WORKER_MODEL || 'cheap_implementation_worker',
+    plannerModel: scopeOptions.plannerModel || env.ORCHESTRATOR_CONTEXT_GOVERNOR_PLANNER_MODEL || 'strong_planner',
+    reviewerModel: scopeOptions.reviewerModel || env.ORCHESTRATOR_CONTEXT_GOVERNOR_REVIEWER_MODEL || 'strong_reviewer',
+    retrievalMode: scopeOptions.retrievalMode || env.ORCHESTRATOR_CONTEXT_GOVERNOR_RETRIEVAL_MODE || 'on_demand_assigned_files_only'
+  };
+}
+
+function loadPreviousWaveFactpack(contract = {}) {
+  const factpackPath = contract.scope?.contextGovernor?.previousWaveFactpackPath || contract.scope?.previousWaveFactpackPath || null;
+  if (!factpackPath) return null;
+  const resolved = path.resolve(factpackPath);
+  const factpack = readJson(resolved, null);
+  return factpack && typeof factpack === 'object'
+    ? { ...factpack, sourcePath: resolved }
+    : null;
 }
 
 function deriveMeaningfulProgressEvidence({ contract, liveRun }) {
@@ -526,14 +575,34 @@ function deriveTransferEvidence({ contract, liveRun }) {
   };
 }
 
+function createSurfaceMatrixFromContract(contract) {
+  return {
+    schemaVersion: 'claw.transfer_surface_matrix.v1',
+    generatedAt: contract.generatedAt || new Date().toISOString(),
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    status: 'pending',
+    surfaces: (contract.scope?.surfaces || []).map((surface) => ({
+      id: surface.id,
+      label: surface.label || surface.id,
+      status: 'pending',
+      productFiles: productSurfaceFiles(surface),
+      verification: stableList(surface.verification || []),
+      metadata: surface.metadata || {}
+    }))
+  };
+}
+
 function summarizeSurfaceStatuses(surfaceMatrix, liveRun) {
   const merged = new Set((liveRun.patchQueue?.merged || []).map((entry) => entry.shardId));
   const rejected = new Map((liveRun.patchQueue?.rejected || []).map((entry) => [entry.shardId, entry]));
+  const surfaces = surfaceMatrix.surfaces || [];
+  const allSurfacesMerged = surfaces.length > 0 && surfaces.every((surface) => merged.has(surface.id));
   return {
     ...surfaceMatrix,
     generatedAt: new Date().toISOString(),
-    status: merged.size === (surfaceMatrix.surfaces || []).length ? 'orchestrator_green' : 'blocked',
-    surfaces: (surfaceMatrix.surfaces || []).map((surface) => ({
+    status: allSurfacesMerged ? 'orchestrator_green' : 'blocked',
+    surfaces: surfaces.map((surface) => ({
       ...surface,
       status: merged.has(surface.id) ? 'verified' : rejected.has(surface.id) ? 'rejected' : 'unverified',
       merged: merged.has(surface.id),
@@ -563,17 +632,36 @@ function collectTruthContradictions({ liveRun, shardCount, mergedShardCount }) {
   return contradictions;
 }
 
-const contractPath = path.resolve(process.argv[2] || '');
-if (!contractPath || !fs.existsSync(contractPath)) usage();
+const inputPath = path.resolve(process.argv[2] || '');
+if (!inputPath || !fs.existsSync(inputPath)) usage();
 
-const contract = readJson(contractPath);
+let resolvedRunInput;
+try {
+  resolvedRunInput = resolveAgentWorkRunInput(inputPath);
+} catch (error) {
+  console.error(JSON.stringify({ ok: false, error: 'agent_work_run_input_unreadable', message: error?.message || String(error), inputPath }, null, 2));
+  process.exit(2);
+}
+const contractPath = resolvedRunInput.runContractPath || inputPath;
+const contract = resolvedRunInput.runContract;
 const artifactRoot = path.resolve(contract.artifactRoot);
-const scoreboardPath = path.resolve(contract.scoreboardPath);
+const scoreboardPath = path.resolve(contract.scoreboardPath || path.join(artifactRoot, 'scoreboard_row.json'));
+writeJson(path.join(artifactRoot, 'runner_input_resolution.json'), {
+  ...resolvedRunInput,
+  runContract: undefined,
+  compilation: undefined
+});
 const surfaceMatrixPath = path.join(artifactRoot, 'surface_matrix.json');
-const surfaceMatrix = readJson(surfaceMatrixPath, { surfaces: [] });
+const existingSurfaceMatrix = readJson(surfaceMatrixPath, null);
+const surfaceMatrix = Array.isArray(existingSurfaceMatrix?.surfaces) && existingSurfaceMatrix.surfaces.length > 0
+  ? existingSurfaceMatrix
+  : createSurfaceMatrixFromContract(contract);
 const orchestratorRunRoot = path.join(artifactRoot, 'orchestrator_run');
 const previousCompletion = readJson(path.join(artifactRoot, 'completion_summary.json'), {});
 const previousBaselineReady = previousCompletion?.baselineReady ?? null;
+const globalProductDiffMode = contract.scope?.productDiffMode || null;
+const globalCreativeProductMode = globalProductDiffMode === 'creative_product_work' || contract.scope?.creativeProductWork?.required === true;
+const globalSemanticRuntimeProofRequired = !globalCreativeProductMode && contract.scope?.semanticProductAdmission?.requireRuntimeExecution === true;
 const { verifierCatalog, workGraph } = buildTransferPlan(contract);
 const verifierIds = Object.keys(verifierCatalog);
 const canonicalLandingEvidenceRequired = Boolean(contract.scope?.productDiffMode || semanticProductAdmissionRequired(contract.scope || {}) || contract.scope?.canonicalLandingEvidence?.enabled === true);
@@ -586,6 +674,8 @@ const claimLedgerPolicy = {
     || (proofCarryingClaimsRequired ? 'require_adversarial_survival' : 'off')
 };
 const canonicalLandingProductPaths = [...new Set((contract.scope?.surfaces || []).flatMap((surface) => productSurfaceFiles(surface)).filter(Boolean))].sort();
+const contextGovernorOptions = resolveContextGovernorOptions(contract, process.env);
+const previousWaveFactpack = loadPreviousWaveFactpack(contract);
 const maxRuntimeMs = resolveBenchmarkMaxRuntimeMs({ scope: contract.scope, env: process.env });
 const leaseTtlMs = resolveBenchmarkLeaseTtlMs({ scope: contract.scope, env: process.env, maxRuntimeMs });
 const workerTimeoutMs = resolveBenchmarkWorkerTimeoutMs({ scope: contract.scope, env: process.env, maxRuntimeMs });
@@ -723,11 +813,11 @@ try {
     },
     globalInputs: {
       verifierCatalog,
-      productDiffMode: contract.scope?.productDiffMode || null,
+      productDiffMode: globalProductDiffMode,
       semanticProductAdmission: {
         required: semanticProductAdmissionRequired(contract.scope || {}),
         mode: contract.scope?.semanticProductAdmission?.mode || null,
-        requireRuntimeExecution: contract.scope?.semanticProductAdmission?.requireRuntimeExecution === true,
+        requireRuntimeExecution: globalSemanticRuntimeProofRequired,
         requireExistingProductCall: contract.scope?.semanticProductAdmission?.requireExistingProductCall === true,
         requireNormalFlowIntegration: contract.scope?.semanticProductAdmission?.requireNormalFlowIntegration === true,
         requireExistingProductNormalFlow: contract.scope?.semanticProductAdmission?.requireExistingProductNormalFlow === true,
@@ -753,6 +843,8 @@ try {
     },
     proofCarryingClaims: proofCarryingClaimsRequired,
     claimLedgerPolicy,
+    contextGovernorOptions,
+    previousWaveFactpack,
     campaignContract: {
       fidelity: contract.fidelity,
       requestedScope: (contract.scope?.surfaces || []).map((surface) => surface.id),
@@ -842,6 +934,8 @@ try {
 
 const shardCount = liveRun.shardPlan?.shards?.length || 0;
 const mergedShardCount = liveRun.patchQueue?.merged?.length || 0;
+const contextGovernorReport = liveRun.contextGovernor || readJson(path.join(orchestratorRunRoot, 'context_governor_report.json'), null);
+const waveFactpack = liveRun.waveFactpack || readJson(path.join(orchestratorRunRoot, 'wave_factpack.json'), null);
 const durationEvidence = deriveBenchmarkAutonomyMetrics({ elapsedMs: liveRun.summary?.elapsedMs || 0, scope: contract.scope });
 const elapsedMinutes = durationEvidence.elapsedMinutes;
 const mechanicalGreen = Boolean(liveRun.ok && liveRun.supervisor?.topLevel?.status === 'green' && mergedShardCount === shardCount);
@@ -898,7 +992,11 @@ const metrics = {
   creativeProductDeltaIntegrity: creativeWorkerEvidence.required ? creativeWorkerEvidence.creativeProductDeltaIntegrity : 1,
   templateFallbackRate: creativeWorkerEvidence.required ? creativeWorkerEvidence.templateFallbackRate : 0,
   minCreativeWorkerMinutes: creativeWorkerEvidence.required ? creativeWorkerEvidence.minCreativeWorkerMinutes : null,
-  medianCreativeWorkerMinutes: creativeWorkerEvidence.required ? creativeWorkerEvidence.medianCreativeWorkerMinutes : null
+  medianCreativeWorkerMinutes: creativeWorkerEvidence.required ? creativeWorkerEvidence.medianCreativeWorkerMinutes : null,
+  contextGovernorSavingsRatio: contextGovernorReport?.observedSavingsRatio ?? null,
+  contextGovernorBudgetFailureCount: contextGovernorReport?.budgetFailureCount ?? null,
+  contextGovernorAverageTokens: contextGovernorReport?.averageApproxTokens ?? null,
+  contextGovernorMaxTokens: contextGovernorReport?.maxApproxTokens ?? null
 };
 const thresholdEvaluation = evaluateBenchmarkThresholds({
   benchmarkTier: contract.benchmarkTier,
@@ -993,6 +1091,8 @@ writeJson(path.join(artifactRoot, 'threshold_evaluation.json'), {
     durationTargetGapMinutes: durationEvidence.durationTargetGapMinutes,
     endedBeforeDurationTarget: durationEvidence.endedBeforeDurationTarget
   },
+  contextGovernor: contextGovernorReport,
+  waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   meaningfulProgressEvidence,
   metrics,
   ...thresholdEvaluation
@@ -1019,6 +1119,8 @@ writeJson(path.join(artifactRoot, 'orchestrator_summary.json'), {
   runStateTruth,
   transferScore: metrics.transferScore,
   thresholdPass,
+  contextGovernor: contextGovernorReport,
+  waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   landingEvidenceSummary: liveRun.landingEvidence?.summary || null,
   claimLedgerSummary,
   thresholdFailures: thresholdEvaluation.failures,
@@ -1029,6 +1131,8 @@ writeJson(path.join(artifactRoot, 'iteration_ledger.json'), (liveRun.workerEvent
 writeJson(path.join(artifactRoot, 'intervention_log.json'), []);
 if (liveRun.landingEvidence) writeJson(path.join(artifactRoot, 'landing_evidence.json'), liveRun.landingEvidence);
 if (claimLedger) writeJson(path.join(artifactRoot, 'claim_ledger.json'), claimLedger);
+if (contextGovernorReport) writeJson(path.join(artifactRoot, 'context_governor_report.json'), contextGovernorReport);
+if (waveFactpack) writeJson(path.join(artifactRoot, 'wave_factpack.json'), waveFactpack);
 writeJson(path.join(artifactRoot, 'scheduler_truth.json'), {
   generatedAt: new Date().toISOString(),
   benchmarkId: contract.benchmarkId,
@@ -1135,6 +1239,8 @@ writeJson(path.join(artifactRoot, 'completion_summary.json'), {
   concurrencyTruth,
   runStateTruth,
   transferScore: metrics.transferScore,
+  contextGovernor: contextGovernorReport,
+  waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   landingEvidenceSummary: liveRun.landingEvidence?.summary || null,
   claimLedgerSummary,
   thresholdFailures: thresholdEvaluation.failures,

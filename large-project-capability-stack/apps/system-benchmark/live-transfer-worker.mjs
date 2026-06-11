@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { planCreativeBundleRuntime } from '../../packages/continuous-workload-controller/index.mjs';
+import { readCreativeWorkerMeteringPlanFromEnv } from '../../packages/llm-metering-adapter/index.mjs';
 
 function parseArgs(argv) {
   const args = {};
@@ -1134,6 +1135,7 @@ function shellSnippet(value = '') {
 }
 
 function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFiles, minIterations, minRuntimeMs, cortexContextPacketPath = null, budgetLedgerPath = null, promptMode = 'full_context' }) {
+  const meteringPlan = readCreativeWorkerMeteringPlanFromEnv(process.env);
   const bundleMetadata = assignment.shard?.metadata?.continuousControllerBundledSurface ? {
     enabled: true,
     bundleMode: assignment.shard?.metadata?.continuousControllerBundleMode || 'coherent_product_slice',
@@ -1153,9 +1155,15 @@ function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFil
     title: assignment.shard?.title || null,
     acceptanceChecks: assignment.contextPack?.acceptanceChecks || [],
     guardrails: assignment.contextPack?.guardrails || {},
+    contextPack: assignment.contextPack || null,
+    contextGovernor: assignment.contextPack?.contextGovernor || null,
+    modelTierPlan: assignment.contextPack?.modelTierPlan || null,
+    retrievalManifest: assignment.contextPack?.retrievalManifest || null,
+    contextFootprint: assignment.contextPack?.contextFootprint || null,
     promptMode,
     compactBriefMaxChars: process.env.CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS || null,
     bundle: bundleMetadata,
+    meteringPlan,
     cortexContextPacketPath,
     budgetLedgerPath,
     requiredEvidencePath: evidencePath,
@@ -1183,6 +1191,7 @@ function writeCreativeTaskBrief({ assignment, taskPath, evidencePath, allowedFil
 
 function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles, productTargets, minIterations, minRuntimeMs, budgetLedgerPath, promptMode = 'full_context' }) {
   const surfaceId = assignment.shard?.metadata?.surfaceId || assignment.shard?.id || 'surface';
+  const meteringPlan = readCreativeWorkerMeteringPlanFromEnv(process.env);
   const bundleMetadata = assignment.shard?.metadata?.continuousControllerBundledSurface ? {
     enabled: true,
     bundleMode: assignment.shard?.metadata?.continuousControllerBundleMode || 'coherent_product_slice',
@@ -1215,6 +1224,11 @@ function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles,
       'If assigned tests are missing or stale, record that as a risk instead of repo-wide thrashing.',
       'Stop after the bounded product delta/evidence loop; do not keep spending tokens only to satisfy elapsed time.'
     ].filter(Boolean),
+    contextPack: assignment.contextPack || null,
+    contextGovernor: assignment.contextPack?.contextGovernor || null,
+    modelTierPlan: assignment.contextPack?.modelTierPlan || null,
+    retrievalManifest: assignment.contextPack?.retrievalManifest || null,
+    contextFootprint: assignment.contextPack?.contextFootprint || null,
     files: allowedFiles.map((rel) => ({
       path: rel,
       role: productTargets.includes(rel) ? 'product_target' : 'support_or_verifier',
@@ -1232,6 +1246,9 @@ function writeCreativeCortexPacket({ assignment, cortexPacketPath, allowedFiles,
       globalCallLimit: process.env.CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT || null,
       globalTokenLimit: process.env.CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT || null,
       tokenReservationEstimate: process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE || null,
+      meteringMode: process.env.CREATIVE_WORKER_METERING_MODE || meteringPlan.mode || null,
+      tokenBudgetMode: process.env.CREATIVE_WORKER_TOKEN_BUDGET_MODE || meteringPlan.tokenBudgetMode || null,
+      meteringPlan,
       promptMode,
       compactBriefMaxChars: process.env.CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS || null,
       codexRunsTests: process.env.CREATIVE_WORKER_CODEX_RUN_TESTS || null,

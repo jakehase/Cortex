@@ -3,7 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { evaluateBenchmarkThresholds } from '../../packages/system-benchmark/index.mjs';
+import { BENCHMARK_TIER_THRESHOLDS, evaluateBenchmarkThresholds } from '../../packages/system-benchmark/index.mjs';
+import { resolveAgentWorkRunInput } from '../../packages/agent-work-dsl/index.mjs';
+import {
+  envFromLlmMeteringPlan,
+  resolveLlmMeteringAdapter
+} from '../../packages/llm-metering-adapter/index.mjs';
 import {
   aggregateContinuousMetrics,
   aggregateContinuousThresholdMetrics,
@@ -47,9 +52,14 @@ function parseArgs(argv) {
     maxExpansionCycles: Number(process.env.CONTINUOUS_CONTROLLER_MAX_EXPANSION_CYCLES || 40),
     hardMaxExpansionCycles: Number(process.env.CONTINUOUS_CONTROLLER_HARD_MAX_EXPANSION_CYCLES || 200),
     expansionBatchCycles: Number(process.env.CONTINUOUS_CONTROLLER_EXPANSION_BATCH_CYCLES || 10),
-    fullContextWaveCount: Number(process.env.CONTINUOUS_CONTROLLER_FULL_CONTEXT_WAVES || 1),
+    fullContextWaveCount: Number(process.env.CONTINUOUS_CONTROLLER_FULL_CONTEXT_WAVES || 0),
     modeAfterFullContext: process.env.CONTINUOUS_CONTROLLER_PROMPT_MODE_AFTER_FULL_CONTEXT || 'compact',
     compactBriefMaxChars: Number(process.env.CONTINUOUS_CONTROLLER_COMPACT_BRIEF_MAX_CHARS || process.env.CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS || 9000),
+    contextGovernorEnabled: String(process.env.CONTINUOUS_CONTROLLER_CONTEXT_GOVERNOR || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR || '1') !== '0',
+    contextGovernorHardGate: String(process.env.CONTINUOUS_CONTROLLER_CONTEXT_GOVERNOR_HARD_GATE || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE || '1') !== '0',
+    contextGovernorMaxWorkerTokens: Number(process.env.CONTINUOUS_CONTROLLER_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS || 3200),
+    contextGovernorTargetSavingsMin: Number(process.env.CONTINUOUS_CONTROLLER_CONTEXT_GOVERNOR_TARGET_SAVINGS_MIN || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MIN || 5),
+    contextGovernorTargetSavingsMax: Number(process.env.CONTINUOUS_CONTROLLER_CONTEXT_GOVERNOR_TARGET_SAVINGS_MAX || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MAX || 10),
     usageLimitBackoffMinutes: Number(process.env.CONTINUOUS_CONTROLLER_USAGE_LIMIT_BACKOFF_MINUTES || 360),
     pauseOnUsageLimit: String(process.env.CONTINUOUS_CONTROLLER_PAUSE_ON_USAGE_LIMIT || '1') !== '0',
     ignoreBackoff: false,
@@ -66,7 +76,8 @@ function parseArgs(argv) {
     maxTokensPerUniqueNormalizedAddedLine: Number(process.env.CONTINUOUS_CONTROLLER_MAX_TOKENS_PER_UNIQUE_LINE || 1100),
     minUniqueNormalizedAddedLinesPerCall: Number(process.env.CONTINUOUS_CONTROLLER_MIN_UNIQUE_LINES_PER_CALL || 40),
     resumeStatePath: null,
-    durationTargetMinutes: null
+    durationTargetMinutes: null,
+    meteringMode: process.env.CONTINUOUS_CONTROLLER_METERING_MODE || process.env.LLM_METERING_MODE || process.env.CODEX_METERING_MODE || 'auto'
   };
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -86,6 +97,11 @@ function parseArgs(argv) {
     if (token === '--full-context-waves') { args.fullContextWaveCount = Number(next); index += 1; continue; }
     if (token === '--prompt-mode-after-full-context') { args.modeAfterFullContext = String(next || 'compact'); index += 1; continue; }
     if (token === '--compact-brief-max-chars') { args.compactBriefMaxChars = Number(next); index += 1; continue; }
+    if (token === '--context-governor-max-worker-tokens') { args.contextGovernorMaxWorkerTokens = Number(next); index += 1; continue; }
+    if (token === '--context-governor-target-savings-min') { args.contextGovernorTargetSavingsMin = Number(next); index += 1; continue; }
+    if (token === '--context-governor-target-savings-max') { args.contextGovernorTargetSavingsMax = Number(next); index += 1; continue; }
+    if (token === '--no-context-governor') { args.contextGovernorEnabled = false; continue; }
+    if (token === '--no-context-governor-hard-gate') { args.contextGovernorHardGate = false; continue; }
     if (token === '--usage-limit-backoff-minutes') { args.usageLimitBackoffMinutes = Number(next); index += 1; continue; }
     if (token === '--controller-global-token-limit') { args.controllerGlobalTokenLimit = Number(next); index += 1; continue; }
     if (token === '--token-safety-multiplier') { args.tokenSafetyMultiplier = Number(next); index += 1; continue; }
@@ -103,10 +119,11 @@ function parseArgs(argv) {
     if (token === '--ignore-backoff') { args.ignoreBackoff = true; continue; }
     if (token === '--resume-state') { args.resumeStatePath = path.resolve(next); index += 1; continue; }
     if (token === '--duration-target-minutes') { args.durationTargetMinutes = Number(next); index += 1; continue; }
+    if (token === '--metering-mode') { args.meteringMode = String(next || 'auto'); index += 1; continue; }
     if (token === '--dry-run') { args.dryRun = true; continue; }
   }
   if (!args.contractPath) {
-    console.error('usage: node run-continuous-real-workload-controller.mjs <run_contract.json> [--artifact-root ROOT] [--dry-run]');
+    console.error('usage: node run-continuous-real-workload-controller.mjs <run_contract.json|agent_work_spec.aw|agent_work_spec.json|compiled-agent-work-dir> [--artifact-root ROOT] [--dry-run]');
     process.exit(2);
   }
   return args;
@@ -144,18 +161,29 @@ function writeBlocker({ artifactRoot, contract, blocker, nextAction, phase = 'co
 
 function controllerTargetFromContract(contract, args) {
   const go = contract.scope?.goThresholds || {};
+  const tierThresholds = BENCHMARK_TIER_THRESHOLDS[contract.benchmarkTier || 'tier2_functional'] || BENCHMARK_TIER_THRESHOLDS.tier2_functional || {};
+  const tierMin = (metric, fallback) => Number(tierThresholds[metric]?.min ?? fallback);
+  const tierMax = (metric, fallback) => Number(tierThresholds[metric]?.max ?? fallback);
   return {
-    durationTargetMinutes: args.durationTargetMinutes || Number(contract.scope?.durationTargetMinutes || go.autonomyWindowMinutes || 120),
-    productiveIterationRateMin: go.productiveIterationRateMin ?? 0.65,
-    noOpRateMax: go.noOpRateMax ?? 0.15,
-    handoffEfficiencyMin: go.handoffEfficiencyMin ?? 0.70,
-    transferScoreMin: go.transferScoreMin ?? 0.70,
+    durationTargetMinutes: args.durationTargetMinutes || Number(contract.scope?.durationTargetMinutes || go.autonomyWindowMinutes || tierMin('autonomyWindowMinutes', 120)),
+    productiveIterationRateMin: Math.max(Number(go.productiveIterationRateMin ?? 0.65), tierMin('productiveIterationRate', 0.65)),
+    noOpRateMax: Math.min(Number(go.noOpRateMax ?? tierMax('noOpRate', 0.15)), tierMax('noOpRate', 0.15)),
+    repeatBlockerRateMax: Math.min(Number(go.repeatBlockerRateMax ?? tierMax('repeatBlockerRate', 0.10)), tierMax('repeatBlockerRate', 0.10)),
+    handoffEfficiencyMin: Math.max(Number(go.handoffEfficiencyMin ?? 0.70), tierMin('handoffEfficiency', 0.70)),
+    transferScoreMin: Math.max(Number(go.transferScoreMin ?? 0.70), tierMin('transferScore', 0.70)),
     minChangedProductFiles: go.minCountedProductFilesTouched ?? go.minChangedProductFiles ?? 8,
     minUniqueAgents: go.minDistinctAcceptedAgentIds ?? go.minUniqueAgents ?? 4
   };
 }
 
-function finiteRunnerEnv({ selectedCount, args, promptMode = 'full_context', controllerBudget = {}, budgetPlan = null }) {
+function controllerMeteringEnv(args) {
+  return {
+    ...process.env,
+    CONTINUOUS_CONTROLLER_METERING_MODE: args.meteringMode || process.env.CONTINUOUS_CONTROLLER_METERING_MODE || process.env.LLM_METERING_MODE || process.env.CODEX_METERING_MODE || 'auto'
+  };
+}
+
+function finiteRunnerEnv({ selectedCount, args, promptMode = 'full_context', controllerBudget = {}, budgetPlan = null, meteringPlan = null }) {
   const attempts = Math.max(1, Number(args.waveMaxAttemptsPerTask || 2));
   const globalCalls = Math.max(selectedCount * attempts, selectedCount);
   const waveRuntimeMs = Math.max(60_000, Number(args.waveDurationTargetMinutes || 10) * 60_000 + 15 * 60_000);
@@ -164,10 +192,13 @@ function finiteRunnerEnv({ selectedCount, args, promptMode = 'full_context', con
   const tokensObserved = Number(controllerBudget.tokensObserved || 0);
   const remainingControllerTokens = controllerLimit ? Math.max(0, controllerLimit - tokensObserved) : 0;
   const inheritedWaveTokenLimit = Math.max(0, Number(process.env.CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT || 0));
-  const waveTokenLimit = controllerLimit
+  const hardTokenBudget = !meteringPlan || meteringPlan.tokenBudgetMode !== 'safety';
+  const waveTokenLimit = hardTokenBudget && controllerLimit
     ? String(inheritedWaveTokenLimit ? Math.min(inheritedWaveTokenLimit, remainingControllerTokens) : remainingControllerTokens)
     : process.env.CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT;
-  const effectiveTokenReservationEstimate = Math.max(1, Number(budgetPlan?.tokenReservationEstimate || process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE || 0));
+  const effectiveTokenReservationEstimate = Math.max(1, Number(meteringPlan?.tokenReservationEstimate || budgetPlan?.tokenReservationEstimate || process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE || 0));
+  const meteringEnv = meteringPlan ? envFromLlmMeteringPlan(meteringPlan, { physicalWorkerCount: selectedCount }) : {};
+  const contextMaxWorkerTokens = Math.max(1, Number(args.contextGovernorMaxWorkerTokens || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS || 3200));
   return {
     ...process.env,
     CREATIVE_WORKER_PROMPT_MODE: promptMode,
@@ -181,13 +212,22 @@ function finiteRunnerEnv({ selectedCount, args, promptMode = 'full_context', con
     CREATIVE_WORKER_COMPACT_FAIL_CLOSED: compact ? (process.env.CREATIVE_WORKER_COMPACT_FAIL_CLOSED || '0') : process.env.CREATIVE_WORKER_COMPACT_FAIL_CLOSED,
     CREATIVE_WORKER_CONTEXT_FILE_MAX_CHARS: compact ? (process.env.CREATIVE_WORKER_CONTEXT_FILE_MAX_CHARS || '6000') : process.env.CREATIVE_WORKER_CONTEXT_FILE_MAX_CHARS,
     CREATIVE_WORKER_CONTEXT_TOTAL_MAX_CHARS: compact ? (process.env.CREATIVE_WORKER_CONTEXT_TOTAL_MAX_CHARS || '16000') : process.env.CREATIVE_WORKER_CONTEXT_TOTAL_MAX_CHARS,
+    ORCHESTRATOR_CONTEXT_GOVERNOR: args.contextGovernorEnabled === false ? '0' : '1',
+    ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE: args.contextGovernorHardGate === false ? '0' : '1',
+    ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS: String(contextMaxWorkerTokens),
+    ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MIN: String(Math.max(1, Number(args.contextGovernorTargetSavingsMin || 5))),
+    ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MAX: String(Math.max(1, Number(args.contextGovernorTargetSavingsMax || 10))),
+    ORCHESTRATOR_CONTEXT_GOVERNOR_WORKER_PROMPT_MODE: promptMode,
+    CREATIVE_WORKER_PROMPT_TOKEN_BUDGET: String(contextMaxWorkerTokens),
+    CREATIVE_WORKER_PROMPT_TOKEN_BUDGET_MODE: args.contextGovernorHardGate === false ? 'safety' : 'hard',
     ...(waveTokenLimit ? { CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: waveTokenLimit } : {}),
     CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: String(effectiveTokenReservationEstimate),
     ORCHESTRATOR_MAX_ATTEMPTS_PER_TASK: String(attempts),
     CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: String(attempts),
     CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: String(globalCalls),
     CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: String(Math.max(1, Math.min(Number(process.env.CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS || 8), selectedCount || 1))),
-    TRANSFER_BENCHMARK_MAX_RUNTIME_MS: String(process.env.TRANSFER_BENCHMARK_MAX_RUNTIME_MS || waveRuntimeMs)
+    TRANSFER_BENCHMARK_MAX_RUNTIME_MS: String(process.env.TRANSFER_BENCHMARK_MAX_RUNTIME_MS || waveRuntimeMs),
+    ...meteringEnv
   };
 }
 
@@ -196,11 +236,23 @@ function readWaveSummary(waveRoot, waveNumber) {
   const patchQueue = readJson(path.join(waveRoot, 'orchestrator_run', 'patch_queue.json'), {});
   const truthConflicts = readJson(path.join(waveRoot, 'truth_conflicts.json'), readJson(path.join(waveRoot, 'orchestrator_run', 'truth_conflicts.json'), null));
   const budgetLedger = readJson(path.join(waveRoot, 'orchestrator_run', 'results', 'creative-worker-budget-ledger.json'), null);
+  const contextGovernor = readJson(path.join(waveRoot, 'context_governor_report.json'), readJson(path.join(waveRoot, 'orchestrator_run', 'context_governor_report.json'), null));
+  const waveFactpackPath = fs.existsSync(path.join(waveRoot, 'wave_factpack.json'))
+    ? path.join(waveRoot, 'wave_factpack.json')
+    : fs.existsSync(path.join(waveRoot, 'orchestrator_run', 'wave_factpack.json'))
+      ? path.join(waveRoot, 'orchestrator_run', 'wave_factpack.json')
+      : null;
   const summary = summarizeWaveArtifacts({ completionSummary: completion, patchQueue, truthConflicts, waveNumber });
   if (budgetLedger) {
     summary.budget = summarizeWaveBudgetLedger(budgetLedger);
     summary.budgetStopReason = summary.budget.globalStopReason || null;
   }
+  if (contextGovernor) {
+    summary.contextGovernor = contextGovernor;
+    summary.contextGovernorSavingsRatio = contextGovernor.observedSavingsRatio ?? null;
+    summary.contextGovernorBudgetFailureCount = contextGovernor.budgetFailureCount ?? null;
+  }
+  if (waveFactpackPath) summary.waveFactpackPath = waveFactpackPath;
   return summary;
 }
 
@@ -328,7 +380,7 @@ function continuousScoringPolicy() {
   return {
     version: 'continuous_controller_threshold_scoring.v3',
     rawAggregatePreserved: true,
-    thresholdMetrics: 'budget_backoff_rejections_excluded_and_repaired_attempt_rejection_reason_windowed',
+    thresholdMetrics: 'budget_backoff_rejections_excluded_and_repaired_attempt_rejection_windowed_with_blocker_signatures',
     excludesFromNoOpAndRepeatBlocker: [
       'codex_usage_limit_observed',
       'creative_global_reserved_token_limit_reached',
@@ -337,7 +389,8 @@ function continuousScoringPolicy() {
       'controller_token_budget_backoff'
     ],
     rejectionReasonWindow: 'When resuming a repaired red run, repeat-blocker scoring starts at the current attempt while raw aggregate rejected-reason counts remain recorded for audit.',
-    rationale: 'Controller/runner budget or external usage-limit pauses are availability/backoff events, not product no-op attempts. Pre-repair repeated rejection causes should not permanently poison the scored repaired attempt, but raw aggregate metrics are still recorded for audit.'
+    repeatBlockerIdentity: 'Repeat-blocker scoring uses artifact-level blocker signatures: rejection reason plus rejected product-file cluster when available.',
+    rationale: 'Controller/runner budget or external usage-limit pauses are availability/backoff events, not product no-op attempts. Pre-repair repeated rejection causes should not permanently poison the scored repaired attempt, but raw aggregate metrics are still recorded for audit. Unrelated verifier failures on different product slices should not be collapsed into one repeated blocker merely because they share a broad rejection reason.'
   };
 }
 
@@ -367,15 +420,24 @@ function evaluateScoredContinuousStop({ state, target, remainingExecutableSurfac
 }
 
 const args = parseArgs(process.argv.slice(2));
-const baseContract = readJson(args.contractPath, null);
-if (!baseContract) {
-  console.error(`contract not readable: ${args.contractPath}`);
+let resolvedRunInput;
+try {
+  resolvedRunInput = resolveAgentWorkRunInput(args.contractPath, { outputDir: args.artifactRoot || undefined, artifactRoot: args.artifactRoot || undefined });
+} catch (error) {
+  console.error(JSON.stringify({ ok: false, error: 'agent_work_run_input_unreadable', message: error?.message || String(error), inputPath: args.contractPath }, null, 2));
   process.exit(2);
 }
+const baseContract = resolvedRunInput.runContract;
+args.contractPath = resolvedRunInput.runContractPath || args.contractPath;
 
 const controllerRoot = args.artifactRoot || baseContract.artifactRoot || path.join(path.dirname(args.contractPath), 'continuous_controller');
 const repoPath = args.repoPath || baseContract.repoPath;
 fs.mkdirSync(controllerRoot, { recursive: true });
+writeJson(path.join(controllerRoot, 'runner_input_resolution.json'), {
+  ...resolvedRunInput,
+  runContract: undefined,
+  compilation: undefined
+});
 
 const remoteRequired = baseContract.executionBoundary === 'remote_execution_required';
 if (remoteRequired && hostRole() !== 'execution_plane' && !args.dryRun) {
@@ -426,7 +488,15 @@ let state = {
   promptPolicy: {
     fullContextWaveCount: Math.max(0, Number(args.fullContextWaveCount || 0)),
     modeAfterFullContext: args.modeAfterFullContext || 'compact',
-    compactBriefMaxChars: Math.max(4000, Number(args.compactBriefMaxChars || 9000))
+    compactBriefMaxChars: Math.max(4000, Number(args.compactBriefMaxChars || 9000)),
+    meteringMode: args.meteringMode || 'auto',
+    contextGovernor: {
+      enabled: args.contextGovernorEnabled !== false,
+      hardGate: args.contextGovernorHardGate !== false,
+      maxWorkerTokens: Math.max(1, Number(args.contextGovernorMaxWorkerTokens || 3200)),
+      targetSavingsMin: Math.max(1, Number(args.contextGovernorTargetSavingsMin || 5)),
+      targetSavingsMax: Math.max(1, Number(args.contextGovernorTargetSavingsMax || 10))
+    }
   },
   lastRejectedProductFiles: [],
   waveSummaries: [],
@@ -447,7 +517,16 @@ if (resumeState) {
       ...(resumeState.promptPolicy || {}),
       fullContextWaveCount: Math.max(0, Number(args.fullContextWaveCount || resumeState.promptPolicy?.fullContextWaveCount || 0)),
       modeAfterFullContext: args.modeAfterFullContext || resumeState.promptPolicy?.modeAfterFullContext || 'compact',
-      compactBriefMaxChars: Math.max(4000, Number(args.compactBriefMaxChars || resumeState.promptPolicy?.compactBriefMaxChars || 9000))
+      compactBriefMaxChars: Math.max(4000, Number(args.compactBriefMaxChars || resumeState.promptPolicy?.compactBriefMaxChars || 9000)),
+      meteringMode: args.meteringMode || resumeState.promptPolicy?.meteringMode || 'auto',
+      contextGovernor: {
+        ...(resumeState.promptPolicy?.contextGovernor || {}),
+        enabled: args.contextGovernorEnabled !== false,
+        hardGate: args.contextGovernorHardGate !== false,
+        maxWorkerTokens: Math.max(1, Number(args.contextGovernorMaxWorkerTokens || resumeState.promptPolicy?.contextGovernor?.maxWorkerTokens || 3200)),
+        targetSavingsMin: Math.max(1, Number(args.contextGovernorTargetSavingsMin || resumeState.promptPolicy?.contextGovernor?.targetSavingsMin || 5)),
+        targetSavingsMax: Math.max(1, Number(args.contextGovernorTargetSavingsMax || resumeState.promptPolicy?.contextGovernor?.targetSavingsMax || 10))
+      }
     },
     lastRejectedProductFiles: stableList(resumeState.lastRejectedProductFiles || []),
     waveSummaries: normalizeResumedWaveSummaries(resumeState.waveSummaries, resumeState.controllerArtifactRoot || path.dirname(args.resumeStatePath)),
@@ -520,6 +599,7 @@ writeJson(path.join(controllerRoot, 'run_contract.json'), {
     usageLimitBackoffMinutes: args.usageLimitBackoffMinutes,
     controllerGlobalTokenLimit: args.controllerGlobalTokenLimit || null,
     adaptiveTokenBudget: args.adaptiveTokenBudget,
+    meteringMode: args.meteringMode || 'auto',
     tokenSafetyMultiplier: args.tokenSafetyMultiplier,
     minBudgetedWaveAgents: args.minBudgetedWaveAgents,
     bundleSize: args.bundleSize,
@@ -541,6 +621,25 @@ const hardMaxExpansionCycles = Math.max(activeMaxExpansionCycles, Number(args.ha
 const expansionBatchCycles = Math.max(1, Number(args.expansionBatchCycles || 10));
 for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxWaves || 1)); launchedWaveIndex += 1) {
   const waveNumber = firstWaveNumber + launchedWaveIndex;
+  const promptMode = promptModeForContinuousWave({
+    priorWaveCount: priorWaveNumbers.length,
+    launchedWaveIndex,
+    fullContextWaveCount: Math.max(0, Number(args.fullContextWaveCount || 0)),
+    modeAfterFullContext: args.modeAfterFullContext || 'compact'
+  });
+  let meteringPlan = resolveLlmMeteringAdapter({
+    env: controllerMeteringEnv(args),
+    requestedAgentCount,
+    selectedLogicalSurfaceCount: requestedAgentCount,
+    requestedBundleSize: Math.max(1, Number(args.bundleSize || 1)),
+    waveMaxAttemptsPerTask: Math.max(1, Number(args.waveMaxAttemptsPerTask || 2)),
+    promptMode,
+    compactBriefMaxChars: Math.max(4000, Number(args.compactBriefMaxChars || 9000)),
+    controllerGlobalTokenLimit: args.controllerGlobalTokenLimit,
+    inheritedWaveTokenLimit: Number(process.env.CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT || 0),
+    tokenReservationEstimate: Number(process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE || 0),
+    maxActiveCodexCalls: Number(process.env.CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS || 8)
+  });
   const preStop = evaluateScoredContinuousStop({
     state,
     target,
@@ -562,7 +661,12 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     maxExpansionCycles: activeMaxExpansionCycles,
     includeObjectiveExpansion: true
   });
-  const requestedSurfaceCount = Math.max(1, requestedAgentCount * Math.max(1, Number(args.bundleSize || 1)));
+  const requestedSurfaceCount = Math.max(
+    1,
+    meteringPlan.mode === 'oauth_message_metered'
+      ? requestedAgentCount
+      : requestedAgentCount * Math.max(1, Number(args.bundleSize || 1))
+  );
   let selection = selectNextWaveSurfaces({
     surfaces: inventory.surfaces,
     state,
@@ -615,15 +719,22 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     break;
   }
 
-  const promptMode = promptModeForContinuousWave({
-    priorWaveCount: priorWaveNumbers.length,
-    launchedWaveIndex,
-    fullContextWaveCount: Math.max(0, Number(args.fullContextWaveCount || 0)),
-    modeAfterFullContext: args.modeAfterFullContext || 'compact'
+  meteringPlan = resolveLlmMeteringAdapter({
+    env: controllerMeteringEnv(args),
+    requestedAgentCount,
+    selectedLogicalSurfaceCount: selection.selected.length,
+    requestedBundleSize: Math.max(1, Number(args.bundleSize || 1)),
+    waveMaxAttemptsPerTask: Math.max(1, Number(args.waveMaxAttemptsPerTask || 2)),
+    promptMode,
+    compactBriefMaxChars: Math.max(4000, Number(args.compactBriefMaxChars || 9000)),
+    controllerGlobalTokenLimit: args.controllerGlobalTokenLimit,
+    inheritedWaveTokenLimit: Number(process.env.CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT || 0),
+    tokenReservationEstimate: Number(process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE || 0),
+    maxActiveCodexCalls: Number(process.env.CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS || 8)
   });
   let bundlePlan = bundleSelectedSurfaces({
     selected: selection.selected,
-    bundleSize: Math.max(1, Number(args.bundleSize || 1)),
+    bundleSize: Math.max(1, Number(meteringPlan.effectiveBundleSize || args.bundleSize || 1)),
     waveNumber,
     bundleMode: args.bundleMode || 'coherent_product_slice'
   });
@@ -642,8 +753,10 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     safetyMultiplier: args.tokenSafetyMultiplier,
     minWaveAgentCount: args.minBudgetedWaveAgents
   });
+  adaptiveBudgetPlan.meteringAdapter = meteringPlan;
   state.lastAdaptiveBudgetPlan = adaptiveBudgetPlan;
-  if (args.adaptiveTokenBudget && adaptiveBudgetPlan.insufficientForMinimumWave) {
+  const adaptiveTokenBudgetEnabled = args.adaptiveTokenBudget && meteringPlan.adaptiveTokenBudgetEnabled !== false;
+  if (adaptiveTokenBudgetEnabled && adaptiveBudgetPlan.insufficientForMinimumWave) {
     const metrics = aggregateContinuousMetrics(state);
     finalDecision = {
       action: 'pause_backoff',
@@ -662,7 +775,7 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     console.log(JSON.stringify({ ok: false, paused: true, artifactRoot: controllerRoot, metrics, blocker: finalDecision }, null, 2));
     process.exit(1);
   }
-  if (args.adaptiveTokenBudget && adaptiveBudgetPlan.selectedCountReduced) {
+  if (adaptiveTokenBudgetEnabled && adaptiveBudgetPlan.selectedCountReduced) {
     const planned = Math.max(1, Number(adaptiveBudgetPlan.plannedAgentCount || 1));
     selectedSurfacesForWave = selectedSurfacesForWave.slice(0, planned);
     const keptBundleIds = new Set(selectedSurfacesForWave.map((surface) => surface.id));
@@ -688,7 +801,16 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     adaptiveBudgetPlan.plannedAgentCount = selectedSurfacesForWave.length;
     adaptiveBudgetPlan.selectedCountReduced = true;
   }
+  meteringPlan = {
+    ...meteringPlan,
+    actualPhysicalWorkerCount: selectedSurfacesForWave.length,
+    actualLogicalSurfaceCount: bundlePlan.sourceSurfaceIds.length,
+    adaptiveTokenBudgetEnabled
+  };
+  adaptiveBudgetPlan.meteringAdapter = meteringPlan;
+  state.lastMeteringPlan = meteringPlan;
 
+  const previousWaveFactpackPath = state.lastWaveFactpackPath || (state.waveSummaries || []).slice(-1)[0]?.waveFactpackPath || null;
   const waveContract = createWaveRunContract({
     baseContract,
     controllerArtifactRoot: controllerRoot,
@@ -699,6 +821,16 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     waveMaxAttemptsPerTask: Math.max(1, Number(args.waveMaxAttemptsPerTask || 2))
   });
   waveContract.scope ||= {};
+  waveContract.scope.contextGovernor = {
+    ...(waveContract.scope.contextGovernor || {}),
+    enabled: args.contextGovernorEnabled !== false,
+    hardGate: args.contextGovernorHardGate !== false,
+    maxWorkerTokens: Math.max(1, Number(args.contextGovernorMaxWorkerTokens || 3200)),
+    targetSavingsMin: Math.max(1, Number(args.contextGovernorTargetSavingsMin || 5)),
+    targetSavingsMax: Math.max(1, Number(args.contextGovernorTargetSavingsMax || 10)),
+    workerPromptMode: promptMode,
+    previousWaveFactpackPath
+  };
   waveContract.scope.creativeProductWork ||= {};
   waveContract.scope.creativeProductWork.promptMode = promptMode;
   waveContract.scope.creativeProductWork.compactBriefMaxChars = promptMode === 'compact' ? Math.max(4000, Number(args.compactBriefMaxChars || 9000)) : null;
@@ -707,6 +839,8 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     fullContextWaveCount: Math.max(0, Number(args.fullContextWaveCount || 0)),
     modeAfterFullContext: args.modeAfterFullContext || 'compact',
     compactBriefMaxChars: Math.max(4000, Number(args.compactBriefMaxChars || 9000)),
+    contextGovernor: waveContract.scope.contextGovernor,
+    meteringAdapter: meteringPlan,
     adaptiveBudgetPlan,
     bundlePlan: {
       enabled: bundlePlan.enabled,
@@ -724,6 +858,8 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     waveNumber,
     promptMode,
     adaptiveBudgetPlan,
+    meteringAdapter: meteringPlan,
+    contextGovernor: waveContract.scope.contextGovernor,
     selectedSurfaceIds: bundlePlan.sourceSurfaceIds,
     attemptedSurfaceIds: attemptedSurfaceIdsForWave,
     selectedProductFiles: bundlePlan.selectedProductFiles,
@@ -747,6 +883,8 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
       waveContractPath: path.join(waveRoot, 'run_contract.json'),
       promptMode,
       adaptiveBudgetPlan,
+      meteringAdapter: meteringPlan,
+      contextGovernor: waveContract.scope.contextGovernor,
       selectedSurfaceIds: bundlePlan.sourceSurfaceIds,
       attemptedSurfaceIds: attemptedSurfaceIdsForWave,
       selectedProductFiles: bundlePlan.selectedProductFiles,
@@ -780,7 +918,7 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
   const launchedAt = new Date().toISOString();
   const run = spawnSync(process.execPath, [FINITE_RUNNER, path.join(waveRoot, 'run_contract.json')], {
     cwd: STACK_ROOT,
-    env: finiteRunnerEnv({ selectedCount: selectedSurfacesForWave.length, args, promptMode, controllerBudget: state.controllerBudget || {}, budgetPlan: adaptiveBudgetPlan }),
+    env: finiteRunnerEnv({ selectedCount: selectedSurfacesForWave.length, args, promptMode, controllerBudget: state.controllerBudget || {}, budgetPlan: adaptiveBudgetPlan, meteringPlan }),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -806,10 +944,12 @@ for (let launchedWaveIndex = 0; launchedWaveIndex < Math.max(1, Number(args.maxW
     sourceSurfaceCount: bundlePlan.sourceSurfaceIds.length,
     bundleMap: bundlePlan.bundleMap
   };
+  waveSummary.meteringAdapter = meteringPlan;
   waveSummary.promptMode = promptMode;
   waveSummary.runnerExitCode = run.status;
   waveSummary.runnerSignal = run.signal || null;
   state = updateContinuousStateFromWave({ state, waveSummary, selectedSurfaceIds: attemptedSurfaceIdsForWave, waveNumber });
+  if (waveSummary.waveFactpackPath) state.lastWaveFactpackPath = waveSummary.waveFactpackPath;
   state.updatedAt = new Date().toISOString();
 
   if (waveSummary.mergedShardCount > 0) noProgressWaveStreak = 0;
@@ -896,6 +1036,16 @@ const thresholdEvaluation = evaluateBenchmarkThresholds({
   benchmarkTier: baseContract.benchmarkTier || 'tier2_functional',
   metrics: thresholdMetricSubset(thresholdMetrics)
 });
+if (finalDecision?.thresholdPass === true && thresholdEvaluation.ok !== true) {
+  finalDecision = {
+    action: 'stop_blocked',
+    thresholdPass: false,
+    reason: 'canonical_threshold_evaluation_failed',
+    priorControllerDecision: finalDecision,
+    thresholdFailures: thresholdEvaluation.failures || [],
+    nextAction: 'Repair controller stop criteria so it cannot declare green unless the canonical benchmark threshold evaluator is also green.'
+  };
+}
 const finalTokenEfficiencyPolicy = tokenEfficiencyPolicyFromArgs(args);
 const finalTokenEfficiencyEvaluation = evaluateTokenEfficiency({ metrics: metrics.tokenEfficiency || {}, policy: finalTokenEfficiencyPolicy });
 const finalTokenEfficiencyDebtRecovery = evaluateTokenEfficiencyDebtRecovery({

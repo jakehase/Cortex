@@ -36,6 +36,51 @@ function write(file, content) {
   fs.writeFileSync(file, content);
 }
 
+test('live transfer verifier resolves verifier catalog from shard inputs', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'live-transfer-verifier-shard-inputs-'));
+  const assignmentPath = path.join(root, 'assignment.json');
+  write(assignmentPath, JSON.stringify({
+    workspacePath: root,
+    contextPack: {
+      inputs: {
+        verifierCatalog: {
+          unrelated_context_command: {
+            id: 'unrelated_context_command',
+            command: 'node -e "process.exit(9)"'
+          }
+        }
+      }
+    },
+    shard: {
+      inputs: {
+        verifierCatalog: {
+          shard_command_1: {
+            id: 'shard_command_1',
+            command: 'node -e "console.log(JSON.stringify({ok:true,firstMeaningfulProgressMs:0,checkKinds:[\'shard-input-catalog\']}))"',
+            purpose: 'prove shard input verifier catalog lookup',
+            surfaceId: 'shard_input_surface'
+          }
+        }
+      }
+    }
+  }, null, 2));
+
+  const result = spawnSync(process.execPath, [
+    path.join(process.cwd(), 'apps/system-benchmark/live-transfer-verifier.mjs'),
+    '--assignment', assignmentPath,
+    '--verifier', 'shard_command_1'
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, result.stdout || result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.surfaceId, 'shard_input_surface');
+  assert.equal(payload.parsedOutputSummary.checkKinds.includes('shard-input-catalog'), true);
+});
+
 test('system benchmark comparison distinguishes autonomy-leaning clawhip from truth-gated Cortex', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'system-benchmark-'));
   const claw = path.join(root, 'clawhip');
@@ -2860,6 +2905,7 @@ test('creative product benchmark requires creative worker evidence beyond verifi
       productDiffMode: 'creative_product_work',
       requireRealProductDiffs: true,
       requireSemanticProductAdmission: true,
+      semanticProductAdmission: { required: true, requireRuntimeExecution: true, rejectGenericSemanticShim: true },
       creativeProductWork: { required: true, minIterations: 3, minWorkerRuntimeMs: 0 },
       canonicalLandingEvidence: { enabled: true, mode: 'block_on_failed_landing', minAddedLineCount: 1, minUniqueNormalizedAddedLineCount: 1 },
       surfaces: [
@@ -2899,6 +2945,11 @@ test('creative product benchmark requires creative worker evidence beyond verifi
   assert.equal(creativeEvidence.creativeProductDeltaIntegrity, 1);
   assert.equal(creativeEvidence.templateFallbackRate, 0);
   assert.equal(patchQueue.merged.length, 1);
+  assert.equal(patchQueue.rejected.some((entry) => entry.rejectionReason === 'export_only_semantic_runtime'), false);
+  const assignmentFile = fs.readdirSync(path.join(bootstrap.root, 'orchestrator_run', 'assignments')).find((entry) => entry.endsWith('.json'));
+  const assignment = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'orchestrator_run', 'assignments', assignmentFile), 'utf8'));
+  assert.equal(assignment.contextPack.inputs.semanticProductAdmission.requireRuntimeExecution, false);
+  assert.equal(assignment.shard.metadata.semanticRuntimeExecutionRequired, false);
   assert.match(fs.readFileSync(path.join(repo, 'packages/app/creative-surface.mjs'), 'utf8'), /creativeProductBehavior/);
 });
 
@@ -2985,6 +3036,206 @@ test('codex creative worker compact mode uses bounded brief and external verific
   const prompt = fs.readFileSync(path.join(workspace, '__last_prompt.txt'), 'utf8');
   assert.match(prompt, /compact surface brief/i);
   assert.doesNotMatch(prompt, /Bounded assigned-file context/);
+});
+
+test('codex creative worker usage-limit detector ignores product retry copy on successful Codex calls', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-usage-detector-'));
+  const workspace = path.join(root, 'repo');
+  write(path.join(workspace, 'packages', 'app', 'reports-surface.mjs'), 'export function reportsSurfaceState(input = {}) { return { input, status: "initial" }; }\n');
+  const taskPath = path.join(root, 'task.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  const ledgerPath = path.join(root, 'ledger.json');
+  const mockCodex = path.join(root, 'mock-codex.mjs');
+  write(taskPath, JSON.stringify({
+    goal: 'Add reports retry product copy without tripping Codex usage detector',
+    acceptanceChecks: []
+  }, null, 2));
+  write(mockCodex, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+fs.appendFileSync(path.join(process.cwd(), 'packages/app/reports-surface.mjs'), [
+  '',
+  'export function reportsRetryNotice(health = {}) {',
+  '  const retryAt = health.retryAvailableAt || null;',
+  '  return {',
+  '    status: retryAt ? "waiting" : "ready",',
+  '    message: retryAt ? \`Telemetry refresh is paused by retry backoff. Try again at \${retryAt}.\` : "Telemetry refresh is ready.",',
+  '    retryAt',
+  '  };',
+  '}',
+  ''
+].join('\\n'));
+console.log('Telemetry refresh is paused by retry backoff. Try again at 2026-06-08T01:05:00Z.');
+console.log('tokens used');
+console.log('2,345');
+`);
+  fs.chmodSync(mockCodex, 0o755);
+  const worker = path.resolve('apps/system-benchmark/codex-creative-worker.mjs');
+  const spawned = spawnSync(process.execPath, [worker], {
+    cwd: workspace,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_TASK_PATH: taskPath,
+      CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
+      CREATIVE_WORKER_WORKSPACE: workspace,
+      CREATIVE_WORKER_ALLOWED_FILES: 'packages/app/reports-surface.mjs',
+      CREATIVE_WORKER_SURFACE_ID: 'reports_surface',
+      CREATIVE_WORKER_AGENT_ID: 'agent-usage-detector',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_LEDGER_PATH: ledgerPath,
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_MIN_ITERATIONS: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '1',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '1',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '100000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '1000',
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_MODEL: 'mock-model',
+      CODEX_CREATIVE_SANDBOX: 'danger-full-access'
+    }
+  });
+  assert.equal(spawned.status, 0, spawned.stderr || spawned.stdout);
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+  assert.equal(evidence.ok, true);
+  assert.equal(evidence.budget.events.at(-1).usage.usageLimit, false);
+  assert.equal(evidence.budget.stopReason, null);
+  assert.equal(ledger.globalStop, null);
+  assert.equal(ledger.events.at(-1).usageLimit, false);
+  assert.equal(evidence.risks.includes('codex_usage_limit_observed'), false);
+});
+
+test('codex creative worker usage-limit detector ignores product 429 copy on failed Codex calls', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-usage-429-'));
+  const workspace = path.join(root, 'repo');
+  write(path.join(workspace, 'packages', 'app', 'provider-surface.mjs'), 'export function providerSurfaceState(input = {}) { return { input, status: "initial" }; }\n');
+  const taskPath = path.join(root, 'task.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  const ledgerPath = path.join(root, 'ledger.json');
+  const mockCodex = path.join(root, 'mock-codex.mjs');
+  write(taskPath, JSON.stringify({
+    goal: 'Add provider rate-limited product copy without tripping Codex usage detector',
+    acceptanceChecks: []
+  }, null, 2));
+  write(mockCodex, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+fs.appendFileSync(path.join(process.cwd(), 'packages/app/provider-surface.mjs'), [
+  '',
+  'export function providerRateLimitNotice(account = {}) {',
+  '  return {',
+  '    status: "rate_limited",',
+  '    httpStatus: 429,',
+  '    message: (account.displayName || "Provider") + " is rate limiting Mailchimp sync requests."',
+  '  };',
+  '}',
+  ''
+].join('\\n'));
+console.log('httpStatus: 429');
+console.log('Provider is rate limiting Mailchimp sync requests.');
+process.exit(1);
+`);
+  fs.chmodSync(mockCodex, 0o755);
+  const worker = path.resolve('apps/system-benchmark/codex-creative-worker.mjs');
+  const spawned = spawnSync(process.execPath, [worker], {
+    cwd: workspace,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_TASK_PATH: taskPath,
+      CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
+      CREATIVE_WORKER_WORKSPACE: workspace,
+      CREATIVE_WORKER_ALLOWED_FILES: 'packages/app/provider-surface.mjs',
+      CREATIVE_WORKER_SURFACE_ID: 'provider_surface',
+      CREATIVE_WORKER_AGENT_ID: 'agent-usage-429',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_LEDGER_PATH: ledgerPath,
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_MIN_ITERATIONS: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '1',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '1',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '100000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '1000',
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_MODEL: 'mock-model',
+      CODEX_CREATIVE_SANDBOX: 'danger-full-access'
+    }
+  });
+  assert.equal(spawned.status, 1);
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
+  assert.equal(evidence.ok, false);
+  assert.equal(evidence.budget.events.at(-1).usage.usageLimit, false);
+  assert.equal(evidence.budget.stopReason, null);
+  assert.equal(ledger.globalStop, null);
+  assert.equal(ledger.events.at(-1).usageLimit, false);
+  assert.equal(evidence.risks.includes('codex_usage_limit_observed'), false);
+});
+
+test('codex creative worker prompt-token hard stop fires before reservation or Codex spawn', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-creative-prompt-budget-'));
+  const workspace = path.join(root, 'repo');
+  write(path.join(workspace, 'packages', 'app', 'budget-surface.mjs'), 'export function budgetSurfaceState(input = {}) { return { input, status: "initial" }; }\n');
+  const taskPath = path.join(root, 'task.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  const ledgerPath = path.join(root, 'ledger.json');
+  const invokedPath = path.join(root, 'codex-invoked');
+  const mockCodex = path.join(root, 'mock-codex.mjs');
+  write(taskPath, JSON.stringify({
+    goal: 'Probe hard prompt-token stop before spending a Codex call',
+    acceptanceChecks: []
+  }, null, 2));
+  write(mockCodex, `#!/usr/bin/env node
+import fs from 'node:fs';
+fs.writeFileSync(${JSON.stringify(invokedPath)}, 'invoked');
+console.log('tokens used');
+console.log('123');
+`);
+  fs.chmodSync(mockCodex, 0o755);
+
+  const worker = path.resolve('apps/system-benchmark/codex-creative-worker.mjs');
+  const spawned = spawnSync(process.execPath, [worker], {
+    cwd: workspace,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CREATIVE_WORKER_TASK_PATH: taskPath,
+      CREATIVE_WORKER_EVIDENCE_PATH: evidencePath,
+      CREATIVE_WORKER_WORKSPACE: workspace,
+      CREATIVE_WORKER_ALLOWED_FILES: 'packages/app/budget-surface.mjs',
+      CREATIVE_WORKER_SURFACE_ID: 'budget_surface',
+      CREATIVE_WORKER_AGENT_ID: 'agent-prompt-budget',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_LEDGER_PATH: ledgerPath,
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_MIN_ITERATIONS: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '1',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET: '1',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET_MODE: 'hard',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '1',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '100000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '1000',
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_MODEL: 'mock-model',
+      CODEX_CREATIVE_SANDBOX: 'danger-full-access'
+    }
+  });
+
+  assert.equal(spawned.status, 1, spawned.stderr || spawned.stdout);
+  assert.equal(fs.existsSync(invokedPath), false);
+  assert.equal(fs.existsSync(ledgerPath), false);
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  assert.equal(evidence.ok, false);
+  assert.equal(evidence.budget.stopReason, 'creative_prompt_token_budget_exceeded');
+  assert.equal(evidence.budget.events.at(-1).type, 'prompt_budget_stop_before_codex');
+  assert.equal(evidence.budget.events.at(-1).promptTokenBudget, 1);
 });
 
 test('codex creative worker can fail closed after compact external verifier failure', () => {
@@ -3210,4 +3461,92 @@ test('codex creative worker targeted verification does not overmatch generic cam
   assert.equal(evidence.ok, true);
   assert.deepEqual(evidence.externalVerification.effectiveCommands, ['node --test tests/campaign-ops.test.mjs']);
   assert.equal(evidence.externalVerification.runs[0].results[0].command, 'node --test tests/campaign-ops.test.mjs');
+});
+
+test('creative readiness allows OAuth message-metered compact single-pass bundles with strict external verification', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'creative-readiness-oauth-single-pass-'));
+  const contractPath = path.join(root, 'run_contract.json');
+  const mockCodex = path.join(root, 'codex');
+  write(mockCodex, '#!/usr/bin/env bash\necho mock codex\n');
+  fs.chmodSync(mockCodex, 0o755);
+  write(contractPath, JSON.stringify({
+    benchmarkId: 'mailchimp_token_conservation_100agent_pilot',
+    runId: 'mailchimp-token-conservation-100agent-test',
+    benchmarkTier: 'tier2_functional',
+    benchmarkClass: 'real_repo_mailchimp_campaign_email_builder_creative_product_work_lowoverlap_rerun',
+    fidelity: 'production_slice',
+    executionBoundary: 'remote_execution_required',
+    requestedAgentCount: 100,
+    scope: {
+      durationTargetMinutes: 10,
+      productDiffMode: 'creative_product_work',
+      creativeProductWork: {
+        required: true,
+        minIterations: 1,
+        minWorkerRuntimeMs: 0,
+        workerCommand: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`
+      },
+      surfaces: [
+        {
+          id: 'campaign_index__oauth_bundle_probe',
+          lane: 'campaigns',
+          goal: 'Probe message-metered compact readiness',
+          productFiles: ['packages/app/domain-campaigns.mjs'],
+          targetFiles: ['packages/app/domain-campaigns.mjs']
+        }
+      ]
+    }
+  }, null, 2));
+
+  const verifier = path.resolve('apps/system-benchmark/verify-creative-relaunch-readiness.mjs');
+  const spawned = spawnSync(process.execPath, [verifier, contractPath], {
+    cwd: path.resolve('.'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      BENCHMARK_HOST_ROLE: 'execution_plane',
+      LLM_METERING_MODE: 'oauth_message_metered',
+      CREATIVE_WORKER_COMMAND: `node ${path.resolve('apps/system-benchmark/codex-creative-worker.mjs')}`,
+      CODEX_BIN: mockCodex,
+      CODEX_CREATIVE_SANDBOX: 'workspace-write',
+      ORCHESTRATOR_WORKER_WORKSPACE_MODE: 'isolated_product_copy',
+      ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS: 'tests',
+      CREATIVE_WORKER_CORTEX_REQUIRED: '1',
+      CREATIVE_WORKER_BUDGET_REQUIRED: '1',
+      CREATIVE_WORKER_MIN_ITERATIONS_OVERRIDE: '1',
+      CODEX_CREATIVE_MAX_ITERATIONS: '1',
+      CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT: '1',
+      CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS: '12',
+      CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT: '14',
+      CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT: '500000',
+      CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE: '120000',
+      CREATIVE_WORKER_TOKEN_BUDGET_MODE: 'safety',
+      CREATIVE_WORKER_PROMPT_MODE: 'compact',
+      CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS: '36000',
+      ORCHESTRATOR_CONTEXT_GOVERNOR: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE: '1',
+      ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_WORKER_TOKENS: '3200',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET: '3200',
+      CREATIVE_WORKER_PROMPT_TOKEN_BUDGET_MODE: 'hard',
+      CREATIVE_WORKER_COMPACT_FAIL_CLOSED: '0',
+      CREATIVE_WORKER_REQUIRE_REPAIR_SIGNAL_FOR_RETRY: '1',
+      CREATIVE_WORKER_CODEX_RUN_TESTS: '0',
+      CREATIVE_WORKER_EXTERNAL_VERIFICATION: '1',
+      CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE: '1',
+      CREATIVE_WORKER_TARGETED_EXTERNAL_VERIFICATION_ONLY: '1',
+      TRANSFER_BENCHMARK_MAX_RUNTIME_MS: '1800000',
+      CODEX_CREATIVE_ITERATION_TIMEOUT_MS: '300000',
+      CREATIVE_WORKER_BUDGET_RESERVATION_TIMEOUT_MS: '600000',
+      CREATIVE_WORKER_COMMAND_TIMEOUT_MS: '960000',
+      ORCHESTRATOR_WORKER_TIMEOUT_MS: '1200000',
+      CREATIVE_WORKER_MIN_RUNTIME_MS_OVERRIDE: '0',
+      MAILCHIMP_BENCHMARK_SURFACE_MIN_DURATION_MS_OVERRIDE: '0'
+    }
+  });
+  assert.equal(spawned.status, 0, spawned.stderr || spawned.stdout);
+  const result = JSON.parse(spawned.stdout);
+  assert.equal(result.ok, true);
+  assert.equal(result.checks.find((entry) => entry.id === 'compact_fallback_or_message_metered_single_pass')?.ok, true);
+  assert.equal(result.checks.find((entry) => entry.id === 'oauth_single_pass_call_limit_bounded')?.ok, true);
+  assert.equal(result.checks.find((entry) => entry.id === 'oauth_single_pass_global_calls_bounded')?.ok, true);
 });

@@ -56,9 +56,13 @@ function listImmediateDirs(dir) {
 }
 
 function sourceFiles(repoRoot, config) {
-  return walk(repoRoot)
+  const root = path.resolve(repoRoot);
+  return walk(root)
     .filter((file) => config.sourceExtensions.has(path.extname(file)))
-    .filter((file) => !file.includes(`${path.sep}artifacts${path.sep}`) && !file.includes(`${path.sep}docs${path.sep}`));
+    .filter((file) => {
+      const rel = path.relative(root, file);
+      return !rel.split(path.sep).includes('artifacts') && !rel.split(path.sep).includes('docs');
+    });
 }
 
 function topLevelBucket(rel) {

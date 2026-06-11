@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { planCreativeBundleRuntime } from '../../packages/continuous-workload-controller/index.mjs';
+import {
+  normalizeTokenBudgetMode,
+  readCreativeWorkerMeteringPlanFromEnv
+} from '../../packages/llm-metering-adapter/index.mjs';
 
 function readJson(filePath, fallback = null) {
   try {
@@ -151,7 +155,19 @@ function readFileSnippet(workspaceRoot, rel, maxChars = 8000) {
   }
 }
 
-function parseCodexTokenUsage(logPath) {
+function detectCodexUsageLimit(text = '', { exitCode = null } = {}) {
+  const failed = exitCode == null || Number(exitCode) !== 0;
+  if (!failed) return false;
+  const value = String(text || '');
+  return [
+    /(?:you(?:'|’)ve|you have) hit (?:your )?(?:chatgpt |codex |agentic )?usage limit\b/i,
+    /\b(?:codex|chatgpt|agentic) usage limit (?:observed|reached|exceeded|hit)\b/i,
+    /\busage limit (?:observed|reached|exceeded|hit)\b/i,
+    /\b(?:reached|exceeded|hit) (?:your )?(?:codex |chatgpt |agentic )?usage limit\b/i
+  ].some((pattern) => pattern.test(value));
+}
+
+function parseCodexTokenUsage(logPath, { exitCode = null } = {}) {
   const text = readFilePrefix(logPath, 2 * 1024 * 1024);
   const values = [];
   const lines = text.split(/\r?\n/);
@@ -164,7 +180,7 @@ function parseCodexTokenUsage(logPath) {
     values,
     total: values.reduce((sum, value) => sum + value, 0),
     last: values.length ? values.at(-1) : 0,
-    usageLimit: /You've hit your usage limit|usage limit|try again at/i.test(text)
+    usageLimit: detectCodexUsageLimit(text, { exitCode })
   };
 }
 
@@ -385,9 +401,22 @@ function mutateBudgetLedger(ledgerPath, mutator) {
   }
 }
 
-function summarizeCortexPacket(packet) {
-  if (!packet || typeof packet !== 'object') return 'No Cortex context packet loaded.';
+function summarizeContextGovernor() {
+  if (!effectiveContextGovernor && !effectiveRetrievalManifest && !effectiveModelTierPlan) return '';
   const lines = [
+    'Context governor:',
+    effectiveContextGovernor ? `- mode=${effectiveContextGovernor.mode || 'unknown'} target=${effectiveContextGovernor.targetSavingsRange || 'n/a'} maxWorkerTokens=${effectiveContextGovernor.launchGate?.maxWorkerTokens || 'n/a'} hardGate=${Boolean(effectiveContextGovernor.launchGate?.hardGate)}` : '',
+    effectiveModelTierPlan?.worker ? `- workerRole=${effectiveModelTierPlan.worker.role || 'narrow_worker'} workerTier=${effectiveModelTierPlan.worker.tier || 'default'} promptMode=${effectiveModelTierPlan.worker.promptMode || 'compact'}` : '',
+    effectiveRetrievalManifest ? `- retrieval=${effectiveRetrievalManifest.mode || 'on_demand'} fileHandles=${Array.isArray(effectiveRetrievalManifest.fileHandles) ? effectiveRetrievalManifest.fileHandles.length : 0} inputHandles=${Array.isArray(effectiveRetrievalManifest.inputHandles) ? effectiveRetrievalManifest.inputHandles.length : 0}` : '',
+    '- Use retrieval handles instead of broad repo search or transcript replay.'
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
+function summarizeCortexPacket(packet) {
+  if (!packet || typeof packet !== 'object') return ['No Cortex context packet loaded.', summarizeContextGovernor()].filter(Boolean).join('\n');
+  const lines = [
+    summarizeContextGovernor(),
     `Cortex packet schema: ${packet.schemaVersion || 'unknown'}`,
     `Cortex route: ${packet.cortexRoute || packet.route || 'context_governor'}`,
     `Surface: ${packet.surface?.id || packet.surfaceId || 'unknown'} — ${packet.surface?.label || ''}`.trim(),
@@ -459,7 +488,18 @@ function buildCompactSurfaceBrief({ iteration, elapsedMs, changedSoFar = [], rep
       intent: cortexPacket?.intent || null,
       instructions: (cortexPacket?.instructions || cortexPacket?.guardrails || []).slice(0, 8),
       budgetPolicy: cortexPacket?.budgetPolicy || cortexPacket?.budget || null,
-      verifierCatalog: cortexPacket?.verifierCatalog || null
+      verifierCatalog: cortexPacket?.verifierCatalog || null,
+      contextGovernor: effectiveContextGovernor ? {
+        mode: effectiveContextGovernor.mode || null,
+        maxWorkerTokens: effectiveContextGovernor.launchGate?.maxWorkerTokens || null,
+        targetSavingsRange: effectiveContextGovernor.targetSavingsRange || null
+      } : null,
+      modelTier: effectiveModelTierPlan?.worker || null,
+      retrieval: effectiveRetrievalManifest ? {
+        mode: effectiveRetrievalManifest.mode || null,
+        fileHandleCount: Array.isArray(effectiveRetrievalManifest.fileHandles) ? effectiveRetrievalManifest.fileHandles.length : 0,
+        inputHandleCount: Array.isArray(effectiveRetrievalManifest.inputHandles) ? effectiveRetrievalManifest.inputHandles.length : 0
+      } : null
     }, 1200),
     'File signals (imports/exports/routes/functions only; inspect assigned files directly if needed):',
     fileSignals.map((entry) => `### ${entry.path}${entry.exists ? '' : ' (missing)'}\n${entry.signals.length ? entry.signals.map((line) => `- ${line}`).join('\n') : '- no compact signals extracted'}`).join('\n\n'),
@@ -575,11 +615,18 @@ const runDir = path.dirname(evidencePath);
 const cortexPacketPath = process.env.CREATIVE_WORKER_CORTEX_PACKET_PATH || process.env.CORTEX_CONTEXT_PACKET_PATH || task.cortexContextPacketPath || '';
 const cortexRequired = parseBool(process.env.CREATIVE_WORKER_CORTEX_REQUIRED || process.env.CORTEX_REQUIRED, false);
 const cortexPacket = cortexPacketPath ? readJson(cortexPacketPath, null) : null;
+const effectiveContextPack = task.contextPack || task.assignment?.contextPack || cortexPacket?.contextPack || null;
+const effectiveContextGovernor = effectiveContextPack?.contextGovernor || cortexPacket?.contextGovernor || null;
+const effectiveModelTierPlan = effectiveContextPack?.modelTierPlan || cortexPacket?.modelTierPlan || null;
+const effectiveRetrievalManifest = effectiveContextPack?.retrievalManifest || cortexPacket?.retrievalManifest || null;
 const budgetLedgerPath = process.env.CREATIVE_WORKER_BUDGET_LEDGER_PATH || task.budgetLedgerPath || '';
 const budgetRequired = parseBool(process.env.CREATIVE_WORKER_BUDGET_REQUIRED, false);
 const globalCallLimit = positiveInt(process.env.CREATIVE_WORKER_GLOBAL_CODEX_CALL_LIMIT, 0);
 const globalTokenLimit = positiveInt(process.env.CREATIVE_WORKER_GLOBAL_TOKEN_LIMIT, 0);
 const baseTokenReservationEstimate = positiveInt(process.env.CREATIVE_WORKER_TOKEN_RESERVATION_ESTIMATE, 0);
+const meteringPlan = readCreativeWorkerMeteringPlanFromEnv(process.env);
+const tokenBudgetMode = normalizeTokenBudgetMode(process.env.CREATIVE_WORKER_TOKEN_BUDGET_MODE || meteringPlan.tokenBudgetMode, { meteringMode: meteringPlan.mode });
+const hardTokenBudget = tokenBudgetMode === 'hard';
 const perWorkerCallLimit = positiveInt(process.env.CREATIVE_WORKER_PER_WORKER_CODEX_CALL_LIMIT, 0);
 const maxActiveCodexCalls = positiveInt(process.env.CREATIVE_WORKER_MAX_ACTIVE_CODEX_CALLS, 0);
 const activeCodexCallSchedule = parseActiveCodexCallSchedule(process.env.CREATIVE_WORKER_ACTIVE_CODEX_CALL_SCHEDULE || '');
@@ -588,7 +635,7 @@ const budgetReservationPollMs = positiveInt(process.env.CREATIVE_WORKER_BUDGET_R
 const activeReservationTtlMs = positiveInt(process.env.CREATIVE_WORKER_ACTIVE_RESERVATION_TTL_MS, Math.max(30 * 60 * 1000, budgetReservationTimeoutMs + 60_000));
 const contextSnippetMaxChars = positiveInt(process.env.CREATIVE_WORKER_CONTEXT_FILE_MAX_CHARS, 9000);
 const contextTotalMaxChars = positiveInt(process.env.CREATIVE_WORKER_CONTEXT_TOTAL_MAX_CHARS, 32000);
-const promptMode = normalizePromptMode(process.env.CREATIVE_WORKER_PROMPT_MODE || process.env.CODEX_CREATIVE_PROMPT_MODE || task.promptMode || 'full_context');
+const promptMode = normalizePromptMode(process.env.CREATIVE_WORKER_PROMPT_MODE || process.env.CODEX_CREATIVE_PROMPT_MODE || task.promptMode || effectiveModelTierPlan?.worker?.promptMode || (effectiveContextGovernor?.enabled ? 'compact' : 'full_context'));
 const compactBriefMaxChars = positiveInt(process.env.CREATIVE_WORKER_COMPACT_BRIEF_MAX_CHARS || task.compactBriefMaxChars, 12000);
 const externalVerificationEnabled = parseBool(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION, promptMode === 'compact');
 const externalVerificationTimeoutMs = positiveInt(process.env.CREATIVE_WORKER_EXTERNAL_VERIFICATION_TIMEOUT_MS, 90_000);
@@ -599,6 +646,8 @@ const requireRepairSignalForRetry = parseBool(process.env.CREATIVE_WORKER_REQUIR
 const stopOnExternalVerificationFailure = parseBool(process.env.CREATIVE_WORKER_STOP_ON_EXTERNAL_VERIFICATION_FAILURE, false);
 const compactFailClosedFallback = parseBool(process.env.CREATIVE_WORKER_COMPACT_FAIL_CLOSED, promptMode === 'compact');
 const maxObservedTokensPerMinute = positiveInt(process.env.CREATIVE_WORKER_MAX_OBSERVED_TOKENS_PER_MINUTE, 0);
+const promptTokenBudget = positiveInt(process.env.CREATIVE_WORKER_PROMPT_TOKEN_BUDGET || effectiveContextGovernor?.launchGate?.maxWorkerTokens || effectiveContextPack?.contextFootprint?.budgetMaxTokens, 0);
+const promptTokenBudgetMode = String(process.env.CREATIVE_WORKER_PROMPT_TOKEN_BUDGET_MODE || (effectiveContextGovernor?.launchGate?.hardGate ? 'hard' : 'safety')).trim().toLowerCase();
 const burnRateWindowMs = positiveInt(process.env.CREATIVE_WORKER_BURN_RATE_WINDOW_MS, 10 * 60 * 1000);
 const repairSummaryPath = process.env.CREATIVE_WORKER_REPAIR_SUMMARY_PATH || '';
 const initialRepairSummary = process.env.CREATIVE_WORKER_REPAIR_SUMMARY || (repairSummaryPath ? readFilePrefix(repairSummaryPath, 8000) : '');
@@ -725,6 +774,8 @@ function reserveBudget(iteration) {
   while (true) {
     const outcome = mutateBudgetLedger(budgetLedgerPath, (ledger) => {
       const nowMs = Date.now();
+      ledger.metering = { mode: meteringPlan.mode || null, budgetAxis: meteringPlan.budgetAxis || null, tokenBudgetMode, hardTokenBudget };
+      ledger.tokenBudgetMode = tokenBudgetMode;
       ledger.activeReservations ||= {};
       for (const [reservationId, reservation] of Object.entries(ledger.activeReservations)) {
         const startedAtMs = Number(reservation?.startedAtMs || 0);
@@ -764,15 +815,18 @@ function reserveBudget(iteration) {
         ledger.globalStop = { reason: 'creative_global_call_limit_reached', limit: globalCallLimit, at: new Date().toISOString() };
         return { ok: false, reason: 'creative_global_call_limit_reached', globalStop: ledger.globalStop };
       }
-      if (globalTokenLimit && Number(ledger.tokensObserved || 0) >= globalTokenLimit) {
+      if (hardTokenBudget && globalTokenLimit && Number(ledger.tokensObserved || 0) >= globalTokenLimit) {
         ledger.globalStop = { reason: 'creative_global_token_limit_reached', limit: globalTokenLimit, tokensObserved: ledger.tokensObserved, at: new Date().toISOString() };
         return { ok: false, reason: 'creative_global_token_limit_reached', globalStop: ledger.globalStop };
       }
       if (globalTokenLimit && tokenReservationEstimate) {
         const projectedReservedTokens = Number(ledger.tokensObserved || 0) + ((Number(ledger.activeCalls || 0) + 1) * tokenReservationEstimate);
-        if (projectedReservedTokens > globalTokenLimit) {
+        if (hardTokenBudget && projectedReservedTokens > globalTokenLimit) {
           ledger.globalStop = { reason: 'creative_global_reserved_token_limit_reached', limit: globalTokenLimit, tokensObserved: ledger.tokensObserved, activeCalls: ledger.activeCalls, tokenReservationEstimate, projectedReservedTokens, at: new Date().toISOString() };
           return { ok: false, reason: 'creative_global_reserved_token_limit_reached', globalStop: ledger.globalStop };
+        } else if (!hardTokenBudget && projectedReservedTokens > globalTokenLimit) {
+          ledger.tokenBudgetSoftExceeded = { reason: 'creative_global_reserved_token_safety_exceeded', limit: globalTokenLimit, tokensObserved: ledger.tokensObserved, activeCalls: ledger.activeCalls, tokenReservationEstimate, projectedReservedTokens, tokenBudgetMode, at: new Date().toISOString() };
+          ledger.events.push({ at: new Date().toISOString(), type: 'creative_token_budget_soft_exceeded', ...ledger.tokenBudgetSoftExceeded });
         }
       }
       if (perWorkerCallLimit && Number(worker.callsStarted || 0) >= perWorkerCallLimit) {
@@ -795,9 +849,12 @@ function reserveBudget(iteration) {
 
 function completeBudget(reservation, iteration, logPath, exitCode) {
   if (!budgetLedgerPath || !reservation?.active) return null;
-  const usage = parseCodexTokenUsage(logPath);
+  const usage = parseCodexTokenUsage(logPath, { exitCode });
   const workerKey = agentId || surfaceId || 'unknown-worker';
   const result = mutateBudgetLedger(budgetLedgerPath, (ledger) => {
+    let ownGlobalStop = null;
+    ledger.metering = { mode: meteringPlan.mode || null, budgetAxis: meteringPlan.budgetAxis || null, tokenBudgetMode, hardTokenBudget };
+    ledger.tokenBudgetMode = tokenBudgetMode;
     ledger.activeReservations ||= {};
     if (reservation.reservationId && ledger.activeReservations[reservation.reservationId]) delete ledger.activeReservations[reservation.reservationId];
     ledger.activeCalls = Object.keys(ledger.activeReservations).length;
@@ -809,11 +866,19 @@ function completeBudget(reservation, iteration, logPath, exitCode) {
     worker.tokensObserved = Number(worker.tokensObserved || 0) + usage.total;
     const event = { at: new Date().toISOString(), type: 'codex_call_completed', reservationId: reservation.reservationId, workerKey, surfaceId, iteration, exitCode, tokensObserved: usage.total, tokenValues: usage.values, usageLimit: usage.usageLimit, activeCalls: ledger.activeCalls };
     ledger.events.push(event);
-    if (usage.usageLimit) ledger.globalStop = { reason: 'codex_usage_limit_observed', at: new Date().toISOString(), reservationId: reservation.reservationId, surfaceId };
-    else if (globalTokenLimit && Number(ledger.tokensObserved || 0) >= globalTokenLimit) ledger.globalStop = { reason: 'creative_global_token_limit_reached', limit: globalTokenLimit, tokensObserved: ledger.tokensObserved, at: new Date().toISOString() };
-    return { usage, globalStop: ledger.globalStop || null };
+    if (usage.usageLimit) {
+      ownGlobalStop = { reason: 'codex_usage_limit_observed', at: new Date().toISOString(), reservationId: reservation.reservationId, surfaceId };
+      ledger.globalStop = ownGlobalStop;
+    } else if (!ledger.globalStop && hardTokenBudget && globalTokenLimit && Number(ledger.tokensObserved || 0) >= globalTokenLimit) {
+      ownGlobalStop = { reason: 'creative_global_token_limit_reached', limit: globalTokenLimit, tokensObserved: ledger.tokensObserved, at: new Date().toISOString() };
+      ledger.globalStop = ownGlobalStop;
+    } else if (!hardTokenBudget && globalTokenLimit && Number(ledger.tokensObserved || 0) >= globalTokenLimit) {
+      ledger.tokenBudgetSoftExceeded = { reason: 'creative_global_token_safety_exceeded', limit: globalTokenLimit, tokensObserved: ledger.tokensObserved, tokenBudgetMode, at: new Date().toISOString() };
+      ledger.events.push({ at: new Date().toISOString(), type: 'creative_token_budget_soft_exceeded', ...ledger.tokenBudgetSoftExceeded });
+    }
+    return { usage, globalStop: ownGlobalStop, ledgerGlobalStop: ledger.globalStop || null };
   });
-  budgetEvents.push({ iteration, reservationId: reservation.reservationId, usage: result.usage, globalStop: result.globalStop });
+  budgetEvents.push({ iteration, reservationId: reservation.reservationId, usage: result.usage, globalStop: result.globalStop, ledgerGlobalStop: result.ledgerGlobalStop });
   return result;
 }
 
@@ -929,15 +994,22 @@ for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
   const promptPath = path.join(runDir, `${surfaceId}__codex-prompt-${iteration}.txt`);
   const lastMessagePath = path.join(runDir, `${surfaceId}__codex-last-message-${iteration}.txt`);
   const logPath = path.join(runDir, `${surfaceId}__codex-iteration-${iteration}.log`);
+  const promptText = buildPrompt({ iteration, elapsedMs, changedSoFar, mode: activePromptMode, repairSummary, externalVerifications });
+  fs.writeFileSync(promptPath, promptText);
+  const currentPromptMetrics = { iteration, ...promptMetrics(promptText, activePromptMode), promptTokenBudget: promptTokenBudget || null, promptTokenBudgetMode };
+  promptAudit.push(currentPromptMetrics);
+  if (promptTokenBudget && currentPromptMetrics.approxTokens > promptTokenBudget && promptTokenBudgetMode === 'hard') {
+    budgetStopReason = 'creative_prompt_token_budget_exceeded';
+    budgetEvents.push({ iteration, type: 'prompt_budget_stop_before_codex', reason: budgetStopReason, approxTokens: currentPromptMetrics.approxTokens, promptTokenBudget });
+    lastExitCode = 1;
+    break;
+  }
   const budgetReservation = reserveBudget(iteration);
   if (!budgetReservation.ok) {
     budgetStopReason = budgetReservation.reason || 'creative_budget_stop';
     budgetEvents.push({ iteration, type: 'budget_stop_before_codex', reason: budgetStopReason, globalStop: budgetReservation.globalStop || null });
     break;
   }
-  const promptText = buildPrompt({ iteration, elapsedMs, changedSoFar, mode: activePromptMode, repairSummary, externalVerifications });
-  fs.writeFileSync(promptPath, promptText);
-  promptAudit.push({ iteration, ...promptMetrics(promptText, activePromptMode) });
   const args = [
     'exec',
     '--cd', workspace,
@@ -1098,6 +1170,8 @@ writeJson(evidencePath, {
     codexShouldRunTests,
     requireRepairSignalForRetry,
     stopOnExternalVerificationFailure,
+    promptTokenBudget: promptTokenBudget || null,
+    promptTokenBudgetMode,
     audit: promptAudit
   },
   externalVerification: {
@@ -1116,11 +1190,22 @@ writeJson(evidencePath, {
     packetPath: cortexPacketPath || null,
     packetPresent: Boolean(cortexPacket),
     route: cortexPacket?.cortexRoute || cortexPacket?.route || null,
-    budgetPolicy: cortexPacket?.budgetPolicy || cortexPacket?.budget || null
+    budgetPolicy: cortexPacket?.budgetPolicy || cortexPacket?.budget || null,
+    contextGovernor: effectiveContextGovernor || null,
+    modelTierPlan: effectiveModelTierPlan || null,
+    retrievalManifest: effectiveRetrievalManifest ? {
+      mode: effectiveRetrievalManifest.mode || null,
+      fileHandleCount: Array.isArray(effectiveRetrievalManifest.fileHandles) ? effectiveRetrievalManifest.fileHandles.length : 0,
+      inputHandleCount: Array.isArray(effectiveRetrievalManifest.inputHandles) ? effectiveRetrievalManifest.inputHandles.length : 0
+    } : null
   },
   budget: {
     ledgerPath: budgetLedgerPath || null,
     required: budgetRequired,
+    meteringPlan,
+    meteringMode: meteringPlan.mode || null,
+    tokenBudgetMode,
+    hardTokenBudget,
     globalCallLimit,
     globalTokenLimit,
     baseTokenReservationEstimate,

@@ -69,7 +69,7 @@ export function planCreativeBundleRuntime({
 }
 
 export function isUsageLimitReason(reason = '') {
-  return /(?:^|_)codex_usage_limit|usage[_ -]?limit|try again at/i.test(String(reason || ''));
+  return /(?:^|[_ -])codex[_ -]usage[_ -]limit(?:[_ -]|$)|\busage[_ -]?limit[_ -]?(?:observed|reached|exceeded|hit)\b|\b(?:reached|exceeded|hit)\s+(?:your\s+)?usage\s+limit\b/i.test(String(reason || ''));
 }
 
 export function isBudgetLimitReason(reason = '') {
@@ -86,6 +86,7 @@ export function summarizeWaveBudgetLedger(ledger = {}) {
   const globalStopReason = ledger?.globalStop?.reason || null;
   const usageLimitObserved = isUsageLimitReason(globalStopReason) || usageLimitEvents.length > 0;
   const budgetLimitObserved = isBudgetLimitReason(globalStopReason) || events.some((event) => isBudgetLimitReason(event?.reason || event?.globalStop?.reason || ''));
+  const tokenBudgetSoftExceededEvents = events.filter((event) => event?.type === 'creative_token_budget_soft_exceeded' || /token_safety_exceeded|reserved_token_safety_exceeded/i.test(String(event?.reason || '')));
   return {
     callsStarted: Number(ledger?.callsStarted || 0),
     callsCompleted: Number(ledger?.callsCompleted || 0),
@@ -94,6 +95,9 @@ export function summarizeWaveBudgetLedger(ledger = {}) {
     usageLimitObserved,
     usageLimitEventCount: usageLimitEvents.length,
     budgetLimitObserved,
+    tokenBudgetSoftExceeded: Boolean(ledger?.tokenBudgetSoftExceeded) || tokenBudgetSoftExceededEvents.length > 0,
+    tokenBudgetSoftExceededEventCount: tokenBudgetSoftExceededEvents.length,
+    tokenBudgetMode: ledger?.tokenBudgetMode || ledger?.metering?.tokenBudgetMode || null,
     limit: Number(ledger?.globalStop?.limit || 0) || null,
     projectedReservedTokens: Number(ledger?.globalStop?.projectedReservedTokens || 0) || null,
     tokenReservationEstimate: Number(ledger?.globalStop?.tokenReservationEstimate || 0) || null
@@ -741,12 +745,25 @@ export function summarizePatchQueue(patchQueue = {}) {
     ...(entry.metadata?.implementation?.metadata?.architectureEvidence?.surfaceIds || []),
     ...(entry.metadata?.implementation?.metadata?.creativeWorkerEvidence?.sourceSurfaceIds || [])
   ]);
+  const rejectionReason = (entry = {}) => entry.reason || entry.rejectionReason || entry.status || entry.metadata?.reason || 'unknown';
+  const rejectionProductFiles = (entry = {}) => stableList(entry.filePaths || entry.files || []).filter(isProductSourceFile).sort();
+  const rejectionBlockerSignature = (entry = {}) => {
+    const reason = rejectionReason(entry);
+    const files = rejectionProductFiles(entry);
+    // Repeat-blocker scoring should identify repeated blocker families, not collapse
+    // unrelated verifier failures under one broad rejection reason.  Product-file
+    // clusters are the most stable artifact-level identity available across waves.
+    return files.length ? `${reason}::${files.join('+')}` : reason;
+  };
   const rejectedReasonCounts = {};
+  const rejectedBlockerSignatureCounts = {};
   const rejectedProductFiles = new Set();
   for (const entry of rejected) {
-    const reason = entry.reason || entry.rejectionReason || entry.status || entry.metadata?.reason || 'unknown';
+    const reason = rejectionReason(entry);
     rejectedReasonCounts[reason] = (rejectedReasonCounts[reason] || 0) + 1;
-    for (const file of entry.filePaths || entry.files || []) {
+    const signature = rejectionBlockerSignature(entry);
+    rejectedBlockerSignatureCounts[signature] = (rejectedBlockerSignatureCounts[signature] || 0) + 1;
+    for (const file of rejectionProductFiles(entry)) {
       if (isProductSourceFile(file)) rejectedProductFiles.add(file);
     }
   }
@@ -757,6 +774,7 @@ export function summarizePatchQueue(patchQueue = {}) {
     mergedAgentIds: stableList(merged.map((entry) => entry.agentId)),
     mergedProductFiles: stableList(merged.flatMap((entry) => entry.filePaths || []).filter(isProductSourceFile)),
     rejectedReasonCounts,
+    rejectedBlockerSignatureCounts,
     rejectedProductFiles: [...rejectedProductFiles]
   };
 }
@@ -793,6 +811,7 @@ export function summarizeWaveArtifacts({ completionSummary = {}, patchQueue = {}
     mergedSurfaceIds: patchSummary.mergedSurfaceIds,
     mergedProductFiles: patchSummary.mergedProductFiles,
     rejectedReasonCounts: patchSummary.rejectedReasonCounts,
+    rejectedBlockerSignatureCounts: patchSummary.rejectedBlockerSignatureCounts,
     rejectedProductFiles: patchSummary.rejectedProductFiles,
     landingEvidenceSummary: landing,
     addedLineCount: Number(landing.addedLineStats?.addedLineCount || 0),
@@ -809,6 +828,7 @@ export function updateContinuousStateFromWave({ state, waveSummary, selectedSurf
   next.surfaceLastWave ||= {};
   next.completedProductFiles ||= [];
   next.rejectedReasonCounts ||= {};
+  next.rejectedBlockerSignatureCounts ||= {};
   next.controllerBudget ||= { callsStarted: 0, callsCompleted: 0, tokensObserved: 0, usageLimitObserved: false, usageLimitWaveNumbers: [], budgetLimitObserved: false, budgetLimitWaveNumbers: [], promptModes: {} };
   next.controllerBudget.promptModes ||= {};
   for (const id of selectedSurfaceIds) {
@@ -823,6 +843,9 @@ export function updateContinuousStateFromWave({ state, waveSummary, selectedSurf
   }
   for (const [reason, count] of Object.entries(waveSummary.rejectedReasonCounts || {})) {
     next.rejectedReasonCounts[reason] = Number(next.rejectedReasonCounts[reason] || 0) + Number(count || 0);
+  }
+  for (const [signature, count] of Object.entries(waveSummary.rejectedBlockerSignatureCounts || {})) {
+    next.rejectedBlockerSignatureCounts[signature] = Number(next.rejectedBlockerSignatureCounts[signature] || 0) + Number(count || 0);
   }
   next.lastRejectedProductFiles = waveSummary.rejectedProductFiles || [];
   if (waveSummary.budget) {
@@ -853,6 +876,16 @@ function waveRejectedReasonCounts(wave = {}) {
   return wave?.rejectedReasonCounts && typeof wave.rejectedReasonCounts === 'object' ? wave.rejectedReasonCounts : {};
 }
 
+function waveRejectedBlockerSignatureCounts(wave = {}) {
+  return wave?.rejectedBlockerSignatureCounts && typeof wave.rejectedBlockerSignatureCounts === 'object'
+    ? wave.rejectedBlockerSignatureCounts
+    : waveRejectedReasonCounts(wave);
+}
+
+function blockerSignatureReason(signature = '') {
+  return String(signature || '').split('::')[0] || 'unknown';
+}
+
 function sumReasonCounts(reasonCounts = {}, predicate = () => true) {
   return Object.entries(reasonCounts).reduce((sum, [reason, count]) => predicate(reason) ? sum + Number(count || 0) : sum, 0);
 }
@@ -869,6 +902,17 @@ function mergeReasonCounts(waves = [], { excludeBudgetBackoffReasons = false } =
     for (const [reason, count] of Object.entries(waveRejectedReasonCounts(wave))) {
       if (excludeBudgetBackoffReasons && isBudgetBackoffReason(reason)) continue;
       merged[reason] = Number(merged[reason] || 0) + Number(count || 0);
+    }
+  }
+  return merged;
+}
+
+function mergeBlockerSignatureCounts(waves = [], { excludeBudgetBackoffReasons = false } = {}) {
+  const merged = {};
+  for (const wave of waves) {
+    for (const [signature, count] of Object.entries(waveRejectedBlockerSignatureCounts(wave))) {
+      if (excludeBudgetBackoffReasons && isBudgetBackoffReason(blockerSignatureReason(signature))) continue;
+      merged[signature] = Number(merged[signature] || 0) + Number(count || 0);
     }
   }
   return merged;
@@ -910,7 +954,15 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
   const addedLineCount = waves.reduce((sum, wave) => sum + Number(wave.addedLineCount || 0), 0);
   const uniqueNormalizedAddedLineCount = waves.reduce((sum, wave) => sum + Number(wave.uniqueNormalizedAddedLineCount || 0), 0);
   const productLaneCount = stableList(waves.flatMap((wave) => wave.productLanes || [])).length;
+  const contextGovernorWaves = waves.filter((wave) => wave.contextGovernor && typeof wave.contextGovernor === 'object');
+  const contextGovernorTotalTokens = contextGovernorWaves.reduce((sum, wave) => sum + Number(wave.contextGovernor.totalApproxTokens || 0), 0);
+  const contextGovernorPreTokens = contextGovernorWaves.reduce((sum, wave) => sum + Number(wave.contextGovernor.totalPreGovernorApproxTokens || 0), 0);
+  const contextGovernorBudgetFailureCount = contextGovernorWaves.reduce((sum, wave) => sum + Number(wave.contextGovernor.budgetFailureCount || 0), 0);
+  const contextGovernorSavingsRatio = contextGovernorWaves.length
+    ? Number((contextGovernorPreTokens / Math.max(1, contextGovernorTotalTokens)).toFixed(2))
+    : null;
   const scoredRejectedReasonCounts = mergeReasonCounts(rejectionReasonWaves, { excludeBudgetBackoffReasons: excludeBudgetBackoffRejections });
+  const scoredRejectedBlockerSignatureCounts = mergeBlockerSignatureCounts(rejectionReasonWaves, { excludeBudgetBackoffReasons: excludeBudgetBackoffRejections });
   const tokenEfficiency = calculateTokenEfficiencyMetrics({
     tokensObserved: state.controllerBudget?.tokensObserved || 0,
     callsCompleted: state.controllerBudget?.callsCompleted || 0,
@@ -932,9 +984,10 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
     rawRejectedPatchCount: rawRejected,
     excludedBackoffRejectedPatchCount,
     scoredRejectedReasonCounts,
+    scoredRejectedBlockerSignatureCounts,
     productiveIterationRate: totalShards ? Number((selectedMerged / totalShards).toFixed(4)) : 0,
     noOpRate: totalShards ? Number(((totalShards - selectedMerged) / totalShards).toFixed(4)) : 1,
-    repeatBlockerRate: repeatBlockerRateFromReasonCounts(scoredRejectedReasonCounts),
+    repeatBlockerRate: repeatBlockerRateFromReasonCounts(scoredRejectedBlockerSignatureCounts),
     handoffEfficiency: totalShards ? Number((selectedMerged / totalShards).toFixed(4)) : 0,
     autonomyWindowMinutes: Number(durationMinutes.toFixed(2)),
     activeWorkerMinutes: Number(activeWorkerMinutes.toFixed(3)),
@@ -947,6 +1000,14 @@ export function aggregateContinuousMetrics(state = {}, options = {}) {
     changedProductFiles,
     addedLineCount,
     uniqueNormalizedAddedLineCount,
+    contextGovernor: {
+      waveCount: contextGovernorWaves.length,
+      totalApproxTokens: contextGovernorTotalTokens,
+      totalPreGovernorApproxTokens: contextGovernorPreTokens,
+      observedSavingsRatio: contextGovernorSavingsRatio,
+      budgetFailureCount: contextGovernorBudgetFailureCount,
+      ok: contextGovernorWaves.length ? contextGovernorBudgetFailureCount === 0 : null
+    },
     tokenEfficiency,
     tokensObserved: tokenEfficiency.tokensObserved,
     tokensPerAddedLine: tokenEfficiency.tokensPerAddedLine,
@@ -968,6 +1029,7 @@ export function evaluateContinuousStop({ metrics, target = {}, remainingExecutab
   const durationTargetMinutes = Number(target.durationTargetMinutes || 120);
   const minProductiveIterationRate = Number(target.productiveIterationRateMin ?? 0.65);
   const maxNoOpRate = Number(target.noOpRateMax ?? 0.15);
+  const maxRepeatBlockerRate = Number(target.repeatBlockerRateMax ?? 0.10);
   const minHandoffEfficiency = Number(target.handoffEfficiencyMin ?? 0.70);
   const minTransferScore = Number(target.transferScoreMin ?? 0.70);
   const minChangedProductFiles = Number(target.minChangedProductFiles ?? 8);
@@ -975,6 +1037,7 @@ export function evaluateContinuousStop({ metrics, target = {}, remainingExecutab
   const green = metrics.autonomyWindowMinutes >= durationTargetMinutes
     && metrics.productiveIterationRate >= minProductiveIterationRate
     && metrics.noOpRate <= maxNoOpRate
+    && Number(metrics.repeatBlockerRate ?? 0) <= maxRepeatBlockerRate
     && metrics.handoffEfficiency >= minHandoffEfficiency
     && metrics.transferScore >= minTransferScore
     && metrics.truthIntegrityContradictions === 0

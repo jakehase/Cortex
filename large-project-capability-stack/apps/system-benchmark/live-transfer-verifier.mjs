@@ -59,7 +59,12 @@ if (!args.assignment || !args.verifier) {
 }
 
 const assignment = JSON.parse(fs.readFileSync(args.assignment, 'utf8'));
-const verifierCatalog = assignment.contextPack?.inputs?.verifierCatalog || assignment.shard?.metadata?.verifierCatalog || {};
+const verifierCatalog = {
+  ...(assignment.shard?.metadata?.verifierCatalog || {}),
+  ...(assignment.inputs?.verifierCatalog || {}),
+  ...(assignment.shard?.inputs?.verifierCatalog || {}),
+  ...(assignment.contextPack?.inputs?.verifierCatalog || {})
+};
 const verifier = verifierCatalog[args.verifier] || null;
 
 if (!verifier?.command) {

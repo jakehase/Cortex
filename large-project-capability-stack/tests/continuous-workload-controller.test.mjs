@@ -13,6 +13,7 @@ import {
   evaluateContinuousStop,
   evaluateTokenEfficiency,
   evaluateTokenEfficiencyDebtRecovery,
+  isUsageLimitReason,
   planCreativeBundleRuntime,
   planAdaptiveWaveBudget,
   promptModeForContinuousWave,
@@ -412,6 +413,62 @@ test('threshold metrics can window rejected-reason repetition for repaired resum
   assert.equal(scored.noOpRate, raw.noOpRate);
 });
 
+test('repeat-blocker scoring uses product-file signatures instead of broad reason collapse', () => {
+  const completionSummary = {
+    thresholdPass: false,
+    mechanicalGreen: false,
+    scaleProofReady: false,
+    durationMinutes: 5,
+    shardCount: 1,
+    mergedShardCount: 0,
+    rejectedPatchCount: 1,
+    concurrencyTruth: { uniqueAgentIds: ['agent-1'] },
+    landingEvidenceSummary: { addedLineStats: { addedLineCount: 0, uniqueNormalizedAddedLineCount: 0 } }
+  };
+  const waveOne = summarizeWaveArtifacts({
+    completionSummary,
+    waveNumber: 1,
+    patchQueue: { rejected: [{ rejectionReason: 'creative_external_verification_failed_stop', filePaths: ['packages/app/routes/campaigns.mjs'] }] }
+  });
+  const waveTwo = summarizeWaveArtifacts({
+    completionSummary,
+    waveNumber: 2,
+    patchQueue: { rejected: [{ rejectionReason: 'creative_external_verification_failed_stop', filePaths: ['packages/app/routes/templates.mjs'] }] }
+  });
+  const unrelated = aggregateContinuousThresholdMetrics({ waveSummaries: [waveOne, waveTwo] });
+  assert.deepEqual(unrelated.scoredRejectedReasonCounts, { creative_external_verification_failed_stop: 2 });
+  assert.equal(Object.keys(unrelated.scoredRejectedBlockerSignatureCounts).length, 2);
+  assert.equal(unrelated.repeatBlockerRate, 0);
+
+  const repeated = aggregateContinuousThresholdMetrics({ waveSummaries: [waveOne, waveOne] });
+  assert.equal(Object.keys(repeated.scoredRejectedBlockerSignatureCounts).length, 1);
+  assert.equal(repeated.repeatBlockerRate, 0.5);
+});
+
+test('continuous stop gate includes repeat-blocker rate before declaring green', () => {
+  const metrics = {
+    autonomyWindowMinutes: 121,
+    productiveIterationRate: 0.9,
+    noOpRate: 0.1,
+    repeatBlockerRate: 0.25,
+    handoffEfficiency: 0.9,
+    transferScore: 0.9,
+    truthIntegrityContradictions: 0,
+    fakeGreenIncidents: 0,
+    changedProductFileCount: 12,
+    uniqueAgentCount: 5
+  };
+  const decision = evaluateContinuousStop({
+    metrics,
+    target: { durationTargetMinutes: 120, repeatBlockerRateMax: 0.1, minChangedProductFiles: 8, minUniqueAgents: 4 },
+    remainingExecutableSurfaceCount: 10,
+    nowMs: 10,
+    deadlineMs: 10_000
+  });
+  assert.equal(decision.action, 'continue');
+  assert.equal(decision.thresholdPass, false);
+});
+
 test('token efficiency metrics flag expensive accepted output after enough sample evidence', () => {
   const metrics = calculateTokenEfficiencyMetrics({
     tokensObserved: 1_200_000,
@@ -440,6 +497,46 @@ test('token efficiency metrics flag expensive accepted output after enough sampl
   const notReady = evaluateTokenEfficiency({ metrics, policy: { minObservedTokens: 2_000_000, maxTokensPerAddedLine: 900 } });
   assert.equal(notReady.ok, true);
   assert.equal(notReady.sampleReady, false);
+});
+
+test('continuous metrics aggregate context governor savings and budget failures', () => {
+  const metrics = aggregateContinuousMetrics({
+    controllerBudget: { tokensObserved: 1200, callsCompleted: 2 },
+    waveSummaries: [
+      {
+        waveNumber: 1,
+        shardCount: 2,
+        mergedShardCount: 2,
+        durationMinutes: 5,
+        addedLineCount: 20,
+        uniqueNormalizedAddedLineCount: 18,
+        mergedProductFiles: ['packages/app/a.mjs'],
+        contextGovernor: {
+          totalPreGovernorApproxTokens: 50_000,
+          totalApproxTokens: 8_000,
+          budgetFailureCount: 0
+        }
+      },
+      {
+        waveNumber: 2,
+        shardCount: 1,
+        mergedShardCount: 0,
+        durationMinutes: 1,
+        contextGovernor: {
+          totalPreGovernorApproxTokens: 10_000,
+          totalApproxTokens: 3_000,
+          budgetFailureCount: 1
+        }
+      }
+    ]
+  });
+
+  assert.equal(metrics.contextGovernor.waveCount, 2);
+  assert.equal(metrics.contextGovernor.totalPreGovernorApproxTokens, 60_000);
+  assert.equal(metrics.contextGovernor.totalApproxTokens, 11_000);
+  assert.equal(metrics.contextGovernor.observedSavingsRatio, 5.45);
+  assert.equal(metrics.contextGovernor.budgetFailureCount, 1);
+  assert.equal(metrics.contextGovernor.ok, false);
 });
 
 test('token efficiency guard allows debt recovery when resumed waves are on an efficient trajectory', () => {
@@ -526,6 +623,15 @@ test('continuous controller switches to compact prompts after configured full-co
   assert.equal(promptModeForContinuousWave({ priorWaveCount: 0, launchedWaveIndex: 1, fullContextWaveCount: 1 }), 'compact');
   assert.equal(promptModeForContinuousWave({ priorWaveCount: 2, launchedWaveIndex: 0, fullContextWaveCount: 1 }), 'compact');
   assert.equal(promptModeForContinuousWave({ priorWaveCount: 0, launchedWaveIndex: 0, fullContextWaveCount: 0 }), 'compact');
+});
+
+test('continuous controller usage-limit reason detector ignores product retry copy', () => {
+  assert.equal(isUsageLimitReason('codex_usage_limit_observed'), true);
+  assert.equal(isUsageLimitReason('usage limit reached'), true);
+  assert.equal(isUsageLimitReason('Try again at 2026-06-08T01:05:00Z'), false);
+  assert.equal(isUsageLimitReason('Telemetry refresh is paused by retry backoff. Try again at ${health.retryAvailableAt}.'), false);
+  assert.equal(isUsageLimitReason('provider API returned 429 for tenant rate limiting'), false);
+  assert.equal(isUsageLimitReason('rate limit observed while syncing a marketplace provider'), false);
 });
 
 test('continuous controller turns Codex usage-limit evidence into a resumable backoff pause', () => {
