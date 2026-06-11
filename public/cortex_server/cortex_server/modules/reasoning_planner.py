@@ -5,6 +5,7 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, Field
 
+from cortex_server.runtime.agent_work_dsl import AgentWorkPermissions, AgentWorkSurface, CortexAgentWorkHandoff
 from cortex_server.modules.reasoning_kernel import (
     ReasoningTask,
     Subtask,
@@ -200,6 +201,114 @@ def _compiled_contracts(node: PlanNode) -> List[Dict[str, Any]]:
     return contracts
 
 
+def _metadata_list(metadata: Dict[str, Any], *keys: str) -> List[str]:
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item or "").strip()]
+        if isinstance(value, str) and value.strip():
+            return [item.strip() for item in re.split(r",|\n", value) if item.strip()]
+    return []
+
+
+def _payload_list(payload: Dict[str, Any], *keys: str) -> List[str]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item or "").strip()]
+        if isinstance(value, str) and value.strip():
+            return [item.strip() for item in re.split(r",|\n", value) if item.strip()]
+    return []
+
+
+def compile_plan_to_agent_work_handoff(
+    graph: ReasoningPlanGraph,
+    *,
+    repo_path: str,
+    goal_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+    owner: Optional[str] = None,
+    session: Optional[Dict[str, Any]] = None,
+    fidelity: Optional[str] = None,
+    requested_agent_count: Optional[int] = None,
+    permissions: Optional[Dict[str, Any]] = None,
+    route_levels: Optional[Sequence[str]] = None,
+    memory_citations: Optional[Sequence[str]] = None,
+) -> CortexAgentWorkHandoff:
+    """Compile a Cortex reasoning plan into an Agent Work handoff.
+
+    Plan nodes are intentionally required to declare concrete product files and
+    verifier commands in metadata/payload. This keeps Cortex responsible for
+    intent and provenance without guessing executable implementation surfaces.
+    """
+    summary = validate_plan_graph(graph)
+    nodes = _node_map(graph)
+    node_to_surface_id = {
+        node_id: str((nodes[node_id].metadata or {}).get("surface_id") or node_id)
+        for node_id in summary["execution_order"]
+    }
+    surfaces: List[AgentWorkSurface] = []
+    for node_id in summary["execution_order"]:
+        node = nodes[node_id]
+        metadata = dict(node.metadata or {})
+        payload = dict(node.payload or {})
+        files = _metadata_list(metadata, "files", "productFiles", "product_files", "paths") or _payload_list(payload, "files", "productFiles", "product_files", "paths")
+        verify = _metadata_list(metadata, "verify", "verifiers", "verification", "verifierCommands", "verifier_commands") or _payload_list(payload, "verify", "verifiers", "verification", "verifierCommands", "verifier_commands")
+        if not files:
+            raise PlanGraphError(f"node {node.node_id} cannot become Agent Work surface without files/productFiles metadata")
+        if not verify:
+            raise PlanGraphError(f"node {node.node_id} cannot become Agent Work surface without verify/verifiers metadata")
+        surfaces.append(
+            AgentWorkSurface(
+                id=node_to_surface_id[node_id],
+                label=node.title,
+                goal=str(metadata.get("goal") or node.title),
+                files=files,
+                verify=verify,
+                deps=[node_to_surface_id.get(dep, dep) for dep in node.depends_on],
+                lane=str(metadata.get("lane") or "cortex_agent_work"),
+                domain=str(metadata.get("domain") or node_to_surface_id[node_id]),
+                metadata={
+                    **metadata,
+                    "planNodeId": node.node_id,
+                    "endpoint": node.endpoint,
+                    "method": node.method.upper(),
+                    "contracts": list(_compiled_contracts(node)),
+                },
+            )
+        )
+
+    graph_metadata = dict(graph.metadata or {})
+    permission_payload = permissions or graph_metadata.get("permissions") or {}
+    session_payload = dict(session or {}) if session is not None else ({"session_key": graph_metadata.get("session_key")} if graph_metadata.get("session_key") else {})
+    return CortexAgentWorkHandoff(
+        goalId=goal_id or str(graph_metadata.get("goal_id") or graph.name),
+        objective=graph.goal or graph.description or graph.name,
+        repoPath=repo_path,
+        benchmarkId=graph_metadata.get("benchmarkId") or graph_metadata.get("benchmark_id"),
+        benchmarkTier=graph_metadata.get("benchmarkTier") or graph_metadata.get("benchmark_tier") or "agent_work_contract_v0",
+        runId=run_id or graph_metadata.get("run_id"),
+        artifactRoot=graph_metadata.get("artifactRoot") or graph_metadata.get("artifact_root"),
+        scoreboardPath=graph_metadata.get("scoreboardPath") or graph_metadata.get("scoreboard_path"),
+        fidelity=fidelity or graph_metadata.get("fidelity") or "production_slice",
+        requestedAgentCount=int(requested_agent_count or graph_metadata.get("requestedAgentCount") or graph_metadata.get("requested_agent_count") or max(1, len(surfaces))),
+        executionBoundary=graph_metadata.get("executionBoundary") or graph_metadata.get("execution_boundary") or "control_plane_allowed",
+        stopCondition=graph_metadata.get("stopCondition") or graph_metadata.get("stop_condition") or "supervisor_green_or_blocker_report",
+        owner=owner or graph_metadata.get("owner"),
+        session=session_payload,
+        permissions=AgentWorkPermissions(**permission_payload),
+        doneWhen=list(graph.success_criteria or graph_metadata.get("doneWhen") or graph_metadata.get("done_when") or []),
+        routeLevels=list(route_levels or graph_metadata.get("routeLevels") or graph_metadata.get("route_levels") or []),
+        memoryCitations=list(memory_citations or graph_metadata.get("memoryCitations") or graph_metadata.get("memory_citations") or []),
+        surfaces=surfaces,
+        metadata={
+            "sourcePlanGraph": summary,
+            "constraints": list(graph.constraints),
+            "description": graph.description,
+        },
+    )
+
+
 
 def compile_plan_to_reasoning_task(
     graph: ReasoningPlanGraph,
@@ -352,6 +461,7 @@ __all__ = [
     "PlanNode",
     "ReasoningPlanGraph",
     "compile_plan_to_reasoning_task",
+    "compile_plan_to_agent_work_handoff",
     "compile_plan_to_workflow",
     "dependency_failures",
     "plan_execution_order",

@@ -33,6 +33,7 @@ from cortex_server.modules.reasoning_kernel import model_dump_compat
 from cortex_server.modules.reasoning_planner import (
     PlanGraphError,
     ReasoningPlanGraph,
+    compile_plan_to_agent_work_handoff,
     compile_plan_to_reasoning_task,
     compile_plan_to_workflow,
     validate_plan_graph,
@@ -83,6 +84,7 @@ from cortex_server.runtime import (
     WatchRegistration,
     WatcherRuntimeStore,
     adapt_tool_event,
+    compile_handoff_to_agent_work_spec,
     derive_session_plane,
     resolve_session_follow_up_policy,
     session_follow_up_allowed,
@@ -1868,6 +1870,20 @@ class RuntimePlanRequest(BaseModel):
     options: RuntimeScheduleOptions = Field(default_factory=RuntimeScheduleOptions)
 
 
+class AgentWorkPlanRequest(BaseModel):
+    graph: ReasoningPlanGraph
+    repo_path: str
+    goal_id: Optional[str] = None
+    run_id: Optional[str] = None
+    owner: Optional[str] = None
+    session: Dict[str, Any] = Field(default_factory=dict)
+    fidelity: Optional[str] = None
+    requested_agent_count: Optional[int] = None
+    permissions: Dict[str, Any] = Field(default_factory=dict)
+    route_levels: List[str] = Field(default_factory=list)
+    memory_citations: List[str] = Field(default_factory=list)
+
+
 class RuntimeDeliveryReconcileRequest(BaseModel):
     contract: Optional[Dict[str, Any]] = None
     objective: Optional[str] = None
@@ -2674,6 +2690,34 @@ async def create_plan(graph: ReasoningPlanGraph):
             model_dump_compat_fn=model_dump_compat,
         )
     except PlanGraphError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/plan/agent-work")
+async def create_agent_work_handoff(request: AgentWorkPlanRequest):
+    """Compile an executable Cortex plan graph into an Agent Work DSL handoff."""
+    try:
+        handoff = compile_plan_to_agent_work_handoff(
+            request.graph,
+            repo_path=request.repo_path,
+            goal_id=request.goal_id,
+            run_id=request.run_id,
+            owner=request.owner,
+            session=request.session,
+            fidelity=request.fidelity,
+            requested_agent_count=request.requested_agent_count,
+            permissions=request.permissions,
+            route_levels=request.route_levels,
+            memory_citations=request.memory_citations,
+        )
+        handoff_payload = model_dump_compat(handoff)
+        return {
+            "success": True,
+            "schemaVersion": handoff_payload.get("schemaVersion"),
+            "handoff": handoff_payload,
+            "agent_work_spec": compile_handoff_to_agent_work_spec(handoff),
+        }
+    except (PlanGraphError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 

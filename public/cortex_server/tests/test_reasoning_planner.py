@@ -4,6 +4,7 @@ from cortex_server.modules.reasoning_kernel import model_dump_compat
 from cortex_server.modules.reasoning_planner import (
     PlanGraphError,
     ReasoningPlanGraph,
+    compile_plan_to_agent_work_handoff,
     compile_plan_to_reasoning_task,
     compile_plan_to_workflow,
     dependency_failures,
@@ -86,6 +87,60 @@ def test_compile_plan_to_reasoning_task_projects_dependencies_and_verification()
     assert data["subtasks"][1]["verification"][0]["method"] == "precondition"
     assert data["subtasks"][1]["verification"][1]["method"] == "success_criteria"
     assert data["metadata"]["plan_summary"]["execution_order"] == ["fetch_user", "summarize"]
+
+
+def test_compile_plan_to_agent_work_handoff_requires_executable_surfaces():
+    graph = ReasoningPlanGraph(
+        name="agent_work_plan",
+        goal="Implement Cortex Agent Work DSL handoff",
+        metadata={
+            "owner": "cortex",
+            "session_key": "session:agent-work",
+            "fidelity": "production_slice",
+            "permissions": {"forbid": ["external_send", "relaunch_benchmark"]},
+            "routeLevels": ["L5 oracle", "L7 librarian"],
+        },
+        success_criteria=["runner ingestion passes"],
+        nodes=[
+            {
+                "node_id": "adapter",
+                "title": "Build adapter",
+                "endpoint": "/agent-work/compile",
+                "metadata": {
+                    "surface_id": "cortex_adapter",
+                    "files": ["packages/cortex-agent-work-adapter/index.mjs"],
+                    "verify": ["node --test tests/cortex-agent-work-adapter.test.mjs"],
+                },
+            },
+            {
+                "node_id": "runner",
+                "title": "Wire runner ingestion",
+                "endpoint": "/agent-work/run",
+                "depends_on": ["adapter"],
+                "metadata": {
+                    "surface_id": "runner_ingestion",
+                    "files": ["apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs"],
+                    "verify": ["node --test tests/agent-work-dsl.test.mjs"],
+                },
+            },
+        ],
+    )
+
+    handoff = compile_plan_to_agent_work_handoff(graph, repo_path="/tmp/stack", run_id="agent-work-plan-test")
+    spec = model_dump_compat(handoff)
+
+    assert spec["schemaVersion"] == "cortex.agent_work_handoff.v0"
+    assert spec["repoPath"] == "/tmp/stack"
+    assert spec["runId"] == "agent-work-plan-test"
+    assert spec["surfaces"][0]["id"] == "cortex_adapter"
+    assert spec["surfaces"][1]["deps"] == ["cortex_adapter"]
+    assert spec["permissions"]["forbid"] == ["external_send", "relaunch_benchmark"]
+    assert spec["routeLevels"] == ["L5 oracle", "L7 librarian"]
+
+
+def test_compile_plan_to_agent_work_handoff_rejects_non_executable_nodes():
+    with pytest.raises(PlanGraphError):
+        compile_plan_to_agent_work_handoff(_sample_graph(), repo_path="/tmp/stack")
 
 
 

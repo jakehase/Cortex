@@ -1,4 +1,5 @@
 from cortex_server.runtime.agent_mailbox import AgentMailbox, AgentMessage
+from cortex_server.runtime.agent_work_dsl import AgentWorkPermissions, AgentWorkSurface, CortexAgentWorkHandoff, compile_handoff_to_agent_work_spec
 from cortex_server.runtime.agent_supervisor import AgentLease, AgentSupervisor
 from cortex_server.runtime.context_views import HandoffContextView, WorkingContextView, compile_handoff_context_view, compile_working_context_view, revision_guard
 from cortex_server.runtime.dependability import UNATTENDED_PROFILES, build_unattended_profile, compile_dependability_repair_plan, compile_dependability_report, load_dependability_report
@@ -85,7 +86,10 @@ __all__ = [
     "AgentLease",
     "AgentMailbox",
     "AgentMessage",
+    "AgentWorkPermissions",
+    "AgentWorkSurface",
     "AgentSupervisor",
+    "CortexAgentWorkHandoff",
     "HandoffArtifactRef",
     "HandoffContextView",
     "HandoffContract",
@@ -160,6 +164,7 @@ __all__ = [
     "compile_dependability_report",
     "compile_handoff_context_view",
     "compile_release_handoff",
+    "compile_handoff_to_agent_work_spec",
     "evaluate_production_completion",
     "compile_release_repair_plan",
     "advance_production_release_loop",
