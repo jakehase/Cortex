@@ -232,6 +232,11 @@ def compile_plan_to_agent_work_handoff(
     fidelity: Optional[str] = None,
     requested_agent_count: Optional[int] = None,
     permissions: Optional[Dict[str, Any]] = None,
+    budgets: Optional[Dict[str, Any]] = None,
+    wave_policy: Optional[Dict[str, Any]] = None,
+    expansion_policy: Optional[Dict[str, Any]] = None,
+    evidence_schemas: Optional[List[Dict[str, Any]]] = None,
+    templates: Optional[List[Dict[str, Any]]] = None,
     route_levels: Optional[Sequence[str]] = None,
     memory_citations: Optional[Sequence[str]] = None,
 ) -> CortexAgentWorkHandoff:
@@ -254,10 +259,11 @@ def compile_plan_to_agent_work_handoff(
         payload = dict(node.payload or {})
         files = _metadata_list(metadata, "files", "productFiles", "product_files", "paths") or _payload_list(payload, "files", "productFiles", "product_files", "paths")
         verify = _metadata_list(metadata, "verify", "verifiers", "verification", "verifierCommands", "verifier_commands") or _payload_list(payload, "verify", "verifiers", "verification", "verifierCommands", "verifier_commands")
-        if not files:
-            raise PlanGraphError(f"node {node.node_id} cannot become Agent Work surface without files/productFiles metadata")
-        if not verify:
-            raise PlanGraphError(f"node {node.node_id} cannot become Agent Work surface without verify/verifiers metadata")
+        template_ids = _metadata_list(metadata, "templateIds", "template_ids", "templates", "template", "uses", "use") or _payload_list(payload, "templateIds", "template_ids", "templates", "template", "uses", "use")
+        if not files and not template_ids:
+            raise PlanGraphError(f"node {node.node_id} cannot become Agent Work surface without files/productFiles metadata or templateIds")
+        if not verify and not template_ids:
+            raise PlanGraphError(f"node {node.node_id} cannot become Agent Work surface without verify/verifiers metadata or templateIds")
         surfaces.append(
             AgentWorkSurface(
                 id=node_to_surface_id[node_id],
@@ -265,6 +271,7 @@ def compile_plan_to_agent_work_handoff(
                 goal=str(metadata.get("goal") or node.title),
                 files=files,
                 verify=verify,
+                templateIds=template_ids,
                 deps=[node_to_surface_id.get(dep, dep) for dep in node.depends_on],
                 lane=str(metadata.get("lane") or "cortex_agent_work"),
                 domain=str(metadata.get("domain") or node_to_surface_id[node_id]),
@@ -298,6 +305,11 @@ def compile_plan_to_agent_work_handoff(
         session=session_payload,
         permissions=AgentWorkPermissions(**permission_payload),
         doneWhen=list(graph.success_criteria or graph_metadata.get("doneWhen") or graph_metadata.get("done_when") or []),
+        budgets=dict(budgets or graph_metadata.get("budgets") or graph_metadata.get("budget") or graph_metadata.get("resourceBudgets") or graph_metadata.get("resource_budgets") or {}),
+        wavePolicy=dict(wave_policy or graph_metadata.get("wavePolicy") or graph_metadata.get("wave_policy") or graph_metadata.get("wave") or {}),
+        expansionPolicy=dict(expansion_policy or graph_metadata.get("expansionPolicy") or graph_metadata.get("expansion_policy") or graph_metadata.get("expansion") or {}),
+        evidenceSchemas=list(evidence_schemas or graph_metadata.get("evidenceSchemas") or graph_metadata.get("evidence_schemas") or graph_metadata.get("evidence") or []),
+        templates=list(templates or graph_metadata.get("templates") or graph_metadata.get("template") or []),
         routeLevels=list(route_levels or graph_metadata.get("routeLevels") or graph_metadata.get("route_levels") or []),
         memoryCitations=list(memory_citations or graph_metadata.get("memoryCitations") or graph_metadata.get("memory_citations") or []),
         surfaces=surfaces,

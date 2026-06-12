@@ -19,6 +19,20 @@ Cortex intent
   -> transfer/continuous runners
 ```
 
+## v0.1 policy pass-through
+
+The handoff now preserves the next orchestration layer:
+
+- `budgets` for token/call/runtime ceilings and worker prompt caps
+- `wavePolicy` for max waves, bundling, compact/full-context behavior, and wave factpack handoff
+- `expansionPolicy` for objective-red / graph-exhausted replanning rules
+- `evidenceSchemas` for named truth-layer gates and required artifacts
+- `templates` for reusable Agent Work surface macros
+
+Cortex can set these fields directly on `cortex.agent_work_handoff.v0`; the adapter passes them into `claw.agent_work_spec.v0`, and the DSL compiler writes them into `run_contract.json`, `surface_matrix.json`, `work_graph.json`, and `compiler_report.json`.
+
+These fields make dynamic objective expansion explicit in the contract. They do not by themselves prove that a runner enforced every policy; runner artifacts must still report enforcement or unsupported-policy blockers honestly.
+
 ## Compile a Cortex handoff
 
 ```bash

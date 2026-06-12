@@ -1880,6 +1880,11 @@ class AgentWorkPlanRequest(BaseModel):
     fidelity: Optional[str] = None
     requested_agent_count: Optional[int] = None
     permissions: Dict[str, Any] = Field(default_factory=dict)
+    budgets: Dict[str, Any] = Field(default_factory=dict)
+    wave_policy: Dict[str, Any] = Field(default_factory=dict)
+    expansion_policy: Dict[str, Any] = Field(default_factory=dict)
+    evidence_schemas: List[Dict[str, Any]] = Field(default_factory=list)
+    templates: List[Dict[str, Any]] = Field(default_factory=list)
     route_levels: List[str] = Field(default_factory=list)
     memory_citations: List[str] = Field(default_factory=list)
 
@@ -2707,6 +2712,11 @@ async def create_agent_work_handoff(request: AgentWorkPlanRequest):
             fidelity=request.fidelity,
             requested_agent_count=request.requested_agent_count,
             permissions=request.permissions,
+            budgets=request.budgets,
+            wave_policy=request.wave_policy,
+            expansion_policy=request.expansion_policy,
+            evidence_schemas=request.evidence_schemas,
+            templates=request.templates,
             route_levels=request.route_levels,
             memory_citations=request.memory_citations,
         )

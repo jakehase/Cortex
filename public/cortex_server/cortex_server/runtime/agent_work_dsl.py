@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 CORTEX_AGENT_WORK_HANDOFF_SCHEMA = "cortex.agent_work_handoff.v0"
@@ -44,8 +44,12 @@ class AgentWorkSurface(BaseModel):
     id: str
     label: Optional[str] = None
     goal: Optional[str] = None
-    files: List[str]
-    verify: List[str]
+    files: List[str] = Field(default_factory=list)
+    verify: List[str] = Field(default_factory=list)
+    templateIds: List[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("templateIds", "template_ids", "templates", "template", "uses", "use"),
+    )
     deps: List[str] = Field(default_factory=list)
     lane: str = "cortex_agent_work"
     domain: Optional[str] = None
@@ -59,13 +63,10 @@ class AgentWorkSurface(BaseModel):
             raise ValueError("surface id is required")
         return text
 
-    @field_validator("files", "verify")
+    @field_validator("files", "verify", "templateIds")
     @classmethod
-    def _non_empty_list(cls, value: List[str]) -> List[str]:
-        rows = _dedupe(value)
-        if not rows:
-            raise ValueError("surface files and verify lists must be non-empty")
-        return rows
+    def _clean_string_lists(cls, value: List[str]) -> List[str]:
+        return _dedupe(value)
 
     @field_validator("deps")
     @classmethod
@@ -74,6 +75,8 @@ class AgentWorkSurface(BaseModel):
 
     @model_validator(mode="after")
     def _defaults(self) -> "AgentWorkSurface":
+        if not self.templateIds and (not self.files or not self.verify):
+            raise ValueError("surface files and verify lists must be non-empty unless templateIds are present")
         if not self.label:
             self.label = self.id
         if not self.goal:
@@ -107,6 +110,11 @@ class CortexAgentWorkHandoff(BaseModel):
     requestedActions: List[str] = Field(default_factory=list)
     doneWhen: List[str] = Field(default_factory=list)
     replyAnchor: Optional[str] = None
+    budgets: Dict[str, Any] = Field(default_factory=dict)
+    wavePolicy: Dict[str, Any] = Field(default_factory=dict)
+    expansionPolicy: Dict[str, Any] = Field(default_factory=dict)
+    evidenceSchemas: List[Dict[str, Any]] = Field(default_factory=list)
+    templates: List[Dict[str, Any]] = Field(default_factory=list)
     routeLevels: List[str] = Field(default_factory=list)
     memoryCitations: List[str] = Field(default_factory=list)
     surfaces: List[AgentWorkSurface]
@@ -175,6 +183,11 @@ def compile_handoff_to_agent_work_spec(handoff: CortexAgentWorkHandoff | Dict[st
         "requestedActions": list(handoff.requestedActions),
         "doneWhen": list(handoff.doneWhen),
         "replyAnchor": handoff.replyAnchor,
+        "budgets": dict(handoff.budgets),
+        "wavePolicy": dict(handoff.wavePolicy),
+        "expansionPolicy": dict(handoff.expansionPolicy),
+        "evidenceSchemas": [dict(schema) for schema in handoff.evidenceSchemas],
+        "templates": [dict(template) for template in handoff.templates],
         "surfaces": [
             {
                 "id": surface.id,
@@ -182,6 +195,7 @@ def compile_handoff_to_agent_work_spec(handoff: CortexAgentWorkHandoff | Dict[st
                 "goal": surface.goal,
                 "files": list(surface.files),
                 "verify": list(surface.verify),
+                "templateIds": list(surface.templateIds),
                 "deps": list(surface.deps),
                 "lane": surface.lane,
                 "domain": surface.domain,

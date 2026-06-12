@@ -63,6 +63,66 @@ surface audience_import
   assert.equal(compiled.runContract.scope.doneWhen.includes('no_truth_layer_overclaim'), true);
 });
 
+test('agent work DSL v0.1 compiles budgets, wave policy, expansion rules, evidence schemas, and templates', () => {
+  const parsed = parseAgentWorkSpec(`goal NextEvolutionProbe
+repo /tmp/agent-work-next
+fidelity parity_for_scope
+agents 20
+forbid external_send, touch_prod
+done all_surfaces_pass, no_truth_layer_overclaim
+
+template node_test_surface
+  lane: product_runtime
+  verify: node --test {{test_path}}
+
+budget
+  token_cap: 24000000
+  worker_prompt_tokens: 6000
+  global_calls: 23
+
+wave_policy
+  max_waves: 24
+  bundle_size: 5
+  full_context_waves: 0
+  handoff: wave_factpack
+
+expansion_policy
+  triggers: objective_red, graph_exhausted
+  max_cycles: 20
+  max_surfaces: 200
+  strategy: decompose_missing_surfaces
+
+evidence_schema productive_delta
+  require: creative_product_delta_integrity >= 1
+  require: verified_surface_count >= 1
+  artifact: canonical_result_summary.json
+
+surface campaign_delivery uses node_test_surface
+  files: packages/app/campaigns.mjs
+  test_path: tests/campaigns.test.mjs`);
+
+  const compiled = compileAgentWorkSpec(parsed, { generatedAt: '2026-06-11T00:00:00.000Z', runId: 'next-evolution-test' });
+  assert.equal(compiled.spec.languageVersion, 'v0.1');
+  assert.equal(compiled.runContract.scope.budgets.token_cap, 24000000);
+  assert.equal(compiled.runContract.scope.wavePolicy.full_context_waves, 0);
+  assert.deepEqual(compiled.runContract.scope.expansionPolicy.triggers, ['objective_red', 'graph_exhausted']);
+  assert.equal(compiled.runContract.scope.evidenceSchemas[0].gates[0].metric, 'creative_product_delta_integrity');
+  assert.equal(compiled.runContract.scope.surfaces[0].verification[0], 'node --test tests/campaigns.test.mjs');
+  assert.deepEqual(compiled.runContract.scope.surfaces[0].metadata.templateIds, ['node_test_surface']);
+  assert.equal(compiled.workGraph.policies.wavePolicy.bundle_size, 5);
+  assert.equal(compiled.safetyReport.dynamicExpansionDeclared, true);
+});
+
+test('agent work DSL v0.1 rejects unresolved template placeholders', () => {
+  assert.throws(() => compileAgentWorkSpec(`goal BadTemplate
+repo /tmp/repo
+template node_test_surface
+  verify: node --test {{missing_test_path}}
+surface bad_surface uses node_test_surface
+  files: src/bad.mjs
+`), /unresolved template token/);
+});
+
 test('agent work DSL defaults to execution_smoke without an endurance duration target', () => {
   const compiled = compileAgentWorkSpec({
     goalId: 'SmokeCanary',

@@ -49,6 +49,59 @@ Guardrails in v0:
 
 This is not a replacement for implementation languages. It is a goal/permissions/verification language for agent orchestration.
 
+## v0.1 orchestration policies
+
+The next layer lets Cortex describe not just the initial surface graph, but how the run should stay productive when the first graph is exhausted or still red.
+
+```text
+goal MailchimpParityRepair
+repo /path/to/repo
+fidelity parity_for_scope
+agents 20
+forbid external_send, touch_prod, relaunch_benchmark
+done all_surfaces_pass, no_truth_layer_overclaim
+
+template node_test_surface
+  lane: product_runtime
+  verify: node --test {{test_path}}
+
+budget
+  token_cap: 24000000
+  worker_prompt_tokens: 6000
+  global_calls: 23
+
+wave_policy
+  max_waves: 24
+  bundle_size: 5
+  full_context_waves: 0
+  handoff: wave_factpack
+
+expansion_policy
+  triggers: objective_red, graph_exhausted
+  max_cycles: 20
+  max_surfaces: 200
+  strategy: decompose_missing_surfaces
+
+evidence_schema productive_delta
+  require: creative_product_delta_integrity >= 1
+  require: verified_surface_count >= 1
+  artifact: canonical_result_summary.json
+
+surface campaign_delivery uses node_test_surface
+  files: packages/app/campaigns.mjs
+  test_path: tests/campaigns.test.mjs
+```
+
+Compiled artifacts now preserve:
+
+- `scope.budgets` — token/call/runtime ceilings and worker prompt caps.
+- `scope.wavePolicy` — wave count, bundling, full-context suppression, and handoff mode.
+- `scope.expansionPolicy` — when to decompose new work instead of fake-greening or stopping early.
+- `scope.evidenceSchemas` — named evidence gates/artifacts the truth layer should inspect.
+- `templates` — reusable surface macros with `{{placeholder}}` substitution from surface metadata.
+
+Unresolved template placeholders are compile errors. Policies are contract data; individual runners still decide which policies they enforce, and must report unsupported policy handling honestly in artifacts.
+
 ## Cortex handoff contract
 
 Cortex should hand off serious orchestration work as `cortex.agent_work_handoff.v0` JSON with:
@@ -58,6 +111,7 @@ Cortex should hand off serious orchestration work as `cortex.agent_work_handoff.
 - fidelity
 - permissions allow/forbid
 - surfaces with files and verifier commands
+- optional budgets, wavePolicy, expansionPolicy, evidenceSchemas, and templates
 - doneWhen / stopCondition
 - route levels and memory citations when relevant
 

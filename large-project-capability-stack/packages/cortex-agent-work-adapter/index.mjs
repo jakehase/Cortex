@@ -64,19 +64,22 @@ function normalizePermissions(input = {}) {
 
 function normalizeCortexSurface(surface = {}, index = 0) {
   const id = normalizeId(surface.id || surface.surfaceId || surface.surface_id || surface.name || surface.label || `surface_${index + 1}`);
+  const metadata = surface.metadata || {};
   const files = stableList(surface.files || surface.allowedFiles || surface.allowed_files || surface.productFiles || surface.product_files || surface.fileAreas || surface.file_areas);
   const verification = stableList(surface.verify || surface.verification || surface.verifiers || surface.tests || surface.test || surface.acceptanceCommands || surface.acceptance_commands);
+  const templateIds = stableList(surface.templateIds || surface.template_ids || surface.templates || surface.template || surface.uses || surface.use || metadata.templateIds || metadata.template_ids || metadata.templates || metadata.template || metadata.uses || metadata.use);
   return {
     id,
     label: clean(surface.label || surface.name || id),
     goal: clean(surface.goal || surface.productGoal || surface.product_goal || surface.outcome || `Complete ${id}`),
     files,
     verify: verification,
+    templateIds,
     deps: stableList(surface.deps || surface.dependsOn || surface.depends_on),
     lane: clean(surface.lane || surface.domain || 'cortex_agent_work'),
     domain: clean(surface.domain || id),
     metadata: {
-      ...(surface.metadata || {}),
+      ...metadata,
       cortexSurface: true,
       confidence: surface.confidence ?? surface.score ?? undefined,
       sourceSurfaceId: surface.surfaceId || surface.surface_id || surface.id || null
@@ -145,6 +148,11 @@ export function normalizeCortexAgentWorkHandoff(input = {}, options = {}) {
     requestedActions: stableList(input.requestedActions || input.requested_actions || input.actions || input.action),
     doneWhen: stableList(input.doneWhen || input.done_when || input.done || input.successCriteria || input.success_criteria),
     replyAnchor: clean(input.replyAnchor || input.reply_anchor || options.replyAnchor),
+    budgets: input.budgets || input.budget || input.resourceBudgets || input.resource_budgets || {},
+    wavePolicy: input.wavePolicy || input.wave_policy || input.wave || {},
+    expansionPolicy: input.expansionPolicy || input.expansion_policy || input.expansion || {},
+    evidenceSchemas: input.evidenceSchemas || input.evidence_schemas || input.evidence || [],
+    templates: input.templates || input.template || [],
     routeLevels,
     memoryCitations,
     surfaces: handoffSurfaces(input).map(normalizeCortexSurface),
@@ -180,12 +188,18 @@ export function cortexHandoffToAgentWorkSpec(input = {}, options = {}) {
     requestedActions: handoff.requestedActions,
     doneWhen: handoff.doneWhen,
     replyAnchor: handoff.replyAnchor,
+    budgets: handoff.budgets,
+    wavePolicy: handoff.wavePolicy,
+    expansionPolicy: handoff.expansionPolicy,
+    evidenceSchemas: handoff.evidenceSchemas,
+    templates: handoff.templates,
     surfaces: handoff.surfaces.map((surface) => ({
       id: surface.id,
       label: surface.label,
       goal: surface.goal,
       files: surface.files,
       verify: surface.verify,
+      templateIds: surface.templateIds,
       deps: surface.deps,
       lane: surface.lane,
       domain: surface.domain,

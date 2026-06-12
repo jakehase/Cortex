@@ -138,6 +138,30 @@ def test_compile_plan_to_agent_work_handoff_requires_executable_surfaces():
     assert spec["routeLevels"] == ["L5 oracle", "L7 librarian"]
 
 
+def test_compile_plan_to_agent_work_handoff_preserves_template_only_surfaces():
+    graph = ReasoningPlanGraph(
+        name="agent_work_template_plan",
+        goal="Use reusable Agent Work templates",
+        metadata={"templates": [{"id": "node_test_surface", "files": ["src/{{id}}.mjs"], "verify": ["node --test {{metadata.test_path}}"]}]},
+        nodes=[
+            {
+                "node_id": "runner",
+                "title": "Template runner",
+                "endpoint": "/agent-work/run",
+                "metadata": {"templateIds": ["node_test_surface"], "test_path": "tests/runner.test.mjs"},
+            }
+        ],
+    )
+
+    handoff = compile_plan_to_agent_work_handoff(graph, repo_path="/tmp/stack")
+    spec = model_dump_compat(handoff)
+
+    assert spec["templates"][0]["id"] == "node_test_surface"
+    assert spec["surfaces"][0]["templateIds"] == ["node_test_surface"]
+    assert spec["surfaces"][0]["files"] == []
+    assert spec["surfaces"][0]["verify"] == []
+
+
 def test_compile_plan_to_agent_work_handoff_rejects_non_executable_nodes():
     with pytest.raises(PlanGraphError):
         compile_plan_to_agent_work_handoff(_sample_graph(), repo_path="/tmp/stack")

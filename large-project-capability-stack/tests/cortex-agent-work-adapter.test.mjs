@@ -18,6 +18,10 @@ test('Cortex handoff compiles to Agent Work DSL run contract with Cortex provena
     requestedAgentCount: 3,
     permissions: { allow: ['read_repo', 'write_product_code', 'run_tests'], forbid: ['external_send', 'relaunch_benchmark'] },
     doneWhen: ['runner_ingestion_passes', 'no_truth_layer_overclaim'],
+    budgets: { token_cap: 500000, worker_prompt_tokens: 6000 },
+    wavePolicy: { max_waves: 4, full_context_waves: 0 },
+    expansionPolicy: { triggers: ['objective_red', 'graph_exhausted'], max_cycles: 2 },
+    evidenceSchemas: [{ id: 'handoff_integrity', gates: ['verified_surface_count >= 1'] }],
     routeLevels: ['L5 oracle', 'L7 librarian'],
     memoryCitations: ['cortex:agent-work-dsl'],
     surfaces: [{
@@ -32,6 +36,10 @@ test('Cortex handoff compiles to Agent Work DSL run contract with Cortex provena
   assert.equal(compiled.agentWorkSpec.schemaVersion, 'claw.agent_work_spec.v0');
   assert.equal(compiled.runContract.runId, 'cortex-handoff-test');
   assert.equal(compiled.runContract.scope.agentWorkLanguage.cortex.routeLevels.includes('L5 oracle'), true);
+  assert.equal(compiled.runContract.scope.budgets.token_cap, 500000);
+  assert.equal(compiled.runContract.scope.wavePolicy.full_context_waves, 0);
+  assert.equal(compiled.runContract.scope.expansionPolicy.max_cycles, 2);
+  assert.equal(compiled.runContract.scope.evidenceSchemas[0].id, 'handoff_integrity');
   assert.equal(compiled.runContract.metadata.cortexAgentWorkHandoff.memoryCitationCount, 1);
   assert.equal(compiled.safetyReport.externalWriteAllowed, false);
 });
@@ -51,6 +59,28 @@ test('Cortex handoff adapter normalizes surface matrix shaped inputs', () => {
   assert.equal(spec.surfaces[0].id, 'matrix_surface');
   assert.equal(spec.surfaces[0].files[0], 'src/matrix.mjs');
   assert.equal(spec.surfaces[0].verify[0], 'node --test tests/matrix.test.mjs');
+});
+
+test('Cortex handoff adapter preserves template references for template-only surfaces', () => {
+  const compiled = compileCortexAgentWorkHandoff({
+    objective: 'Compile template-only Cortex surface',
+    repoPath: '/tmp/repo',
+    templates: [{
+      id: 'node_test_surface',
+      files: ['src/{{id}}.mjs'],
+      verify: ['node --test {{metadata.test_path}}']
+    }],
+    surfaces: [{
+      id: 'templated_runner',
+      templateIds: ['node_test_surface'],
+      metadata: { test_path: 'tests/templated-runner.test.mjs' }
+    }]
+  }, { generatedAt: '2026-06-11T00:00:00.000Z', runId: 'cortex-template-test' });
+
+  assert.deepEqual(compiled.handoff.surfaces[0].templateIds, ['node_test_surface']);
+  assert.deepEqual(compiled.runContract.scope.surfaces[0].allowedFiles, ['src/templated_runner.mjs']);
+  assert.deepEqual(compiled.runContract.scope.surfaces[0].verification, ['node --test tests/templated-runner.test.mjs']);
+  assert.deepEqual(compiled.runContract.scope.surfaces[0].metadata.templateIds, ['node_test_surface']);
 });
 
 test('Cortex handoff CLI writes compiler artifacts for runner ingestion', () => {
