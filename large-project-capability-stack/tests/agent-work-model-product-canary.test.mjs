@@ -76,6 +76,8 @@ test('model scale canary generator writes multi-surface short and official-endur
   assert.equal(shortContract.scope.creativeProductWork.officialVerifierOnly, false);
   assert.match(shortContract.scope.creativeProductWork.workerCommand, /node .*apps\/system-benchmark\/codex-creative-worker\.mjs$/);
   assert.notEqual(shortContract.scope.creativeProductWork.workerCommand, 'node apps/system-benchmark/codex-creative-worker.mjs');
+  assert.match(shortContract.scope.surfaces[0].productGoal, /Return exactly \{ ok: true/);
+  assert.match(shortContract.scope.surfaces[0].productGoal, /do not add extra properties/);
   assert.equal(shortContract.scope.wavePolicy.max_waves, 1);
 
   const enduranceOut = path.join(temp, 'endurance');
@@ -103,6 +105,11 @@ test('model scale canary generator writes multi-surface short and official-endur
   assert.equal(enduranceContract.scope.durationTargetMinutes, 30);
   assert.equal(enduranceContract.scope.creativeProductWork.officialVerifierOnly, true);
   assert.equal(enduranceContract.scope.creativeProductWork.externalVerification, false);
+  const enduranceInitialSource = fs.readFileSync(path.join(enduranceFixture, 'packages/endurance-01/index.mjs'), 'utf8');
+  assert.match(enduranceInitialSource, /implementedBy: 'pending-model-worker'/);
+  assert.doesNotMatch(enduranceInitialSource, /nextStep/);
+  assert.match(enduranceContract.scope.surfaces[0].productGoal, /Return exactly \{ ok: true/);
+  assert.match(enduranceContract.scope.surfaces[0].productGoal, /official verifier uses strict deep equality/);
   assert.match(enduranceContract.scope.surfaces[0].verification[0], /CANARY_ENDURANCE_MS=1800000/);
   assert.match(enduranceContract.scope.surfaces[0].verification[0], /PMHNP_BENCHMARK_SCENARIO_MIN_DURATION_MS=1800000/);
   assert.equal(enduranceMeta.recommendedRuntimeEnv.CREATIVE_WORKER_EXTERNAL_VERIFICATION, '0');
