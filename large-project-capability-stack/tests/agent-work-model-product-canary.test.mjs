@@ -74,6 +74,8 @@ test('model scale canary generator writes multi-surface short and official-endur
   assert.equal(shortContract.scope.surfaces[0].verification[0], 'node --test tests/canary-01.test.mjs');
   assert.equal(shortContract.scope.durationTargetMinutes, null);
   assert.equal(shortContract.scope.creativeProductWork.officialVerifierOnly, false);
+  assert.match(shortContract.scope.creativeProductWork.workerCommand, /node .*apps\/system-benchmark\/codex-creative-worker\.mjs$/);
+  assert.notEqual(shortContract.scope.creativeProductWork.workerCommand, 'node apps/system-benchmark/codex-creative-worker.mjs');
   assert.equal(shortContract.scope.wavePolicy.max_waves, 1);
 
   const enduranceOut = path.join(temp, 'endurance');

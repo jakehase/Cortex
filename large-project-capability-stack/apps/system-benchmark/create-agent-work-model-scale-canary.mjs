@@ -59,11 +59,20 @@ function sanitizeId(value, fallback) {
     .replace(/^_+|_+$/g, '') || fallback;
 }
 
+const STACK_ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
+const CREATIVE_WORKER_SCRIPT = path.join(STACK_ROOT, 'apps/system-benchmark/codex-creative-worker.mjs');
+
 function normalizeMode(value) {
   const mode = String(value || 'short').trim().toLowerCase().replace(/[-_ ]+/g, '_');
   if (['short', 'execution_smoke', 'scale_smoke'].includes(mode)) return 'short';
   if (['endurance', 'official_endurance', 'official_verifier_endurance', '30m'].includes(mode)) return 'official_endurance';
   throw new Error(`unknown mode: ${value}`);
+}
+
+function normalizeWorkerCommand(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return `node ${CREATIVE_WORKER_SCRIPT}`;
+  return raw.replace(/^(node\s+)(\.\/)?apps\/system-benchmark\/codex-creative-worker\.mjs(\b)/, `$1${CREATIVE_WORKER_SCRIPT}$3`);
 }
 
 function createSurfaceFiles({ fixtureRoot, index, mode, enduranceMs }) {
@@ -127,6 +136,7 @@ try {
   const runId = args.runId || `${benchmarkId}-${new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)}`;
   const artifactRoot = path.resolve(args.artifactRoot || path.join(outDir, 'run'));
   const benchmarkTier = args.benchmarkTier || (mode === 'official_endurance' ? 'tier1_creative_product_30m' : 'execution_smoke');
+  const workerCommand = normalizeWorkerCommand(args.workerCommand);
   fs.mkdirSync(outDir, { recursive: true });
 
   const surfaces = [];
@@ -170,7 +180,7 @@ try {
         promptMode: 'compact',
         officialVerifierOnly,
         externalVerification: officialVerifierOnly ? false : undefined,
-        ...(args.workerCommand ? { workerCommand: args.workerCommand } : {})
+        workerCommand
       },
       canonicalLandingEvidence: {
         enabled: true,
@@ -230,7 +240,7 @@ try {
     enduranceMs,
     durationTargetMinutes: mode === 'official_endurance' ? enduranceMs / 60000 : null,
     officialVerifierOnly,
-    workerCommand: args.workerCommand || null,
+    workerCommand,
     recommendedRuntimeEnv,
     truthBoundary: mode === 'official_endurance'
       ? 'Official verifier commands are the endurance source of truth. Set CREATIVE_WORKER_EXTERNAL_VERIFICATION=0 for this mode to avoid double-paying the long verifier inside the creative worker.'
