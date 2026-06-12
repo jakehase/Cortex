@@ -261,6 +261,7 @@ export function compileCortexAgentWorkHandoff(input = {}, options = {}) {
     agentWorkSpec: compilation.spec,
     validation: compilation.validation,
     safetyReport: compilation.safetyReport,
+    runtime: compilation.runtime,
     runContract: compilation.runContract,
     surfaceMatrix: compilation.surfaceMatrix,
     workGraph: compilation.workGraph,

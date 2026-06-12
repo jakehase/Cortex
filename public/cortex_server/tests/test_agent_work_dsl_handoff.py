@@ -6,6 +6,7 @@ import pytest
 
 import cortex_server.routers.orchestrator as orchestrator
 from cortex_server.runtime.agent_work_dsl import (
+    AGENT_WORK_DEFAULT_RUNTIME,
     AGENT_WORK_SPEC_SCHEMA,
     CORTEX_AGENT_WORK_HANDOFF_SCHEMA,
     AgentWorkSurface,
@@ -32,7 +33,7 @@ def test_cortex_agent_work_handoff_compiles_to_js_dsl_shape():
         surfaces=[
             AgentWorkSurface(
                 id="runner_ingestion",
-                files=["apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs"],
+                files=["apps/system-benchmark/run-agent-work-objective-controller.mjs"],
                 verify=["node --test tests/agent-work-dsl.test.mjs"],
             )
         ],
@@ -46,6 +47,8 @@ def test_cortex_agent_work_handoff_compiles_to_js_dsl_shape():
     assert spec["surfaces"][0]["id"] == "runner_ingestion"
     assert spec["surfaces"][0]["metadata"]["cortexSurface"] is True
     assert spec["metadata"]["cortex"]["routeLevels"] == ["L5 oracle", "L7 librarian"]
+    assert spec["metadata"]["runtime"]["defaultRunner"] == "objective_controller"
+    assert spec["metadata"]["runtime"]["defaultRunnerScript"] == AGENT_WORK_DEFAULT_RUNTIME["defaultRunnerScript"]
     assert spec["permissions"]["forbid"] == ["external_send", "relaunch_benchmark"]
     assert spec["budgets"]["token_cap"] == 500000
     assert spec["wavePolicy"]["full_context_waves"] == 0
@@ -137,3 +140,4 @@ def test_orchestrator_plan_agent_work_route_returns_handoff_and_spec():
     assert result["agent_work_spec"]["wavePolicy"]["max_waves"] == 2
     assert result["agent_work_spec"]["expansionPolicy"]["max_cycles"] == 1
     assert result["agent_work_spec"]["evidenceSchemas"][0]["id"] == "route_integrity"
+    assert result["agent_work_spec"]["metadata"]["runtime"]["defaultRunner"] == "objective_controller"

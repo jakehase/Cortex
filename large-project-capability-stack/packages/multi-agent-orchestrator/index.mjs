@@ -1796,6 +1796,7 @@ export function normalizeContextGovernorOptions(options = {}, { agentCount = 0, 
     mode: options.mode || process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MODE || 'narrow_worker_context_packs',
     hardGate: boolish(options.hardGate ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_HARD_GATE, hardGateDefault),
     maxWorkerTokens,
+    globalTokenCap: positiveNumber(options.globalTokenCap ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_GLOBAL_TOKEN_CAP, null),
     targetSavingsMin: positiveNumber(options.targetSavingsMin ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MIN, 5),
     targetSavingsMax: positiveNumber(options.targetSavingsMax ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_TARGET_SAVINGS_MAX, 10),
     maxInputChars: positiveNumber(options.maxInputChars ?? process.env.ORCHESTRATOR_CONTEXT_GOVERNOR_MAX_INPUT_CHARS, 1200),
@@ -1980,7 +1981,19 @@ export function buildContextGovernorReport({ contextPacks = [], options = {}, ag
   }));
   const totalTokens = packs.reduce((sum, entry) => sum + Number(entry.budget.approxTokens || 0), 0);
   const totalPreTokens = packs.reduce((sum, entry) => sum + Number(entry.footprint.preGovernorApproxTokens || entry.budget.approxTokens || 0), 0);
-  const overBudget = packs.filter((entry) => !entry.budget.ok);
+  const perPackOverBudget = packs.filter((entry) => !entry.budget.ok);
+  const globalTokenCapExceeded = policy.globalTokenCap != null && totalTokens > policy.globalTokenCap;
+  const overBudget = [
+    ...perPackOverBudget.map((entry) => entry.budget),
+    ...(globalTokenCapExceeded ? [{
+      ok: false,
+      reason: 'global_token_cap_exceeded',
+      approxTokens: totalTokens,
+      maxWorkerTokens: policy.maxWorkerTokens,
+      globalTokenCap: policy.globalTokenCap,
+      shardId: '*'
+    }] : [])
+  ];
   const savingsRatio = Number((totalPreTokens / Math.max(1, totalTokens)).toFixed(2));
   const uniquePackDigests = new Set(packs.map((entry) => entry.contextCache?.packDigest).filter(Boolean));
   const uniqueRetrievalDigests = new Set(packs.map((entry) => entry.contextCache?.retrievalDigest).filter(Boolean));
@@ -1991,6 +2004,8 @@ export function buildContextGovernorReport({ contextPacks = [], options = {}, ag
     mode: policy.mode,
     ok: overBudget.length === 0,
     hardGate: policy.hardGate,
+    globalTokenCap: policy.globalTokenCap,
+    globalTokenCapExceeded,
     targetSavingsRange: `${policy.targetSavingsMin}-${policy.targetSavingsMax}x`,
     observedSavingsRatio: savingsRatio,
     targetSavingsReached: savingsRatio >= policy.targetSavingsMin,
@@ -2002,7 +2017,7 @@ export function buildContextGovernorReport({ contextPacks = [], options = {}, ag
     averageApproxTokens: packs.length ? Math.round(totalTokens / packs.length) : 0,
     maxApproxTokens: packs.length ? Math.max(...packs.map((entry) => entry.budget.approxTokens)) : 0,
     budgetFailureCount: overBudget.length,
-    budgetFailures: overBudget.map((entry) => entry.budget),
+    budgetFailures: overBudget,
     contextCache: {
       uniquePackDigestCount: uniquePackDigests.size,
       duplicatePackCount: Math.max(0, packs.length - uniquePackDigests.size),
@@ -3446,6 +3461,7 @@ export async function runLiveWorkerFarm({
   workerMemoryLimitMb = Number(process.env.ORCHESTRATOR_WORKER_MAX_OLD_SPACE_MB || 96),
   outputCaptureBytes = Number(process.env.ORCHESTRATOR_WORKER_OUTPUT_CAPTURE_BYTES || 16 * 1024),
   maxSpawnsPerTick = Number(process.env.ORCHESTRATOR_MAX_SPAWNS_PER_TICK || agentCount),
+  maxWorkerSpawns = Number(process.env.ORCHESTRATOR_MAX_WORKER_SPAWNS || 0) || Infinity,
   workerWorkspaceMode = process.env.ORCHESTRATOR_WORKER_WORKSPACE_MODE || 'shared',
   workerWorkspaceCopyPaths = [],
   promoteMergedWorkerWorkspaceChanges = process.env.ORCHESTRATOR_PROMOTE_WORKER_WORKSPACE_CHANGES === '1' ? true : undefined,
@@ -3471,6 +3487,9 @@ export async function runLiveWorkerFarm({
   const frontier = summarizeShardFrontier(shardPlan.shards);
   const schedulerModel = buildSchedulerModel({ shardPlan, surfaceMatrix });
   const directories = createRunDirectories(runRoot);
+  const effectiveMaxWorkerSpawns = Number.isFinite(Number(maxWorkerSpawns)) && Number(maxWorkerSpawns) >= 0
+    ? Number(maxWorkerSpawns)
+    : Infinity;
   const effectiveWorkerWorkspaceMode = String(workerWorkspaceMode || 'shared').trim() || 'shared';
   const isolatedWorkerWorkspaces = isIsolatedWorkerWorkspaceMode(effectiveWorkerWorkspaceMode);
   const promoteWorkerWorkspaceChanges = isolatedWorkerWorkspaces && promoteMergedWorkerWorkspaceChanges !== false;
@@ -3620,6 +3639,20 @@ export async function runLiveWorkerFarm({
     workerTimeoutCount: 0,
     forcedWorkerCleanupCount: 0
   };
+
+  function workerSpawnBudgetRemaining() {
+    return !Number.isFinite(effectiveMaxWorkerSpawns) || metrics.workerSpawnCount < effectiveMaxWorkerSpawns;
+  }
+
+  function recordWorkerSpawnBudgetExhausted(extra = {}) {
+    recordWorkerEvent({
+      type: 'worker_spawn_budget_exhausted',
+      workerSpawnCount: metrics.workerSpawnCount,
+      maxWorkerSpawns: effectiveMaxWorkerSpawns,
+      ...extra
+    });
+  }
+
   const observedAgentIds = new Set();
   const agentLastDispatchSequence = new Map(agents.map((agentId) => [agentId, 0]));
   let agentDispatchSequence = 0;
@@ -4043,6 +4076,10 @@ export async function runLiveWorkerFarm({
       .sort((left, right) => left.taskId.localeCompare(right.taskId));
 
     for (const lease of recoveredReservations) {
+      if (!workerSpawnBudgetRemaining()) {
+        recordWorkerSpawnBudgetExhausted({ phase: 'recovered_reservation_spawn', recoveredShardId: lease.taskId, recoveredAgentId: lease.agentId });
+        break;
+      }
       const shard = shardById.get(lease.taskId);
       if (!shard) continue;
       const workerWorkspace = prepareWorkerWorkspace({
@@ -4120,6 +4157,7 @@ export async function runLiveWorkerFarm({
 
     let spawnedThisTick = 0;
     for (const agentId of reserveAgentIds()) {
+      if (!workerSpawnBudgetRemaining()) break;
       if (spawnedThisTick >= Math.max(1, Number(maxSpawnsPerTick || agentCount))) break;
       let shard = null;
       let acquisition = null;
@@ -4210,6 +4248,15 @@ export async function runLiveWorkerFarm({
 
     await drainReadyPatchQueue();
 
+    if (workerSpawnBudgetRemaining() === false && activeWorkers.size === 0 && patchQueue.queued.length === 0 && readyShards.length > 0) {
+      recordWorkerSpawnBudgetExhausted({
+        phase: 'scheduler_loop',
+        readyShardCount: readyShards.length,
+        readyShardIds: readyShards.map((shard) => shard.id).slice(0, 25)
+      });
+      break;
+    }
+
     const failedShards = detectFailedShards({ shardPlan, patchQueue, leaseState, maxAttemptsPerTask, activeShardIds, leasedShardIds, queuedShardIds });
     if (failedShards.length) {
       const failedShardSignature = failedShards.map((entry) => entry.shardId).sort().join(',');
@@ -4296,6 +4343,8 @@ export async function runLiveWorkerFarm({
       workerWorkspaceMode: effectiveWorkerWorkspaceMode,
       isolatedWorkerWorkspaces,
       workerWorkspacePromotionEnabled: promoteWorkerWorkspaceChanges,
+      maxWorkerSpawns: Number.isFinite(effectiveMaxWorkerSpawns) ? effectiveMaxWorkerSpawns : null,
+      workerSpawnBudgetExhausted: Number.isFinite(effectiveMaxWorkerSpawns) && metrics.workerSpawnCount >= effectiveMaxWorkerSpawns && patchQueue.merged.length < shardPlan.shards.length,
       maxAttemptsPerTask,
       failedShards,
       stateLossEvents: continuityFailures.length,

@@ -27,7 +27,7 @@ test('Cortex handoff compiles to Agent Work DSL run contract with Cortex provena
     surfaces: [{
       id: 'runner_ingestion',
       label: 'Runner ingestion',
-      files: ['apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs'],
+      files: ['apps/system-benchmark/run-agent-work-objective-controller.mjs'],
       verify: ['node --test tests/agent-work-dsl.test.mjs']
     }]
   }, { generatedAt: '2026-06-11T00:00:00.000Z', runId: 'cortex-handoff-test' });
@@ -40,6 +40,8 @@ test('Cortex handoff compiles to Agent Work DSL run contract with Cortex provena
   assert.equal(compiled.runContract.scope.wavePolicy.full_context_waves, 0);
   assert.equal(compiled.runContract.scope.expansionPolicy.max_cycles, 2);
   assert.equal(compiled.runContract.scope.evidenceSchemas[0].id, 'handoff_integrity');
+  assert.equal(compiled.runContract.scope.agentWorkLanguage.runtime.defaultRunner, 'objective_controller');
+  assert.equal(compiled.runtime.defaultRunnerScript, 'apps/system-benchmark/run-agent-work-objective-controller.mjs');
   assert.equal(compiled.runContract.metadata.cortexAgentWorkHandoff.memoryCitationCount, 1);
   assert.equal(compiled.safetyReport.externalWriteAllowed, false);
 });
@@ -108,6 +110,8 @@ test('Cortex handoff CLI writes compiler artifacts for runner ingestion', () => 
   const payload = JSON.parse(run.stdout);
   assert.equal(payload.ok, true);
   assert.equal(payload.runId, 'cortex-cli-test');
+  assert.equal(payload.defaultRunner, 'objective_controller');
+  assert.match(payload.defaultCommand, /run-agent-work-objective-controller\.mjs/);
   assert.equal(fs.existsSync(path.join(outDir, 'cortex_handoff.json')), true);
   assert.equal(fs.existsSync(path.join(outDir, 'run_contract.json')), true);
   const report = JSON.parse(fs.readFileSync(path.join(outDir, 'compiler_report.json'), 'utf8'));

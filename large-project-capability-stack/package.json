@@ -21,7 +21,9 @@
     "benchmark:cortex-vs-clawhip:live:supervisor": "node apps/cortex-vs-clawhip-live/supervisor.mjs",
     "benchmark:transfer:init": "node apps/system-benchmark/init-transfer-benchmark.mjs",
     "benchmark:transfer:run": "node apps/system-benchmark/run-transfer-benchmark.mjs",
-    "benchmark:transfer:orchestrate": "node apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs",
+    "benchmark:transfer:orchestrate": "node apps/system-benchmark/run-agent-work-objective-controller.mjs",
+    "benchmark:transfer:orchestrate:finite": "node apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs",
+    "benchmark:agent-work:run": "node apps/system-benchmark/run-agent-work-objective-controller.mjs",
     "benchmark:scoreboard:update": "node apps/system-benchmark/update-scoreboard.mjs",
     "architecture:check": "node apps/stack-cli.mjs architecture check ."
   }

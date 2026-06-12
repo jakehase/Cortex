@@ -34,5 +34,7 @@ console.log(JSON.stringify({
   surfaceMatrixPath: compilation.files.surfaceMatrixPath,
   workGraphPath: compilation.files.workGraphPath,
   compilerReportPath: compilation.files.compilerReportPath,
+  defaultRunner: compilation.runtime.defaultRunner,
+  defaultCommand: compilation.runtime.defaultCommand,
   relaunchAllowed: compilation.safetyReport.relaunchAllowed
 }, null, 2));

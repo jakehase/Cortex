@@ -5,6 +5,15 @@ export const AGENT_WORK_SPEC_SCHEMA = 'claw.agent_work_spec.v0';
 export const AGENT_WORK_COMPILATION_SCHEMA = 'claw.agent_work_compilation.v0';
 export const AGENT_WORK_RUN_CONTRACT_SCHEMA = 'claw.agent_benchmark_run_contract.v1';
 export const AGENT_WORK_LANGUAGE_VERSION = 'v0.1';
+export const AGENT_WORK_DEFAULT_RUNTIME = Object.freeze({
+  defaultRunner: 'objective_controller',
+  defaultRunnerScript: 'apps/system-benchmark/run-agent-work-objective-controller.mjs',
+  defaultCommand: 'node apps/system-benchmark/run-agent-work-objective-controller.mjs <run_contract_or_agent_work_spec>',
+  finiteRunner: 'finite_transfer_runner',
+  finiteRunnerScript: 'apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs',
+  finiteCommand: 'node apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs <run_contract>',
+  truthBoundary: 'Agent Work v0.1 defaults to the objective controller. The finite transfer runner remains available only as an explicit single-wave runner.'
+});
 export const FIDELITY_LATTICE = Object.freeze(['prototype', 'production_slice', 'parity_for_scope', 'full_clone']);
 
 const DEFAULT_STOP_CONDITION = 'supervisor_green_or_blocker_report';
@@ -76,6 +85,10 @@ function objectOr(value, fallback = {}) {
     } catch {}
   }
   return fallback;
+}
+
+function defaultRuntimeDescriptor() {
+  return { ...AGENT_WORK_DEFAULT_RUNTIME };
 }
 
 function arrayOr(value, fallback = []) {
@@ -605,6 +618,7 @@ function buildRunContract(spec) {
         languageVersion: spec.languageVersion,
         goalId: spec.goalId,
         outcome: spec.outcome,
+        runtime: defaultRuntimeDescriptor(),
         features: {
           budgets: nonEmptyObject(spec.budgets),
           wavePolicy: nonEmptyObject(spec.wavePolicy),
@@ -631,6 +645,7 @@ function buildRunContract(spec) {
         languageVersion: spec.languageVersion,
         goalId: spec.goalId,
         compiler: 'packages/agent-work-dsl',
+        runtime: defaultRuntimeDescriptor(),
         policies: {
           budgets: spec.budgets,
           wavePolicy: spec.wavePolicy,
@@ -714,6 +729,7 @@ export function compileAgentWorkSpec(input = {}, options = {}) {
       wavePolicyDeclared: nonEmptyObject(spec.wavePolicy),
       evidenceSchemasDeclared: (spec.evidenceSchemas || []).length > 0
     },
+    runtime: defaultRuntimeDescriptor(),
     runContract,
     surfaceMatrix,
     workGraph
@@ -791,6 +807,10 @@ function resolvedOutputDirForCompilation(compilation, inputPath, options = {}) {
   return path.resolve('artifacts', 'agent-work-dsl', 'runner-ingested', baseName || 'agent-work');
 }
 
+function runtimeFromRunContract(runContract = {}) {
+  return runContract?.scope?.agentWorkLanguage?.runtime || runContract?.metadata?.agentWorkDsl?.runtime || defaultRuntimeDescriptor();
+}
+
 function runInputResolution({ inputPath, inputKind, runContract, runContractPath, compilation = null, compilerFiles = null }) {
   return {
     schemaVersion: 'claw.agent_work_runner_input_resolution.v0',
@@ -800,6 +820,7 @@ function runInputResolution({ inputPath, inputKind, runContract, runContractPath
     runContract,
     runContractPath,
     artifactRoot: runContract?.artifactRoot ? path.resolve(runContract.artifactRoot) : null,
+    runtime: compilation?.runtime || runtimeFromRunContract(runContract),
     compilation,
     compilerFiles,
     compiledFromAgentWorkDsl: Boolean(compilation)

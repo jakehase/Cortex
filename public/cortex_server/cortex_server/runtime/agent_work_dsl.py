@@ -8,6 +8,15 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 CORTEX_AGENT_WORK_HANDOFF_SCHEMA = "cortex.agent_work_handoff.v0"
 AGENT_WORK_SPEC_SCHEMA = "claw.agent_work_spec.v0"
+AGENT_WORK_DEFAULT_RUNTIME = {
+    "defaultRunner": "objective_controller",
+    "defaultRunnerScript": "apps/system-benchmark/run-agent-work-objective-controller.mjs",
+    "defaultCommand": "node apps/system-benchmark/run-agent-work-objective-controller.mjs <run_contract_or_agent_work_spec>",
+    "finiteRunner": "finite_transfer_runner",
+    "finiteRunnerScript": "apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs",
+    "finiteCommand": "node apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs <run_contract>",
+    "truthBoundary": "Agent Work v0.1 defaults to the objective controller. The finite transfer runner remains available only as an explicit single-wave runner.",
+}
 
 
 def _now_iso() -> str:
@@ -206,6 +215,7 @@ def compile_handoff_to_agent_work_spec(handoff: CortexAgentWorkHandoff | Dict[st
         "metadata": {
             **dict(handoff.metadata),
             "source": "cortex_agent_work_handoff",
+            "runtime": dict(AGENT_WORK_DEFAULT_RUNTIME),
             "cortex": {
                 "handoffSchemaVersion": handoff.schemaVersion,
                 "source": handoff.source,

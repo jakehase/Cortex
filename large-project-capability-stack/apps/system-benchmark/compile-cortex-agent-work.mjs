@@ -50,6 +50,8 @@ console.log(JSON.stringify({
   surfaceCount: result.surfaceMatrix.surfaces.length,
   runContractPath: result.files.runContractPath,
   cortexHandoffPath: result.files.cortexHandoffPath,
+  defaultRunner: result.runtime.defaultRunner,
+  defaultCommand: result.runtime.defaultCommand,
   relaunchAllowed: result.safetyReport.relaunchAllowed,
   externalWriteAllowed: result.safetyReport.externalWriteAllowed
 }, null, 2));

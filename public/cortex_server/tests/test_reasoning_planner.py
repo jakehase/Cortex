@@ -119,7 +119,7 @@ def test_compile_plan_to_agent_work_handoff_requires_executable_surfaces():
                 "depends_on": ["adapter"],
                 "metadata": {
                     "surface_id": "runner_ingestion",
-                    "files": ["apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs"],
+                    "files": ["apps/system-benchmark/run-agent-work-objective-controller.mjs"],
                     "verify": ["node --test tests/agent-work-dsl.test.mjs"],
                 },
             },

@@ -324,6 +324,342 @@ function positiveNumber(value, fallback = null) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function finiteNonNegativeNumber(value, fallback = null) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function normalizePolicyKey(key = '') {
+  return String(key || '').trim().replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().replace(/[.-]/g, '_');
+}
+
+function normalizedPolicyEntries(policy = {}) {
+  if (!isPlainObject(policy)) return [];
+  return Object.entries(policy).map(([key, value]) => ({ key, normalizedKey: normalizePolicyKey(key), value }));
+}
+
+function policyNumber(policy = {}, keys = [], fallback = null) {
+  if (!isPlainObject(policy)) return fallback;
+  const normalized = new Map(normalizedPolicyEntries(policy).map((entry) => [entry.normalizedKey, entry.value]));
+  for (const key of keys.map(normalizePolicyKey)) {
+    const parsed = finiteNonNegativeNumber(normalized.get(key), null);
+    if (parsed !== null) return parsed;
+  }
+  return fallback;
+}
+
+function policyArray(value = []) {
+  if (Array.isArray(value)) return value;
+  return stableList(value);
+}
+
+function normalizeGate(gate = {}) {
+  if (isPlainObject(gate)) {
+    return {
+      expression: String(gate.expression || gate.expr || `${gate.metric || gate.path || ''} ${gate.operator || gate.op || ''} ${gate.expected ?? gate.value ?? ''}`).trim(),
+      metric: normalizePolicyKey(gate.metric || gate.path || ''),
+      operator: String(gate.operator || gate.op || '').trim() || '>=',
+      expected: gate.expected ?? gate.value ?? null,
+      raw: gate
+    };
+  }
+  const expression = String(gate || '').trim();
+  const match = expression.match(/^([A-Za-z0-9_.-]+)\s*(>=|<=|==|=|>|<)\s*(.+)$/);
+  return {
+    expression,
+    metric: normalizePolicyKey(match?.[1] || ''),
+    operator: match?.[2] === '=' ? '==' : (match?.[2] || ''),
+    expected: match ? match[3] : null,
+    raw: gate
+  };
+}
+
+function comparePolicyGate(actual, operator, expected) {
+  const normalizedOperator = String(operator || '').trim() || '>=';
+  const numericExpected = Number(expected);
+  const numericActual = Number(actual);
+  const useNumeric = Number.isFinite(numericExpected) && Number.isFinite(numericActual);
+  const left = useNumeric ? numericActual : actual;
+  const right = useNumeric ? numericExpected : expected;
+  if (normalizedOperator === '>=') return left >= right;
+  if (normalizedOperator === '<=') return left <= right;
+  if (normalizedOperator === '>') return left > right;
+  if (normalizedOperator === '<') return left < right;
+  if (normalizedOperator === '==' || normalizedOperator === '=') return String(left) === String(right);
+  return false;
+}
+
+function policyMetricValue(metric, { metrics = {}, transferEvidence = {}, mechanicalGreen = false, scaleProofReady = false, thresholdPass = false, liveRun = {}, contextGovernorReport = null } = {}) {
+  const normalized = normalizePolicyKey(metric);
+  const aliases = {
+    verified_surface_count: transferEvidence.verifiedSurfaceCount,
+    productive_surface_count: transferEvidence.productiveSurfaceCount,
+    total_surface_count: transferEvidence.totalSurfaceCount,
+    transfer_score: transferEvidence.transferScore ?? metrics.transferScore,
+    productive_iteration_rate: metrics.productiveIterationRate,
+    verification_integrity: metrics.verificationIntegrity,
+    creative_product_delta_integrity: metrics.creativeProductDeltaIntegrity,
+    creative_worker_evidence_integrity: metrics.creativeWorkerEvidenceIntegrity,
+    creative_iteration_integrity: metrics.creativeIterationIntegrity,
+    context_governor_budget_failure_count: contextGovernorReport?.budgetFailureCount ?? metrics.contextGovernorBudgetFailureCount,
+    context_governor_average_tokens: contextGovernorReport?.averageApproxTokens ?? metrics.contextGovernorAverageTokens,
+    context_governor_max_tokens: contextGovernorReport?.maxApproxTokens ?? metrics.contextGovernorMaxTokens,
+    context_governor_total_tokens: contextGovernorReport?.totalApproxTokens,
+    merged_shard_count: liveRun.patchQueue?.merged?.length ?? null,
+    rejected_shard_count: liveRun.patchQueue?.rejected?.length ?? null,
+    shard_count: liveRun.shardPlan?.shards?.length ?? null,
+    worker_spawn_count: liveRun.metrics?.workerSpawnCount ?? metrics.workerSpawnCount,
+    peak_concurrency: metrics.peakConcurrency,
+    mechanical_green: mechanicalGreen ? 1 : 0,
+    scale_proof_ready: scaleProofReady ? 1 : 0,
+    threshold_pass: thresholdPass ? 1 : 0
+  };
+  return aliases[normalized] ?? metrics[normalized] ?? null;
+}
+
+function createAgentWorkPolicyReport({ contract, workGraph, contextGovernorOptions, maxRuntimeMs, workerTimeoutMs, leaseTtlMs, agentCount } = {}) {
+  const budgets = contract.scope?.budgets || {};
+  const wavePolicy = contract.scope?.wavePolicy || {};
+  const expansionPolicy = contract.scope?.expansionPolicy || {};
+  const evidenceSchemas = Array.isArray(contract.scope?.evidenceSchemas) ? contract.scope.evidenceSchemas : [];
+  const supportedBudgetKeys = new Set(['token_cap', 'worker_prompt_tokens', 'global_calls', 'max_worker_spawns', 'max_runtime_ms', 'runtime_ms', 'worker_timeout_ms', 'lease_ttl_ms']);
+  const supportedWaveKeys = new Set(['max_waves', 'bundle_size', 'full_context_waves', 'handoff']);
+  const supportedExpansionKeys = new Set(['triggers', 'max_cycles', 'max_surfaces', 'strategy']);
+  const unsupported = [];
+  for (const entry of normalizedPolicyEntries(budgets)) if (!supportedBudgetKeys.has(entry.normalizedKey)) unsupported.push({ policy: 'budgets', key: entry.key, reason: 'unsupported_budget_key' });
+  for (const entry of normalizedPolicyEntries(wavePolicy)) if (!supportedWaveKeys.has(entry.normalizedKey)) unsupported.push({ policy: 'wavePolicy', key: entry.key, reason: 'unsupported_wave_policy_key' });
+  for (const entry of normalizedPolicyEntries(expansionPolicy)) if (!supportedExpansionKeys.has(entry.normalizedKey)) unsupported.push({ policy: 'expansionPolicy', key: entry.key, reason: 'unsupported_expansion_policy_key' });
+
+  const effects = {
+    maxRuntimeMs,
+    workerTimeoutMs,
+    leaseTtlMs,
+    maxWorkerSpawns: null,
+    maxSpawnsPerTick: null,
+    contextGovernorOptions: { ...contextGovernorOptions }
+  };
+  const checks = [];
+  const violations = [];
+  const addCheck = (entry) => {
+    checks.push(entry);
+    if (entry.ok === false) violations.push(entry);
+  };
+
+  const tokenCap = policyNumber(budgets, ['token_cap', 'tokenCap'], null);
+  if (tokenCap !== null) {
+    effects.contextGovernorOptions.enabled = true;
+    effects.contextGovernorOptions.hardGate = true;
+    effects.contextGovernorOptions.globalTokenCap = tokenCap;
+    addCheck({ policy: 'budgets', key: 'token_cap', enforcement: 'context_governor_global_token_cap', ok: tokenCap > 0, configuredValue: tokenCap });
+  }
+
+  const workerPromptTokens = policyNumber(budgets, ['worker_prompt_tokens', 'workerPromptTokens'], null);
+  if (workerPromptTokens !== null) {
+    effects.contextGovernorOptions.enabled = true;
+    effects.contextGovernorOptions.hardGate = true;
+    effects.contextGovernorOptions.maxWorkerTokens = workerPromptTokens;
+    addCheck({ policy: 'budgets', key: 'worker_prompt_tokens', enforcement: 'context_governor_max_worker_tokens', ok: workerPromptTokens > 0, configuredValue: workerPromptTokens });
+  }
+
+  const globalCalls = policyNumber(budgets, ['global_calls', 'globalCalls', 'max_worker_spawns', 'maxWorkerSpawns'], null);
+  if (globalCalls !== null) {
+    effects.maxWorkerSpawns = globalCalls;
+    addCheck({
+      policy: 'budgets',
+      key: 'global_calls',
+      enforcement: 'max_live_worker_spawns',
+      ok: globalCalls >= Math.max(1, workGraph.workUnits.length),
+      configuredValue: globalCalls,
+      requiredMinimum: Math.max(1, workGraph.workUnits.length)
+    });
+  }
+
+  const maxRuntimeBudget = policyNumber(budgets, ['max_runtime_ms', 'runtime_ms', 'maxRuntimeMs'], null);
+  if (maxRuntimeBudget !== null) {
+    effects.maxRuntimeMs = Math.min(maxRuntimeMs, Math.max(1, maxRuntimeBudget));
+    addCheck({ policy: 'budgets', key: 'max_runtime_ms', enforcement: 'runner_max_runtime_ms_cap', ok: maxRuntimeBudget > 0, configuredValue: maxRuntimeBudget, effectiveValue: effects.maxRuntimeMs });
+  }
+
+  const workerTimeoutBudget = policyNumber(budgets, ['worker_timeout_ms', 'workerTimeoutMs'], null);
+  if (workerTimeoutBudget !== null) {
+    effects.workerTimeoutMs = Math.min(workerTimeoutMs, Math.max(1, workerTimeoutBudget));
+    addCheck({ policy: 'budgets', key: 'worker_timeout_ms', enforcement: 'worker_timeout_ms_cap', ok: workerTimeoutBudget > 0, configuredValue: workerTimeoutBudget, effectiveValue: effects.workerTimeoutMs });
+  }
+
+  const leaseTtlBudget = policyNumber(budgets, ['lease_ttl_ms', 'leaseTtlMs'], null);
+  if (leaseTtlBudget !== null) {
+    effects.leaseTtlMs = Math.min(leaseTtlMs, Math.max(1, leaseTtlBudget));
+    addCheck({ policy: 'budgets', key: 'lease_ttl_ms', enforcement: 'lease_ttl_ms_cap', ok: leaseTtlBudget > 0, configuredValue: leaseTtlBudget, effectiveValue: effects.leaseTtlMs });
+  }
+
+  const maxWaves = policyNumber(wavePolicy, ['max_waves', 'maxWaves'], null);
+  if (maxWaves !== null) addCheck({ policy: 'wavePolicy', key: 'max_waves', enforcement: 'single_wave_runner_limit', ok: maxWaves >= 1, configuredValue: maxWaves, executedWaveCount: 1 });
+  const bundleSize = policyNumber(wavePolicy, ['bundle_size', 'bundleSize'], null);
+  if (bundleSize !== null) {
+    effects.maxSpawnsPerTick = Math.max(1, Math.min(agentCount, bundleSize));
+    addCheck({ policy: 'wavePolicy', key: 'bundle_size', enforcement: 'max_spawns_per_scheduler_tick', ok: bundleSize > 0, configuredValue: bundleSize, effectiveValue: effects.maxSpawnsPerTick });
+  }
+  const fullContextWaves = policyNumber(wavePolicy, ['full_context_waves', 'fullContextWaves'], null);
+  if (fullContextWaves !== null) {
+    if (fullContextWaves === 0) {
+      effects.contextGovernorOptions.enabled = true;
+      effects.contextGovernorOptions.hardGate = true;
+      effects.contextGovernorOptions.workerPromptMode = 'compact';
+    }
+    addCheck({ policy: 'wavePolicy', key: 'full_context_waves', enforcement: 'context_governor_compact_wave_mode', ok: fullContextWaves >= 0, configuredValue: fullContextWaves, workerPromptMode: effects.contextGovernorOptions.workerPromptMode || null });
+  }
+  const handoff = String(wavePolicy.handoff || wavePolicy.waveHandoff || '').trim();
+  if (handoff) addCheck({ policy: 'wavePolicy', key: 'handoff', enforcement: 'wave_factpack_artifact', ok: handoff === 'wave_factpack', configuredValue: handoff, artifact: 'wave_factpack.json' });
+
+  const expansionTriggers = stableList(expansionPolicy.triggers || expansionPolicy.trigger || expansionPolicy.when);
+  const unsupportedTriggers = expansionTriggers.filter((trigger) => !['objective_red', 'graph_exhausted'].includes(normalizePolicyKey(trigger)));
+  if (unsupportedTriggers.length) unsupported.push({ policy: 'expansionPolicy', key: 'triggers', reason: 'unsupported_expansion_trigger', values: unsupportedTriggers });
+  if (Object.keys(expansionPolicy || {}).length > 0) addCheck({ policy: 'expansionPolicy', key: 'triggers', enforcement: 'conditional_unsupported_policy_blocker_if_triggered', ok: unsupportedTriggers.length === 0, configuredValue: expansionTriggers, note: 'Transfer runner is single-wave and reports a blocker if dynamic expansion becomes necessary.' });
+
+  const preflightBlocking = [...unsupported.map((entry) => ({ ...entry, ok: false, unsupportedPolicy: true })), ...violations];
+  return {
+    schemaVersion: 'claw.agent_work_policy_enforcement.v0',
+    generatedAt: new Date().toISOString(),
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    status: preflightBlocking.length ? 'blocked_preflight' : 'ready',
+    preflightOk: preflightBlocking.length === 0,
+    policiesDeclared: {
+      budgets: Object.keys(budgets || {}).length > 0,
+      wavePolicy: Object.keys(wavePolicy || {}).length > 0,
+      expansionPolicy: Object.keys(expansionPolicy || {}).length > 0,
+      evidenceSchemas: evidenceSchemas.length > 0
+    },
+    unsupportedPolicies: unsupported,
+    checks,
+    blockingViolations: preflightBlocking,
+    effects,
+    evidenceSchemas: evidenceSchemas.map((schema) => ({ id: schema.id || null, gateCount: (schema.gates || []).length, artifactCount: (schema.artifacts || []).length }))
+  };
+}
+
+function finalizeAgentWorkPolicyReport({ report, contract, liveRun, metrics, transferEvidence, mechanicalGreen, scaleProofReady, baseThresholdPass, contextGovernorReport, artifactRoot, orchestratorRunRoot } = {}) {
+  const nextReport = {
+    ...report,
+    generatedAt: new Date().toISOString(),
+    status: report.preflightOk ? 'green' : report.status,
+    runtimeChecks: [],
+    evidenceSchemaResults: [],
+    blockingViolations: [...(report.blockingViolations || [])]
+  };
+  const addRuntimeCheck = (entry) => {
+    nextReport.runtimeChecks.push(entry);
+    if (entry.ok === false) nextReport.blockingViolations.push(entry);
+  };
+
+  if (contextGovernorReport && (contract.scope?.budgets?.token_cap !== undefined || contract.scope?.budgets?.worker_prompt_tokens !== undefined || contract.scope?.wavePolicy?.full_context_waves !== undefined)) {
+    addRuntimeCheck({
+      policy: 'budgets',
+      key: 'context_governor_budget',
+      enforcement: 'context_governor_hard_gate',
+      ok: contextGovernorReport.ok !== false,
+      budgetFailureCount: contextGovernorReport.budgetFailureCount || 0,
+      totalApproxTokens: contextGovernorReport.totalApproxTokens ?? null,
+      maxApproxTokens: contextGovernorReport.maxApproxTokens ?? null,
+      failures: contextGovernorReport.budgetFailures || []
+    });
+  }
+
+  const maxWorkerSpawns = report.effects?.maxWorkerSpawns;
+  if (maxWorkerSpawns !== null && maxWorkerSpawns !== undefined) {
+    const workerSpawnCount = Number(liveRun.metrics?.workerSpawnCount || 0);
+    addRuntimeCheck({
+      policy: 'budgets',
+      key: 'global_calls',
+      enforcement: 'max_live_worker_spawns',
+      ok: workerSpawnCount <= Number(maxWorkerSpawns),
+      workerSpawnCount,
+      configuredValue: Number(maxWorkerSpawns),
+      exhausted: liveRun.metrics?.workerSpawnBudgetExhausted === true
+    });
+  }
+
+  const expansionPolicy = contract.scope?.expansionPolicy || {};
+  const expansionTriggers = stableList(expansionPolicy.triggers || expansionPolicy.trigger || expansionPolicy.when).map(normalizePolicyKey);
+  const graphExhausted = (liveRun.workerEvents || []).some((event) => event.type === 'no_schedulable_work_remaining');
+  const expansionTriggered = (expansionTriggers.includes('objective_red') && !baseThresholdPass)
+    || (expansionTriggers.includes('graph_exhausted') && graphExhausted && !baseThresholdPass);
+  if (Object.keys(expansionPolicy || {}).length > 0) {
+    addRuntimeCheck({
+      policy: 'expansionPolicy',
+      key: 'triggers',
+      enforcement: 'unsupported_policy_blocker_when_triggered',
+      ok: !expansionTriggered,
+      unsupportedPolicy: expansionTriggered,
+      triggers: expansionTriggers,
+      graphExhausted,
+      baseThresholdPass,
+      note: expansionTriggered ? 'Dynamic objective expansion was requested and triggered, but this finite transfer runner cannot expand the surface graph.' : 'Expansion policy did not trigger for this finite run.'
+    });
+  }
+
+  const evidenceSchemas = Array.isArray(contract.scope?.evidenceSchemas) ? contract.scope.evidenceSchemas : [];
+  for (const schema of evidenceSchemas) {
+    const gates = [schema.gates, schema.requires, schema.require, schema.gate]
+      .flatMap(policyArray)
+      .map(normalizeGate)
+      .filter((gate) => gate.expression || gate.metric);
+    const artifacts = stableList(schema.artifacts || schema.artifact);
+    const gateResults = gates.map((gate) => {
+      const actual = policyMetricValue(gate.metric, { metrics, transferEvidence, mechanicalGreen, scaleProofReady, thresholdPass: baseThresholdPass, liveRun, contextGovernorReport });
+      const supported = Boolean(actual !== null && actual !== undefined && gate.metric);
+      return {
+        expression: gate.expression,
+        metric: gate.metric,
+        operator: gate.operator,
+        expected: gate.expected,
+        actual,
+        supported,
+        ok: supported ? comparePolicyGate(actual, gate.operator, gate.expected) : false,
+        unsupportedPolicy: !supported
+      };
+    });
+    const artifactResults = artifacts.map((artifact) => {
+      const candidates = [path.resolve(artifactRoot, artifact), path.resolve(orchestratorRunRoot, artifact)];
+      return { artifact, ok: candidates.some((candidate) => fs.existsSync(candidate)), checkedPaths: candidates };
+    });
+    const ok = gateResults.every((gate) => gate.ok) && artifactResults.every((artifact) => artifact.ok);
+    const result = { id: schema.id || schema.name || 'evidence_schema', ok, gates: gateResults, artifacts: artifactResults };
+    nextReport.evidenceSchemaResults.push(result);
+    if (!ok) addRuntimeCheck({ policy: 'evidenceSchemas', key: result.id, enforcement: 'evidence_schema_gate_evaluation', ok: false, schema: result });
+  }
+
+  if (nextReport.blockingViolations.length) nextReport.status = 'blocked';
+  nextReport.ok = nextReport.blockingViolations.length === 0;
+  return nextReport;
+}
+
+function agentWorkPolicyBlocker({ contract, report, phase = 'agent_work_policy_preflight' }) {
+  const unsupported = (report.blockingViolations || []).filter((entry) => entry.unsupportedPolicy);
+  return {
+    generatedAt: new Date().toISOString(),
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    phase,
+    status: 'blocked',
+    blockerFamily: unsupported.length ? 'agent_work_unsupported_policy' : 'agent_work_policy_violation',
+    blocker: unsupported.length
+      ? 'Agent Work contract declares policy fields this transfer runner cannot honestly enforce.'
+      : 'Agent Work contract policy enforcement failed before the run could be credited.',
+    nextAction: unsupported.length
+      ? 'Use a runner that supports these policy fields, remove the unsupported fields, or implement the missing enforcement path before rerunning.'
+      : 'Adjust the Agent Work policy values or contract shape, then rerun the transfer orchestrator benchmark.',
+    unsupportedPolicy: unsupported.length > 0,
+    policyReportPath: path.join(path.resolve(contract.artifactRoot), 'agent_work_policy_report.json'),
+    policyReport: report
+  };
+}
+
 function resolveContextGovernorOptions(contract = {}, env = process.env) {
   const scopeOptions = contract.scope?.contextGovernor || contract.scope?.tokenEfficiency?.contextGovernor || {};
   const requestedAgentCount = Number(contract.requestedAgentCount || 0);
@@ -701,11 +1037,14 @@ const claimLedgerPolicy = {
     || (proofCarryingClaimsRequired ? 'require_adversarial_survival' : 'off')
 };
 const canonicalLandingProductPaths = [...new Set((contract.scope?.surfaces || []).flatMap((surface) => productSurfaceFiles(surface)).filter(Boolean))].sort();
-const contextGovernorOptions = resolveContextGovernorOptions(contract, process.env);
+let contextGovernorOptions = resolveContextGovernorOptions(contract, process.env);
 const previousWaveFactpack = loadPreviousWaveFactpack(contract);
-const maxRuntimeMs = resolveBenchmarkMaxRuntimeMs({ scope: contract.scope, env: process.env });
-const leaseTtlMs = resolveBenchmarkLeaseTtlMs({ scope: contract.scope, env: process.env, maxRuntimeMs });
-const workerTimeoutMs = resolveBenchmarkWorkerTimeoutMs({ scope: contract.scope, env: process.env, maxRuntimeMs });
+let maxRuntimeMs = resolveBenchmarkMaxRuntimeMs({ scope: contract.scope, env: process.env });
+let leaseTtlMs = resolveBenchmarkLeaseTtlMs({ scope: contract.scope, env: process.env, maxRuntimeMs });
+let workerTimeoutMs = resolveBenchmarkWorkerTimeoutMs({ scope: contract.scope, env: process.env, maxRuntimeMs });
+let maxWorkerSpawns = null;
+let maxSpawnsPerTick = null;
+let agentWorkPolicyReport = null;
 const hostRole = process.env.BENCHMARK_HOST_ROLE || process.env.HOST_ROLE || 'control_plane';
 const hostname = process.env.HOSTNAME || null;
 
@@ -813,6 +1152,90 @@ if (!workGraph.workUnits.length || !verifierIds.length) {
   process.exit(2);
 }
 
+agentWorkPolicyReport = createAgentWorkPolicyReport({
+  contract,
+  workGraph,
+  contextGovernorOptions,
+  maxRuntimeMs,
+  workerTimeoutMs,
+  leaseTtlMs,
+  agentCount: Math.max(1, Number(contract.requestedAgentCount || 1))
+});
+contextGovernorOptions = agentWorkPolicyReport.effects.contextGovernorOptions;
+maxRuntimeMs = agentWorkPolicyReport.effects.maxRuntimeMs;
+workerTimeoutMs = agentWorkPolicyReport.effects.workerTimeoutMs;
+leaseTtlMs = agentWorkPolicyReport.effects.leaseTtlMs;
+maxWorkerSpawns = agentWorkPolicyReport.effects.maxWorkerSpawns;
+maxSpawnsPerTick = agentWorkPolicyReport.effects.maxSpawnsPerTick;
+writeJson(path.join(artifactRoot, 'agent_work_policy_report.json'), agentWorkPolicyReport);
+
+if (!agentWorkPolicyReport.preflightOk) {
+  const blocker = agentWorkPolicyBlocker({ contract, report: agentWorkPolicyReport });
+  writeJson(path.join(artifactRoot, 'blocker_report.json'), blocker);
+  writeJson(path.join(artifactRoot, 'supervisor_status.json'), {
+    generatedAt: blocker.generatedAt,
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    supervisorStatus: 'red',
+    matrixStatus: 'blocked',
+    note: blocker.blocker
+  });
+  writeJson(path.join(artifactRoot, 'program_state.json'), {
+    schemaVersion: 'claw.agent_benchmark_program_state.v1',
+    generatedAt: blocker.generatedAt,
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    status: 'blocked',
+    done: true,
+    stopAllowed: true,
+    stopReason: 'agent_work_policy_preflight_blocked',
+    summary: blocker.blocker
+  });
+  writeJson(path.join(artifactRoot, 'orchestrator_summary.json'), {
+    generatedAt: blocker.generatedAt,
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    requestedAgentCount: contract.requestedAgentCount,
+    mechanicalGreen: false,
+    scaleProofReady: false,
+    thresholdPass: false,
+    blockedByAgentWorkPolicy: true,
+    agentWorkPolicyReportPath: path.join(artifactRoot, 'agent_work_policy_report.json')
+  });
+  writeJson(path.join(artifactRoot, 'completion_summary.json'), {
+    generatedAt: blocker.generatedAt,
+    benchmarkId: contract.benchmarkId,
+    runId: contract.runId,
+    baselineReady: previousBaselineReady,
+    thresholdPass: false,
+    supervisorConfirmedCompletion: false,
+    executionMode: 'agent_work_policy_preflight_blocked',
+    mechanicalGreen: false,
+    scaleProofReady: false,
+    blocker,
+    agentWorkPolicy: agentWorkPolicyReport,
+    note: blocker.blocker
+  });
+  const scoreboardRow = createScoreboardRow({
+    contract,
+    metrics: {
+      verificationIntegrity: previousBaselineReady ? 1 : 0,
+      autonomyWindowMinutes: 0,
+      truthIntegrityContradictions: 0,
+      fakeGreenIncidents: 0
+    },
+    outcome: { pass: false },
+    durationMinutes: 0,
+    blockerFamily: blocker.blockerFamily,
+    blockerSemantics: blocker.unsupportedPolicy ? 'unsupported_policy' : 'policy_violation',
+    notes: blocker.blocker
+  });
+  writeJson(path.join(artifactRoot, 'scoreboard_row.json'), scoreboardRow);
+  upsertBenchmarkScoreboardRow({ scoreboardPath, row: scoreboardRow });
+  console.log(JSON.stringify({ ok: false, blockedByAgentWorkPolicy: true, blocker: blocker.blocker, unsupportedPolicy: blocker.unsupportedPolicy, artifactRoot }, null, 2));
+  process.exit(2);
+}
+
 let liveRun;
 try {
   if (process.env.TRANSFER_BENCHMARK_TEST_FORCE_CRASH === '1') {
@@ -829,6 +1252,8 @@ try {
     maxRuntimeMs,
     leaseTtlMs,
     workerTimeoutMs,
+    ...(maxWorkerSpawns !== null && maxWorkerSpawns !== undefined ? { maxWorkerSpawns } : {}),
+    ...(maxSpawnsPerTick !== null && maxSpawnsPerTick !== undefined ? { maxSpawnsPerTick } : {}),
     workerWorkspaceCopyPaths: stableList(String(process.env.ORCHESTRATOR_WORKER_WORKSPACE_COPY_PATHS || '')
       .split(',')
       .map((entry) => entry.trim())
@@ -1005,6 +1430,8 @@ const metrics = {
   activeWorkerMinutes: concurrencyTruth.activeWorkerMinutes,
   medianTimeToNextAssignmentMs: concurrencyTruth.medianTimeToNextAssignmentMs,
   longestIdleGapMs: concurrencyTruth.longestIdleGapMs,
+  workerSpawnCount: liveRun.metrics?.workerSpawnCount || 0,
+  peakConcurrency,
   autonomyWindowMinutes: durationEvidence.autonomyWindowMinutes,
   truthIntegrityContradictions: truthContradictions.length,
   fakeGreenIncidents: truthContradictions.filter((entry) => entry.type === 'supervisor_green_with_unfinished_shards').length,
@@ -1029,12 +1456,39 @@ const thresholdEvaluation = evaluateBenchmarkThresholds({
   benchmarkTier: contract.benchmarkTier,
   metrics
 });
-const thresholdPass = mechanicalGreen && scaleProofReady && claimLedgerPass && thresholdEvaluation.ok;
+const baseThresholdPass = mechanicalGreen && scaleProofReady && claimLedgerPass && thresholdEvaluation.ok;
+agentWorkPolicyReport = finalizeAgentWorkPolicyReport({
+  report: agentWorkPolicyReport,
+  contract,
+  liveRun,
+  metrics,
+  transferEvidence,
+  mechanicalGreen,
+  scaleProofReady,
+  baseThresholdPass,
+  contextGovernorReport,
+  artifactRoot,
+  orchestratorRunRoot
+});
+writeJson(path.join(artifactRoot, 'agent_work_policy_report.json'), agentWorkPolicyReport);
+const thresholdPass = baseThresholdPass && agentWorkPolicyReport.ok;
 
 let blocker = null;
 let blockerFamily = null;
 let blockerSemantics = 'none';
-if (!mechanicalGreen) {
+if (!agentWorkPolicyReport.ok) {
+  const policyBlocker = agentWorkPolicyBlocker({ contract, report: agentWorkPolicyReport, phase: 'agent_work_policy_runtime' });
+  blockerFamily = policyBlocker.blockerFamily;
+  blockerSemantics = policyBlocker.unsupportedPolicy ? 'unsupported_policy' : 'policy_violation';
+  blocker = {
+    blockerFamily: policyBlocker.blockerFamily,
+    blocker: policyBlocker.blocker,
+    nextAction: policyBlocker.nextAction,
+    unsupportedPolicy: policyBlocker.unsupportedPolicy,
+    policyReportPath: policyBlocker.policyReportPath,
+    policyViolations: agentWorkPolicyReport.blockingViolations
+  };
+} else if (!mechanicalGreen) {
   blockerFamily = 'orchestrator_failure';
   blockerSemantics = 'blocking';
   blocker = {
@@ -1119,6 +1573,7 @@ writeJson(path.join(artifactRoot, 'threshold_evaluation.json'), {
     endedBeforeDurationTarget: durationEvidence.endedBeforeDurationTarget
   },
   contextGovernor: contextGovernorReport,
+  agentWorkPolicy: agentWorkPolicyReport,
   waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   meaningfulProgressEvidence,
   metrics,
@@ -1146,6 +1601,8 @@ writeJson(path.join(artifactRoot, 'orchestrator_summary.json'), {
   runStateTruth,
   transferScore: metrics.transferScore,
   thresholdPass,
+  baseThresholdPass,
+  agentWorkPolicy: agentWorkPolicyReport,
   contextGovernor: contextGovernorReport,
   waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   landingEvidenceSummary: liveRun.landingEvidence?.summary || null,
@@ -1159,6 +1616,7 @@ writeJson(path.join(artifactRoot, 'intervention_log.json'), []);
 if (liveRun.landingEvidence) writeJson(path.join(artifactRoot, 'landing_evidence.json'), liveRun.landingEvidence);
 if (claimLedger) writeJson(path.join(artifactRoot, 'claim_ledger.json'), claimLedger);
 if (contextGovernorReport) writeJson(path.join(artifactRoot, 'context_governor_report.json'), contextGovernorReport);
+writeJson(path.join(artifactRoot, 'agent_work_policy_report.json'), agentWorkPolicyReport);
 if (waveFactpack) writeJson(path.join(artifactRoot, 'wave_factpack.json'), waveFactpack);
 writeJson(path.join(artifactRoot, 'scheduler_truth.json'), {
   generatedAt: new Date().toISOString(),
@@ -1267,6 +1725,7 @@ writeJson(path.join(artifactRoot, 'completion_summary.json'), {
   runStateTruth,
   transferScore: metrics.transferScore,
   contextGovernor: contextGovernorReport,
+  agentWorkPolicy: agentWorkPolicyReport,
   waveFactpackPath: waveFactpack ? path.join(orchestratorRunRoot, 'wave_factpack.json') : null,
   landingEvidenceSummary: liveRun.landingEvidence?.summary || null,
   claimLedgerSummary,
@@ -1278,16 +1737,17 @@ writeJson(path.join(artifactRoot, 'completion_summary.json'), {
 });
 
 console.log(JSON.stringify({
-  ok: mechanicalGreen,
+  ok: mechanicalGreen && agentWorkPolicyReport.ok,
   thresholdPass,
   shardCount,
   mergedShardCount,
   peakConcurrency,
   thresholdFailures: thresholdEvaluation.failures,
+  agentWorkPolicy: agentWorkPolicyReport,
   scoreboardRows: scoreboard.rows.length,
   artifactRoot,
   runRoot: orchestratorRunRoot,
   blocker
 }, null, 2));
 
-process.exit(mechanicalGreen ? 0 : 1);
+process.exit(mechanicalGreen && agentWorkPolicyReport.ok ? 0 : 1);

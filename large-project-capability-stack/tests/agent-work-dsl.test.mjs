@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import {
+  AGENT_WORK_DEFAULT_RUNTIME,
   compileAgentWorkSpec,
   parseAgentWorkSpec,
   resolveAgentWorkRunInput,
@@ -109,6 +110,9 @@ surface campaign_delivery uses node_test_surface
   assert.equal(compiled.runContract.scope.evidenceSchemas[0].gates[0].metric, 'creative_product_delta_integrity');
   assert.equal(compiled.runContract.scope.surfaces[0].verification[0], 'node --test tests/campaigns.test.mjs');
   assert.deepEqual(compiled.runContract.scope.surfaces[0].metadata.templateIds, ['node_test_surface']);
+  assert.equal(compiled.runContract.scope.agentWorkLanguage.runtime.defaultRunner, 'objective_controller');
+  assert.equal(compiled.runContract.metadata.agentWorkDsl.runtime.defaultRunnerScript, AGENT_WORK_DEFAULT_RUNTIME.defaultRunnerScript);
+  assert.equal(compiled.runtime.defaultRunner, 'objective_controller');
   assert.equal(compiled.workGraph.policies.wavePolicy.bundle_size, 5);
   assert.equal(compiled.safetyReport.dynamicExpansionDeclared, true);
 });
@@ -212,6 +216,8 @@ test('agent work DSL writes compiler artifacts consumed by existing benchmark ru
   });
   assert.equal(fs.existsSync(result.files.runContractPath), true);
   assert.equal(JSON.parse(fs.readFileSync(result.files.runContractPath, 'utf8')).scope.surfaces[0].id, 'audit_report');
+  assert.equal(JSON.parse(fs.readFileSync(result.files.runContractPath, 'utf8')).scope.agentWorkLanguage.runtime.defaultRunner, 'objective_controller');
+  assert.equal(JSON.parse(fs.readFileSync(result.files.compilerReportPath, 'utf8')).runtime.defaultRunnerScript, AGENT_WORK_DEFAULT_RUNTIME.defaultRunnerScript);
   assert.equal(fs.existsSync(result.files.surfaceMatrixPath), true);
   assert.equal(fs.existsSync(result.files.workGraphPath), true);
   assert.equal(fs.existsSync(result.files.compilerReportPath), true);
@@ -239,6 +245,8 @@ surface compiler_probe
   assert.equal(run.status, 0, run.stderr || run.stdout);
   const payload = JSON.parse(run.stdout);
   assert.equal(payload.ok, true);
+  assert.equal(payload.defaultRunner, 'objective_controller');
+  assert.match(payload.defaultCommand, /run-agent-work-objective-controller\.mjs/);
   assert.equal(payload.relaunchAllowed, false);
   assert.equal(fs.existsSync(path.join(outDir, 'run_contract.json')), true);
   assert.equal(JSON.parse(fs.readFileSync(path.join(outDir, 'run_contract.json'), 'utf8')).runId, 'cli-test-run');
@@ -261,6 +269,7 @@ surface dsl_runner
   const resolved = resolveAgentWorkRunInput(specPath, { outputDir: outDir, runId: 'runner-ingestion-test', generatedAt: '2026-06-11T00:00:00.000Z' });
   assert.equal(resolved.inputKind, 'agent_work_text_spec');
   assert.equal(resolved.compiledFromAgentWorkDsl, true);
+  assert.equal(resolved.runtime.defaultRunner, 'objective_controller');
   assert.equal(resolved.runContract.runId, 'runner-ingestion-test');
   assert.equal(fs.existsSync(path.join(outDir, 'run_contract.json')), true);
   assert.equal(JSON.parse(fs.readFileSync(resolved.runContractPath, 'utf8')).scope.surfaces[0].id, 'dsl_runner');

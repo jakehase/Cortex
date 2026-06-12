@@ -437,6 +437,199 @@ test('system benchmark transfer orchestrator runner executes live worker farm ho
   assert.equal(scoreboard.rows[0].blockerFamily, 'unproductive_scale_credit');
 });
 
+test('transfer orchestrator rejects unsupported Agent Work v0.1 policies before worker launch', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-agent-work-policy-unsupported-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(path.join(repo, 'pass-a.mjs'), "console.log('a');\n");
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'agent_work_policy_unsupported_demo',
+    benchmarkTier: 'tier1_smoke',
+    repoPath: repo,
+    scope: {
+      budgets: { mystery_units: 1 },
+      surfaces: [{ id: 'surface_a', label: 'Surface A', allowedFiles: ['pass-a.mjs'], verification: ['node pass-a.mjs'] }]
+    },
+    verifierSet: [{ kind: 'node_script', command: 'node pass-a.mjs' }],
+    requestedAgentCount: 1,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'agent_work_policy_unsupported_demo', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+
+  const runner = spawnSync(process.execPath, [path.join(process.cwd(), 'apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs'), path.join(bootstrap.root, 'run_contract.json')], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+
+  assert.equal(runner.status, 2, runner.stdout || runner.stderr);
+  assert.equal(fs.existsSync(path.join(bootstrap.root, 'orchestrator_run', 'worker_events.json')), false);
+  const policy = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'agent_work_policy_report.json'), 'utf8'));
+  const blocker = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'blocker_report.json'), 'utf8'));
+  assert.equal(policy.status, 'blocked_preflight');
+  assert.equal(policy.unsupportedPolicies[0].key, 'mystery_units');
+  assert.equal(blocker.blockerFamily, 'agent_work_unsupported_policy');
+  assert.equal(blocker.unsupportedPolicy, true);
+});
+
+test('transfer orchestrator enforces Agent Work worker prompt token budget as hard pre-spawn gate', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-agent-work-policy-budget-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(path.join(repo, 'pass-a.mjs'), "console.log('a');\n");
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'agent_work_policy_budget_demo',
+    benchmarkTier: 'tier1_smoke',
+    repoPath: repo,
+    scope: {
+      budgets: { worker_prompt_tokens: 1 },
+      wavePolicy: { full_context_waves: 0 },
+      surfaces: [{ id: 'surface_a', label: 'Surface A', allowedFiles: ['pass-a.mjs'], verification: ['node pass-a.mjs'] }]
+    },
+    verifierSet: [{ kind: 'node_script', command: 'node pass-a.mjs' }],
+    requestedAgentCount: 1,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'agent_work_policy_budget_demo', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+
+  const runner = spawnSync(process.execPath, [path.join(process.cwd(), 'apps/system-benchmark/run-transfer-orchestrator-benchmark.mjs'), path.join(bootstrap.root, 'run_contract.json')], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+
+  assert.equal(runner.status, 1, runner.stdout || runner.stderr);
+  const policy = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'agent_work_policy_report.json'), 'utf8'));
+  const completion = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'completion_summary.json'), 'utf8'));
+  const workerEvents = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'orchestrator_run', 'worker_events.json'), 'utf8'));
+  assert.equal(policy.status, 'blocked');
+  assert.equal(policy.runtimeChecks.some((check) => check.key === 'context_governor_budget' && check.ok === false), true);
+  assert.equal(workerEvents.length, 0);
+  assert.equal(completion.blocker.unsupportedPolicy, false);
+  assert.match(completion.blocker.blocker, /policy enforcement failed/i);
+});
+
+test('Agent Work objective controller expands to a second wave when objective remains red', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-agent-work-objective-controller-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(path.join(repo, 'packages/app'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'packages/app/surface-a.mjs'), 'export const surfaceA = 1;\n');
+  fs.writeFileSync(path.join(repo, 'packages/app/surface-b.mjs'), 'export const surfaceB = 1;\n');
+  fs.writeFileSync(path.join(repo, 'packages/app/surface-c.mjs'), 'export const surfaceC = 1;\n');
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'agent_work_objective_controller_demo',
+    benchmarkTier: 'execution_smoke',
+    repoPath: repo,
+    scope: {
+      productDiffMode: 'deterministic_metadata_patch',
+      requireRealProductDiffs: true,
+      budgets: { global_calls: 2 },
+      wavePolicy: { max_waves: 2, bundle_size: 2, full_context_waves: 0, handoff: 'wave_factpack' },
+      expansionPolicy: { triggers: ['objective_red', 'graph_exhausted'], max_cycles: 2, max_surfaces: 3, strategy: 'decompose_missing_surfaces' },
+      evidenceSchemas: [{
+        id: 'two_surface_threshold',
+        gates: [
+          { expression: 'verified_surface_count >= 2', metric: 'verified_surface_count', operator: '>=', expected: '2' },
+          { expression: 'productive_surface_count >= 2', metric: 'productive_surface_count', operator: '>=', expected: '2' },
+          { expression: 'transfer_score >= 1', metric: 'transfer_score', operator: '>=', expected: '1' }
+        ]
+      }],
+      surfaces: [{
+        id: 'surface_a',
+        label: 'Surface A',
+        allowedFiles: ['packages/app/surface-a.mjs'],
+        verification: ['node --check packages/app/surface-a.mjs']
+      }]
+    },
+    verifierSet: [{ kind: 'node_script', command: 'node --check packages/app/surface-a.mjs' }],
+    requestedAgentCount: 2,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'agent_work_objective_controller_demo', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+
+  const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+  assert.match(packageJson.scripts['benchmark:transfer:orchestrate'], /run-agent-work-objective-controller\.mjs/);
+  assert.match(packageJson.scripts['benchmark:transfer:orchestrate:finite'], /run-transfer-orchestrator-benchmark\.mjs/);
+  const runner = spawnSync('npm', ['run', '-s', 'benchmark:transfer:orchestrate', '--', path.join(bootstrap.root, 'run_contract.json')], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+
+  assert.equal(runner.status, 0, runner.stdout || runner.stderr);
+  const summary = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'objective_controller_summary.json'), 'utf8'));
+  const inputResolution = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'controller_input_resolution.json'), 'utf8'));
+  const completion = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'completion_summary.json'), 'utf8'));
+  const wave1Completion = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'waves', 'wave-001', 'completion_summary.json'), 'utf8'));
+  const wave1Blocker = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'waves', 'wave-001', 'blocker_report.json'), 'utf8'));
+  const wave2Completion = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'waves', 'wave-002', 'completion_summary.json'), 'utf8'));
+  const wave2Contract = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'waves', 'wave-002', 'run_contract.json'), 'utf8'));
+  const wave2Policy = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'waves', 'wave-002', 'agent_work_policy_report.json'), 'utf8'));
+  assert.equal(summary.status, 'passed');
+  assert.equal(inputResolution.runtime.defaultRunner, 'objective_controller');
+  assert.equal(summary.waveCount, 2);
+  assert.equal(summary.expansionCount, 1);
+  assert.equal(summary.expansions[0].shouldExpand, true);
+  assert.equal(wave1Completion.thresholdPass, false);
+  assert.equal(wave1Blocker.status, 'blocked');
+  assert.equal(wave1Blocker.unsupportedPolicy, false);
+  assert.equal(wave2Completion.thresholdPass, true);
+  assert.equal(completion.thresholdPass, true);
+  assert.equal(wave2Contract.scope.expansionPolicy && Object.keys(wave2Contract.scope.expansionPolicy).length, 0);
+  assert.match(wave2Contract.scope.contextGovernor.previousWaveFactpackPath, /wave-001/);
+  assert.equal(wave2Contract.scope.surfaces.length, 2);
+  assert.deepEqual(wave2Contract.scope.surfaces.map((surface) => surface.id).sort(), ['surface_b', 'surface_c']);
+  assert.equal(wave2Policy.status, 'green');
+  assert.equal(wave2Policy.evidenceSchemaResults[0].ok, true);
+});
+
+test('Agent Work objective controller does not expand unsupported policy blockers', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-agent-work-objective-controller-unsupported-'));
+  const repo = path.join(root, 'repo');
+  fs.mkdirSync(path.join(repo, 'packages/app'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'packages/app/surface-a.mjs'), 'export const surfaceA = 1;\n');
+  fs.writeFileSync(path.join(repo, 'packages/app/surface-b.mjs'), 'export const surfaceB = 1;\n');
+  const bootstrap = bootstrapTransferBenchmark({
+    benchmarkId: 'agent_work_objective_controller_unsupported_demo',
+    benchmarkTier: 'execution_smoke',
+    repoPath: repo,
+    scope: {
+      productDiffMode: 'deterministic_metadata_patch',
+      requireRealProductDiffs: true,
+      budgets: { global_calls: 2, unsupported_magic_budget: 1 },
+      wavePolicy: { max_waves: 2, bundle_size: 1, full_context_waves: 0, handoff: 'wave_factpack' },
+      expansionPolicy: { triggers: ['objective_red', 'graph_exhausted'], max_cycles: 2, max_surfaces: 2, strategy: 'decompose_missing_surfaces' },
+      surfaces: [{
+        id: 'surface_a',
+        label: 'Surface A',
+        allowedFiles: ['packages/app/surface-a.mjs'],
+        verification: ['node --check packages/app/surface-a.mjs']
+      }]
+    },
+    verifierSet: [{ kind: 'node_script', command: 'node --check packages/app/surface-a.mjs' }],
+    requestedAgentCount: 2,
+    artifactRoot: path.join(root, 'artifacts', 'benchmarks', 'agent_work_objective_controller_unsupported_demo', 'run-001'),
+    scoreboardPath: path.join(root, 'artifacts', 'benchmarks', 'scoreboard.json')
+  });
+
+  const runner = spawnSync(process.execPath, [path.join(process.cwd(), 'apps/system-benchmark/run-agent-work-objective-controller.mjs'), path.join(bootstrap.root, 'run_contract.json')], {
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  });
+
+  assert.equal(runner.status, 1, runner.stdout || runner.stderr);
+  const summary = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'objective_controller_summary.json'), 'utf8'));
+  const completion = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'completion_summary.json'), 'utf8'));
+  const blocker = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'blocker_report.json'), 'utf8'));
+  const wave1Blocker = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'waves', 'wave-001', 'blocker_report.json'), 'utf8'));
+  assert.equal(summary.status, 'blocked');
+  assert.equal(summary.waveCount, 1);
+  assert.equal(summary.expansionCount, 0);
+  assert.equal(summary.blocker.blockerFamily, 'objective_red_not_expandable');
+  assert.equal(summary.blocker.expansionAllowedReason, 'unsupported_policy_blocker');
+  assert.equal(completion.thresholdPass, false);
+  assert.equal(blocker.blockerFamily, 'objective_red_not_expandable');
+  assert.equal(wave1Blocker.blockerFamily, 'agent_work_unsupported_policy');
+  assert.equal(fs.existsSync(path.join(bootstrap.root, 'waves', 'wave-002')), false);
+});
+
 test('system benchmark transfer orchestrator can require deterministic product diffs', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'benchmark-orchestrator-product-diff-'));
   const repo = path.join(root, 'repo');
@@ -449,6 +642,11 @@ test('system benchmark transfer orchestrator can require deterministic product d
     repoPath: repo,
     scope: {
       durationTargetMinutes: 15,
+      budgets: { global_calls: 2 },
+      evidenceSchemas: [{
+        id: 'productive_policy',
+        gates: ['verified_surface_count >= 2', 'productive_surface_count >= 2', 'transfer_score >= 1']
+      }],
       productDiffMode: 'deterministic_metadata_patch',
       requireRealProductDiffs: true,
       surfaces: [
@@ -482,6 +680,7 @@ test('system benchmark transfer orchestrator can require deterministic product d
   const completion = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'completion_summary.json'), 'utf8'));
   const transferEvidence = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'transfer_evidence.json'), 'utf8'));
   const landingEvidence = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'landing_evidence.json'), 'utf8'));
+  const policy = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'agent_work_policy_report.json'), 'utf8'));
   const patchQueue = JSON.parse(fs.readFileSync(path.join(bootstrap.root, 'orchestrator_run', 'patch_queue.json'), 'utf8'));
   assert.equal(completion.mechanicalGreen, true);
   assert.equal(completion.scaleProofReady, true);
@@ -489,6 +688,9 @@ test('system benchmark transfer orchestrator can require deterministic product d
   assert.equal(transferEvidence.requiresRealProductDiffs, true);
   assert.equal(transferEvidence.productiveSurfaceCount, 2);
   assert.equal(landingEvidence.summary.status, 'green');
+  assert.equal(policy.status, 'green');
+  assert.equal(policy.runtimeChecks.some((check) => check.key === 'global_calls' && check.ok === true && check.workerSpawnCount === 2), true);
+  assert.equal(policy.evidenceSchemaResults[0].ok, true);
   assert.equal(landingEvidence.summary.creditedPatchCount, 2);
   assert.equal(transferEvidence.surfaces.every((surface) => surface.landedProductDiff === true), true);
   assert.equal(patchQueue.merged.every((entry) => entry.filePaths.length === 1), true);
