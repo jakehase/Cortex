@@ -90,6 +90,7 @@ function createSurfaceFiles({ fixtureRoot, index, mode, enduranceMs }) {
   write(path.join(fixtureRoot, productFile), `export function ${fn}(input = {}) {\n  return {\n    ok: false,\n    kind: '${kind}',\n    source: input.source || 'initial',\n    verified: false,\n    slot: ${index},\n    implementedBy: 'pending-model-worker'\n  };\n}\n`);
 
   const expectedContract = `{ ok: true, kind: '${kind}', source: 'codex-worker', verified: true, slot: ${index}, implementedBy: 'model-worker' }`;
+  const semanticAdmissionInstruction = 'The merge gate rejects source-syntax-only deltas: do not only flip literal return values; add a small named runtime helper, contract builder, normalizer, or equivalent product logic while preserving the exact public return shape.';
   const commonExpected = `const expected = {\n  ok: true,\n  kind: '${kind}',\n  source: 'codex-worker',\n  verified: true,\n  slot: ${index},\n  implementedBy: 'model-worker'\n};`;
 
   if (mode === 'official_endurance') {
@@ -108,8 +109,8 @@ function createSurfaceFiles({ fixtureRoot, index, mode, enduranceMs }) {
       ? `Model worker endurance canary ${suffix}`
       : `Model worker product-diff canary ${suffix}`,
     goal: mode === 'official_endurance'
-      ? `Repair ${productFile} so ${testFile} passes exactly and stays green for the ${Math.round(enduranceMs / 60000)} minute official verifier endurance window. Return exactly ${expectedContract}; do not add extra properties because the official verifier uses strict deep equality.`
-      : `Repair ${productFile} so ${testFile} passes exactly via a real product-code diff. Return exactly ${expectedContract}; do not add extra properties because the verifier uses strict deep equality.`,
+      ? `Repair ${productFile} so ${testFile} passes exactly and stays green for the ${Math.round(enduranceMs / 60000)} minute official verifier endurance window. Return exactly ${expectedContract}; do not add extra properties because the official verifier uses strict deep equality. ${semanticAdmissionInstruction}`
+      : `Repair ${productFile} so ${testFile} passes exactly via a real product-code diff. Return exactly ${expectedContract}; do not add extra properties because the verifier uses strict deep equality. ${semanticAdmissionInstruction}`,
     files: [productFile],
     verify: verification
   };
