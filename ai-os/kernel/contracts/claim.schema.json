@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://kernel/contracts/claim.schema.json",
+  "title": "AI OS Claim Contract",
+  "description": "v0.1 contract for truth-gated completion/blocker claims.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "processId",
+    "claimType",
+    "state",
+    "wording",
+    "requiredEvidence",
+    "verifierResults",
+    "allowed",
+    "truthBoundary",
+    "createdAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "aios.claim.v0.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^claim_[a-z0-9][a-z0-9_-]{2,96}$"
+    },
+    "processId": {
+      "type": "string"
+    },
+    "claimType": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "blocked",
+        "needs_review",
+        "unsafe",
+        "contradictory",
+        "expired",
+        "release_candidate"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "review_ready",
+        "allowed",
+        "blocked",
+        "superseded"
+      ]
+    },
+    "wording": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requiredEvidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "verifierResults": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed": {
+      "type": "boolean"
+    },
+    "truthBoundary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

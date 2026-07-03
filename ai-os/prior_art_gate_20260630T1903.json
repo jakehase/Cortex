@@ -1,0 +1,733 @@
+{
+  "blocker": null,
+  "decision": "extend_existing_or_adapter_required",
+  "failures": [],
+  "highConfidencePriorArt": [
+    {
+      "id": "local-file-9c2ae255e158152e-20",
+      "label": "/root/clawd/memory/2026-06-29.md",
+      "matchedTerms": [
+        "capability matrix"
+      ],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 20,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/2026-06-29.md",
+        "quality": "file_memory",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/2026-06-29.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- OS product shell hardening: intake contract, compile stage, work queue artifact, agent/patch status records, budget/resume status, execution-plane registry/readiness, and truth dashboard section. - Added proof harness `apps/synthetic-labor-os/proof-harness.mjs` plus package script `ops:synthetic-labor-os:proof`. - Generated local v0 proof artifacts under `large-project-capability-stack/artifacts/synthetic-labor-os-v0/latest`: clean demo proof, completion summary, test contract/evidence, intake/work queue/status/truth artifacts, improvement loop, execution-plane registry, 100-agent scale proof, refreshed capability matrix and operator dashboard. - Final observed artifact truth after running `npm run ops:synthetic-labor-os:proof -- --json`: capability matrix `14/14` primitive implemented, `14/14` OS product implemented, `v0ProductReady=true`; dashboard `jobCount=2`, `completedJobCount=2`"
+    },
+    {
+      "id": "local-file-3a76813b383723f1-231",
+      "label": "/root/clawd/memory/projects/synthetic-labor-os.md",
+      "matchedTerms": [
+        "capability matrix"
+      ],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 231,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/synthetic-labor-os.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/synthetic-labor-os.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- The proof harness also resolved the stale local blocker job `slos-v0-productization-shell` after demo and scale proof artifacts became present. Observed final truth after live artifact regeneration: - Capability matrix: `requirementCount=14`, primitive `implemented=14/14`, OS product `implemented=14/14`, `v0ProductReady=true`."
+    },
+    {
+      "id": "local-file-3a76813b383723f1-233",
+      "label": "/root/clawd/memory/projects/synthetic-labor-os.md",
+      "matchedTerms": [
+        "capability matrix"
+      ],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 233,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/synthetic-labor-os.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/synthetic-labor-os.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "Observed final truth after live artifact regeneration: - Capability matrix: `requirementCount=14`, primitive `implemented=14/14`, OS product `implemented=14/14`, `v0ProductReady=true`. - Operator dashboard: `jobCount=2`, `completedJobCount=2`, `attentionJobCount=0`, `v0ProductReady=true`. - Demo proof: `thresholdPass=true`, proof kind `local_deterministic_control_plane_demo`; truth boundary says this proves the v0 OS shell only, not real Codex work or 100-agent scale."
+    },
+    {
+      "id": "local-file-9c2ae255e158152e-18",
+      "label": "/root/clawd/memory/2026-06-29.md",
+      "matchedTerms": [
+        "capability matrix"
+      ],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 18,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/2026-06-29.md",
+        "quality": "file_memory",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/2026-06-29.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- tests/docs: `createJobTestContract`, `recordJobTestEvidence`, and `docs/SYNTHETIC_LABOR_OS_V0.md` with tests-as-coordination-contract and why-oriented JSDoc/TypeDoc-style guidance. - bounded RSI/self-improvement: `createImprovementProposal`, `evaluateImprovementProposal`, `buildImprovementLoopFromRun`; proposal-only/no-auto-apply truth boundary. - OS product shell hardening: intake contract, compile stage, work queue artifact, agent/patch status records, budget/resume status, execution-plane registry/readiness, and truth dashboard section. - Added proof harness `apps/synthetic-labor-os/proof-harness.mjs` plus package script `ops:synthetic-labor-os:proof`. - Generated local v0 proof artifacts under `large-project-capability-stack/artifacts/synthetic-labor-os-v0/latest`: clean demo proof, completion summary, test contract/evidence, intake/work queue/status/truth artifacts, improvement lo"
+    },
+    {
+      "id": "5852f6d0-a065-4458-8fb9-3f5519704a25",
+      "label": "curated-project-facts",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 0.6823,
+        "lexical_score": 0.425,
+        "memory_kind": "project_state",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4244,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-project-facts",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "canonical_project_status",
+          "project_fact",
+          "named_project",
+          "transient_chat",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-canonical-status",
+        "type": "memory"
+      },
+      "score": 0.9023,
+      "source": "durable_memory",
+      "text": "now. **Benchmark:** hard remote multi-repo SLOS dogfood **Run:** `hard-multirepo-remote-20260630T170249Z` **Artifact:** `/root/clawd/large-project-capability-stack/artifacts/synthetic-labor-os-dogfood-hard/latest/hard_dogfood_summary.json` Observed green: - Remote dispatch on Hetzner: `ok=true` - SLOS claim gate: `thresholdPass=true`, `completionClaimAllowed=true` - Shared-stack orchestration suite: `234/234` - Cortex structural mirror: `13,883` nodes / `51,153` edges - Mailchimp smoke: `4/4` - Artifact bundle integrity: `ok=true` - Prior-art preflight: `reuse_existing`, 27 high-confidence matches - Blocker: `null` I also fixed two real blockers the first hard attempt exposed: - Context governor was dropping learned Agent Work fragments. - Cortex prior-art CLI had a datetime JSON serialization bug. Recorded in: - `memory/projects/synthetic-labor-os.md` - `memory/2026-06-30.md` Truth boun"
+    },
+    {
+      "id": "a28eb824-f1ae-4b0f-91ea-b8fa9a0c5e15",
+      "label": "curated-project-facts",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 0.682,
+        "lexical_score": 0.4,
+        "memory_kind": "project_state",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4629,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-project-facts",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "canonical_project_status",
+          "project_fact",
+          "named_project",
+          "transient_chat",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-canonical-status",
+        "type": "memory"
+      },
+      "score": 0.902,
+      "source": "durable_memory",
+      "text": "af8810 exec tail -90 /root/clawd/memory/2026-06-30.md /root/clawd [Cortex] Done \u2014 SLOS v20 / v0.1 RC is productized and green. Implemented: - Official CLI: `apps/synthetic-labor-os/v20-hard-dogfood-rc.mjs` - npm command: `npm run ops:synthetic-labor-os:v20-hard-dogfood-rc` - First-class `dependency_sync_manifest.json` - RC packet output: JSON + Markdown - Regression coverage for: - learned Agent Work fragments surviving context governance - Cortex prior-art gate JSON serialization with datetime payloads Official remote run: - Status: `green_v20_hard_remote_multirepo_dogfood` - Run: `v20-hard-multirepo-remote-20260630T180806Z` - Remote dispatch: `ok=true` - `thresholdPass=true` - `completionClaimAllowed=true` - Shared-stack suite: `236/236` - Mailchimp smoke: `4/4` - Cortex structural mirror: `13,883` nodes / `51,153` edges - RC packet: `green_v0_1_release_candidate_packet` - Blocker: `nu"
+    },
+    {
+      "id": "202f06a1-35cc-4104-8a2c-2bf7aceac330",
+      "label": "curated-project-facts",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 0.681,
+        "lexical_score": 0.4125,
+        "memory_kind": "project_state",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4403,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-project-facts",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "canonical_project_status",
+          "project_fact",
+          "named_project",
+          "transient_chat",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-canonical-status",
+        "type": "memory"
+      },
+      "score": 0.901,
+      "source": "durable_memory",
+      "text": "tatus before real launch. Truth boundary: v20/v0.1 RC proves a bounded SLOS remote-dispatch/local-runner/claim-gate/artifact-return job can validate a hard multi-repo contract on the execution plane and package an RC packet. It does not merge, publish, deploy, send externally, prove real multi-agent coding, or claim full product completeness. toolCall call_8LKqvbppFAcPKEiCKK60fxLz|fc_005a16e0ea85c1dc016a4406fd6800819587384e6d77825b5d exec cat /tmp/slos_v20_memory_append.txt >> /root/clawd/memory/2026-06-30.md /root/clawd toolCall call_wFr1KAw5CNnNZ8l1TDqBFwnE|fc_005a16e0ea85c1dc016a440705e54c8195805b2a60f3e9e8a8 read /root/clawd/memory/projects/synthetic-labor-os.md toolCall call_dRyDcIivdaOYIf3eFyUPTkPO|fc_005a16e0ea85c1dc016a440705e5608195a34f706ed8af8810 exec tail -90 /root/clawd/memory/2026-06-30.md /root/clawd [Cortex] Done \u2014 SLOS v20 / v0.1 RC is productized and green. Implemented:"
+    },
+    {
+      "id": "b5ea9c47-817f-452d-8e96-15557c07c46d",
+      "label": "curated-project-facts",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 0.681,
+        "lexical_score": 0.4125,
+        "memory_kind": "project_state",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4403,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-project-facts",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "canonical_project_status",
+          "project_fact",
+          "named_project",
+          "transient_chat",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-canonical-status",
+        "type": "memory"
+      },
+      "score": 0.901,
+      "source": "durable_memory",
+      "text": "tatus before real launch. Truth boundary: v20/v0.1 RC proves a bounded SLOS remote-dispatch/local-runner/claim-gate/artifact-return job can validate a hard multi-repo contract on the execution plane and package an RC packet. It does not merge, publish, deploy, send externally, prove real multi-agent coding, or claim full product completeness. toolCall call_8LKqvbppFAcPKEiCKK60fxLz|fc_005a16e0ea85c1dc016a4406fd6800819587384e6d77825b5d exec cat /tmp/slos_v20_memory_append.txt >> /root/clawd/memory/2026-06-30.md /root/clawd toolCall call_wFr1KAw5CNnNZ8l1TDqBFwnE|fc_005a16e0ea85c1dc016a440705e54c8195805b2a60f3e9e8a8 read /root/clawd/memory/projects/synthetic-labor-os.md toolCall call_dRyDcIivdaOYIf3eFyUPTkPO|fc_005a16e0ea85c1dc016a440705e5608195a34f706ed8af8810 exec tail -90 /root/clawd/memory/2026-06-30.md /root/clawd [Cortex] Done \u2014 SLOS v20 / v0.1 RC is productized and green. Implemented:"
+    },
+    {
+      "id": "local-file-3382c693226d27a0-500",
+      "label": "/root/clawd/memory/projects/100-agent-orchestration.md",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "hybrid_score": 0.6102,
+        "lexical_score": 0.3875,
+        "line": 500,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/100-agent-orchestration.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/100-agent-orchestration.md",
+        "relevance_score": 0.6202,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 0.8302,
+      "source": "durable_memory",
+      "text": "- Terminal green artifact root: `/home/jake/clawd-remote/large-project-capability-stack/artifacts/benchmarks/maplestory3d_100agent_readiness/bootstrap-20260617-005311`; run id `maplestory3d_100agent_readiness-20260617-005311-9f98`. - Passed truth layers: `thresholdPass=true`, `mechanicalGreen=true`, `scaleProofReady=true`, `supervisorConfirmedCompletion=true`, `durationMinutes=253.25`, `shardCount=100`, `mergedShardCount=100`, no threshold failures. - Game evidence green: 100 verifier outputs, 100 green, required floor 95, build/scene/input-combat/asset gates all 1. Patch queue 100 merged / 0 rejected / 0 queued. Latest results 100/100 ok; verifiers 100/100 ok. - Claim integrity green with highest honest claim `real_codex_product_work`; fake-green risk false. - This is the first strong passed proof that the shared orchestration stack can run a 100-agent, 240m, truth-gated Godot game vert"
+    },
+    {
+      "id": "local-file-3a76813b383723f1-60",
+      "label": "/root/clawd/memory/projects/synthetic-labor-os.md",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "hybrid_score": 0.5931,
+        "lexical_score": 0.3625,
+        "line": 60,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/synthetic-labor-os.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/synthetic-labor-os.md",
+        "relevance_score": 0.6107,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 0.8131,
+      "source": "durable_memory",
+      "text": "- `packages/multi-agent-orchestrator/index.mjs`: compacted learning context now preserves compact `agentWorkLanguageFragments` metadata instead of dropping learned Agent Work fragments. - `/root/clawd/public/cortex_server/scripts/prior_art_gate.py`: prior-art CLI now serializes Pydantic/graph node datetimes safely (`model_dump(mode=\"json\")` / `default=str`). - The hard run\u2019s remote setup synced the required public Cortex prior-art/handoff files, Mailchimp smoke files, `evaluate-production-quality-gate.mjs`, and orchestration-learning package files before dispatching. Truth boundary: this proves a bounded SLOS remote-dispatch/local-runner/claim-gate/artifact-return job can validate a hard multi-repo contract on the execution plane. It does not merge, publish, deploy, send externally, prove real multi-agent coding, or claim full product completeness."
+    }
+  ],
+  "objective": "Create an AI-native operating system platform for autonomous and semi-autonomous AI workers: kernel/process model, scheduler, AI filesystem/artifact store, memory manager, capability permissions, syscall/tool mediation, verifier/claim gate, shell/operator UI, package/app model, audit/recovery, remote execution integration, and developer SDK.",
+  "ok": true,
+  "plannedCapabilities": [
+    "AI OS kernel, process lifecycle, scheduler, memory/filesystem, capability security, tool syscalls, verifiers, claim gates, agent orchestration, remote execution, prior art reuse"
+  ],
+  "plannedPaths": [
+    "/root/clawd/ai-os"
+  ],
+  "priorArtMatches": [
+    {
+      "id": "local-file-9c2ae255e158152e-20",
+      "label": "/root/clawd/memory/2026-06-29.md",
+      "matchedTerms": [
+        "capability matrix"
+      ],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 20,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/2026-06-29.md",
+        "quality": "file_memory",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/2026-06-29.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- OS product shell hardening: intake contract, compile stage, work queue artifact, agent/patch status records, budget/resume status, execution-plane registry/readiness, and truth dashboard section. - Added proof harness `apps/synthetic-labor-os/proof-harness.mjs` plus package script `ops:synthetic-labor-os:proof`. - Generated local v0 proof artifacts under `large-project-capability-stack/artifacts/synthetic-labor-os-v0/latest`: clean demo proof, completion summary, test contract/evidence, intake/work queue/status/truth artifacts, improvement loop, execution-plane registry, 100-agent scale proof, refreshed capability matrix and operator dashboard. - Final observed artifact truth after running `npm run ops:synthetic-labor-os:proof -- --json`: capability matrix `14/14` primitive implemented, `14/14` OS product implemented, `v0ProductReady=true`; dashboard `jobCount=2`, `completedJobCount=2`"
+    },
+    {
+      "id": "local-file-3a76813b383723f1-231",
+      "label": "/root/clawd/memory/projects/synthetic-labor-os.md",
+      "matchedTerms": [
+        "capability matrix"
+      ],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 231,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/synthetic-labor-os.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/synthetic-labor-os.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- The proof harness also resolved the stale local blocker job `slos-v0-productization-shell` after demo and scale proof artifacts became present. Observed final truth after live artifact regeneration: - Capability matrix: `requirementCount=14`, primitive `implemented=14/14`, OS product `implemented=14/14`, `v0ProductReady=true`."
+    },
+    {
+      "id": "local-file-3a76813b383723f1-233",
+      "label": "/root/clawd/memory/projects/synthetic-labor-os.md",
+      "matchedTerms": [
+        "capability matrix"
+      ],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 233,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/synthetic-labor-os.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/synthetic-labor-os.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "Observed final truth after live artifact regeneration: - Capability matrix: `requirementCount=14`, primitive `implemented=14/14`, OS product `implemented=14/14`, `v0ProductReady=true`. - Operator dashboard: `jobCount=2`, `completedJobCount=2`, `attentionJobCount=0`, `v0ProductReady=true`. - Demo proof: `thresholdPass=true`, proof kind `local_deterministic_control_plane_demo`; truth boundary says this proves the v0 OS shell only, not real Codex work or 100-agent scale."
+    },
+    {
+      "id": "local-file-9c2ae255e158152e-18",
+      "label": "/root/clawd/memory/2026-06-29.md",
+      "matchedTerms": [
+        "capability matrix"
+      ],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "hybrid_score": 1.0,
+        "lexical_score": 1.0,
+        "line": 18,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/2026-06-29.md",
+        "quality": "file_memory",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/2026-06-29.md",
+        "relevance_score": 1.0,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 1.0,
+      "source": "durable_memory",
+      "text": "- tests/docs: `createJobTestContract`, `recordJobTestEvidence`, and `docs/SYNTHETIC_LABOR_OS_V0.md` with tests-as-coordination-contract and why-oriented JSDoc/TypeDoc-style guidance. - bounded RSI/self-improvement: `createImprovementProposal`, `evaluateImprovementProposal`, `buildImprovementLoopFromRun`; proposal-only/no-auto-apply truth boundary. - OS product shell hardening: intake contract, compile stage, work queue artifact, agent/patch status records, budget/resume status, execution-plane registry/readiness, and truth dashboard section. - Added proof harness `apps/synthetic-labor-os/proof-harness.mjs` plus package script `ops:synthetic-labor-os:proof`. - Generated local v0 proof artifacts under `large-project-capability-stack/artifacts/synthetic-labor-os-v0/latest`: clean demo proof, completion summary, test contract/evidence, intake/work queue/status/truth artifacts, improvement lo"
+    },
+    {
+      "id": "5852f6d0-a065-4458-8fb9-3f5519704a25",
+      "label": "curated-project-facts",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 0.6823,
+        "lexical_score": 0.425,
+        "memory_kind": "project_state",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4244,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-project-facts",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "canonical_project_status",
+          "project_fact",
+          "named_project",
+          "transient_chat",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-canonical-status",
+        "type": "memory"
+      },
+      "score": 0.9023,
+      "source": "durable_memory",
+      "text": "now. **Benchmark:** hard remote multi-repo SLOS dogfood **Run:** `hard-multirepo-remote-20260630T170249Z` **Artifact:** `/root/clawd/large-project-capability-stack/artifacts/synthetic-labor-os-dogfood-hard/latest/hard_dogfood_summary.json` Observed green: - Remote dispatch on Hetzner: `ok=true` - SLOS claim gate: `thresholdPass=true`, `completionClaimAllowed=true` - Shared-stack orchestration suite: `234/234` - Cortex structural mirror: `13,883` nodes / `51,153` edges - Mailchimp smoke: `4/4` - Artifact bundle integrity: `ok=true` - Prior-art preflight: `reuse_existing`, 27 high-confidence matches - Blocker: `null` I also fixed two real blockers the first hard attempt exposed: - Context governor was dropping learned Agent Work fragments. - Cortex prior-art CLI had a datetime JSON serialization bug. Recorded in: - `memory/projects/synthetic-labor-os.md` - `memory/2026-06-30.md` Truth boun"
+    },
+    {
+      "id": "a28eb824-f1ae-4b0f-91ea-b8fa9a0c5e15",
+      "label": "curated-project-facts",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 0.682,
+        "lexical_score": 0.4,
+        "memory_kind": "project_state",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4629,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-project-facts",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "canonical_project_status",
+          "project_fact",
+          "named_project",
+          "transient_chat",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-canonical-status",
+        "type": "memory"
+      },
+      "score": 0.902,
+      "source": "durable_memory",
+      "text": "af8810 exec tail -90 /root/clawd/memory/2026-06-30.md /root/clawd [Cortex] Done \u2014 SLOS v20 / v0.1 RC is productized and green. Implemented: - Official CLI: `apps/synthetic-labor-os/v20-hard-dogfood-rc.mjs` - npm command: `npm run ops:synthetic-labor-os:v20-hard-dogfood-rc` - First-class `dependency_sync_manifest.json` - RC packet output: JSON + Markdown - Regression coverage for: - learned Agent Work fragments surviving context governance - Cortex prior-art gate JSON serialization with datetime payloads Official remote run: - Status: `green_v20_hard_remote_multirepo_dogfood` - Run: `v20-hard-multirepo-remote-20260630T180806Z` - Remote dispatch: `ok=true` - `thresholdPass=true` - `completionClaimAllowed=true` - Shared-stack suite: `236/236` - Mailchimp smoke: `4/4` - Cortex structural mirror: `13,883` nodes / `51,153` edges - RC packet: `green_v0_1_release_candidate_packet` - Blocker: `nu"
+    },
+    {
+      "id": "202f06a1-35cc-4104-8a2c-2bf7aceac330",
+      "label": "curated-project-facts",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 0.681,
+        "lexical_score": 0.4125,
+        "memory_kind": "project_state",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4403,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-project-facts",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "canonical_project_status",
+          "project_fact",
+          "named_project",
+          "transient_chat",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-canonical-status",
+        "type": "memory"
+      },
+      "score": 0.901,
+      "source": "durable_memory",
+      "text": "tatus before real launch. Truth boundary: v20/v0.1 RC proves a bounded SLOS remote-dispatch/local-runner/claim-gate/artifact-return job can validate a hard multi-repo contract on the execution plane and package an RC packet. It does not merge, publish, deploy, send externally, prove real multi-agent coding, or claim full product completeness. toolCall call_8LKqvbppFAcPKEiCKK60fxLz|fc_005a16e0ea85c1dc016a4406fd6800819587384e6d77825b5d exec cat /tmp/slos_v20_memory_append.txt >> /root/clawd/memory/2026-06-30.md /root/clawd toolCall call_wFr1KAw5CNnNZ8l1TDqBFwnE|fc_005a16e0ea85c1dc016a440705e54c8195805b2a60f3e9e8a8 read /root/clawd/memory/projects/synthetic-labor-os.md toolCall call_dRyDcIivdaOYIf3eFyUPTkPO|fc_005a16e0ea85c1dc016a440705e5608195a34f706ed8af8810 exec tail -90 /root/clawd/memory/2026-06-30.md /root/clawd [Cortex] Done \u2014 SLOS v20 / v0.1 RC is productized and green. Implemented:"
+    },
+    {
+      "id": "b5ea9c47-817f-452d-8e96-15557c07c46d",
+      "label": "curated-project-facts",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": true,
+        "hybrid_score": 0.681,
+        "lexical_score": 0.4125,
+        "memory_kind": "project_state",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4403,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-project-facts",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "canonical_project_status",
+          "project_fact",
+          "named_project",
+          "transient_chat",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-canonical-status",
+        "type": "memory"
+      },
+      "score": 0.901,
+      "source": "durable_memory",
+      "text": "tatus before real launch. Truth boundary: v20/v0.1 RC proves a bounded SLOS remote-dispatch/local-runner/claim-gate/artifact-return job can validate a hard multi-repo contract on the execution plane and package an RC packet. It does not merge, publish, deploy, send externally, prove real multi-agent coding, or claim full product completeness. toolCall call_8LKqvbppFAcPKEiCKK60fxLz|fc_005a16e0ea85c1dc016a4406fd6800819587384e6d77825b5d exec cat /tmp/slos_v20_memory_append.txt >> /root/clawd/memory/2026-06-30.md /root/clawd toolCall call_wFr1KAw5CNnNZ8l1TDqBFwnE|fc_005a16e0ea85c1dc016a440705e54c8195805b2a60f3e9e8a8 read /root/clawd/memory/projects/synthetic-labor-os.md toolCall call_dRyDcIivdaOYIf3eFyUPTkPO|fc_005a16e0ea85c1dc016a440705e5608195a34f706ed8af8810 exec tail -90 /root/clawd/memory/2026-06-30.md /root/clawd [Cortex] Done \u2014 SLOS v20 / v0.1 RC is productized and green. Implemented:"
+    },
+    {
+      "id": "local-file-3382c693226d27a0-500",
+      "label": "/root/clawd/memory/projects/100-agent-orchestration.md",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "hybrid_score": 0.6102,
+        "lexical_score": 0.3875,
+        "line": 500,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/100-agent-orchestration.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/100-agent-orchestration.md",
+        "relevance_score": 0.6202,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 0.8302,
+      "source": "durable_memory",
+      "text": "- Terminal green artifact root: `/home/jake/clawd-remote/large-project-capability-stack/artifacts/benchmarks/maplestory3d_100agent_readiness/bootstrap-20260617-005311`; run id `maplestory3d_100agent_readiness-20260617-005311-9f98`. - Passed truth layers: `thresholdPass=true`, `mechanicalGreen=true`, `scaleProofReady=true`, `supervisorConfirmedCompletion=true`, `durationMinutes=253.25`, `shardCount=100`, `mergedShardCount=100`, no threshold failures. - Game evidence green: 100 verifier outputs, 100 green, required floor 95, build/scene/input-combat/asset gates all 1. Patch queue 100 merged / 0 rejected / 0 queued. Latest results 100/100 ok; verifiers 100/100 ok. - Claim integrity green with highest honest claim `real_codex_product_work`; fake-green risk false. - This is the first strong passed proof that the shared orchestration stack can run a 100-agent, 240m, truth-gated Godot game vert"
+    },
+    {
+      "id": "local-file-3a76813b383723f1-60",
+      "label": "/root/clawd/memory/projects/synthetic-labor-os.md",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "hybrid_score": 0.5931,
+        "lexical_score": 0.3625,
+        "line": 60,
+        "memory_system_meta_noise": false,
+        "path": "/root/clawd/memory/projects/synthetic-labor-os.md",
+        "quality": "curated",
+        "recall_mode": "local_file_lexical_fallback",
+        "relPath": "memory/projects/synthetic-labor-os.md",
+        "relevance_score": 0.6107,
+        "source": "local_file_memory",
+        "stale_negative_memory": false,
+        "tags": [
+          "local_file_memory",
+          "durable_memory"
+        ]
+      },
+      "score": 0.8131,
+      "source": "durable_memory",
+      "text": "- `packages/multi-agent-orchestrator/index.mjs`: compacted learning context now preserves compact `agentWorkLanguageFragments` metadata instead of dropping learned Agent Work fragments. - `/root/clawd/public/cortex_server/scripts/prior_art_gate.py`: prior-art CLI now serializes Pydantic/graph node datetimes safely (`model_dump(mode=\"json\")` / `default=str`). - The hard run\u2019s remote setup synced the required public Cortex prior-art/handoff files, Mailchimp smoke files, `evaluate-production-quality-gate.mjs`, and orchestration-learning package files before dispatching. Truth boundary: this proves a bounded SLOS remote-dispatch/local-runner/claim-gate/artifact-return job can validate a hard multi-repo contract on the execution plane. It does not merge, publish, deploy, send externally, prove real multi-agent coding, or claim full product completeness."
+    },
+    {
+      "id": "c9ec369e-fd16-475d-b2a9-c12b6dab8b61",
+      "label": "curated-anti-drift",
+      "matchedTerms": [],
+      "metadata": {
+        "awareness_noise": false,
+        "channel": "whatsapp",
+        "codec_state_noise": false,
+        "correction_memory": false,
+        "hybrid_score": 0.3256,
+        "lexical_score": 0.0,
+        "memory_kind": "decision",
+        "memory_system_meta_noise": false,
+        "project": "mailchimp",
+        "quality": "curated",
+        "relevance_score": 0.4161,
+        "sessionKey": "agent:main:subagent:f44b05a9-b253-4f0e-9c58-e4de20ef6f63",
+        "source": "curated-anti-drift",
+        "stale_negative_memory": false,
+        "tags": [
+          "durable-memory",
+          "auto-curated",
+          "cortex-upgrade",
+          "decision",
+          "project_fact",
+          "named_project",
+          "mailchimp"
+        ],
+        "topic": "mailchimp-durable-decision",
+        "type": "memory"
+      },
+      "score": 0.5456,
+      "source": "durable_memory",
+      "text": "an be worthwhile, but not in its current shape**. My honest take: - **No, it\u2019s not pointless** - **Also no, it probably isn\u2019t worth continuing exactly like this** Top-tier models do have agentic/orchestration-like behavior now. But they do **not** automatically give you: - durable long-running jobs - your own truth gates / completion integrity - auditable state and artifacts - custom tool routing across your infra - privacy / local control - predictable retries, supervision, and failure handling - 100-agent coordination tuned to *your* workloads So there **is** a real thing to build. But the important distinction is: ### Worth building A **thin, owned control plane** around frontier models: - task state - supervision - retries - artifact truth - execution-plane split - notifier logic - memory / routing - guardrails against fake-green completion ### Probably not worth building A giant bes"
+    },
+    {
+      "id": "/root/clawd/public/cortex_server/cortex_server/modules/prior_art_gate.py",
+      "label": "/root/clawd/public/cortex_server/cortex_server/modules/prior_art_gate.py",
+      "matchedTerms": [],
+      "score": 0.4082,
+      "source": "workspace_file",
+      "text": "from __future__ import annotations import re from dataclasses import dataclass from pathlib import Path from typing import Any, Dict, Iterable, List, Optional, Sequence SCHEMA_VERSION = \"cortex.memory.prior_art_gate.v1\" _REUSE_ACTIONS = {\"reuse_existing\", \"extend_existing\", \"adapter_wrapper_only\"} _NEW_ACTIONS = {\"new_primitive\", \"new_capability\", \"independent_implementation\"} _STOPWORDS = { \"the\", \"and\", \"for\", \"with\", \"from\", \"into\", \"onto\", \"that\", \"this\", \"then\", \"than\", \"before\", \"after\", \"build\", \"implement\", \"implementation\", \"feature\", \"system\", \"product\", \"all\", \"our\", \"your\", \"its\", "
+    }
+  ],
+  "proposedAction": "write the serious_project plan.md using the new workspace template; reuse or extend existing slos v20, cortex memory, prior_art gate, multi_agent orchestrator, claim/proof tooling, and hetzner execution_plane primitives rather than rebuilding duplicate systems.",
+  "requiredAction": "extend_existing_or_adapter_required",
+  "schemaVersion": "cortex.memory.prior_art_gate.v1",
+  "sourceCoverage": {
+    "fileResultCount": 1,
+    "highConfidenceMatchCount": 10,
+    "matchCount": 12,
+    "memoryResultCount": 38,
+    "structuralResultCount": 0
+  },
+  "status": "green_prior_art_gate",
+  "terms": [
+    "ai os kernel, process lifecycle, scheduler, memory/filesystem, capability security, tool syscalls, verifiers, claim gates, agent orchestration, remote execution, prior art reuse",
+    "existing capability",
+    "capability matrix",
+    "structural code graph",
+    "ai os",
+    "create ai-native operating",
+    "ai-native operating platform",
+    "operating platform autonomous",
+    "platform autonomous semi-autonomous",
+    "autonomous semi-autonomous workers",
+    "semi-autonomous workers kernel",
+    "workers kernel process",
+    "kernel process model",
+    "process model scheduler",
+    "model scheduler filesystem",
+    "scheduler filesystem artifact",
+    "filesystem artifact store",
+    "artifact store memory"
+  ],
+  "truthBoundary": "Prior-art gate is a pre-implementation recall check across memory and structural evidence. It prevents duplicate architecture; it does not prove the recalled capability is currently correct without live validation.",
+  "warnings": []
+}

@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://kernel/contracts/capability.schema.json",
+  "title": "AI OS Capability Contract",
+  "description": "v0.1 contract for scoped authority granted to AI OS processes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "type",
+    "subject",
+    "resource",
+    "actions",
+    "riskClass",
+    "requiresApproval",
+    "audit",
+    "revocation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "aios.capability.v0.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^cap_[a-z0-9][a-z0-9_-]{2,96}$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "workspace.read",
+        "workspace.write",
+        "shell.exec",
+        "git.read",
+        "git.write",
+        "memory.read",
+        "memory.write",
+        "browser.fetch",
+        "tool.call",
+        "message.draft",
+        "message.send",
+        "calendar.read",
+        "calendar.write",
+        "homeassistant.call",
+        "agent.spawn",
+        "verifier.run",
+        "claim.submit",
+        "package.install",
+        "deploy.write"
+      ]
+    },
+    "subject": {
+      "type": "string",
+      "description": "Process/job/user/role receiving the capability."
+    },
+    "resource": {
+      "type": "string",
+      "description": "Path, tool, service, namespace, or pattern governed by the capability."
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "riskClass": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "external_write",
+        "destructive",
+        "privileged"
+      ]
+    },
+    "requiresApproval": {
+      "type": "boolean"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "rateLimit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "windowSeconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventTypes",
+        "artifactRequired"
+      ],
+      "properties": {
+        "eventTypes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "artifactRequired": {
+          "type": "boolean"
+        },
+        "redactSecrets": {
+          "type": "boolean"
+        }
+      }
+    },
+    "revocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "immediate",
+            "after_current_syscall",
+            "manual"
+          ]
+        },
+        "rollbackRequired": {
+          "type": "boolean"
+        },
+        "rollbackCommand": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

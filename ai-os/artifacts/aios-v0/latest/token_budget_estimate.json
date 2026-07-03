@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "aios.token-budget-estimate.v0.1",
+  "generatedAt": "2026-06-30T20:19:00-05:00",
+  "basis": {
+    "observedReference": "Mailchimp 100-agent real-parity run",
+    "tokensObserved": 189143272,
+    "autonomyWindowMinutes": 491.21,
+    "derivedTokensPerHour": 23103350,
+    "derivedTokensPerFourHourBlock": 92413398,
+    "safePlanningTokensPerFourHourBlock": {
+      "low": 100000000,
+      "high": 150000000
+    }
+  },
+  "waveEstimates": [
+    {
+      "wave": "Wave 0 contracts",
+      "lowTokens": 20000000,
+      "highTokens": 100000000,
+      "approvalRequiredBeforeSpend": false
+    },
+    {
+      "wave": "Wave 1 hosted kernel boot proof",
+      "lowTokens": 150000000,
+      "highTokens": 500000000,
+      "approvalRequiredBeforeSpend": true
+    },
+    {
+      "wave": "Hosted AI OS v0.1",
+      "lowTokens": 500000000,
+      "highTokens": 2000000000,
+      "approvalRequiredBeforeSpend": true
+    },
+    {
+      "wave": "Usable v1 platform",
+      "lowTokens": 5000000000,
+      "highTokens": 20000000000,
+      "approvalRequiredBeforeSpend": true
+    }
+  ],
+  "selectedCurrentCeiling": {
+    "scope": "Wave 0 contract implementation only",
+    "maxTokens": 100000000,
+    "truthBoundary": "Contract work only; does not authorize Wave 1 hosted kernel implementation spend."
+  }
+}

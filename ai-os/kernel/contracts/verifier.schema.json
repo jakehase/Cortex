@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://kernel/contracts/verifier.schema.json",
+  "title": "AI OS Verifier Contract",
+  "description": "v0.1 contract for tests/checks/policy gates that authorize claims.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "type",
+    "command",
+    "required",
+    "inputs",
+    "outputs",
+    "passCriteria",
+    "failClosed"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "aios.verifier.v0.1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^verifier_[a-z0-9][a-z0-9_-]{2,96}$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "unit",
+        "integration",
+        "static",
+        "policy",
+        "artifact_integrity",
+        "claim_gate",
+        "replay",
+        "human_review"
+      ]
+    },
+    "command": {
+      "type": "string"
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "passCriteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "failClosed": {
+      "type": "boolean"
+    },
+    "claimTypesAuthorized": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

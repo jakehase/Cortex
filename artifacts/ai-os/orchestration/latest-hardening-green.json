@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "aios.hardening_promotion_pointer.v1",
+  "promotionStatus": "promoted_hardening_green",
+  "promotedAt": "2026-07-03T19:40:00Z",
+  "scope": "AI OS language/toolchain hardening fix, bounded cleanup pass",
+  "currentLocalPath": "/root/clawd/ai-os",
+  "currentRemoteValidatedPath": "/home/jake/clawd-remote/ai-os",
+  "hardeningReportPath": "/root/clawd/artifacts/ai-os/orchestration/hardening-fix-20260703T1903Z.json",
+  "validation": {
+    "local": {
+      "npmTest": "passed",
+      "contracts": "7/7 passed",
+      "productHealth": "ok",
+      "operatorSmoke": "ok"
+    },
+    "remote": {
+      "npmTest": "passed",
+      "productHealth": "ok",
+      "operatorSmoke": "ok"
+    }
+  },
+  "benchmarkPromotion": {
+    "promoted": false,
+    "reason": "The 6h benchmark was intentionally stopped after scope correction; this promotes the bounded hardening fix only."
+  }
+}

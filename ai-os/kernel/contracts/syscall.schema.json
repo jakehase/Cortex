@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aios://kernel/contracts/syscall.schema.json",
+  "title": "AI OS Syscall Contract",
+  "description": "v0.1 contract for kernel-mediated tool/system calls.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "name",
+    "version",
+    "driver",
+    "riskClass",
+    "requiredCapabilities",
+    "inputSchema",
+    "outputSchema",
+    "audit",
+    "failClosed"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "aios.syscall.v0.1"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$"
+    },
+    "version": {
+      "type": "string"
+    },
+    "driver": {
+      "type": "string"
+    },
+    "riskClass": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "external_write",
+        "destructive",
+        "privileged"
+      ]
+    },
+    "requiredCapabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "inputSchema": {
+      "type": "object"
+    },
+    "outputSchema": {
+      "type": "object"
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "idempotency": {
+      "type": "string",
+      "enum": [
+        "not_required",
+        "recommended",
+        "required"
+      ]
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestEvent",
+        "resultEvent",
+        "redactSecrets"
+      ],
+      "properties": {
+        "requestEvent": {
+          "type": "string"
+        },
+        "resultEvent": {
+          "type": "string"
+        },
+        "redactSecrets": {
+          "type": "boolean"
+        }
+      }
+    },
+    "failClosed": {
+      "type": "boolean"
+    }
+  }
+}

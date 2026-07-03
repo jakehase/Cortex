@@ -1,0 +1,937 @@
+{
+  "schemaVersion": "claw.agent_work_spec.v0",
+  "languageVersion": "v0.1",
+  "generatedAt": "2026-07-02T02:30:01.083Z",
+  "goalId": "aioshosted_kernel_boot_proof",
+  "outcome": "aioshosted_kernel_boot_proof",
+  "benchmarkId": "aioshosted_kernel_boot_proof",
+  "benchmarkTier": "execution_smoke",
+  "runId": "aios-hosted-boot-language-45wave-repair-v0_1",
+  "repoPath": "/root/clawd/ai-os",
+  "artifactRoot": "artifacts/aios-v0/latest/hosted_boot_agentwork",
+  "scoreboardPath": "artifacts/benchmarks/scoreboard.json",
+  "fidelity": "production_slice",
+  "requestedAgentCount": 45,
+  "executionBoundary": "control_plane_allowed",
+  "stopCondition": "boot_proof_green_or_blocker",
+  "permissions": {
+    "allow": [
+      "read_repo",
+      "write_product_code",
+      "run_tests"
+    ],
+    "forbid": [
+      "external_send",
+      "touch_prod",
+      "relaunch_benchmark"
+    ]
+  },
+  "requestedActions": [],
+  "doneWhen": [
+    "boot_proof_green",
+    "no_truth_layer_overclaim"
+  ],
+  "budgets": {},
+  "wavePolicy": {
+    "max_waves": 3,
+    "bundle_size": 1,
+    "full_context_waves": 0,
+    "handoff": "wave_factpack"
+  },
+  "expansionPolicy": {
+    "triggers": [
+      "failed_surfaces",
+      "objective_red"
+    ],
+    "max_cycles": 2,
+    "max_surfaces": 45,
+    "strategy": "repair_failed_surfaces"
+  },
+  "aiOs": {
+    "schemaVersion": "aios.agent_work_language_profile.v0.1",
+    "enabled": true,
+    "sourcePlanPath": "/root/clawd/ai-os/plan.md",
+    "milestone": "hosted_kernel_boot_proof",
+    "kernelMode": "hosted_linux",
+    "owner": "Jake",
+    "processModel": [
+      "job",
+      "process",
+      "thread",
+      "owner",
+      "exit_contract"
+    ],
+    "syscalls": [
+      "fs.read",
+      "fs.write",
+      "shell.exec",
+      "git.diff",
+      "memory.search",
+      "memory.write",
+      "verifier.run",
+      "claim.submit",
+      "audit.write"
+    ],
+    "memoryMounts": [
+      "project_memory",
+      "structural_memory",
+      "episodic_log",
+      "artifact_store"
+    ],
+    "capabilityPolicy": {
+      "defaultDenyExternalWrites": true,
+      "requireApprovalFor": [
+        "external.write",
+        "deploy",
+        "destructive.action",
+        "privileged.kernel.change"
+      ]
+    },
+    "evidenceArtifacts": [
+      "boot_proof.json",
+      "process_lifecycle.json",
+      "capability_audit.json",
+      "syscall_audit.json",
+      "claim_gate.json",
+      "artifact_bundle_manifest.json"
+    ],
+    "evidenceEnforcement": "deferred_boot_claim",
+    "bootCommands": [
+      "node apps/aios-cli.mjs boot --artifact-root artifacts/aios-v0/latest"
+    ],
+    "claimGate": "verifier_green_required",
+    "truthBoundary": "Hosted AI OS v0.1 boot proof only; do not claim native OS, production readiness, or general autonomous completion.",
+    "reusePrimitives": [],
+    "packageModel": [],
+    "filesystemLayout": [],
+    "metadata": {
+      "physical_wave_width": 45,
+      "standard_heavy_wave_agent_count": 45,
+      "active_codex_call_cap": 12,
+      "global_call_budget": 55
+    }
+  },
+  "evidenceSchemas": [],
+  "templates": [],
+  "templateErrors": [],
+  "surfaces": [
+    {
+      "id": "app_cli_entrypoint",
+      "label": "app_cli_entrypoint",
+      "goal": "Wire the top-level AI OS CLI entrypoint to route boot/run/claim/ps/logs/approve commands through operator-userland modules with clear exit codes.",
+      "allowedFiles": [
+        "apps/aios-cli.mjs"
+      ],
+      "verification": [
+        "node --check apps/aios-cli.mjs"
+      ],
+      "deps": [],
+      "lane": "operator_userland",
+      "domain": "app_cli_entrypoint",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_boot",
+      "label": "operator_cli_boot",
+      "goal": "Implement hosted boot command orchestration, artifact-root initialization, and boot proof handoff.",
+      "allowedFiles": [
+        "packages/aios-kernel/operator-userland/cli-boot.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-boot.mjs"
+      ],
+      "deps": [],
+      "lane": "operator_userland",
+      "domain": "operator_cli_boot",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_run",
+      "label": "operator_cli_run",
+      "goal": "Implement job run command admission flow for examples/hello.job.json and AI OS process creation.",
+      "allowedFiles": [
+        "packages/aios-kernel/operator-userland/cli-run.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-run.mjs"
+      ],
+      "deps": [],
+      "lane": "operator_userland",
+      "domain": "operator_cli_run",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_claim",
+      "label": "operator_cli_claim",
+      "goal": "Implement claim command behavior that submits completion claims only through the verifier/claim gate.",
+      "allowedFiles": [
+        "packages/aios-kernel/operator-userland/cli-claim.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-claim.mjs"
+      ],
+      "deps": [],
+      "lane": "operator_userland",
+      "domain": "operator_cli_claim",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_ps",
+      "label": "operator_cli_ps",
+      "goal": "Implement process table presentation for hosted AI OS jobs, threads, leases, and exit contracts.",
+      "allowedFiles": [
+        "packages/aios-kernel/operator-userland/cli-ps.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-ps.mjs"
+      ],
+      "deps": [],
+      "lane": "operator_userland",
+      "domain": "operator_cli_ps",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_cli_logs",
+      "label": "operator_cli_logs",
+      "goal": "Implement audit/log browsing for boot, run, claim, blocker, and recovery events.",
+      "allowedFiles": [
+        "packages/aios-kernel/operator-userland/cli-logs.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/cli-logs.mjs"
+      ],
+      "deps": [],
+      "lane": "operator_userland",
+      "domain": "operator_cli_logs",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_approval_console",
+      "label": "operator_approval_console",
+      "goal": "Implement approval console data contracts for external writes, destructive actions, and privileged kernel changes.",
+      "allowedFiles": [
+        "packages/aios-kernel/operator-userland/approval-console.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/approval-console.mjs"
+      ],
+      "deps": [],
+      "lane": "operator_userland",
+      "domain": "operator_approval_console",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "operator_dashboard_model",
+      "label": "operator_dashboard_model",
+      "goal": "Implement dashboard state model for kernel health, running jobs, proof status, blockers, and operator actions.",
+      "allowedFiles": [
+        "packages/aios-kernel/operator-userland/dashboard-model.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/operator-userland/dashboard-model.mjs"
+      ],
+      "deps": [],
+      "lane": "operator_userland",
+      "domain": "operator_dashboard_model",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_process_admission",
+      "label": "kernel_process_admission",
+      "goal": "Implement process admission validation, owner binding, objective normalization, and initial lifecycle evidence references.",
+      "allowedFiles": [
+        "packages/aios-kernel/kernel-lifecycle/process-admission.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/process-admission.mjs"
+      ],
+      "deps": [],
+      "lane": "kernel_lifecycle",
+      "domain": "kernel_process_admission",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_state_transition",
+      "label": "kernel_state_transition",
+      "goal": "Implement allowed process state transitions, terminal states, failure reasons, and replayable transition records.",
+      "allowedFiles": [
+        "packages/aios-kernel/kernel-lifecycle/state-transition.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/state-transition.mjs"
+      ],
+      "deps": [],
+      "lane": "kernel_lifecycle",
+      "domain": "kernel_state_transition",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_exit_contract",
+      "label": "kernel_exit_contract",
+      "goal": "Implement exit contract checks for done, blocked, killed, quarantined, and claim-submitted process exits.",
+      "allowedFiles": [
+        "packages/aios-kernel/kernel-lifecycle/exit-contract.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/exit-contract.mjs"
+      ],
+      "deps": [],
+      "lane": "kernel_lifecycle",
+      "domain": "kernel_exit_contract",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_owner_identity",
+      "label": "kernel_owner_identity",
+      "goal": "Implement owner identity normalization and authorization metadata for jobs and privileged actions.",
+      "allowedFiles": [
+        "packages/aios-kernel/kernel-lifecycle/owner-identity.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/owner-identity.mjs"
+      ],
+      "deps": [],
+      "lane": "kernel_lifecycle",
+      "domain": "kernel_owner_identity",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_process_snapshot",
+      "label": "kernel_process_snapshot",
+      "goal": "Implement process snapshot serialization for ps, replay, recovery, and claim evidence.",
+      "allowedFiles": [
+        "packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/process-snapshot.mjs"
+      ],
+      "deps": [],
+      "lane": "kernel_lifecycle",
+      "domain": "kernel_process_snapshot",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "kernel_panic_stop",
+      "label": "kernel_panic_stop",
+      "goal": "Implement panic/stop semantics for unsafe jobs, runaway workers, and external-write risk.",
+      "allowedFiles": [
+        "packages/aios-kernel/kernel-lifecycle/panic-stop.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/kernel-lifecycle/panic-stop.mjs"
+      ],
+      "deps": [],
+      "lane": "kernel_lifecycle",
+      "domain": "kernel_panic_stop",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_admission_queue",
+      "label": "scheduler_admission_queue",
+      "goal": "Implement job admission queue ordering, readiness, dependency hold, and operator override metadata.",
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/admission-queue.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/admission-queue.mjs"
+      ],
+      "deps": [],
+      "lane": "scheduler",
+      "domain": "scheduler_admission_queue",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_budget_manager",
+      "label": "scheduler_budget_manager",
+      "goal": "Implement budget accounting for tokens, messages, wall-clock, retries, and 45-wide wave policy.",
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/budget-manager.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/budget-manager.mjs"
+      ],
+      "deps": [],
+      "lane": "scheduler",
+      "domain": "scheduler_budget_manager",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_context_pack",
+      "label": "scheduler_context_pack",
+      "goal": "Implement context-pack shaping for compact worker launches, memory mounts, and assigned-file retrieval.",
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/context-pack.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/context-pack.mjs"
+      ],
+      "deps": [],
+      "lane": "scheduler",
+      "domain": "scheduler_context_pack",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_dependency_graph",
+      "label": "scheduler_dependency_graph",
+      "goal": "Implement dependency graph validation, ready frontier selection, and cycle/blocker reporting.",
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/dependency-graph.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/dependency-graph.mjs"
+      ],
+      "deps": [],
+      "lane": "scheduler",
+      "domain": "scheduler_dependency_graph",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_execution_plane_registry",
+      "label": "scheduler_execution_plane_registry",
+      "goal": "Implement execution-plane registry selection for local control plane vs Hetzner worker plane.",
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/execution-plane-registry.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/execution-plane-registry.mjs"
+      ],
+      "deps": [],
+      "lane": "scheduler",
+      "domain": "scheduler_execution_plane_registry",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_lease_manager",
+      "label": "scheduler_lease_manager",
+      "goal": "Implement worker leases, lease renewal, stale lease detection, and recovery-safe ownership.",
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/lease-manager.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/lease-manager.mjs"
+      ],
+      "deps": [],
+      "lane": "scheduler",
+      "domain": "scheduler_lease_manager",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_model_policy",
+      "label": "scheduler_model_policy",
+      "goal": "Implement model/provider policy selection for planner, compact worker, verifier, and reviewer roles.",
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/model-policy.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/model-policy.mjs"
+      ],
+      "deps": [],
+      "lane": "scheduler",
+      "domain": "scheduler_model_policy",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "scheduler_usage_backoff",
+      "label": "scheduler_usage_backoff",
+      "goal": "Implement usage-limit/backoff tracking for OAuth/message-metered Codex lanes and resume timing.",
+      "allowedFiles": [
+        "packages/aios-kernel/scheduler/usage-backoff.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/scheduler/usage-backoff.mjs"
+      ],
+      "deps": [],
+      "lane": "scheduler",
+      "domain": "scheduler_usage_backoff",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_root",
+      "label": "artifact_root",
+      "goal": "Implement stable artifact-root initialization, namespace layout, required boot paths, and root metadata.",
+      "allowedFiles": [
+        "packages/aios-kernel/artifact-filesystem/artifact-root.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/artifact-root.mjs"
+      ],
+      "deps": [],
+      "lane": "artifact_filesystem",
+      "domain": "artifact_root",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_bundle_manifest",
+      "label": "artifact_bundle_manifest",
+      "goal": "Implement content-addressed artifact bundle manifests for boot, run, claim, release, and recovery packets.",
+      "allowedFiles": [
+        "packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/bundle-manifest.mjs"
+      ],
+      "deps": [],
+      "lane": "artifact_filesystem",
+      "domain": "artifact_bundle_manifest",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_content_address",
+      "label": "artifact_content_address",
+      "goal": "Implement digest/address helpers for evidence artifacts, manifests, and tamper checks.",
+      "allowedFiles": [
+        "packages/aios-kernel/artifact-filesystem/content-address.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/content-address.mjs"
+      ],
+      "deps": [],
+      "lane": "artifact_filesystem",
+      "domain": "artifact_content_address",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_path_policy",
+      "label": "artifact_path_policy",
+      "goal": "Implement safe path policy for artifact writes, quarantine, and repo-relative proof references.",
+      "allowedFiles": [
+        "packages/aios-kernel/artifact-filesystem/path-policy.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/path-policy.mjs"
+      ],
+      "deps": [],
+      "lane": "artifact_filesystem",
+      "domain": "artifact_path_policy",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_claim_evidence_link",
+      "label": "artifact_claim_evidence_link",
+      "goal": "Implement claim-to-evidence linking so every claim can trace required proof artifacts.",
+      "allowedFiles": [
+        "packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/claim-evidence-link.mjs"
+      ],
+      "deps": [],
+      "lane": "artifact_filesystem",
+      "domain": "artifact_claim_evidence_link",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "artifact_replay_index",
+      "label": "artifact_replay_index",
+      "goal": "Implement replay index records that map jobs/processes/claims to audit and artifact bundles.",
+      "allowedFiles": [
+        "packages/aios-kernel/artifact-filesystem/replay-index.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/artifact-filesystem/replay-index.mjs"
+      ],
+      "deps": [],
+      "lane": "artifact_filesystem",
+      "domain": "artifact_replay_index",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_mount",
+      "label": "memory_mount",
+      "goal": "Implement memory mount descriptors for project, structural, episodic, artifact, and volatile memory.",
+      "allowedFiles": [
+        "packages/aios-kernel/memory-manager/memory-mount.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/memory-mount.mjs"
+      ],
+      "deps": [],
+      "lane": "memory_manager",
+      "domain": "memory_mount",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_project_adapter",
+      "label": "memory_project_adapter",
+      "goal": "Implement project memory adapter contracts for reading/writing canonical project status safely.",
+      "allowedFiles": [
+        "packages/aios-kernel/memory-manager/project-memory-adapter.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/project-memory-adapter.mjs"
+      ],
+      "deps": [],
+      "lane": "memory_manager",
+      "domain": "memory_project_adapter",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_structural_adapter",
+      "label": "memory_structural_adapter",
+      "goal": "Implement structural memory adapter contracts for code graph lookups and source provenance.",
+      "allowedFiles": [
+        "packages/aios-kernel/memory-manager/structural-memory-adapter.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/structural-memory-adapter.mjs"
+      ],
+      "deps": [],
+      "lane": "memory_manager",
+      "domain": "memory_structural_adapter",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_episodic_log",
+      "label": "memory_episodic_log",
+      "goal": "Implement episodic log adapter for durable run events, handoffs, and operator-visible summaries.",
+      "allowedFiles": [
+        "packages/aios-kernel/memory-manager/episodic-log-adapter.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/episodic-log-adapter.mjs"
+      ],
+      "deps": [],
+      "lane": "memory_manager",
+      "domain": "memory_episodic_log",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "memory_freshness_gate",
+      "label": "memory_freshness_gate",
+      "goal": "Implement freshness gates for volatile facts before current-state claims are allowed.",
+      "allowedFiles": [
+        "packages/aios-kernel/memory-manager/freshness-gate.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/memory-manager/freshness-gate.mjs"
+      ],
+      "deps": [],
+      "lane": "memory_manager",
+      "domain": "memory_freshness_gate",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_token",
+      "label": "capability_token",
+      "goal": "Implement capability token shape, scope, expiry, delegation, and audit references.",
+      "allowedFiles": [
+        "packages/aios-kernel/capability-security/capability-token.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/capability-token.mjs"
+      ],
+      "deps": [],
+      "lane": "capability_security",
+      "domain": "capability_token",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_policy_evaluator",
+      "label": "capability_policy_evaluator",
+      "goal": "Implement capability policy evaluator for syscall, file, shell, deploy, and external-write decisions.",
+      "allowedFiles": [
+        "packages/aios-kernel/capability-security/policy-evaluator.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/policy-evaluator.mjs"
+      ],
+      "deps": [],
+      "lane": "capability_security",
+      "domain": "capability_policy_evaluator",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_external_write_guard",
+      "label": "capability_external_write_guard",
+      "goal": "Implement external-write guard requiring explicit approval and draft-vs-send boundaries.",
+      "allowedFiles": [
+        "packages/aios-kernel/capability-security/external-write-guard.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/external-write-guard.mjs"
+      ],
+      "deps": [],
+      "lane": "capability_security",
+      "domain": "capability_external_write_guard",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_destructive_action_guard",
+      "label": "capability_destructive_action_guard",
+      "goal": "Implement destructive-action guard for delete, deploy, privileged mutation, and irreversible operations.",
+      "allowedFiles": [
+        "packages/aios-kernel/capability-security/destructive-action-guard.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/destructive-action-guard.mjs"
+      ],
+      "deps": [],
+      "lane": "capability_security",
+      "domain": "capability_destructive_action_guard",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "capability_rate_limit",
+      "label": "capability_rate_limit",
+      "goal": "Implement capability-aware rate limiting for model calls, external systems, and operator interrupts.",
+      "allowedFiles": [
+        "packages/aios-kernel/capability-security/rate-limit.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/capability-security/rate-limit.mjs"
+      ],
+      "deps": [],
+      "lane": "capability_security",
+      "domain": "capability_rate_limit",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_registry",
+      "label": "syscall_registry",
+      "goal": "Implement builtin syscall registry and metadata for fs, shell, git, memory, verifier, claim, and audit syscalls.",
+      "allowedFiles": [
+        "packages/aios-kernel/syscall-layer/syscall-registry.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/syscall-layer/syscall-registry.mjs"
+      ],
+      "deps": [],
+      "lane": "syscall_layer",
+      "domain": "syscall_registry",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_fs_read",
+      "label": "syscall_fs_read",
+      "goal": "Implement fs.read syscall contract with scope checks, path policy, and audit output.",
+      "allowedFiles": [
+        "packages/aios-kernel/syscall-layer/fs-read.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/syscall-layer/fs-read.mjs"
+      ],
+      "deps": [],
+      "lane": "syscall_layer",
+      "domain": "syscall_fs_read",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_fs_write",
+      "label": "syscall_fs_write",
+      "goal": "Implement fs.write syscall contract with capability checks, artifact/product distinction, and audit output.",
+      "allowedFiles": [
+        "packages/aios-kernel/syscall-layer/fs-write.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/syscall-layer/fs-write.mjs"
+      ],
+      "deps": [],
+      "lane": "syscall_layer",
+      "domain": "syscall_fs_write",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "syscall_shell_exec",
+      "label": "syscall_shell_exec",
+      "goal": "Implement shell.exec syscall contract with sandbox policy, timeout, evidence capture, and risk labels.",
+      "allowedFiles": [
+        "packages/aios-kernel/syscall-layer/shell-exec.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/syscall-layer/shell-exec.mjs"
+      ],
+      "deps": [],
+      "lane": "syscall_layer",
+      "domain": "syscall_shell_exec",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "claim_allowance",
+      "label": "claim_allowance",
+      "goal": "Implement claim allowance evaluation requiring verifier evidence, truth boundary, and contradiction checks.",
+      "allowedFiles": [
+        "packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/verifier-claim-gate/claim-allowance.mjs"
+      ],
+      "deps": [],
+      "lane": "verifier_claim_gate",
+      "domain": "claim_allowance",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "verifier_result",
+      "label": "verifier_result",
+      "goal": "Implement verifier result normalization and green/red evidence for boot/run/claim gates.",
+      "allowedFiles": [
+        "packages/aios-kernel/verifier-claim-gate/verifier-result.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/verifier-claim-gate/verifier-result.mjs"
+      ],
+      "deps": [],
+      "lane": "verifier_claim_gate",
+      "domain": "verifier_result",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    },
+    {
+      "id": "release_packet",
+      "label": "release_packet",
+      "goal": "Implement release packet assembly for hosted boot proof, claim gate, artifact bundle, and human review.",
+      "allowedFiles": [
+        "packages/aios-kernel/verifier-claim-gate/release-packet.mjs"
+      ],
+      "verification": [
+        "node --check packages/aios-kernel/verifier-claim-gate/release-packet.mjs"
+      ],
+      "deps": [],
+      "lane": "verifier_claim_gate",
+      "domain": "release_packet",
+      "metadata": {
+        "agentWorkDsl": true,
+        "templateIds": []
+      }
+    }
+  ],
+  "replyAnchor": "",
+  "notes": "",
+  "metadata": {
+    "product_diff_mode": "creative_product_work",
+    "require_real_product_diffs": "true",
+    "creative_product_work": "{\"required\":true,\"promptMode\":\"compact\",\"minIterations\":1,\"minWorkerRuntimeMs\":0}",
+    "canonical_landing_evidence": "{\"enabled\":true,\"minAddedLineCount\":1,\"minUniqueNormalizedAddedLineCount\":1,\"duplicateLineRatioMax\":0.55}"
+  }
+}

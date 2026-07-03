@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "aios.prior-art-reuse-map.v0.1",
+  "generatedAt": "2026-06-30T20:19:00-05:00",
+  "priorArtGateArtifact": "/root/clawd/ai-os/prior_art_gate_20260630T1903.json",
+  "decision": "extend_existing_or_adapter_required",
+  "truthBoundary": "Reuse map for Wave 0 planning/contracts. Does not prove implementation exists.",
+  "reuseTargets": [
+    {
+      "system": "Synthetic Labor OS v20/v0.1 RC",
+      "candidateKernelRole": "job intake, local runner, remote dispatch adapter, claim gate, artifact bundle, RC packet",
+      "integrationDecision": "wrap_as_userland_and_kernel_adapter",
+      "mustNotDuplicate": [
+        "claim gate",
+        "artifact return contract",
+        "remote dispatch manifest"
+      ]
+    },
+    {
+      "system": "Cortex memory and prior-art gate",
+      "candidateKernelRole": "memory manager backend, structural memory mount, prior-art syscall/policy gate",
+      "integrationDecision": "mount_as_memory_subsystem",
+      "mustNotDuplicate": [
+        "durable memory search",
+        "structural code graph",
+        "prior-art gate"
+      ]
+    },
+    {
+      "system": "Multi-agent orchestrator",
+      "candidateKernelRole": "scheduler/execution-plane adapter, leases, patch queue, supervisor truth",
+      "integrationDecision": "wrap_as_scheduler_execution_adapter",
+      "mustNotDuplicate": [
+        "lease semantics",
+        "patch admission",
+        "remote worker proof"
+      ]
+    },
+    {
+      "system": "Claim/proof tooling",
+      "candidateKernelRole": "proof-carrying claim ledger and release packet substrate",
+      "integrationDecision": "reuse_as_claim_gate_backend",
+      "mustNotDuplicate": [
+        "claim integrity mapping",
+        "artifact bundle manifests"
+      ]
+    },
+    {
+      "system": "Hetzner execution plane",
+      "candidateKernelRole": "heavy execution plane for 25+ agent waves",
+      "integrationDecision": "register_as_execution_plane_adapter",
+      "mustNotDuplicate": [
+        "remote sync checks",
+        "returned artifact integrity checks"
+      ]
+    }
+  ],
+  "newPrimitiveJustificationRequiredFor": [
+    "native AI process schema",
+    "kernel syscall schema",
+    "capability token schema",
+    "AI filesystem namespace contract",
+    "AI OS package manifest"
+  ]
+}

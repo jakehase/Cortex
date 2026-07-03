@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "aios.hardening_fix_report.v1",
+  "recordedAt": "2026-07-03T19:03:30Z",
+  "scopeCorrection": "User wanted a bounded cleanup/hardening fix for already-landed AI OS work, not a 6h benchmark proof gate.",
+  "stoppedRun": {
+    "runId": "aios-language-toolchain-45a12w-6h-isolated-verifierctx-r3-20260703T182712Z",
+    "artifactRoot": "/home/jake/clawd-remote/ai-os/artifacts/orchestration/aios-language-toolchain-45a12w-6h-isolated-verifierctx-r3-20260703T182712Z",
+    "reason": "intentional_scope_correction_not_benchmark_failure",
+    "lastGoodCheckpoint": {
+      "waveCount": 2,
+      "lastCompletedWaveNumber": 2,
+      "mergedShardCount": 24,
+      "changedProductFileCount": 42,
+      "thresholdPass": false,
+      "mechanicalGreen": false
+    }
+  },
+  "hardeningApplied": {
+    "remoteValidated": true,
+    "syncedToLocal": true,
+    "syncedProductFileCount": 42,
+    "additionalDependencyFilesSynced": [
+      "packages/aios-language/runtime/adapter-handoff.mjs",
+      "packages/aios-language/source/profile.mjs",
+      "packages/aios-language/source/error-recovery.mjs",
+      "packages/aios-language/source/parser.mjs",
+      "packages/aios-language/source/lexer.mjs",
+      "packages/aios-language/source/tokens.mjs",
+      "packages/aios-language/source/feature-flags.mjs"
+    ],
+    "localBackups": [
+      "/root/clawd/artifacts/ai-os/hardening-sync/local-backup-20260703T190213Z",
+      "/root/clawd/artifacts/ai-os/hardening-sync/local-missing-deps-backup-20260703T190248Z",
+      "/root/clawd/artifacts/ai-os/hardening-sync/local-feature-flags-backup-20260703T190312Z"
+    ]
+  },
+  "validation": {
+    "remote": ["node scripts/check-product-health.mjs", "node scripts/operator-smoke.mjs", "npm test"],
+    "local": ["node scripts/check-product-health.mjs", "node scripts/operator-smoke.mjs", "npm test"],
+    "localResult": "green",
+    "contracts": "7/7 passed",
+    "productHealth": "ok",
+    "operatorSmoke": "ok"
+  },
+  "benchmarkPromotion": {
+    "promoted": false,
+    "reason": "6h gate intentionally stopped after user clarified desired scope"
+  }
+}

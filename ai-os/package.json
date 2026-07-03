@@ -1,0 +1,12 @@
+{
+  "name": "ai-os",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:contracts && npm run test:product-health && npm run test:operator-smoke",
+    "test:contracts": "node --test tests/contracts.test.mjs",
+    "test:product-health": "node scripts/check-product-health.mjs",
+    "test:operator-smoke": "node scripts/operator-smoke.mjs"
+  }
+}
