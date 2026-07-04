@@ -4,13 +4,22 @@ Last updated: 2026-07-04
 
 Purpose: make the active plans obvious and keep historical/artifact plans from becoming accidental roadmaps.
 
+## File roles
+
+| File | Role |
+|---|---|
+| `plan.md` | Stable project strategy and operating contract |
+| `STATUS.md` | Current checkpoint, blockers, latest verification, next actions |
+| `DECISIONS.md` | Append-only durable decision/supersession log |
+| `docs/PLAN_INDEX.md` | Workspace-wide map of active/superseded plans |
+
 ## Active canonical plans
 
-| Project | Canonical plan | Active path | Notes |
-|---|---|---|---|
-| AI OS | `/root/clawd/ai-os/plan.md` | `/root/clawd/ai-os` | AI OS product/platform plan. Default-on adapter remains bounded internal substrate, not runtime replacement. |
-| Full Parity Engine | `/root/clawd/full-parity-engine/plan.md` | shared stack + product adapters | Cross-repo parity/clone objective engine. Current milestone is matrix/inventory contract, not implementation completion. |
-| Mailchimp clone | `/root/clawd/mailchimp-clone/plan.md` | `/root/clawd/mailchimp-clone` | Product clone/parity proving ground. Treat older Mailchimp docs as historical unless referenced by this plan or project memory. |
+| Project | Status | Canonical plan | Status file | Decisions log | Active path | Latest verified commit/artifact | Current milestone | Notes |
+|---|---|---|---|---|---|---|---|---|
+| AI OS | active | `/root/clawd/ai-os/plan.md` | `/root/clawd/ai-os/STATUS.md` | `/root/clawd/ai-os/DECISIONS.md` | `/root/clawd/ai-os` | commit `13aa9a3ef` source sync; commit `b815dcb0a` plan/FPE map; 6h promotion `/root/clawd/artifacts/ai-os/orchestration/latest-6h-continuation-green.json` | hosted/platform hardening after 6h continuation; next runtime claims still gated | Default-on adapter remains bounded internal substrate, not runtime replacement. |
+| Full Parity Engine | active | `/root/clawd/full-parity-engine/plan.md` | `/root/clawd/full-parity-engine/STATUS.md` | `/root/clawd/full-parity-engine/DECISIONS.md` | `/root/clawd/full-parity-engine` + shared stack adapters | commit `b815dcb0a` initial plan | FPE-0 matrix contract dry run | Cross-repo parity/clone objective engine. Planned, not implemented. |
+| Mailchimp clone | active | `/root/clawd/mailchimp-clone/plan.md` | `/root/clawd/mailchimp-clone/STATUS.md` | `/root/clawd/mailchimp-clone/DECISIONS.md` | `/root/clawd/mailchimp-clone` | latest no-holdback artifact root in `STATUS.md`; see `memory/projects/mailchimp.md` for detailed history | audit before resume / fresh FPE parity matrix | Product clone/parity proving ground. Treat older Mailchimp docs as historical unless referenced by canonical plan or project memory. |
 
 ## Evidence-only plan-like files
 
@@ -31,10 +40,31 @@ Do not use these as active implementation paths unless explicitly re-promoted in
 - `/root/clawd/.cortex-export/**`
 - stale dated `docs/*PLAN*.md` files not referenced by an active canonical plan
 
+## Plan-doctor gate
+
+Run the planning validator after plan lifecycle edits:
+
+```bash
+cd /root/clawd && node scripts/plan-doctor.mjs
+```
+
+Use verbose mode to list classified historical/evidence plans:
+
+```bash
+cd /root/clawd && node scripts/plan-doctor.mjs --verbose
+```
+
+Use the slower evidence scan when investigating confusing artifact plans:
+
+```bash
+cd /root/clawd && node scripts/plan-doctor.mjs --include-evidence
+```
+
 ## Rules for future planning
 
-- A serious active project gets one canonical `plan.md` at its active root or a dedicated project directory.
+- A serious active project gets one canonical `plan.md` plus companion `STATUS.md` and `DECISIONS.md`.
 - If a plan spans multiple repos, create `/root/clawd/<project-slug>/plan.md` and list implementation paths there.
 - Artifact plans are evidence. Canonical plans are instructions.
-- If a project changes direction, update the canonical `plan.md` and this index in the same commit.
+- Keep `plan.md` strategic; update `STATUS.md` for current checkpoint; append `DECISIONS.md` for durable choices.
+- If a project changes direction, update the canonical `plan.md`, `STATUS.md`, `DECISIONS.md` when needed, and this index in the same commit.
 - If a path is superseded, quarantine or label it; do not leave ambiguous scratch plans in active paths.

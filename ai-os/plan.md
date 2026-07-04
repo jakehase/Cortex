@@ -19,6 +19,8 @@ This plan upgrades the original freeform AI OS concept into the workspace-wide s
 
 - Canonical AI OS product/platform plan: this file, `/root/clawd/ai-os/plan.md`.
 - Canonical Full Parity Engine plan: `/root/clawd/full-parity-engine/plan.md`.
+- Current AI OS checkpoint: `/root/clawd/ai-os/STATUS.md`.
+- Durable AI OS decisions: `/root/clawd/ai-os/DECISIONS.md`.
 - Workspace plan index: `/root/clawd/docs/PLAN_INDEX.md`.
 - Historical AI OS concept draft: `/root/clawd/ai-os/plan.freeform-20260630-before-template.md`; preserve as archive only, not as current instructions.
 - AI OS artifact recovery/rollback plans under `ai-os/artifacts/**/reports/*plan*.md` are evidence-only outputs, not active roadmaps.

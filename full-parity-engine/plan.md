@@ -12,6 +12,16 @@ Template source: `/root/clawd/docs/PROJECT_PLAN_TEMPLATE.md`.
 - Fidelity target: `platform` + `full_clone` enablement
 - Primary stop condition: `parity_matrix_green_or_gap_inventory`
 - Secondary stop condition: `supervisor_green_or_blocker_report`
+- Status file: `/root/clawd/full-parity-engine/STATUS.md`
+- Decisions log: `/root/clawd/full-parity-engine/DECISIONS.md`
+- Plan index entry: `/root/clawd/docs/PLAN_INDEX.md`
+
+## Planning lifecycle guard
+
+- Keep this `plan.md` strategic: objective, architecture, phases, stop condition, and truth boundary.
+- Keep current checkpoint/blockers/next actions in `/root/clawd/full-parity-engine/STATUS.md`.
+- Keep durable choices and supersession notes in `/root/clawd/full-parity-engine/DECISIONS.md`.
+- Do not treat artifact/recovery plans as active roadmaps unless this plan or `/root/clawd/docs/PLAN_INDEX.md` explicitly promotes them.
 
 ## 1. Working name
 
