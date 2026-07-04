@@ -9,11 +9,34 @@ This plan upgrades the original freeform AI OS concept into the workspace-wide s
 - Project slug: `ai-os`
 - Plan owner: `Jake + Cortex`
 - Created: `2026-06-30`
-- Last updated: `2026-07-01`
+- Last updated: `2026-07-04`
 - Status: `active`
 - Fidelity target: `platform`
 - Primary stop condition: `boot_proof_green_or_blocker`
 - Secondary stop condition: `release_candidate_packet_green_or_blocker`
+
+## Planning map / confusion guard — 2026-07-04
+
+- Canonical AI OS product/platform plan: this file, `/root/clawd/ai-os/plan.md`.
+- Canonical Full Parity Engine plan: `/root/clawd/full-parity-engine/plan.md`.
+- Workspace plan index: `/root/clawd/docs/PLAN_INDEX.md`.
+- Historical AI OS concept draft: `/root/clawd/ai-os/plan.freeform-20260630-before-template.md`; preserve as archive only, not as current instructions.
+- AI OS artifact recovery/rollback plans under `ai-os/artifacts/**/reports/*plan*.md` are evidence-only outputs, not active roadmaps.
+- The 6h AI OS continuation green result proves sustained continuation/hardening for that benchmark; it does not replace the full AI OS plan or the Full Parity Engine plan.
+
+## Implementation checkpoint — 2026-07-04 6h continuation source sync
+
+Synced the terminal-green Hetzner 6h continuation product tree back into local `/root/clawd/ai-os`, validated it locally, committed it, and pushed it to GitHub.
+
+Evidence:
+
+- Remote run: `aios-language-toolchain-45a12w-6h-continuation-r1-20260704T021924Z`.
+- Remote truth: `thresholdPass=true`, `mechanicalGreen=true`, `scaleProofReady=true`, no blocker.
+- Final metrics: 30 waves, 361.51 minutes, 341 merged shards, 90 changed product files.
+- Local validation after sync: `npm test` passed; contracts 7/7, product health ok, operator smoke ok; `git diff --check -- ai-os` passed.
+- Commit: `13aa9a3ef` / `Sync AI OS 6h green continuation`, pushed and verified on `origin/master`.
+
+Truth boundary: this promotes the 6h AI OS language/toolchain continuation/hardening source state. It does **not** claim runtime replacement, external-write enablement, full product parity, or a complete Full Parity Engine.
 
 ## Implementation checkpoint — 2026-06-30 Wave 0 contract slice
 
